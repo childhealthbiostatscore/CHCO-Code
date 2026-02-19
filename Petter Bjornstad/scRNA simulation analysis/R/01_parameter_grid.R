@@ -43,37 +43,95 @@
 #
 # TOTAL: 3 x 2 x 3 x 2 x 2 x 2 x 3 x 50 = 21,600 rows
 #
-# OUTPUT:
-#   results/param_grid/
+# INPUT (from S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/reference/
+#     effect_size_summary.rds
+#
+# OUTPUT (to S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/param_grid/
 #     param_grid.rds
 #     param_grid.csv
 #
 # USAGE:
 #   Rscript 01_parameter_grid.R \
-#       --effect_summary results/reference/effect_size_summary.rds \
-#       --out_dir        results/param_grid \
-#       --n_reps         50
+#       --n_reps 50
 ################################################################################
 
 suppressPackageStartupMessages({
   library(optparse)
   library(dplyr)
+  library(aws.s3)
 })
 
+# ── S3 / Multi-user setup ─────────────────────────────────────────────────────
+setup_s3 <- function() {
+  user <- Sys.info()[["user"]]
+
+  if (user == "choiyej") {
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+  } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
+    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+  } else {
+    stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
+  }
+
+  keys <- jsonlite::fromJSON(keys_path)
+  Sys.setenv(
+    AWS_ACCESS_KEY_ID     = keys$access_key,
+    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+  )
+  message(sprintf("S3 configured for user '%s'", user))
+}
+
+setup_s3()
+
+# S3 paths
+S3_BUCKET    <- "scrna"
+S3_REF_PFX   <- "Projects/Paired scRNA simulation analysis/results/reference/"
+S3_GRID_PFX  <- "Projects/Paired scRNA simulation analysis/results/param_grid/"
+
+# ── S3 helper functions ───────────────────────────────────────────────────────
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                  region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+
+s3read_using_region <- function(FUN, ..., object, bucket,
+                                 region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  args <- list(object = object, file = tmp, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::save_object, args)
+  FUN(tmp, ...)
+}
+
+# ── CLI args ──────────────────────────────────────────────────────────────────
 option_list <- list(
-  make_option("--effect_summary", type = "character",
-              default = "results/reference/effect_size_summary.rds",
-              help = "Path to effect_size_summary.rds from Step 0"),
-  make_option("--out_dir",        type = "character",
-              default = "results/param_grid"),
-  make_option("--n_reps",         type = "integer",  default = 50L,
+  make_option("--n_reps", type = "integer", default = 50L,
               help = "Simulation replicates per scenario [default: 50]")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-dir.create(opt$out_dir, showWarnings = FALSE, recursive = TRUE)
 
-# ── Load empirical effect sizes from ATTEMPT data ─────────────────────────────
-eff    <- readRDS(opt$effect_summary)
+# ── Load empirical effect sizes from S3 ──────────────────────────────────────
+message("── [01] Loading effect size summary from S3 ──")
+eff <- s3readRDS(
+  object = paste0(S3_REF_PFX, "effect_size_summary.rds"),
+  bucket = S3_BUCKET,
+  region = ""
+)
 es_med  <- as.numeric(eff$effect_sizes["med_effect"])
 es_high <- as.numeric(eff$effect_sizes["high_effect"])
 message(sprintf("Effect sizes from ATTEMPT:  med=%.3f | high=%.3f", es_med, es_high))
@@ -156,9 +214,25 @@ message(sprintf("Total runs       : %d  (%d unique x %d reps)",
 # Sanity check: 3 x 2 x 3 x 2 x 2 x 2 x 3 = 432
 stopifnot(n_unique == 432L)
 
-saveRDS(param_grid, file.path(opt$out_dir, "param_grid.rds"))
-write.csv(param_grid, file.path(opt$out_dir, "param_grid.csv"), row.names = FALSE)
+# ── Save to S3 ───────────────────────────────────────────────────────────────
+message("── [01] Saving param_grid to S3 ──")
 
-message(sprintf("Parameter grid saved to %s", opt$out_dir))
+s3writeRDS(param_grid,
+           object = paste0(S3_GRID_PFX, "param_grid.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  param_grid.rds saved to S3")
+
+s3write_using_region(
+  write.csv,
+  param_grid,
+  row.names = FALSE,
+  object = paste0(S3_GRID_PFX, "param_grid.csv"),
+  bucket = S3_BUCKET,
+  region = ""
+)
+message("  param_grid.csv saved to S3")
+
+message(sprintf("── [01] Done. Grid saved to s3://%s/%s ──", S3_BUCKET, S3_GRID_PFX))
 message("First 3 rows:")
 print(head(param_grid, 3))

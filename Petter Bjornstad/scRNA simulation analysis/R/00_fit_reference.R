@@ -4,7 +4,7 @@
 # PURPOSE:
 #   Fit a scDesign3 reference model on the top 2,000 HVGs from the ATTEMPT
 #   Seurat object (attempt_so).  This script should be run ONCE; the fitted
-#   model object is saved to disk and re-used by all subsequent simulation
+#   model object is saved to S3 and re-used by all subsequent simulation
 #   scripts.
 #
 # DESIGN:
@@ -16,19 +16,22 @@
 #   - Subject-level random effects are captured via scDesign3's sigma/corr
 #     components.
 #
-# OUTPUT:
-#   results/reference/
-#     ├── hvg_genes.rds           -- character vector of top 2k HVG gene names
-#     ├── sce_ref.rds             -- SingleCellExperiment used for fitting
-#     ├── scdesign3_fit.rds       -- fitted scDesign3 model object
-#     └── effect_size_summary.rds -- realistic mean/SD effect sizes from data
+# INPUT (from S3):
+#   bucket: attempt
+#     cleaned_data/attempt_clean_so.rds   -- ATTEMPT Seurat object
+#
+# OUTPUT (to S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/reference/
+#     hvg_genes.rds           -- character vector of top 2k HVG gene names
+#     sce_ref.rds             -- SingleCellExperiment used for fitting
+#     scdesign3_fit.rds       -- fitted scDesign3 model object
+#     effect_size_summary.rds -- realistic mean/SD effect sizes from data
 #
 # USAGE (command line):
 #   Rscript 00_fit_reference.R \
-#       --seurat_path /path/to/attempt_so.rds \
-#       --cell_type "PT"                        \  # KPMP_celltype_general value
-#       --out_dir    results/reference           \
-#       --n_cores    32
+#       --cell_type "PT"   \  # KPMP_celltype_general value
+#       --n_cores   32
 ################################################################################
 
 suppressPackageStartupMessages({
@@ -40,16 +43,68 @@ suppressPackageStartupMessages({
   library(BiocParallel)
   library(optparse)
   library(tibble)
+  library(aws.s3)
 })
+
+# ── S3 / Multi-user setup ─────────────────────────────────────────────────────
+# Detect user and set up AWS credentials + endpoint
+setup_s3 <- function() {
+  user <- Sys.info()[["user"]]
+
+  if (user == "choiyej") {
+    # --- local (choiyej Mac) ---
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+  } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
+    # --- Hyak HPC ---
+    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+  } else {
+    stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
+  }
+
+  keys <- jsonlite::fromJSON(keys_path)
+  Sys.setenv(
+    AWS_ACCESS_KEY_ID     = keys$access_key,
+    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+  )
+  message(sprintf("S3 configured for user '%s'", user))
+}
+
+setup_s3()
+
+# S3 output prefix
+S3_BUCKET <- "scrna"
+S3_PREFIX <- "Projects/Paired scRNA simulation analysis/results/reference/"
+
+# ── S3 helper functions ───────────────────────────────────────────────────────
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                  region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+
+s3read_using_region <- function(FUN, ..., object, bucket,
+                                 region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  args <- list(object = object, file = tmp, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::save_object, args)
+  FUN(tmp, ...)
+}
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 option_list <- list(
-  make_option("--seurat_path", type = "character", default = NULL,
-              help = "Path to attempt_so.rds [required]"),
   make_option("--cell_type",   type = "character", default = "PT",
               help = "Value in KPMP_celltype_general to subset [default: PT]"),
-  make_option("--out_dir",     type = "character", default = "results/reference",
-              help = "Output directory [default: results/reference]"),
   make_option("--n_hvg",       type = "integer",   default = 2000L,
               help = "Number of HVGs to retain [default: 2000]"),
   make_option("--n_cores",     type = "integer",   default = 32L,
@@ -59,15 +114,17 @@ option_list <- list(
 )
 opt <- parse_args(OptionParser(option_list = option_list))
 
-if (is.null(opt$seurat_path)) stop("--seurat_path is required")
-
 set.seed(opt$seed)
-dir.create(opt$out_dir, showWarnings = FALSE, recursive = TRUE)
-
 register(MulticoreParam(opt$n_cores))
 
-message("── [00] Loading Seurat object ──")
-so <- readRDS(opt$seurat_path)
+# ── Load attempt_so from S3 ───────────────────────────────────────────────────
+message("── [00] Loading Seurat object from S3 (bucket: attempt) ──")
+so <- s3readRDS(
+  object = "cleaned_data/attempt_clean_so.rds",
+  bucket = "attempt",
+  region = ""
+)
+message(sprintf("  Loaded: %d genes x %d cells", nrow(so), ncol(so)))
 
 # ── 1. Subset to cell type ────────────────────────────────────────────────────
 message(sprintf("── [00] Subsetting to cell type: %s ──", opt$cell_type))
@@ -82,12 +139,16 @@ rm(so); gc()
 
 # ── 2. Select top 2k HVGs ─────────────────────────────────────────────────────
 message("── [00] Identifying top HVGs ──")
-# Use scran-based HVG selection via Seurat FindVariableFeatures
 so_sub <- FindVariableFeatures(so_sub, selection.method = "vst",
                                nfeatures = opt$n_hvg, verbose = FALSE)
 hvg_genes <- VariableFeatures(so_sub)[seq_len(opt$n_hvg)]
 message(sprintf("  Selected %d HVGs", length(hvg_genes)))
-saveRDS(hvg_genes, file.path(opt$out_dir, "hvg_genes.rds"))
+
+s3writeRDS(hvg_genes,
+           object = paste0(S3_PREFIX, "hvg_genes.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  hvg_genes.rds saved to S3")
 
 # ── 3. Build SCE with required colData ───────────────────────────────────────
 message("── [00] Building SingleCellExperiment ──")
@@ -107,7 +168,12 @@ sce_ref <- SingleCellExperiment(
   assays   = list(counts = counts_mat),
   colData  = col_df
 )
-saveRDS(sce_ref, file.path(opt$out_dir, "sce_ref.rds"))
+
+s3writeRDS(sce_ref,
+           object = paste0(S3_PREFIX, "sce_ref.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  sce_ref.rds saved to S3")
 
 # ── 4. Compute realistic effect sizes from data ───────────────────────────────
 # We compute log2FC(POST/PRE) per treatment group and summarise the distribution
@@ -142,7 +208,12 @@ effect_summary <- list(
     high_effect = quantile(abs(interaction_lfc), 0.90, na.rm = TRUE)
   )
 )
-saveRDS(effect_summary, file.path(opt$out_dir, "effect_size_summary.rds"))
+
+s3writeRDS(effect_summary,
+           object = paste0(S3_PREFIX, "effect_size_summary.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  effect_size_summary.rds saved to S3")
 message("  Effect size summary:")
 print(effect_summary$effect_sizes)
 
@@ -153,10 +224,6 @@ print(effect_summary$effect_sizes)
 #   - visit × treatment interaction  (the quantity of interest)
 #   - subject_id as a grouping variable for the random-effect copula
 message("── [00] Fitting scDesign3 reference model (this may take a while) ──")
-
-# scDesign3 requires specific colData format
-# 'mu_formula' drives the marginal mean; 'sigma_formula' drives the dispersion
-# 'corr_formula' drives the copula correlation structure
 
 set.seed(opt$seed)
 fit_obj <- scdesign3(
@@ -180,5 +247,9 @@ fit_obj <- scdesign3(
   BPPARAM         = MulticoreParam(opt$n_cores)
 )
 
-saveRDS(fit_obj, file.path(opt$out_dir, "scdesign3_fit.rds"))
-message(sprintf("── [00] Done. Reference model saved to %s ──", opt$out_dir))
+s3writeRDS(fit_obj,
+           object = paste0(S3_PREFIX, "scdesign3_fit.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message(sprintf("── [00] Done. All reference outputs saved to s3://%s/%s ──",
+                S3_BUCKET, S3_PREFIX))

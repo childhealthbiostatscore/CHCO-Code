@@ -11,12 +11,13 @@
 #SBATCH --array=1-21600%200   # 21,600 total tasks; max 200 running at once
                                # Update upper bound from param_grid if needed
 
-# ─── Configuration ─────────────────────────────────────────────────────────
+# All I/O is via S3 (bucket: scrna).
+# param_grid.rds and reference model are read from S3.
+# Stats output files (~1 MB per task) are written to S3.
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/R"
-RESULTS_DIR="$(cd "$(dirname "$0")/.." && pwd)/results"
 N_CORES=4
 
-mkdir -p "${RESULTS_DIR}/stats" logs
+mkdir -p logs
 
 module purge
 module load R/4.3.0            # adjust to your HPC R module
@@ -25,9 +26,6 @@ echo "── Task ${SLURM_ARRAY_TASK_ID} / ${SLURM_ARRAY_TASK_MAX} ──"
 
 Rscript "${SCRIPT_DIR}/02_simulate_analyze.R"   \
     --array_id     "${SLURM_ARRAY_TASK_ID}"      \
-    --param_grid   "${RESULTS_DIR}/param_grid/param_grid.rds" \
-    --ref_dir      "${RESULTS_DIR}/reference"    \
-    --out_root     "${RESULTS_DIR}/stats"        \
     --n_cores      "${N_CORES}"                  \
     --nebula_method "LN"
 

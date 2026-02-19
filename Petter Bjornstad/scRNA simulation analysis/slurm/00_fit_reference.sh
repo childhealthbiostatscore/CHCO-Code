@@ -10,22 +10,19 @@
 #SBATCH --partition=compute          # adjust to your HPC partition
 
 # ─── Configuration ─────────────────────────────────────────────────────────
-# Edit these paths before submitting
-SEURAT_PATH="/path/to/attempt_so.rds"      # <-- UPDATE THIS
+# attempt_so is loaded from S3 automatically by the R script (bucket: attempt).
+# Set the desired cell type here.
 CELL_TYPE="PT"                              # <-- UPDATE to desired cell type
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/R"
-RESULTS_DIR="$(cd "$(dirname "$0")/.." && pwd)/results"
 N_CORES=32
 
-mkdir -p "${RESULTS_DIR}/reference" logs
+mkdir -p logs
 
 module purge
 module load R/4.3.0                         # adjust to your HPC module
 
 Rscript "${SCRIPT_DIR}/00_fit_reference.R" \
-    --seurat_path "${SEURAT_PATH}"          \
-    --cell_type   "${CELL_TYPE}"            \
-    --out_dir     "${RESULTS_DIR}/reference" \
-    --n_cores     "${N_CORES}"
+    --cell_type "${CELL_TYPE}"             \
+    --n_cores   "${N_CORES}"
 
 echo "Step 00 done: $(date)"

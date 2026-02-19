@@ -4,7 +4,7 @@
 # PURPOSE:
 #   COMBINED script: simulate one scRNA-seq dataset, run all three DE methods
 #   (NEBULA-LN, DESeq2 pseudobulk, edgeR pseudobulk), save only the small
-#   stats output files, and discard the raw count matrix.
+#   stats output files to S3, and discard the raw count matrix.
 #
 #   This avoids writing 5-15 MB sparse matrices for each of 21,600 tasks,
 #   reducing total storage from ~300-800 GB down to ~1-2 GB.
@@ -16,7 +16,7 @@
 #     2. Modifies the scDesign3 fitted model to inject DE signal + indiv variance
 #     3. Calls simulate_new_data() -- count matrix lives only in memory
 #     4. Immediately runs NEBULA, DESeq2, edgeR on the in-memory counts
-#     5. Saves three small stats data.frames + timing + truth
+#     5. Saves three small stats data.frames + timing + truth to S3
 #     6. Frees the count matrix (gc())
 #
 # STUDY DESIGN CLARIFICATION:
@@ -31,8 +31,17 @@
 #            n_subjects_per_arm=10 -> 40 pseudobulk samples
 #            n_subjects_per_arm=20 -> 80 pseudobulk samples
 #
-# OUTPUT (per array task, ~1 MB total):
-#   results/stats/array_NNNNN/
+# INPUT (from S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/
+#     param_grid/param_grid.rds
+#     reference/scdesign3_fit.rds
+#     reference/hvg_genes.rds
+#     reference/sce_ref.rds
+#
+# OUTPUT (to S3, per array task, ~1 MB total):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/stats/array_NNNNN/
 #     nebula_stats.rds    -- gene x {logFC, pval, padj, is_de, beta_int_true}
 #     deseq2_stats.rds    -- same structure
 #     edger_stats.rds     -- same structure
@@ -43,9 +52,6 @@
 # USAGE:
 #   Rscript 02_simulate_analyze.R \
 #       --array_id    1 \
-#       --param_grid  results/param_grid/param_grid.rds \
-#       --ref_dir     results/reference \
-#       --out_root    results/stats \
 #       --n_cores     4
 ################################################################################
 
@@ -59,23 +65,48 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(BiocParallel)
   library(optparse)
+  library(aws.s3)
 })
 
+# ── S3 / Multi-user setup ─────────────────────────────────────────────────────
+setup_s3 <- function() {
+  user <- Sys.info()[["user"]]
+
+  if (user == "choiyej") {
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+  } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
+    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+  } else {
+    stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
+  }
+
+  keys <- jsonlite::fromJSON(keys_path)
+  Sys.setenv(
+    AWS_ACCESS_KEY_ID     = keys$access_key,
+    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+  )
+  message(sprintf("S3 configured for user '%s'", user))
+}
+
+setup_s3()
+
+# S3 paths
+S3_BUCKET  <- "scrna"
+S3_BASE    <- "Projects/Paired scRNA simulation analysis/results/"
+S3_REF_PFX <- paste0(S3_BASE, "reference/")
+S3_GRID_PFX <- paste0(S3_BASE, "param_grid/")
+
+# ── CLI args ──────────────────────────────────────────────────────────────────
 option_list <- list(
-  make_option("--array_id",    type = "integer",   default = NULL,
+  make_option("--array_id",      type = "integer",   default = NULL,
               help = "Row index in param_grid (1-based) [required]"),
-  make_option("--param_grid",  type = "character",
-              default = "results/param_grid/param_grid.rds"),
-  make_option("--ref_dir",     type = "character",
-              default = "results/reference"),
-  make_option("--out_root",    type = "character",
-              default = "results/stats"),
-  make_option("--n_cores",     type = "integer",   default = 4L),
+  make_option("--n_cores",       type = "integer",   default = 4L),
   make_option("--nebula_method", type = "character", default = "LN",
               help = "NEBULA method: LN or HL"),
-  make_option("--pb_min_count",  type = "integer", default = 10L,
+  make_option("--pb_min_count",  type = "integer",   default = 10L,
               help = "Min rowSum for pseudobulk filtering"),
-  make_option("--pb_min_samples",type = "integer", default = 2L,
+  make_option("--pb_min_samples",type = "integer",   default = 2L,
               help = "Min samples meeting pb_min_count threshold")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -85,20 +116,30 @@ if (is.null(opt$array_id)) stop("--array_id is required")
 set.seed(opt$array_id)
 register(MulticoreParam(opt$n_cores))
 
-out_dir <- file.path(opt$out_root, sprintf("array_%05d", opt$array_id))
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+# Per-task S3 output prefix
+arr_str  <- sprintf("array_%05d", opt$array_id)
+S3_OUT   <- paste0(S3_BASE, "stats/", arr_str, "/")
 
 message(sprintf("══ [02] array_id=%d  pid=%d ══", opt$array_id, Sys.getpid()))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. LOAD INPUTS
+# 1. LOAD INPUTS FROM S3
 # ─────────────────────────────────────────────────────────────────────────────
-param_grid <- readRDS(opt$param_grid)
-params     <- param_grid[opt$array_id, ]
+message("  Loading param_grid from S3...")
+param_grid <- s3readRDS(
+  object = paste0(S3_GRID_PFX, "param_grid.rds"),
+  bucket = S3_BUCKET,
+  region = ""
+)
+params <- param_grid[opt$array_id, ]
 
-fit_obj   <- readRDS(file.path(opt$ref_dir, "scdesign3_fit.rds"))
-hvg_genes <- readRDS(file.path(opt$ref_dir, "hvg_genes.rds"))
-sce_ref   <- readRDS(file.path(opt$ref_dir, "sce_ref.rds"))
+message("  Loading reference model from S3...")
+fit_obj   <- s3readRDS(object = paste0(S3_REF_PFX, "scdesign3_fit.rds"),
+                       bucket = S3_BUCKET, region = "")
+hvg_genes <- s3readRDS(object = paste0(S3_REF_PFX, "hvg_genes.rds"),
+                       bucket = S3_BUCKET, region = "")
+sce_ref   <- s3readRDS(object = paste0(S3_REF_PFX, "sce_ref.rds"),
+                       bucket = S3_BUCKET, region = "")
 
 n_genes <- length(hvg_genes)  # 2000
 
@@ -246,10 +287,12 @@ sim_result <- tryCatch(
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
 if (is.null(sim_result)) {
-  saveRDS(list(error = "simulate_new_data failed",
-               params = params,
-               array_id = opt$array_id),
-          file.path(out_dir, "error.rds"))
+  s3writeRDS(list(error = "simulate_new_data failed",
+                  params = params,
+                  array_id = opt$array_id),
+             object = paste0(S3_OUT, "error.rds"),
+             bucket = S3_BUCKET,
+             region = "")
   quit(status = 1)
 }
 
@@ -437,19 +480,33 @@ t_er_elapsed <- (proc.time() - t_er)["elapsed"]
 message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. SAVE RESULTS (small files only; counts already freed)
+# 11. SAVE RESULTS TO S3 (small files only; counts already freed)
 # ─────────────────────────────────────────────────────────────────────────────
 timing <- c(sim    = t_sim_elapsed,
             nebula = t_neb_elapsed,
             deseq2 = t_d2_elapsed,
             edger  = t_er_elapsed)
 
-saveRDS(nebula_stats,  file.path(out_dir, "nebula_stats.rds"))
-saveRDS(deseq2_stats,  file.path(out_dir, "deseq2_stats.rds"))
-saveRDS(edger_stats,   file.path(out_dir, "edger_stats.rds"))
-saveRDS(timing,        file.path(out_dir, "timing.rds"))
-saveRDS(truth_df,      file.path(out_dir, "truth.rds"))
-saveRDS(params,        file.path(out_dir, "params.rds"))
+message(sprintf("  Saving results to s3://%s/%s ...", S3_BUCKET, S3_OUT))
+
+s3writeRDS(nebula_stats,
+           object = paste0(S3_OUT, "nebula_stats.rds"),
+           bucket = S3_BUCKET, region = "")
+s3writeRDS(deseq2_stats,
+           object = paste0(S3_OUT, "deseq2_stats.rds"),
+           bucket = S3_BUCKET, region = "")
+s3writeRDS(edger_stats,
+           object = paste0(S3_OUT, "edger_stats.rds"),
+           bucket = S3_BUCKET, region = "")
+s3writeRDS(timing,
+           object = paste0(S3_OUT, "timing.rds"),
+           bucket = S3_BUCKET, region = "")
+s3writeRDS(truth_df,
+           object = paste0(S3_OUT, "truth.rds"),
+           bucket = S3_BUCKET, region = "")
+s3writeRDS(params,
+           object = paste0(S3_OUT, "params.rds"),
+           bucket = S3_BUCKET, region = "")
 
 total_elapsed <- sum(timing)
 message(sprintf(

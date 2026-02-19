@@ -1,5 +1,5 @@
 ################################################################################
-# 05_benchmark.R
+# 03_benchmark.R
 #
 # PURPOSE:
 #   Aggregate results from all completed simulation runs (output of
@@ -10,22 +10,23 @@
 #     - AUC-ROC      (gene-level p-value as score)
 #     - Compute time (wall seconds per method)
 #
-# INPUT:
-#   results/stats/array_NNNNN/{nebula_stats,deseq2_stats,edger_stats,timing,params}.rds
+# INPUT (from S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/
+#     param_grid/param_grid.rds
+#     stats/array_NNNNN/{nebula_stats,deseq2_stats,edger_stats,timing,params}.rds
 #
-# OUTPUT:
-#   results/benchmark/
+# OUTPUT (to S3):
+#   bucket: scrna
+#   prefix: Projects/Paired scRNA simulation analysis/results/benchmark/
 #     benchmark_raw.rds      -- one row per array_id x method (all reps)
 #     benchmark_avg.rds      -- averaged/SD across 50 reps per scenario x method
 #     benchmark_avg.csv      -- same, human-readable
 #
 # USAGE:
-#   Rscript 05_benchmark.R \
-#       --param_grid  results/param_grid/param_grid.rds \
-#       --stats_root  results/stats \
-#       --out_dir     results/benchmark \
-#       --fdr_thr     0.05 \
-#       --n_cores     32
+#   Rscript 03_benchmark.R \
+#       --fdr_thr  0.05 \
+#       --n_cores  32
 ################################################################################
 
 suppressPackageStartupMessages({
@@ -34,23 +35,67 @@ suppressPackageStartupMessages({
   library(optparse)
   library(BiocParallel)
   library(ROCR)
+  library(aws.s3)
 })
 
+# ── S3 / Multi-user setup ─────────────────────────────────────────────────────
+setup_s3 <- function() {
+  user <- Sys.info()[["user"]]
+
+  if (user == "choiyej") {
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+  } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
+    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+  } else {
+    stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
+  }
+
+  keys <- jsonlite::fromJSON(keys_path)
+  Sys.setenv(
+    AWS_ACCESS_KEY_ID     = keys$access_key,
+    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+  )
+  message(sprintf("S3 configured for user '%s'", user))
+}
+
+setup_s3()
+
+# S3 paths
+S3_BUCKET    <- "scrna"
+S3_BASE      <- "Projects/Paired scRNA simulation analysis/results/"
+S3_GRID_PFX  <- paste0(S3_BASE, "param_grid/")
+S3_STATS_PFX <- paste0(S3_BASE, "stats/")
+S3_BENCH_PFX <- paste0(S3_BASE, "benchmark/")
+
+# ── S3 helper functions ───────────────────────────────────────────────────────
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                  region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+
+# ── CLI args ──────────────────────────────────────────────────────────────────
 option_list <- list(
-  make_option("--param_grid",  type = "character",
-              default = "results/param_grid/param_grid.rds"),
-  make_option("--stats_root",  type = "character",
-              default = "results/stats"),
-  make_option("--out_dir",     type = "character",
-              default = "results/benchmark"),
-  make_option("--fdr_thr",     type = "double",    default = 0.05),
-  make_option("--n_cores",     type = "integer",   default = 32L)
+  make_option("--fdr_thr", type = "double",  default = 0.05),
+  make_option("--n_cores", type = "integer", default = 32L)
 )
 opt <- parse_args(OptionParser(option_list = option_list))
 register(MulticoreParam(opt$n_cores))
-dir.create(opt$out_dir, showWarnings = FALSE, recursive = TRUE)
 
-param_grid  <- readRDS(opt$param_grid)
+# ── Load param grid from S3 ───────────────────────────────────────────────────
+message("── [05] Loading param_grid from S3 ──")
+param_grid  <- s3readRDS(
+  object = paste0(S3_GRID_PFX, "param_grid.rds"),
+  bucket = S3_BUCKET,
+  region = ""
+)
 n_scenarios <- nrow(param_grid)
 message(sprintf("── [05] Aggregating %d tasks ──", n_scenarios))
 
@@ -91,17 +136,26 @@ compute_metrics <- function(stats_df, fdr_thr) {
   )
 }
 
+# ── Helper: safely read one RDS file from S3 (returns NULL on missing/error) ──
+s3_read_safe <- function(object, bucket, region = "") {
+  tryCatch(
+    s3readRDS(object = object, bucket = bucket, region = region),
+    error = function(e) NULL
+  )
+}
+
 # ── Process one array task ────────────────────────────────────────────────────
 process_task <- function(i) {
   arr_id  <- param_grid$array_id[i]
   arr_str <- sprintf("array_%05d", arr_id)
-  dir_i   <- file.path(opt$stats_root, arr_str)
-
-  if (!dir.exists(dir_i)) return(NULL)
+  pfx_i   <- paste0(S3_STATS_PFX, arr_str, "/")
 
   # Timing (shared across methods, split per-method)
-  timing <- tryCatch(readRDS(file.path(dir_i, "timing.rds")),
-                     error = function(e) c(sim=NA, nebula=NA, deseq2=NA, edger=NA))
+  timing <- tryCatch(
+    s3readRDS(object = paste0(pfx_i, "timing.rds"),
+              bucket = S3_BUCKET, region = ""),
+    error = function(e) c(sim = NA, nebula = NA, deseq2 = NA, edger = NA)
+  )
 
   # Scenario parameters to attach
   p_cols <- c("array_id","scenario_id","sim_rep",
@@ -122,9 +176,9 @@ process_task <- function(i) {
   )
 
   rows <- lapply(names(methods), function(meth) {
-    fpath <- file.path(dir_i, methods[[meth]]$file)
-    if (!file.exists(fpath)) return(NULL)
-    st <- tryCatch(readRDS(fpath), error = function(e) NULL)
+    s3_obj <- paste0(pfx_i, methods[[meth]]$file)
+    st <- s3_read_safe(s3_obj, S3_BUCKET)
+    if (is.null(st)) return(NULL)
     m  <- compute_metrics(st, opt$fdr_thr)
     if (is.null(m)) return(NULL)
     m$method       <- meth
@@ -163,10 +217,30 @@ benchmark_avg <- benchmark_raw %>%
     .groups = "drop"
   )
 
-saveRDS(benchmark_raw, file.path(opt$out_dir, "benchmark_raw.rds"))
-saveRDS(benchmark_avg, file.path(opt$out_dir, "benchmark_avg.rds"))
-write.csv(benchmark_avg, file.path(opt$out_dir, "benchmark_avg.csv"),
-          row.names = FALSE)
+# ── Save to S3 ────────────────────────────────────────────────────────────────
+message("── [05] Saving benchmark outputs to S3 ──")
+
+s3writeRDS(benchmark_raw,
+           object = paste0(S3_BENCH_PFX, "benchmark_raw.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  benchmark_raw.rds saved to S3")
+
+s3writeRDS(benchmark_avg,
+           object = paste0(S3_BENCH_PFX, "benchmark_avg.rds"),
+           bucket = S3_BUCKET,
+           region = "")
+message("  benchmark_avg.rds saved to S3")
+
+s3write_using_region(
+  write.csv,
+  benchmark_avg,
+  row.names = FALSE,
+  object = paste0(S3_BENCH_PFX, "benchmark_avg.csv"),
+  bucket = S3_BUCKET,
+  region = ""
+)
+message("  benchmark_avg.csv saved to S3")
 
 message("── [05] Done ──")
 message(sprintf("  Unique scenario x method rows: %d", nrow(benchmark_avg)))

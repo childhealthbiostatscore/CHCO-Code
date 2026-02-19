@@ -9,20 +9,17 @@
 #SBATCH --time=00:15:00
 #SBATCH --partition=compute
 
+# All I/O is via S3 (bucket: scrna).
+# effect_size_summary.rds is read from S3; param_grid.rds/.csv are written to S3.
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/R"
-RESULTS_DIR="$(cd "$(dirname "$0")/.." && pwd)/results"
 N_REPS=50
 
-mkdir -p "${RESULTS_DIR}/param_grid" logs
+mkdir -p logs
 
 module purge
 module load R/4.3.0
 
 Rscript "${SCRIPT_DIR}/01_parameter_grid.R" \
-    --effect_summary "${RESULTS_DIR}/reference/effect_size_summary.rds" \
-    --out_dir        "${RESULTS_DIR}/param_grid" \
-    --n_reps         "${N_REPS}"
+    --n_reps "${N_REPS}"
 
 echo "Step 01 done: $(date)"
-# Print grid size for next steps
-Rscript -e "pg <- readRDS('${RESULTS_DIR}/param_grid/param_grid.rds'); cat('Grid rows:', nrow(pg), '\n')"
