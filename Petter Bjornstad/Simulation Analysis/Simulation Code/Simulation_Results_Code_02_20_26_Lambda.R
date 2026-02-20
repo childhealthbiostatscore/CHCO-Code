@@ -1436,14 +1436,21 @@ plot(boxplot_all_metrics)
 dev.off()
 
 #8. Dendrograms ----
-scenario.fxn <- function(scenario, causal.or, n.causal.exposures){
+dir.results <- "/home/hhampson/Results/Microbiome Results"
+# ---- SCENARIO.FXN ----
+scenario.fxn <- function(scenario, causal.or, n.causal.exposures, type = "mixture"){
   noncausal.or <- 1.0
-  mixture.logOR <- log(causal.or) * n.causal.exposures
+  
+  if(type == "mixture"){
+    effect.logOR <- log(causal.or) * n.causal.exposures
+  } else {
+    effect.logOR <- log(causal.or)  # individual: just one exposure's contribution
+  }
   
   # Species
   all.species <- rownames(Z.s.g)
   dat <- data.frame(Taxa = all.species) %>%
-    mutate(ExpVal = ifelse(Taxa %in% scenario, mixture.logOR, log(noncausal.or)))
+    mutate(ExpVal = ifelse(Taxa %in% scenario, effect.logOR, log(noncausal.or)))
   
   # Genus
   genus.names <- colnames(Z.s.g)
@@ -1483,64 +1490,7 @@ scenario.fxn <- function(scenario, causal.or, n.causal.exposures){
   rbind(dat, genus.dat, family.dat, order.dat, class.dat, phylum.dat)
 }
 
-# Rebuild expected values with mixture OR
-scenario.data.list <- lapply(1:nrow(sim.par.all), function(i){
-  df <- scenario.fxn(
-    scenarios[[i]], 
-    causal.or = sim.par.all$OR.exposure[i],
-    n.causal.exposures = sim.par.all$P.e.causal[i]
-  )
-  df$Scenario <- i
-  return(df)
-})
-expected.all <- do.call(rbind, scenario.data.list)
-# scenario.fxn <- function(scenario, causal.or){
-#   noncausal.or <- 1.0
-#   
-#   # Species
-#   all.species <- rownames(Z.s.g)
-#   dat <- data.frame(Taxa = all.species) %>%
-#     mutate(ExpVal = ifelse(Taxa %in% scenario, log(causal.or), log(noncausal.or)))
-#   
-#   # Genus
-#   genus.names <- colnames(Z.s.g)
-#   genus.dat <- data.frame(Taxa = genus.names) %>%
-#     rowwise() %>%
-#     mutate(ExpVal = mean(dat$ExpVal[Z.s.g[, Taxa] == 1])) %>%
-#     ungroup()
-#   
-#   # Family
-#   family.names <- colnames(Z.g.f)
-#   family.dat <- data.frame(Taxa = family.names) %>%
-#     rowwise() %>%
-#     mutate(ExpVal = mean(genus.dat$ExpVal[Z.g.f[, Taxa] == 1])) %>%
-#     ungroup()
-#   
-#   # Order
-#   order.names <- colnames(Z.f.o)
-#   order.dat <- data.frame(Taxa = order.names) %>%
-#     rowwise() %>%
-#     mutate(ExpVal = mean(family.dat$ExpVal[Z.f.o[, Taxa] == 1])) %>%
-#     ungroup()
-#   
-#   # Class
-#   class.names <- colnames(Z.o.c)
-#   class.dat <- data.frame(Taxa = class.names) %>%
-#     rowwise() %>%
-#     mutate(ExpVal = mean(order.dat$ExpVal[Z.o.c[, Taxa] == 1])) %>%
-#     ungroup()
-#   
-#   # Phylum
-#   phylum.names <- colnames(Z.c.p)
-#   phylum.dat <- data.frame(Taxa = phylum.names) %>%
-#     rowwise() %>%
-#     mutate(ExpVal = mean(class.dat$ExpVal[Z.c.p[, Taxa] == 1])) %>%
-#     ungroup()
-#   
-#   rbind(dat, genus.dat, family.dat, order.dat, class.dat, phylum.dat)
-# }
-
-# Build scenario lists
+# ---- BUILD SCENARIO LISTS ----
 scenarios <- lapply(1:nrow(sim.par.all), function(i){
   idx <- simulation.parameters[[sim.par.all$P.s.scenario[i]]]
   if(i <= 2){
@@ -1550,14 +1500,34 @@ scenarios <- lapply(1:nrow(sim.par.all), function(i){
   }
 })
 
-# Get expected values using OR from sim.par.all
-scenario.data.list <- lapply(1:nrow(sim.par.all), function(i){
-  df <- scenario.fxn(scenarios[[i]], causal.or = sim.par.all$OR.exposure[i])
+# ---- MIXTURE EXPECTED VALUES ----
+scenario.data.list.mix <- lapply(1:nrow(sim.par.all), function(i){
+  df <- scenario.fxn(
+    scenarios[[i]],
+    causal.or = sim.par.all$OR.exposure[i],
+    n.causal.exposures = sim.par.all$P.e.causal[i],
+    type = "mixture"
+  )
   df$Scenario <- i
   return(df)
 })
-expected.all <- do.call(rbind, scenario.data.list)
-prep.plot.data <- function(scen.num){
+expected.all.mix <- do.call(rbind, scenario.data.list.mix)
+
+# ---- INDIVIDUAL EXPECTED VALUES ----
+scenario.data.list.ind <- lapply(1:nrow(sim.par.all), function(i){
+  df <- scenario.fxn(
+    scenarios[[i]],
+    causal.or = sim.par.all$OR.exposure[i],
+    n.causal.exposures = sim.par.all$P.e.causal[i],
+    type = "individual"
+  )
+  df$Scenario <- i
+  return(df)
+})
+expected.all.ind <- do.call(rbind, scenario.data.list.ind)
+
+# ---- PREP PLOT DATA ----
+prep.plot.data <- function(scen.num, expected.all){
   expected.all %>%
     filter(Scenario == scen.num) %>%
     mutate(
@@ -1566,30 +1536,53 @@ prep.plot.data <- function(scen.num){
     )
 }
 
-plot.data.list <- lapply(1:9, function(i) prep.plot.data(i))
+plot.data.list.mix <- lapply(1:9, function(i) prep.plot.data(i, expected.all.mix))
+plot.data.list.ind <- lapply(1:9, function(i) prep.plot.data(i, expected.all.ind))
 
-global.min <- min(expected.all$ExpVal[expected.all$ExpVal > 0])
-global.max <- max(expected.all$ExpVal[expected.all$ExpVal > 0])
+# ---- GLOBAL SIZE SCALES ----
+global.min.mix <- min(expected.all.mix$ExpVal[expected.all.mix$ExpVal > 0])
+global.max.mix <- max(expected.all.mix$ExpVal[expected.all.mix$ExpVal > 0])
 
-make.dendro.plot <- function(plot.data, title=NULL){
-  ggtree(tree, layout="fan", open.angle=20) %<+% plot.data +
+global.min.ind <- min(expected.all.ind$ExpVal[expected.all.ind$ExpVal > 0])
+global.max.ind <- max(expected.all.ind$ExpVal[expected.all.ind$ExpVal > 0])
+
+# ---- DENDROGRAM PLOT FUNCTION ----
+make.dendro.plot <- function(plot.data, title=NULL, global.min, global.max){
+  ggtree(tree, layout="fan", open.angle=0) %<+% plot.data +
     geom_point(aes(color=dot.color, size=ExpVal), alpha=0.8) +
     scale_color_manual(values = c("noncausal"="#9a9a9a", "causal"="#8B2020")) +
-    scale_size_binned(range = c(1, 8), n.breaks = 6, limits = c(global.min, global.max)) +    theme(legend.position="none") +
-    ggtitle(title)
+    scale_size_binned(range = c(1, 8), n.breaks = 6, limits = c(global.min, global.max)) +
+    theme(legend.position="none") +
+    ggtitle(title) +
+    coord_fixed()
 }
 
-dendro.plots <- lapply(1:9, function(i){
-  make.dendro.plot(plot.data.list[[i]], title=paste0("Scenario ", i))
+# ---- BUILD DENDROGRAM PLOTS ----
+dendro.plots.mix <- lapply(1:9, function(i){
+  make.dendro.plot(plot.data.list.mix[[i]], 
+                   title = paste0("Scenario ", i),
+                   global.min = global.min.mix,
+                   global.max = global.max.mix)
 })
 
+dendro.plots.ind <- lapply(1:9, function(i){
+  make.dendro.plot(plot.data.list.ind[[i]], 
+                   title = paste0("Scenario ", i),
+                   global.min = global.min.ind,
+                   global.max = global.max.ind)
+})
+
+# ---- SAVE DENDROGRAMS ----
 for(i in 1:9){
-  ggsave(plot = dendro.plots[[i]], 
-         filename = fs::path(dir.results, paste0("Dendrogram_ExpVal_Scenario", i, ".jpeg")),
-         width = 8, height = 8, dpi = 300)
+  ggsave(plot = dendro.plots.mix[[i]],
+         filename = fs::path(dir.results, paste0("Dendrogram_Mixture_Scenario", i, ".jpeg")),
+         width = 12, height = 12, dpi = 300)
+  
+  ggsave(plot = dendro.plots.ind[[i]],
+         filename = fs::path(dir.results, paste0("Dendrogram_Individual_Scenario", i, ".jpeg")),
+         width = 12, height = 12, dpi = 300)
 }
 
-dir.results <- "/home/hhampson/Results/Microbiome Results"
 ##A. Individual ----
 #Scenarios
 means <- all_formatted_results %>%
