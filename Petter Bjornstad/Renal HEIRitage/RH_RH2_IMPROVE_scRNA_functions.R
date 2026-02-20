@@ -507,3 +507,157 @@ make_overlap_table <- function(
   wide %>%
     relocate(any_of(cols_front))
 }
+
+
+# ===========================================================================
+# Function: prepare_umap_metadata
+# ===========================================================================
+prepare_umap_metadata <- function(
+    seurat_obj,
+    genes,
+    celltype_col = "KPMP_celltype",
+    umap_reduction = "umap.harmony",
+    color_palette = "Set3",        # RColorBrewer palette name
+    custom_colors = NULL           # named vector to override palette entirely
+) {
+  
+  # Determine cell type levels
+  celltypes <- levels(seurat_obj@meta.data[[celltype_col]])
+  n_celltypes <- length(celltypes)
+  
+  # Build color mapping
+  if (!is.null(custom_colors)) {
+    # Use provided named color vector as-is
+    celltype_colors <- custom_colors
+  } else {
+    # Generate from RColorBrewer palette, expanding as needed
+    umap_colors <- colorRampPalette(brewer.pal(min(brewer.pal.info[color_palette, "maxcolors"], n_celltypes), color_palette))(n_celltypes)
+    celltype_colors <- setNames(umap_colors, celltypes)
+  }
+  
+  # Fetch gene expression
+  expr_df <- Seurat::FetchData(seurat_obj, vars = genes) %>%
+    as.data.frame()
+  colnames(expr_df) <- genes  # ensure clean names
+  
+  # Build metadata with UMAP embeddings and expression
+  umap_embed_cols <- colnames(seurat_obj@reductions[[umap_reduction]]@cell.embeddings)
+  metadata <- seurat_obj@meta.data %>%
+    cbind(seurat_obj@reductions[[umap_reduction]]@cell.embeddings) %>%
+    cbind(expr_df)
+  colnames(metadata)[colnames(metadata) %in% umap_embed_cols] <- c("umapharmony_1", "umapharmony_2")
+  
+  # Compute cell type centers
+  centers <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(x = median(umapharmony_1),
+              y = median(umapharmony_2), .groups = "drop")
+  
+  list(
+    metadata = metadata,
+    centers = centers,
+    celltype_colors = celltype_colors
+  )
+}
+
+# ===========================================================================
+# Function: plot_feature_umap
+# ===========================================================================
+plot_feature_umap <- function(
+    genes,
+    metadata,          # pb90_subset_meta equivalent
+    centers,           # UMAP label centers df with x, y, KPMP_celltype
+    celltype_colors,   # named vector of colors
+    pct_threshold = 10,  # minimum % expressed to highlight
+    save_to_s3 = FALSE,
+    s3_prefix = "Projects/CKD/RH_RH2/Results/Figures/UMAP/REMODEL genes/",
+    s3_suffix = "",
+    s3_bucket = "scrna",
+    plot_height = 10,
+    plot_width = 10
+) {
+  
+  plots <- list()
+  
+  for (gene in genes) {
+    
+    # Calculate expression stats per cell type
+    expr_stats <- metadata %>%
+      group_by(KPMP_celltype) %>%
+      summarise(
+        pct_expressed = round(mean(.data[[gene]] > 0) * 100, 1),
+        n_total = n(),
+        .groups = "drop"
+      ) %>%
+      filter(pct_expressed > pct_threshold)
+    
+    # Tag centers by whether they pass expression threshold
+    centers_filtered <- centers %>%
+      mutate(pct_expressed_5 = case_when(
+        KPMP_celltype %in% expr_stats$KPMP_celltype ~ "Y",
+        TRUE ~ "N"
+      ))
+    
+    # Build caption
+    caption_text <- expr_stats %>%
+      arrange(desc(pct_expressed)) %>%
+      mutate(
+        color = celltype_colors[KPMP_celltype],
+        label = paste0("<span style='color:", color, "'>&#9679; </span>**", KPMP_celltype, "**: ", pct_expressed, "%"),
+        group = ceiling(row_number() / 5)
+      ) %>%
+      group_by(group) %>%
+      summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
+      rbind(data.frame(group = 0, line = paste0("**% Expressed (>", pct_threshold, "%):**"))) %>%
+      arrange(group) %>%
+      pull(line) %>%
+      paste(collapse = "<br><br>")
+    
+    # Build plot
+    feature_p <- metadata %>%
+      dplyr::mutate(feature_color_logic = case_when(
+        .data[[gene]] > 0 ~ KPMP_celltype,
+        TRUE ~ "No"
+      )) %>%
+      ggplot(aes(x = umapharmony_1, y = umapharmony_2, color = feature_color_logic)) +
+      geom_point(alpha = 0.4) +
+      geom_text_repel(
+        data = centers_filtered,
+        aes(x = x, y = y, label = KPMP_celltype),
+        inherit.aes = FALSE,
+        size = 4,
+        fontface = ifelse(centers_filtered$pct_expressed_5 == "Y", "bold", "plain"),
+        color = ifelse(centers_filtered$pct_expressed_5 == "Y", "black", "#495057"),
+        max.overlaps = Inf
+      ) +
+      scale_color_manual(values = c(celltype_colors, "No" = "#edede9")) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        text = element_text(size = 15),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_markdown(size = 12, hjust = 0.5),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0)
+      ) +
+      labs(x = "UMAP1", y = "UMAP2", title = gene, caption = caption_text)
+    
+    print(feature_p)
+    plots[[gene]] <- feature_p
+    
+    if (save_to_s3) {
+      s3write_using_region(
+        feature_p,
+        FUN = ggsave,
+        object = paste0(s3_prefix, gene, "_FeaturePlot", s3_suffix, ".png"),
+        bucket = s3_bucket,
+        region = "",
+        height = plot_height,
+        width = plot_width
+      )
+    }
+  }
+  
+  invisible(plots)  # Return list of plots silently
+}
