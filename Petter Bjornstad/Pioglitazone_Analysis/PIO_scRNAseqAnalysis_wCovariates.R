@@ -34,16 +34,16 @@ library(ggrepel)
 setwd('C:/Users/netio/Documents/Harmonized_data/')
 dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/'
 
-dir.create(paste0(dir.results, 'NEBULA/'),      recursive = TRUE, showWarnings = FALSE)
-dir.create(paste0(dir.results, 'Comparison/'),  recursive = TRUE, showWarnings = FALSE)
-dir.create(paste0(dir.results, 'VolcanoPlots/'),recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'NEBULA/'),       recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'Comparison/'),   recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'VolcanoPlots/'), recursive = TRUE, showWarnings = FALSE)
 
 COVARIATES <- list(
   base      = NULL,
   bmi       = "bmi",
   sex       = "sex",
-  metformin = "epic_mfm",
-  glp1ra    = "epic_glp1ra"
+  metformin = "epic_mfm_1",
+  glp1ra    = "epic_glp1ra_1"
 )
 
 celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'POD', 'DCT', 'IC')
@@ -93,14 +93,13 @@ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/
 # MEDICATION & COVARIATE DATA
 # ============================================================================
 
-
 harmonized_data <- data.table::fread("harmonized_dataset.csv")
 harmonized_data <- harmonized_data %>% filter(group == 'Type 2 Diabetes')
 
 medications <- readxl::read_xlsx("Biopsies_w_mrn_Oct3.xlsx")
-medications <- medications %>%
-  dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
-names(medications) <- str_replace(names(medications), '_1', '')
+medications <- medications %>% dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
+names(medications) <- str_replace(names(medications), pattern = '_1', replacement = '')
+# columns are now stripped: tzd, mfm, glp1ra, etc.
 
 meta.data <- so_subset@meta.data
 
@@ -111,7 +110,7 @@ harmonized_data <- harmonized_data %>%
   dplyr::select(record_id, mrn, group, bmi, sex)
 
 medications <- medications %>%
-  dplyr::select(mrn, tzd, epic_mfm_1=mfm, epic_glp1ra_1=glp1ra) %>%
+  dplyr::select(mrn, tzd, epic_mfm_1 = mfm, epic_glp1ra_1 = glp1ra) %>%
   filter(mrn %in% harmonized_data$mrn)
 
 harmonized_data$mrn <- as.character(harmonized_data$mrn)
@@ -120,28 +119,27 @@ final_df <- medications %>% left_join(harmonized_data, by = 'mrn')
 final_df$combined_id <- paste0(final_df$mrn, '_', final_df$record_id)
 final_df <- final_df %>% filter(!duplicated(combined_id))
 
-final_df <- medications %>% left_join(harmonized_data, by = 'mrn')
-final_df$combined_id <- paste0(final_df$mrn, '_', final_df$record_id)
-final_df <- final_df %>% filter(!duplicated(combined_id))
-
+# ============================================================================
+# QC & APPLY GROUP LABELS / COVARIATES TO SEURAT OBJECT
+# ============================================================================
 
 scrna_small <- subset(so_subset, record_id %in% final_df$record_id)
 scrna_small <- subset(scrna_small,
                       subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
 
-meta.data      <- scrna_small@meta.data
-covar_lookup   <- final_df %>%
+meta.data    <- scrna_small@meta.data
+covar_lookup <- final_df %>%
   dplyr::select(record_id, tzd, bmi, sex, epic_mfm_1, epic_glp1ra_1) %>%
   distinct(record_id, .keep_all = TRUE)
 
 meta_joined <- meta.data %>%
   left_join(covar_lookup, by = 'record_id')
 
-scrna_small$group_labels <- meta_joined$tzd
-scrna_small$bmi          <- meta_joined$bmi.x
-scrna_small$sex          <- meta_joined$sex.y
-scrna_small$epic_mfm     <- meta_joined$epic_mfm.x
-scrna_small$epic_glp1ra  <- meta_joined$epic_glp1ra.x
+scrna_small$group_labels  <- meta_joined$tzd
+scrna_small$bmi           <- meta_joined$bmi
+scrna_small$sex           <- meta_joined$sex
+scrna_small$epic_mfm_1    <- meta_joined$epic_mfm_1
+scrna_small$epic_glp1ra_1 <- meta_joined$epic_glp1ra_1
 
 # ============================================================================
 # POOLED OFFSET
@@ -189,7 +187,12 @@ run_nebula_sensitivity <- function(so_obj, dir.results, celltype,
   meta_gene  <- so_celltype@meta.data
   
   required_cols <- if (is.null(covariate_name)) "group_labels" else c("group_labels", covariate_name)
-  complete_idx  <- complete.cases(meta_gene[, required_cols, drop = FALSE])
+  missing_cols  <- setdiff(required_cols, colnames(meta_gene))
+  if (length(missing_cols) > 0) {
+    cat(paste0("Missing columns in metadata: ", paste(missing_cols, collapse = ", "), " — skipping.\n"))
+    return(invisible(NULL))
+  }
+  complete_idx <- complete.cases(meta_gene[, required_cols, drop = FALSE])
   cat("Cells with complete data:", sum(complete_idx), "\n")
   
   meta_gene  <- meta_gene[complete_idx, ]
@@ -416,8 +419,8 @@ print(summary_df)
 cat("\n=== Building side-by-side volcano plots ===\n")
 
 for (ct in celltypes_vec) {
-  ct_clean  <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
-  vol_list  <- list()
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  vol_list <- list()
   
   for (m in names(COVARIATES)) {
     df <- load_pio_effect(dir.results, ct_clean, m)
@@ -496,7 +499,6 @@ write.csv(robust_combined, paste0(dir.results, 'Comparison/RobustGenes_AllCellty
 
 cat("\n=== Sensitivity analysis complete! ===\n")
 cat("Outputs saved to:", dir.results, "\n")
-
 
 
 
