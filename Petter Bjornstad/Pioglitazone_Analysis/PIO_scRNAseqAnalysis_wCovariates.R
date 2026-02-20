@@ -138,10 +138,10 @@ meta_joined <- meta.data %>%
   left_join(covar_lookup, by = 'record_id')
 
 scrna_small$group_labels <- meta_joined$tzd
-scrna_small$bmi          <- meta_joined$bmi
-scrna_small$sex          <- meta_joined$sex
-scrna_small$epic_mfm     <- meta_joined$epic_mfm
-scrna_small$epic_glp1ra  <- meta_joined$epic_glp1ra
+scrna_small$bmi          <- meta_joined$bmi.x
+scrna_small$sex          <- meta_joined$sex.y
+scrna_small$epic_mfm     <- meta_joined$epic_mfm.x
+scrna_small$epic_glp1ra  <- meta_joined$epic_glp1ra.x
 
 # ============================================================================
 # POOLED OFFSET
@@ -188,7 +188,7 @@ run_nebula_sensitivity <- function(so_obj, dir.results, celltype,
   counts_mat <- round(GetAssayData(so_celltype, layer = "counts"))
   meta_gene  <- so_celltype@meta.data
   
-  required_cols <- c("group_labels", covariate_name)
+  required_cols <- if (is.null(covariate_name)) "group_labels" else c("group_labels", covariate_name)
   complete_idx  <- complete.cases(meta_gene[, required_cols, drop = FALSE])
   cat("Cells with complete data:", sum(complete_idx), "\n")
   
