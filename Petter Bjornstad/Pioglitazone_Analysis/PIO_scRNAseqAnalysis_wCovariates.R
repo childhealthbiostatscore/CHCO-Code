@@ -93,8 +93,22 @@ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/
 # MEDICATION & COVARIATE DATA
 # ============================================================================
 
-harmonized_data <- data.table::fread("harmonized_dataset.csv")
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
+  na = '')
+
 harmonized_data <- harmonized_data %>% filter(group == 'Type 2 Diabetes')
+
+harmonized_data <- harmonized_data %>%
+  dplyr::select(-dob) %>%
+  arrange(date_of_screen) %>%
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm = TRUE))),
+    .by = c(record_id, visit)
+  )
+
+
+
 
 medications <- readxl::read_xlsx("Biopsies_w_mrn_Oct3.xlsx")
 medications <- medications %>% dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
@@ -128,8 +142,11 @@ scrna_small <- subset(scrna_small,
                       subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
 
 meta.data    <- scrna_small@meta.data
+meta.data <- meta.data %>% 
+  dplyr::select(-bmi, -epic_mfm_1, -epic_glp1ra_1)
+
 covar_lookup <- final_df %>%
-  dplyr::select(record_id, tzd, bmi, sex, epic_mfm_1, epic_glp1ra_1) %>%
+  dplyr::select(record_id, tzd, bmi,epic_mfm_1, epic_glp1ra_1) %>%
   distinct(record_id, .keep_all = TRUE)
 
 meta_joined <- meta.data %>%
