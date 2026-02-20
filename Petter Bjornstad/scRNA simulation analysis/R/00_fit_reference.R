@@ -115,7 +115,7 @@ option_list <- list(
 opt <- parse_args(OptionParser(option_list = option_list))
 
 set.seed(opt$seed)
-register(MulticoreParam(opt$n_cores))
+BiocParallel::register(MulticoreParam(opt$n_cores))
 
 # ── Load attempt_so from S3 ───────────────────────────────────────────────────
 message("── [00] Loading Seurat object from S3 (bucket: attempt) ──")
@@ -125,6 +125,30 @@ so <- s3readRDS(
   region = ""
 )
 message(sprintf("  Loaded: %d genes x %d cells", nrow(so), ncol(so)))
+
+celltype_groups <- list(
+  PT              = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL             = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC              = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC              = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC              = c("IC-A", "IC-B", "aIC"),
+  Immune          = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  # Immune_myeloid  = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB      = c("VSMC/P", "FIB"),
+  POD             = "POD"
+)
+
+lookup <- unlist(lapply(names(celltype_groups), function(group) {
+  setNames(rep(group, length(celltype_groups[[group]])),
+           celltype_groups[[group]])
+}))
+
+so$KPMP_celltype_general <- ifelse(
+  so$KPMP_celltype %in% names(lookup),
+  lookup[so$KPMP_celltype],
+  so$KPMP_celltype
+)
 
 # ── 1. Subset to cell type ────────────────────────────────────────────────────
 message(sprintf("── [00] Subsetting to cell type: %s ──", opt$cell_type))
@@ -144,7 +168,7 @@ so_sub <- FindVariableFeatures(so_sub, selection.method = "vst",
 hvg_genes <- VariableFeatures(so_sub)[seq_len(opt$n_hvg)]
 message(sprintf("  Selected %d HVGs", length(hvg_genes)))
 
-s3writeRDS(hvg_genes,
+s3saveRDS(hvg_genes,
            object = paste0(S3_PREFIX, "hvg_genes.rds"),
            bucket = S3_BUCKET,
            region = "")
@@ -156,7 +180,7 @@ counts_mat <- GetAssayData(so_sub, slot = "counts")[hvg_genes, ]
 
 col_df <- data.frame(
   cell        = colnames(so_sub),
-  subject_id  = so_sub$subject_id,
+  subject_id  = factor(as.character(so_sub$subject_id)),
   visit       = factor(so_sub$visit, levels = c("PRE", "POST")),
   treatment   = factor(so_sub$treatment,
                         levels = c("Placebo", "Dapagliflozin")),
@@ -169,7 +193,7 @@ sce_ref <- SingleCellExperiment(
   colData  = col_df
 )
 
-s3writeRDS(sce_ref,
+s3saveRDS(sce_ref,
            object = paste0(S3_PREFIX, "sce_ref.rds"),
            bucket = S3_BUCKET,
            region = "")
@@ -209,7 +233,7 @@ effect_summary <- list(
   )
 )
 
-s3writeRDS(effect_summary,
+s3saveRDS(effect_summary,
            object = paste0(S3_PREFIX, "effect_size_summary.rds"),
            bucket = S3_BUCKET,
            region = "")
@@ -247,7 +271,7 @@ fit_obj <- scdesign3(
   BPPARAM         = MulticoreParam(opt$n_cores)
 )
 
-s3writeRDS(fit_obj,
+s3saveRDS(fit_obj,
            object = paste0(S3_PREFIX, "scdesign3_fit.rds"),
            bucket = S3_BUCKET,
            region = "")

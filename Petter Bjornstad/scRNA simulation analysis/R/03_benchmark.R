@@ -89,7 +89,7 @@ option_list <- list(
   make_option("--n_cores", type = "integer", default = 32L)
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-register(MulticoreParam(opt$n_cores))
+BiocParallel::register(MulticoreParam(opt$n_cores))
 
 # ── Load param grid from S3 ───────────────────────────────────────────────────
 message("── [05] Loading param_grid from S3 ──")
@@ -222,13 +222,13 @@ benchmark_avg <- benchmark_raw %>%
 # ── Save to S3 ────────────────────────────────────────────────────────────────
 message("── [05] Saving benchmark outputs to S3 ──")
 
-s3writeRDS(benchmark_raw,
+s3saveRDS(benchmark_raw,
            object = paste0(S3_BENCH_PFX, "benchmark_raw.rds"),
            bucket = S3_BUCKET,
            region = "")
 message("  benchmark_raw.rds saved to S3")
 
-s3writeRDS(benchmark_avg,
+s3saveRDS(benchmark_avg,
            object = paste0(S3_BENCH_PFX, "benchmark_avg.rds"),
            bucket = S3_BUCKET,
            region = "")

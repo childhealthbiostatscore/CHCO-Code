@@ -68,7 +68,7 @@ suppressPackageStartupMessages({
 # ── S3 / Multi-user setup ─────────────────────────────────────────────────────
 setup_s3 <- function() {
   user <- Sys.info()[["user"]]
-
+  
   if (user == "choiyej") {
     # --- local (choiyej Mac) ---
     keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
@@ -78,7 +78,7 @@ setup_s3 <- function() {
   } else {
     stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
   }
-
+  
   keys <- jsonlite::fromJSON(keys_path)
   Sys.setenv(
     AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
@@ -219,7 +219,7 @@ stopifnot(n_unique == 432L)
 # ── Save to S3 ───────────────────────────────────────────────────────────────
 message("── [01] Saving param_grid to S3 ──")
 
-s3writeRDS(param_grid,
+s3saveRDS(param_grid,
            object = paste0(S3_GRID_PFX, "param_grid.rds"),
            bucket = S3_BUCKET,
            region = "")

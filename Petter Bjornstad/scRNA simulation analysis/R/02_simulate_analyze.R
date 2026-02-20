@@ -71,7 +71,7 @@ suppressPackageStartupMessages({
 # ── S3 / Multi-user setup ─────────────────────────────────────────────────────
 setup_s3 <- function() {
   user <- Sys.info()[["user"]]
-
+  
   if (user == "choiyej") {
     # --- local (choiyej Mac) ---
     keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
@@ -81,7 +81,7 @@ setup_s3 <- function() {
   } else {
     stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
   }
-
+  
   keys <- jsonlite::fromJSON(keys_path)
   Sys.setenv(
     AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
@@ -290,7 +290,7 @@ sim_result <- tryCatch(
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
 if (is.null(sim_result)) {
-  s3writeRDS(list(error = "simulate_new_data failed",
+  s3saveRDS(list(error = "simulate_new_data failed",
                   params = params,
                   array_id = opt$array_id),
              object = paste0(S3_OUT, "error.rds"),
@@ -492,22 +492,22 @@ timing <- c(sim    = t_sim_elapsed,
 
 message(sprintf("  Saving results to s3://%s/%s ...", S3_BUCKET, S3_OUT))
 
-s3writeRDS(nebula_stats,
+s3saveRDS(nebula_stats,
            object = paste0(S3_OUT, "nebula_stats.rds"),
            bucket = S3_BUCKET, region = "")
-s3writeRDS(deseq2_stats,
+s3saveRDS(deseq2_stats,
            object = paste0(S3_OUT, "deseq2_stats.rds"),
            bucket = S3_BUCKET, region = "")
-s3writeRDS(edger_stats,
+s3saveRDS(edger_stats,
            object = paste0(S3_OUT, "edger_stats.rds"),
            bucket = S3_BUCKET, region = "")
-s3writeRDS(timing,
+s3saveRDS(timing,
            object = paste0(S3_OUT, "timing.rds"),
            bucket = S3_BUCKET, region = "")
-s3writeRDS(truth_df,
+s3saveRDS(truth_df,
            object = paste0(S3_OUT, "truth.rds"),
            bucket = S3_BUCKET, region = "")
-s3writeRDS(params,
+s3saveRDS(params,
            object = paste0(S3_OUT, "params.rds"),
            bucket = S3_BUCKET, region = "")
 
