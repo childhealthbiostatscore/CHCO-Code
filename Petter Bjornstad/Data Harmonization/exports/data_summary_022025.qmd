@@ -1,0 +1,221 @@
+---
+title: "Overall Data Summary"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r include = F}
+library(jsonlite)
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(purrr)
+library(tidyr)
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r, include = F}
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+
+harm_dat_recid <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+
+harm_dat_mrn <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, screen_date))
+```
+
+# Demographics
+
+```{r, message=F, warning=F, echo=F}
+# demographics
+demo <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, date = consent_date, dob, sex, race, ethnicity, participation_status) %>%
+  filter(visit == "baseline")
+
+```
+
+* RPC-45 also missing race, ethnicity, phone number
+
+# Medical History
+
+```{r, message=F, warning=F, echo=F}
+# medical history
+harm_dat_recid_med_history <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(procedure == "medical_history") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+med_history <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, metformin_timepoint, insulin_timepoint, tzd_timepoint, glp1_agonist_timepoint, sglti_timepoint, other_diabetes_med_timepoint, ace_inhibitor, angiotensin_receptor_blocker, beta_blocker, ca_channel_blocker, diuretic, statin, fibrates, niacin, topiramate, phentermine, mra, uric_acid_med, raasi_timepoint) %>%
+  filter(visit == "baseline") %>%
+  left_join(harm_dat_recid_med_history)
+```
+
+* RPC-45 missing ALL medical history
+
+# Vitals
+
+```{r, message=F, warning=F, echo=F}
+# Vitals
+harm_dat_recid_vitals <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(procedure == "physical_exam") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+vitals <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, height, weight, bmi, sbp, dbp, map, pulse) %>%
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(harm_dat_recid_vitals)
+```
+
+# Screening Labs
+
+```{r, message=F, warning=F, echo=F}
+# screening labs
+harm_dat_recid_screen_labs <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(visit == "screening") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+screen_labs <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, creatinine_s, bun,
+       microalbumin_u, creatinine_u, acr_u) %>%
+  filter(visit %in% c("screening")) %>%
+  left_join(harm_dat_recid_screen_labs)
+
+```
+
+# Labs
+
+```{r, message=F, warning=F, echo=F}
+# labs
+harm_dat_recid_labs <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(procedure == "labs") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+labs <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, hemoglobin, hematocrit, pltct,
+       neutrophil, lymphocyte, monocyte, eosinophil, basophil,
+       abs_neut, abs_lymph, abs_monocyte, abs_eosin, abs_basophil,
+       abs_egc, sodium_s, k_base, cl_base, co2, bun,
+       creatinine_s, bg, ca_base, tot_prot, albumin, alkphos_base,
+       gotast_base, gptalt_base, bili_base, pt, ptt, inr, hba1c,
+       fbg, chol_base, hdl, ldl, triglycerides, cystatin_c_s,
+       microalbumin_u, creatinine_u) %>%
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(harm_dat_recid_labs)
+
+```
+
+```{r, message=F, warning=F, echo=F}
+# mri
+mri <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, pcasl3d_right, pcasl3d_left,
+       adc_right, adc_left, right_kidney_volume_ml,
+       left_kidney_volume_ml, bold_r_bl_cortex, bold_r_bl_kidney,
+       bold_r_t1_cortex, bold_r_t1_kidney, bold_l_bl_cortex,
+       bold_l_bl_kidney, bold_l_t1_cortex, bold_l_t1_kidney,
+) %>%
+  filter(visit %in% c("baseline", "post_treatment"))
+```
+
+# Kidney Biopsies
+
+```{r, message=F, warning=F, echo=F}
+# kidney biopsies
+harm_dat_recid_bx <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(procedure == "kidney_biopsy") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+bx <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn, baseline_bx, followup_bx, kit_id, glut_id, form_id,
+       rnalater_id, cryomold_id, cryostor_id,
+       kidney_side, kidney_length, kidney_location, passes_attempt,
+       pass1_time, pass1_core_cm, pass1_cortex_cm, pass1_core_spec,
+       pass2_time, pass2_core_cm, pass2_cortex_cm, pass2_core_spec,
+       pass3_time, pass3_core_cm, pass3_cortex_cm, pass3_core_spec,
+       pass4_time, pass4_core_cm, pass4_cortex_cm, pass4_core_spec,
+       core_diagnostic, diagnostic_pass, diagnostic_formalin_time,
+       diagnostic_glut_time, core_oct, oct_pass, oct_time,
+       core_hypo_cryo, cryo_hypo_pass, hypo_time, cryo_time,
+       core_rna, rna_pass, rna_time
+) %>%
+  filter((visit %in% c("baseline") & baseline_bx == "y") | (visit %in% c("post_treatment") & followup_bx == "y")) %>%
+  left_join(harm_dat_recid_bx) %>%
+  rowwise() %>%
+  mutate(pass1_time = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_time, T ~ "N/A"),
+         pass1_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_cm, T ~ 0),
+         pass1_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_cortex_cm, T ~ 0),
+         pass1_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_spec, T ~ 0),
+         pass2_time = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_time, T ~ "N/A"),
+         pass2_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_cm, T ~ 0),
+         pass2_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_cortex_cm, T ~ 0),
+         pass2_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_spec, T ~ 0),
+         pass3_time = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_time, T ~ "N/A"),
+         pass3_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_cm, T ~ 0),
+         pass3_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_cortex_cm, T ~ 0),
+         pass3_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_spec, T ~ 0),
+         pass4_time = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass3_time, T ~ "N/A"),
+         pass4_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_cm, T ~ 0),
+         pass4_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_cortex_cm, T ~ 0),
+         pass4_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_spec, T ~ 0)) %>%
+  ungroup()
+
+```
+
+# RCT
+
+```{r, message=F, warning=F, echo=F}
+# rct
+harm_dat_recid_rct <- harm_dat %>%
+  filter(study == "harm_dat_recid") %>%
+  filter(procedure == "renal_clearance_testing") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
+rct <- harm_dat_recid %>%
+  dplyr::select(record_id, visit, mrn,
+                gfr_raw_plasma, gfr_bsa_plasma,
+       erpf_raw_plasma, erpf_bsa_plasma
+) %>%
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(harm_dat_recid_rct)
+
+```
