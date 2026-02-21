@@ -1,17 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=scD3_sim_analyze
+#SBATCH --array=1-5000%20
+#SBATCH --array=5001-10000%20
+#SBATCH --array=10001-15000%20
+#SBATCH --array=15001-21600%20
+#SBATCH --time=02:00:00
+#SBATCH --mem=32G             # simulate + run all 3 methods in memory
+#SBATCH --cpus-per-task=4
+#SBATCH --partition=cpu-g2          # Adjust to your partition
+#SBATCH --account=togo              # Adjust to your account
 #SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/output/02_sim_%j.out"
 #SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/error/02_sim_%j.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G             # simulate + run all 3 methods in memory
-#SBATCH --time=02:00:00
-#SBATCH --partition=cpu-g2          # Adjust to your partition
-#SBATCH --account=togo              # Adjust to your account
-#SBATCH --array=1-21600%20   # 21,600 total tasks; max 20 running at once
-                               # Update upper bound from param_grid if needed
-                               
+
 # All I/O is via S3 (bucket: scrna).
 # param_grid.rds and reference model are read from S3.
 # Stats output files (~1 MB per task) are written to S3.

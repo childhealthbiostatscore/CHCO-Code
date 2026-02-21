@@ -92,14 +92,14 @@ opt <- parse_args(OptionParser(option_list = option_list))
 BiocParallel::register(MulticoreParam(opt$n_cores))
 
 # ── Load param grid from S3 ───────────────────────────────────────────────────
-message("── [05] Loading param_grid from S3 ──")
+message("── [03] Loading param_grid from S3 ──")
 param_grid  <- s3readRDS(
   object = paste0(S3_GRID_PFX, "param_grid.rds"),
   bucket = S3_BUCKET,
   region = ""
 )
 n_scenarios <- nrow(param_grid)
-message(sprintf("── [05] Aggregating %d tasks ──", n_scenarios))
+message(sprintf("── [03] Aggregating %d tasks ──", n_scenarios))
 
 # ── Metric computation ────────────────────────────────────────────────────────
 compute_metrics <- function(stats_df, fdr_thr) {
@@ -220,7 +220,7 @@ benchmark_avg <- benchmark_raw %>%
   )
 
 # ── Save to S3 ────────────────────────────────────────────────────────────────
-message("── [05] Saving benchmark outputs to S3 ──")
+message("── [03] Saving benchmark outputs to S3 ──")
 
 s3saveRDS(benchmark_raw,
            object = paste0(S3_BENCH_PFX, "benchmark_raw.rds"),
@@ -244,6 +244,6 @@ s3write_using_region(
 )
 message("  benchmark_avg.csv saved to S3")
 
-message("── [05] Done ──")
+message("── [03] Done ──")
 message(sprintf("  Unique scenario x method rows: %d", nrow(benchmark_avg)))
 print(head(benchmark_avg, 6))
