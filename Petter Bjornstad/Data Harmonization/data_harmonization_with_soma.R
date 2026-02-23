@@ -65,20 +65,20 @@ library(lubridate)
 library(dplyr)
 
 # Step 1: Convert date columns safely
-clean_test <- clean %>%
+clean <- clean %>%
   mutate(
     dob = suppressWarnings(parse_date_time(dob, orders = c("ymd", "mdy", "dmy"))),
     date = suppressWarnings(parse_date_time(date, orders = c("ymd", "mdy", "dmy")))
   )
 
 # Step 2: Compute age in months
-clean_test <- clean_test %>%
+clean <- clean %>%
   mutate(
     age_mo = as.numeric(difftime(date, dob, units = "days")) / 30.44
   )
 
-# Step 3: clean_test numeric columns (force conversion and drop bad rows)
-clean_test <- clean_test %>%
+# Step 3: clean numeric columns (force conversion and drop bad rows)
+clean <- clean %>%
   mutate(
     age_mo = as.numeric(age_mo),
     weight = as.numeric(weight),
@@ -87,7 +87,7 @@ clean_test <- clean_test %>%
   )
 
 # Step 4: Keep only valid entries
-bmi_input <- clean_test %>%
+bmi_input <- clean %>%
   filter(!is.na(sex) & !is.na(age_mo) & !is.na(weight) & !is.na(height) & !is.na(bmi))
 
 cat("📊 Using", nrow(bmi_input), "records with complete BMI input data.\n")
@@ -105,9 +105,8 @@ bmi_percentile <- growthcleanr::ext_bmiz(
   filter(!is.na(bmip))
 
 # Step 6: Merge results into harmonized dataset
-clean_test <- clean_test %>%
+clean <- clean %>%
   left_join(bmi_percentile, by = c("record_id", "visit", "date", "procedure"))
-
 
 # Save clinical harmonized dataset
 write.csv(clean, 
