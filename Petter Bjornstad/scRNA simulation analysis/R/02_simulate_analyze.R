@@ -94,9 +94,9 @@ setup_s3 <- function() {
 setup_s3()
 
 # S3 paths
-S3_BUCKET  <- "scrna"
-S3_BASE    <- "Projects/Paired scRNA simulation analysis/results/"
-S3_REF_PFX <- paste0(S3_BASE, "reference/")
+S3_BUCKET   <- "scrna"
+S3_BASE     <- "Projects/Paired scRNA simulation analysis/results/"
+S3_REF_PFX  <- paste0(S3_BASE, "reference/")
 S3_GRID_PFX <- paste0(S3_BASE, "param_grid/")
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
@@ -117,11 +117,11 @@ if (is.null(opt$array_id)) stop("--array_id is required")
 # Seed is array_id so each task is reproducible and unique
 set.seed(opt$array_id)
 message(sprintf("  Seed set to: %d (= array_id)", opt$array_id))
-register(MulticoreParam(opt$n_cores))
+BiocParallel::register(BiocParallel::MulticoreParam(opt$n_cores))
 
 # Per-task S3 output prefix
-arr_str  <- sprintf("array_%05d", opt$array_id)
-S3_OUT   <- paste0(S3_BASE, "stats/", arr_str, "/")
+arr_str <- sprintf("array_%05d", opt$array_id)
+S3_OUT  <- paste0(S3_BASE, "stats/", arr_str, "/")
 
 message(sprintf("══ [02] array_id=%d  pid=%d ══", opt$array_id, Sys.getpid()))
 
@@ -137,12 +137,16 @@ param_grid <- s3readRDS(
 params <- param_grid[opt$array_id, ]
 
 message("  Loading reference model from S3...")
-fit_obj   <- s3readRDS(object = paste0(S3_REF_PFX, "scdesign3_fit.rds"),
-                       bucket = S3_BUCKET, region = "")
-hvg_genes <- s3readRDS(object = paste0(S3_REF_PFX, "hvg_genes.rds"),
-                       bucket = S3_BUCKET, region = "")
-sce_ref   <- s3readRDS(object = paste0(S3_REF_PFX, "sce_ref.rds"),
-                       bucket = S3_BUCKET, region = "")
+fit_obj      <- s3readRDS(object = paste0(S3_REF_PFX, "scdesign3_fit.rds"),
+                          bucket = S3_BUCKET, region = "")
+hvg_genes    <- s3readRDS(object = paste0(S3_REF_PFX, "hvg_genes.rds"),
+                          bucket = S3_BUCKET, region = "")
+sce_ref      <- s3readRDS(object = paste0(S3_REF_PFX, "sce_ref.rds"),
+                          bucket = S3_BUCKET, region = "")
+ref_data     <- s3readRDS(object = paste0(S3_REF_PFX, "construct_data.rds"),
+                          bucket = S3_BUCKET, region = "")
+# ref_data$dat           -- input data.frame for extract_para() and simu_new()
+# ref_data$filtered_gene -- genes filtered in construct_data(), for simu_new()
 
 n_genes <- length(hvg_genes)  # 2000
 
@@ -151,11 +155,12 @@ message(sprintf("  Scenario: %s  rep=%d", params$scenario_id, params$sim_rep))
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. BUILD CELL-LEVEL DESIGN
 #
-# n_subjects_per_arm subjects in each of 2 arms, each with PRE + POST visit.
+# n_subjects_per_arm subjects in each of 2 arms (groupA / groupB),
+# each with timepoint1 + timepoint2 visit (paired design).
 # Cells per subject drawn from N(cells_mean, cells_sd^2), clipped to >= 50.
 # ─────────────────────────────────────────────────────────────────────────────
-treatments <- c("Placebo", "Dapagliflozin")
-visits     <- c("PRE", "POST")
+treatments <- c("groupB", "groupA")
+visits     <- c("timepoint1", "timepoint2")
 
 make_subject_cells <- function(subj_id, trt, cells_mean, cells_sd) {
   # Each subject has cells from BOTH visits; split roughly 50/50 between visits
@@ -166,7 +171,7 @@ make_subject_cells <- function(subj_id, trt, cells_mean, cells_sd) {
   data.frame(
     subject_id = rep(subj_id, n_total),
     treatment  = rep(trt,     n_total),
-    visit      = c(rep("PRE", n_pre), rep("POST", n_post)),
+    visit      = c(rep("timepoint1", n_pre), rep("timepoint2", n_post)),
     stringsAsFactors = FALSE
   )
 }
@@ -175,15 +180,15 @@ cell_list <- lapply(treatments, function(trt) {
   lapply(seq_len(params$n_subjects_per_arm), function(j) {
     # Subject ID encodes arm and subject number
     subj <- sprintf("%s_S%02d",
-                    ifelse(trt == "Dapagliflozin", "Dapa", "Plac"), j)
+                    ifelse(trt == "groupA", "grpA", "grpB"), j)
     make_subject_cells(subj, trt, params$cells_mean, params$cells_sd)
   })
 })
 new_covariate <- do.call(rbind, do.call(c, cell_list))
 new_covariate$visit     <- factor(new_covariate$visit,
-                                  levels = c("PRE", "POST"))
+                                  levels = c("timepoint1", "timepoint2"))
 new_covariate$treatment <- factor(new_covariate$treatment,
-                                  levels = c("Placebo", "Dapagliflozin"))
+                                  levels = c("groupB", "groupA"))
 new_covariate$celltype  <- unique(sce_ref$celltype)[1]
 
 n_cells_total <- nrow(new_covariate)
@@ -194,8 +199,8 @@ message(sprintf("  Cells: %d  |  Subjects: %d (%d per arm x 2 arms)",
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. GROUND TRUTH: ASSIGN DE GENES AND TRUE INTERACTION EFFECTS
 # ─────────────────────────────────────────────────────────────────────────────
-n_de    <- round(params$prop_de * n_genes)
-de_idx  <- if (n_de > 0) sample(seq_len(n_genes), n_de) else integer(0)
+n_de   <- round(params$prop_de * n_genes)
+de_idx <- if (n_de > 0) sample(seq_len(n_genes), n_de) else integer(0)
 
 beta_int_true <- numeric(n_genes)
 if (n_de > 0) {
@@ -212,9 +217,13 @@ truth_df <- data.frame(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. MODIFY scDesign3 MODEL: inject DE signal + individual-level variance
+#
+# Factor levels in sce_ref colData are:
+#   visit:     c("timepoint1", "timepoint2")  -> reference = "timepoint1"
+#   treatment: c("groupB", "groupA")          -> reference = "groupB"
+# So the interaction coefficient is: "visittimepoint2:treatmentgroupA"
 # ─────────────────────────────────────────────────────────────────────────────
-# The interaction coefficient name in scDesign3/mgcv output:
-COEF_INT <- "visitPOST:treatmentDapagliflozin"
+COEF_INT <- "visittimepoint2:treatmentgroupA"
 
 modify_gene_model <- function(gm, beta_int, iv_factor) {
   if (!is.null(gm$fit)) {
@@ -244,7 +253,7 @@ modified_marginal <- bplapply(
   function(g) modify_gene_model(fit_obj$marginal_list[[g]],
                                 beta_int  = beta_int_true[g],
                                 iv_factor = params$indiv_var_factor),
-  BPPARAM = MulticoreParam(opt$n_cores)
+  BPPARAM = BiocParallel::MulticoreParam(opt$n_cores)
 )
 names(modified_marginal) <- names(fit_obj$marginal_list)
 
@@ -265,24 +274,57 @@ if (!is.null(modified_copula)) fit_mod$copula_list <- modified_copula
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. SIMULATE COUNTS (held in memory only)
+#
+# scDesign3 modular API:
+#   extract_para()  -- converts marginal_list -> parameter matrices
+#   simu_new()      -- uses parameter matrices + copula to generate counts
 # ─────────────────────────────────────────────────────────────────────────────
 t_sim <- proc.time()
-message("  Simulating counts...")
+message("  Extracting parameters from modified model...")
 
-sim_result <- tryCatch(
-  simulate_new_data(
-    fitted_model      = fit_mod,
-    n_cores           = opt$n_cores,
-    parallelization   = "pbmcapply",
-    BPPARAM           = MulticoreParam(opt$n_cores),
-    new_covariate     = new_covariate,
-    family_use        = "nb",
-    important_feature = "all",
-    nonnegative       = TRUE,
-    set_zero_prob     = TRUE
+sim_para <- tryCatch(
+  extract_para(
+    sce           = sce_ref,
+    marginal_list = fit_mod$marginal_list,
+    n_cores       = opt$n_cores,
+    family_use    = "nb",
+    new_covariate = new_covariate,
+    data          = ref_data$dat
   ),
   error = function(e) {
-    message("  ERROR in simulate_new_data: ", conditionMessage(e))
+    message("  ERROR in extract_para: ", conditionMessage(e))
+    NULL
+  }
+)
+
+if (is.null(sim_para)) {
+  s3saveRDS(list(error    = "extract_para failed",
+                 params   = params,
+                 array_id = opt$array_id),
+            object = paste0(S3_OUT, "error.rds"),
+            bucket = S3_BUCKET,
+            region = "")
+  quit(status = 1)
+}
+
+message("  Simulating counts with simu_new()...")
+sim_result <- tryCatch(
+  simu_new(
+    sce               = sce_ref,
+    mean_mat          = sim_para$mean_mat,
+    sigma_mat         = sim_para$sigma_mat,
+    zero_mat          = sim_para$zero_mat,
+    quantile_mat      = NULL,
+    copula_list       = fit_mod$copula_list,
+    n_cores           = opt$n_cores,
+    family_use        = "nb",
+    input_data        = ref_data$dat,
+    new_covariate     = new_covariate,
+    important_feature = fit_obj$important_feature,
+    filtered_gene     = ref_data$filtered_gene
+  ),
+  error = function(e) {
+    message("  ERROR in simu_new: ", conditionMessage(e))
     NULL
   }
 )
@@ -290,12 +332,12 @@ sim_result <- tryCatch(
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
 if (is.null(sim_result)) {
-  s3saveRDS(list(error = "simulate_new_data failed",
-                  params = params,
-                  array_id = opt$array_id),
-             object = paste0(S3_OUT, "error.rds"),
-             bucket = S3_BUCKET,
-             region = "")
+  s3saveRDS(list(error    = "simu_new failed",
+                 params   = params,
+                 array_id = opt$array_id),
+            object = paste0(S3_OUT, "error.rds"),
+            bucket = S3_BUCKET,
+            region = "")
   quit(status = 1)
 }
 
@@ -304,15 +346,15 @@ if (is.null(rownames(counts))) rownames(counts) <- hvg_genes
 message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
-# Free heavy objects no longer needed
-rm(fit_mod, modified_marginal, modified_copula, sim_result)
+# Free heavy objects no longer needed (ref_data retained only as long as needed above)
+rm(fit_mod, modified_marginal, modified_copula, sim_result, sim_para, ref_data)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. HELPER: tidy results and join ground truth
 # ─────────────────────────────────────────────────────────────────────────────
 tidy_join <- function(gene, logfc, pval) {
-  df <- data.frame(gene     = gene,
+  df <- data.frame(gene      = gene,
                    logFC_int = logfc,
                    pval_int  = pval,
                    padj_int  = p.adjust(pval, method = "BH"),
@@ -329,16 +371,18 @@ message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 nebula_stats <- tryCatch({
   lib_size    <- colSums(counts)
   size_factor <- lib_size / median(lib_size)
-
-  new_covariate$visit     <- factor(new_covariate$visit,     levels = c("PRE","POST"))
-  new_covariate$treatment <- factor(new_covariate$treatment, levels = c("Placebo","Dapagliflozin"))
-
+  
+  new_covariate$visit     <- factor(new_covariate$visit,
+                                    levels = c("timepoint1", "timepoint2"))
+  new_covariate$treatment <- factor(new_covariate$treatment,
+                                    levels = c("groupB", "groupA"))
+  
   X   <- model.matrix(~ visit * treatment, data = new_covariate)
   neb <- group_cell(count  = counts,
                     id     = new_covariate$subject_id,
                     pred   = X,
                     offset = log(size_factor))
-
+  
   fit_neb <- nebula(count   = neb$count,
                     id      = neb$id,
                     pred    = neb$pred,
@@ -346,14 +390,14 @@ nebula_stats <- tryCatch({
                     method  = opt$nebula_method,
                     ncore   = opt$n_cores,
                     verbose = FALSE)
-
-  summ     <- fit_neb$summary
-  # Robustly find interaction column (visitPOST:treatmentDapagliflozin)
-  lfc_col  <- grep("logFC.*visitPOST.*Dapa|logFC.*Dapa.*visitPOST",
-                   colnames(summ), value = TRUE)
+  
+  summ    <- fit_neb$summary
+  # Robustly find interaction column (visittimepoint2:treatmentgroupA)
+  lfc_col <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
+                  colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
-
+  
   tidy_join(gene  = rownames(summ),
             logfc = summ[[lfc_col[1]]],
             pval  = summ[[pval_col]])
@@ -372,7 +416,7 @@ message("  Aggregating pseudobulk...")
 
 # One pseudobulk sample per subject x visit
 new_covariate$pb_id <- paste(new_covariate$subject_id,
-                              new_covariate$visit, sep = "__")
+                             new_covariate$visit, sep = "__")
 unique_pbs <- unique(new_covariate$pb_id)
 
 pb_counts <- vapply(unique_pbs, function(pb) {
@@ -382,13 +426,15 @@ pb_counts <- vapply(unique_pbs, function(pb) {
 
 # Pseudobulk sample metadata
 pb_meta <- new_covariate[match(unique_pbs, new_covariate$pb_id),
-                         c("pb_id","subject_id","visit","treatment")]
+                         c("pb_id", "subject_id", "visit", "treatment")]
 rownames(pb_meta) <- unique_pbs
-pb_meta$visit     <- factor(pb_meta$visit,     levels = c("PRE","POST"))
-pb_meta$treatment <- factor(pb_meta$treatment, levels = c("Placebo","Dapagliflozin"))
+pb_meta$visit     <- factor(pb_meta$visit,
+                            levels = c("timepoint1", "timepoint2"))
+pb_meta$treatment <- factor(pb_meta$treatment,
+                            levels = c("groupB", "groupA"))
 
 # Filter low-count genes
-keep <- rowSums(pb_counts >= opt$pb_min_count) >= opt$pb_min_samples
+keep           <- rowSums(pb_counts >= opt$pb_min_count) >= opt$pb_min_samples
 pb_counts_filt <- pb_counts[keep, ]
 message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
                 ncol(pb_counts), sum(keep), nrow(pb_counts)))
@@ -406,33 +452,34 @@ deseq2_stats <- tryCatch({
   dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
                                 colData   = pb_meta,
                                 design    = ~ subject_id + visit * treatment)
-
+  
   dds <- DESeq(dds, parallel = TRUE,
-               BPPARAM  = MulticoreParam(opt$n_cores),
+               BPPARAM  = BiocParallel::MulticoreParam(opt$n_cores),
                quiet    = TRUE)
-
+  
   # Find interaction result name
   rn       <- resultsNames(dds)
-  int_name <- grep("visitPOST.*Dapa|Dapa.*visitPOST", rn, value = TRUE)
+  int_name <- grep("visittimepoint2.*groupA|groupA.*visittimepoint2",
+                   rn, value = TRUE)
   if (!length(int_name)) {
     message("  WARNING: DESeq2 interaction term not found; using last coef: ",
             tail(rn, 1))
     int_name <- tail(rn, 1)
   }
-
+  
   res <- results(dds, name = int_name[1], independentFiltering = FALSE)
-
+  
   # Return stats for ALL genes (NAs for filtered-out genes)
   full <- data.frame(gene      = hvg_genes,
                      logFC_int = NA_real_,
                      pval_int  = NA_real_,
                      stringsAsFactors = FALSE)
-  hit                <- match(rownames(res), full$gene)
+  hit                 <- match(rownames(res), full$gene)
   full$logFC_int[hit] <- res$log2FoldChange
   full$pval_int[hit]  <- res$pvalue
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  DESeq2 error: ", conditionMessage(e))
   NULL
@@ -451,19 +498,20 @@ edger_stats <- tryCatch({
   dge <- DGEList(counts = pb_counts_filt)
   dge <- calcNormFactors(dge)
   dge <- estimateDisp(dge, design = pb_design)
-
+  
   fit_er  <- glmQLFit(dge, design = pb_design, robust = TRUE)
-
+  
   # Identify interaction column
-  int_col <- grep("visitPOST.*Dapa|Dapa.*visitPOST", colnames(pb_design))
+  int_col <- grep("visittimepoint2.*groupA|groupA.*visittimepoint2",
+                  colnames(pb_design))
   if (!length(int_col)) {
     message("  WARNING: edgeR interaction column not found; using last column.")
     int_col <- ncol(pb_design)
   }
-
-  qlf     <- glmQLFTest(fit_er, coef = int_col[1])
-  res_er  <- topTags(qlf, n = Inf, sort.by = "none")$table
-
+  
+  qlf    <- glmQLFTest(fit_er, coef = int_col[1])
+  res_er <- topTags(qlf, n = Inf, sort.by = "none")$table
+  
   full <- data.frame(gene      = hvg_genes,
                      logFC_int = NA_real_,
                      pval_int  = NA_real_,
@@ -473,7 +521,7 @@ edger_stats <- tryCatch({
   full$pval_int[hit]  <- res_er$PValue
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  edgeR error: ", conditionMessage(e))
   NULL
@@ -493,23 +541,23 @@ timing <- c(sim    = t_sim_elapsed,
 message(sprintf("  Saving results to s3://%s/%s ...", S3_BUCKET, S3_OUT))
 
 s3saveRDS(nebula_stats,
-           object = paste0(S3_OUT, "nebula_stats.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "nebula_stats.rds"),
+          bucket = S3_BUCKET, region = "")
 s3saveRDS(deseq2_stats,
-           object = paste0(S3_OUT, "deseq2_stats.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "deseq2_stats.rds"),
+          bucket = S3_BUCKET, region = "")
 s3saveRDS(edger_stats,
-           object = paste0(S3_OUT, "edger_stats.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "edger_stats.rds"),
+          bucket = S3_BUCKET, region = "")
 s3saveRDS(timing,
-           object = paste0(S3_OUT, "timing.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "timing.rds"),
+          bucket = S3_BUCKET, region = "")
 s3saveRDS(truth_df,
-           object = paste0(S3_OUT, "truth.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "truth.rds"),
+          bucket = S3_BUCKET, region = "")
 s3saveRDS(params,
-           object = paste0(S3_OUT, "params.rds"),
-           bucket = S3_BUCKET, region = "")
+          object = paste0(S3_OUT, "params.rds"),
+          bucket = S3_BUCKET, region = "")
 
 total_elapsed <- sum(timing)
 message(sprintf(
