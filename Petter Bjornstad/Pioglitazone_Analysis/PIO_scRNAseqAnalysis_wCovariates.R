@@ -863,8 +863,8 @@ for (ct in celltypes_vec) {
     sig_wide <- Filter(Negate(is.null), sig_wide)
     if (length(sig_wide) == 0) next
     
-    merged_wide <- Reduce(function(a, b) full_join(a, b, by = c("pathway", "pathway_clean")),
-                          sig_wide)
+    merged_wide <- as.data.frame(Reduce(function(a, b) full_join(a, b, by = c("pathway", "pathway_clean")),
+                                        sig_wide))
     
     sig_cols <- paste0("sig_", COVARIATES)
     sig_cols_present <- intersect(sig_cols, names(merged_wide))
