@@ -65,20 +65,20 @@ library(lubridate)
 library(dplyr)
 
 # Step 1: Convert date columns safely
-clean <- clean %>%
+clean_test <- clean %>%
   mutate(
     dob = suppressWarnings(parse_date_time(dob, orders = c("ymd", "mdy", "dmy"))),
-    screen_date = suppressWarnings(parse_date_time(screen_date, orders = c("ymd", "mdy", "dmy")))
+    date = suppressWarnings(parse_date_time(date, orders = c("ymd", "mdy", "dmy")))
   )
 
 # Step 2: Compute age in months
-clean <- clean %>%
+clean_test <- clean_test %>%
   mutate(
-    age_mo = as.numeric(difftime(screen_date, dob, units = "days")) / 30.44
+    age_mo = as.numeric(difftime(date, dob, units = "days")) / 30.44
   )
 
-# Step 3: Clean numeric columns (force conversion and drop bad rows)
-clean <- clean %>%
+# Step 3: clean_test numeric columns (force conversion and drop bad rows)
+clean_test <- clean_test %>%
   mutate(
     age_mo = as.numeric(age_mo),
     weight = as.numeric(weight),
@@ -87,26 +87,26 @@ clean <- clean %>%
   )
 
 # Step 4: Keep only valid entries
-bmi_input <- clean %>%
+bmi_input <- clean_test %>%
   filter(!is.na(sex) & !is.na(age_mo) & !is.na(weight) & !is.na(height) & !is.na(bmi))
 
 cat("📊 Using", nrow(bmi_input), "records with complete BMI input data.\n")
 
 # Step 5: Run growthcleanr BMI z-score and percentile calculation
 bmi_percentile <- growthcleanr::ext_bmiz(
-  data = subset(bmi_input, select = c(record_id, visit, sex, age_mo, weight, height, bmi)),
+  data = subset(bmi_input, select = c(record_id, date, procedure, visit, sex, age_mo, weight, height, bmi)),
   age = "age_mo",
   wt = "weight",
   ht = "height",
   bmi = "bmi",
   adjust.integer.age = FALSE
 ) %>%
-  dplyr::select(record_id, visit, bmip, bmiz) %>%
+  dplyr::select(record_id, date, procedure, visit, bmip, bmiz) %>%
   filter(!is.na(bmip))
 
 # Step 6: Merge results into harmonized dataset
-clean <- clean %>%
-  left_join(bmi_percentile, by = c("record_id", "visit"))
+clean_test <- clean_test %>%
+  left_join(bmi_percentile, by = c("record_id", "visit", "date", "procedure"))
 
 
 # Save clinical harmonized dataset

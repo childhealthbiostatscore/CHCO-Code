@@ -158,21 +158,6 @@ def clean_improve():
     med["procedure"] = "medications"
     
     # --------------------------------------------------------------------------
-    # EPIC Medications
-    # --------------------------------------------------------------------------
-
-    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
-                                               == "epic_meds", "field_name"]]
-    epic_med = pd.DataFrame(proj.export_records(fields=var))
-    epic_med.drop(redcap_cols, axis=1, inplace=True)
-    # Replace missing values
-    epic_med.replace(rep, np.nan, inplace=True)
-    # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
-    epic_med["procedure"] = "epic_medications"
-    
-    # --------------------------------------------------------------------------
     # Physical exam
     # --------------------------------------------------------------------------
 
@@ -243,10 +228,8 @@ def clean_improve():
     mri.rename({"radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", 
                     "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
                     "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
-    mri.drop(redcap_cols + ["cardio", "abdo",
-                            "aortic", "study_visit", "study_mri",
-                            "lvedvi", "lvesvi",
-                            "lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
+    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri",
+              "lvedvi", "lvesvi","lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
              axis=1, inplace=True)
 
     mri["procedure"] = "cardio_abdominal_mri"
@@ -490,6 +473,22 @@ def clean_improve():
     biopsy["procedure"] = "kidney_biopsy"
 
     # --------------------------------------------------------------------------
+    # EPIC Medications
+    # --------------------------------------------------------------------------
+
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "epic_meds", "field_name"]]
+    epic_med = pd.DataFrame(proj.export_records(fields=var))
+    epic_med.drop(redcap_cols, axis=1, inplace=True)
+    # Replace missing values
+    epic_med.replace(rep, np.nan, inplace=True)
+    # Replace 0/1 values with yes/no
+    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
+        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med["procedure"] = "epic_medications"
+    epic_med["date"] = biopsy["date"]
+    
+    # --------------------------------------------------------------------------
     # Pavel Labs
     # --------------------------------------------------------------------------
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
@@ -497,8 +496,9 @@ def clean_improve():
     var = var + ["pavel_wbc", "pavel_neutrophil", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
     pavel = pd.DataFrame(proj.export_records(fields=var))
     pavel.replace(rep, np.nan, inplace=True)
-    pavel["procedure"] = "labs"
-    pavel["study_visit"] = "baseline"
+    pavel["study_visit"] = pavel["redcap_repeat_instance"].round().astype("Int64").astype("string")
+    pavel.drop(redcap_cols, axis=1, inplace=True)
+    pavel["procedure"] = "pavel_labs"
 
     # --------------------------------------------------------------------------
     # Astrazeneca urine metabolomics
@@ -520,11 +520,17 @@ def clean_improve():
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
                                                   == "metabolomics_blood_raw", "field_name"]]
     plasma_metab = pd.DataFrame(proj.export_records(fields=var))
+    plasma_metab["study_visit"] = (
+    pd.to_numeric(plasma_metab["redcap_repeat_instance"].astype(str).str.strip(), errors="coerce")
+      .astype("Int64")
+      .astype("string")
+    )
     plasma_metab.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
     plasma_metab.replace(rep, np.nan, inplace=True)
     plasma_metab["procedure"] = "plasma_metab"
     plasma_metab["date"] = clamp["date"]
+    
     # --------------------------------------------------------------------------
     # Lipidomics
     # --------------------------------------------------------------------------
@@ -544,11 +550,12 @@ def clean_improve():
     # --------------------------------------------------------------------------
 
     med.dropna(thresh=9, axis=0, inplace=True)
+    med = med[med['date'].notna()]
     epic_med.dropna(thresh=5, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
     accel.dropna(thresh=6, axis=0, inplace=True)
-    mri.dropna(thresh=4, axis=0, inplace=True)
+    mri.dropna(thresh=5, axis=0, inplace=True)
     mmtt.dropna(thresh=5, axis=0, inplace=True)
     dxa.dropna(thresh=4, axis=0, inplace=True)
     clamp.dropna(thresh=5, axis=0, inplace=True)
@@ -558,6 +565,7 @@ def clean_improve():
     az_u_metab.dropna(thresh=10, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
+    pavel.dropna(thresh=5, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge

@@ -394,7 +394,7 @@ def clean_crocodile():
                "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
     rct["procedure"] = "renal_clearance_testing"
     rct["visit"] = "baseline"
-
+    rct["date"] = labs["date"]
     dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'renal_clearance'
 
 
@@ -505,7 +505,7 @@ def clean_crocodile():
     var = var + ["pavel_wbc", "pavel_neutrophils", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
     pavel = pd.DataFrame(proj.export_records(fields=var))
     pavel.replace(rep, np.nan, inplace=True)
-    pavel["procedure"] = "labs"
+    pavel["procedure"] = "pavel_labs"
     pavel["visit"] = "baseline"
 
     # --------------------------------------------------------------------------
@@ -558,6 +558,7 @@ def clean_crocodile():
     lip.replace(rep, np.nan, inplace=True)
     lip["procedure"] = "lipidomics"
     lip["visit"] = "baseline"
+    lip["date"] = labs["date"]
     dictionary.loc[dictionary['variable_name'].isin(lip.columns), 'form_name'] = 'lipidomics'
 
     

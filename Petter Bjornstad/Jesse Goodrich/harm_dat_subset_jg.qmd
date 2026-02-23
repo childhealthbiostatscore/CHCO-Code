@@ -1,0 +1,61 @@
+---
+title: "Jesse Data Subset"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r include = F}
+library(jsonlite)
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(purrr)
+library(Hmisc)
+library(tidyr)
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+# harmonized dataset
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+
+# harm_dat_recid <- harm_dat %>%
+#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+#                    .by = c(record_id, visit))
+
+# jesse's request (ID and vars)
+jg_ids <- read.csv(file.path(root_path, "Goodrich/Data requests/sample_id.csv"))
+jg_vars <- read.csv(file.path(root_path, "Goodrich/Data requests/variables_020325.csv")) %>%
+  dplyr::filter(variable_name %nin% c("egfr_hyper_135", "mgfr_hyper_2sd", "microalbumin_u_mgdL"))
+
+harm_dat_jg <- harm_dat %>%
+  filter(record_id %in% jg_ids$record_id) %>%
+  dplyr::select(record_id, visit, procedure, date, jg_vars$variable_name)
+```
