@@ -405,6 +405,129 @@ message("Saved: ", file.path(out_dir, "volcano_plots_by_module.pdf"))
 
 
 
+# ── 7. SUMMARY HEATMAP (genes × cell types) ──────────────────────────────────
+lfc_col  <- grep("logFC.*Type_2_Diabetes", colnames(all_results_df), value = TRUE)[1]
+praw_col <- grep("^p_.*Type_2_Diabetes",   colnames(all_results_df), value = TRUE)[1]
+
+heat_df <- all_results_df %>%
+  filter(gene %in% all_genes_of_interest) %>%
+  dplyr::select(gene, celltype, all_of(c(lfc_col, praw_col))) %>%
+  rename(logFC = all_of(lfc_col), pval = all_of(praw_col))
+
+lfc_mat <- heat_df %>%
+  pivot_wider(id_cols = gene, names_from = celltype, values_from = logFC) %>%
+  tibble::column_to_rownames("gene") %>%
+  as.matrix()
+
+sig_mat <- heat_df %>%
+  pivot_wider(id_cols = gene, names_from = celltype, values_from = pval) %>%
+  tibble::column_to_rownames("gene") %>%
+  as.matrix()
+sig_labels <- ifelse(sig_mat < 0.05, "*", "")
+
+row_annot <- data.frame(
+  Module = case_when(
+    rownames(lfc_mat) %in% mcu_complex_genes       ~ "MCU complex",
+    rownames(lfc_mat) %in% calcium_signaling_genes ~ "Ca2+ signaling",
+    rownames(lfc_mat) %in% tca_cycle_genes         ~ "TCA cycle",
+    rownames(lfc_mat) %in% pyruvate_genes          ~ "Pyruvate",
+    TRUE                                            ~ "Other"
+  ),
+  row.names = rownames(lfc_mat)
+)
+
+annot_colors <- list(Module = c("MCU complex"    = "#E63946",
+                                "Ca2+ signaling" = "#F4A261",
+                                "TCA cycle"      = "#2A9D8F",
+                                "Pyruvate"       = "#457B9D"))
+
+pheatmap(lfc_mat,
+         display_numbers   = sig_labels,
+         fontsize_number   = 10,
+         cluster_rows      = TRUE,
+         cluster_cols      = TRUE,
+         annotation_row    = row_annot,
+         annotation_colors = annot_colors,
+         color             = colorRampPalette(c("#457B9D", "white", "#E63946"))(100),
+         breaks            = seq(-2, 2, length.out = 101),
+         na_col            = "grey90",
+         main              = "NEBULA logFC (T2D vs Lean Control) – MCU / Ca2+ / TCA / Pyruvate",
+         filename          = file.path(out_dir, "heatmap_all_celltypes.pdf"),
+         width = 12, height = 14)
+
+# ── 8. PANELLED VOLCANO PLOTS (one file, one panel per gene module) ───────────
+# Each page of the PDF = one cell type; each page has 4 panels (one per module)
+
+module_list <- list(
+  "MCU complex"    = mcu_complex_genes,
+  "Ca2+ signaling" = calcium_signaling_genes,
+  "TCA cycle"      = tca_cycle_genes,
+  "Pyruvate"       = pyruvate_genes
+)
+
+module_colors <- c("MCU complex"    = "#E63946",
+                   "Ca2+ signaling" = "#F4A261",
+                   "TCA cycle"      = "#2A9D8F",
+                   "Pyruvate"       = "#457B9D")
+
+make_module_volcano <- function(df, ct, module_name, genes_in_module,
+                                lfc_col, padj_col,
+                                fc_cutoff = 0.25, p_cutoff = 0.05) {
+  sub_df <- df %>%
+    filter(celltype == ct, gene %in% genes_in_module) %>%
+    mutate(
+      logFC      = .data[[lfc_col]],
+      neg_log10p = -log10(.data[[padj_col]]),
+      sig        = .data[[padj_col]] < p_cutoff & abs(.data[[lfc_col]]) > fc_cutoff,
+      label      = ifelse(sig, gene, NA)
+    )
+  
+  if (nrow(sub_df) == 0) return(NULL)
+  
+  ggplot(sub_df, aes(x = logFC, y = neg_log10p, label = label)) +
+    geom_point(aes(color = sig), size = 2.5, alpha = 0.85) +
+    geom_text_repel(size = 2.8, max.overlaps = 20, na.rm = TRUE) +
+    geom_vline(xintercept = c(-fc_cutoff, fc_cutoff), linetype = "dashed", color = "grey60") +
+    geom_hline(yintercept = -log10(p_cutoff),          linetype = "dashed", color = "grey60") +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = module_colors[[module_name]]),
+                       guide = "none") +
+    labs(title = module_name,
+         x     = "log fold change",
+         y     = expression(-log[10](p[raw]))) +
+    theme_bw(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", color = module_colors[[module_name]]))
+}
+
+pdf(file.path(out_dir, "volcano_plots_by_module.pdf"), width = 14, height = 10)
+
+for (ct in unique(all_results_df$celltype)) {
+  plots <- lapply(names(module_list), function(mod) {
+    make_module_volcano(
+      df             = all_results_df,
+      ct             = ct,
+      module_name    = mod,
+      genes_in_module= module_list[[mod]],
+      lfc_col        = lfc_col,
+      padj_col       = praw_col
+    )
+  })
+  
+  # drop any NULL panels (modules with no genes in this cell type)
+  plots <- Filter(Negate(is.null), plots)
+  
+  if (length(plots) > 0) {
+    combined <- patchwork::wrap_plots(plots, ncol = 2) +
+      patchwork::plot_annotation(
+        title    = paste0(ct, "  –  T2D vs Lean Control"),
+        subtitle = "NEBULA-NBLMM  |  colour = p < 0.05 & |logFC| > 0.25",
+        theme    = theme(plot.title = element_text(size = 14, face = "bold"))
+      )
+    print(combined)
+  }
+}
+
+dev.off()
+message("Saved: ", file.path(out_dir, "volcano_plots_by_module.pdf"))
 
 
 
