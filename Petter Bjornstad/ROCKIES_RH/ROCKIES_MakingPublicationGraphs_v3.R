@@ -292,7 +292,7 @@ plot_delta_corr <- function(data, id_col, trt_col, xvar, yvar,
     annotate("text", x = min(deltas$dx) + diff(range(deltas$dx)) * 0.02,
              y = max(deltas$dy) - diff(range(deltas$dy)) * 0.02,
              label = lab, hjust = 0, size = 3, fontface = "italic") +
-    labs(x = paste0("\u0394 ", xlab), y = paste0("\u0394 ", ylab), tag = tag) +
+    labs(x = bquote(bold(Delta ~ .(xlab))), y = bquote(bold(Delta ~ .(ylab))), tag = tag) +
     theme_rockies
 }
 
@@ -335,127 +335,23 @@ plot_two_group <- function(data, group_var, value_var,
 # =====================================================================
 # Panel A: Study Design Diagram (generated in R)
 # =====================================================================
+library(png)
+fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan.png", "A")
 
-fig1a <- ggplot() +
-  xlim(0, 16) + ylim(0, 10) +
-  annotate("text", x = 8, y = 9.7, label = "ROCKIES Trial Design (NCT04027530)",
-           size = 4.5, fontface = "bold", family = "sans") +
-  annotate("text", x = 8, y = 9.25,
-           label = "Randomized, Double-Blind, Placebo-Controlled Crossover",
-           size = 3.2, fontface = "italic", family = "sans", color = "gray30") +
-  # Screening box
-  annotate("rect", xmin = 0.3, xmax = 2.5, ymin = 5.7, ymax = 7.3,
-           fill = "#F0F0F0", color = "gray40", linewidth = 0.6) +
-  annotate("text", x = 1.4, y = 6.8, label = "Screening &\nRandomization",
-           size = 2.8, fontface = "bold", lineheight = 0.9) +
-  annotate("text", x = 1.4, y = 6.1, label = "n = 20\nT2D adults",
-           size = 2.4, color = "gray30", lineheight = 0.9) +
-  # Arrow to R
-  annotate("segment", x = 2.5, xend = 3.3, y = 6.5, yend = 6.5,
-           arrow = arrow(length = unit(0.15, "cm"), type = "closed"), linewidth = 0.7) +
-  # Randomization circle
-  annotate("point", x = 3.5, y = 6.5, size = 8, shape = 21,
-           fill = "#2C3E50", color = "#2C3E50") +
-  annotate("text", x = 3.5, y = 6.5, label = "R",
-           size = 3.5, fontface = "bold", color = "white") +
-  # --- Sequence 1 (top): Ertu -> Washout -> Placebo ---
-  annotate("segment", x = 3.5, xend = 4.2, y = 6.9, yend = 8.0, linewidth = 0.6) +
-  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 7.4, ymax = 8.6,
-           fill = "#E74C3C", color = "#C0392B", linewidth = 0.6, alpha = 0.15) +
-  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 7.4, ymax = 8.6,
-           fill = NA, color = "#C0392B", linewidth = 0.6) +
-  annotate("text", x = 5.6, y = 8.25, label = "Ertugliflozin 15 mg",
-           size = 2.8, fontface = "bold", color = "#C0392B") +
-  annotate("text", x = 5.6, y = 7.75, label = "4 weeks", size = 2.5, color = "#C0392B") +
-  annotate("point", x = 6.7, y = 7.55, size = 2, shape = 17, color = "#C0392B") +
-  annotate("segment", x = 7.0, xend = 7.8, y = 8.0, yend = 8.0,
-           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
-           linewidth = 0.5, color = "gray40") +
-  annotate("rect", xmin = 7.8, xmax = 9.8, ymin = 7.4, ymax = 8.6,
-           fill = "#F9F9F9", color = "gray50", linewidth = 0.5, linetype = "dashed") +
-  annotate("text", x = 8.8, y = 8.25, label = "Washout",
-           size = 2.6, fontface = "italic", color = "gray40") +
-  annotate("text", x = 8.8, y = 7.75, label = "6 weeks", size = 2.4, color = "gray40") +
-  annotate("segment", x = 9.8, xend = 10.6, y = 8.0, yend = 8.0,
-           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
-           linewidth = 0.5, color = "gray40") +
-  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 7.4, ymax = 8.6,
-           fill = "#4A90D9", color = "#2E6DA4", linewidth = 0.6, alpha = 0.15) +
-  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 7.4, ymax = 8.6,
-           fill = NA, color = "#2E6DA4", linewidth = 0.6) +
-  annotate("text", x = 12.0, y = 8.25, label = "Matching Placebo",
-           size = 2.8, fontface = "bold", color = "#2E6DA4") +
-  annotate("text", x = 12.0, y = 7.75, label = "4 weeks", size = 2.5, color = "#2E6DA4") +
-  annotate("point", x = 13.1, y = 7.55, size = 2, shape = 17, color = "#2E6DA4") +
-  # --- Sequence 2 (bottom): Placebo -> Washout -> Ertu ---
-  annotate("segment", x = 3.5, xend = 4.2, y = 6.1, yend = 5.0, linewidth = 0.6) +
-  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 4.4, ymax = 5.6,
-           fill = "#4A90D9", color = "#2E6DA4", linewidth = 0.6, alpha = 0.15) +
-  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 4.4, ymax = 5.6,
-           fill = NA, color = "#2E6DA4", linewidth = 0.6) +
-  annotate("text", x = 5.6, y = 5.25, label = "Matching Placebo",
-           size = 2.8, fontface = "bold", color = "#2E6DA4") +
-  annotate("text", x = 5.6, y = 4.75, label = "4 weeks", size = 2.5, color = "#2E6DA4") +
-  annotate("point", x = 6.7, y = 4.55, size = 2, shape = 17, color = "#2E6DA4") +
-  annotate("segment", x = 7.0, xend = 7.8, y = 5.0, yend = 5.0,
-           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
-           linewidth = 0.5, color = "gray40") +
-  annotate("rect", xmin = 7.8, xmax = 9.8, ymin = 4.4, ymax = 5.6,
-           fill = "#F9F9F9", color = "gray50", linewidth = 0.5, linetype = "dashed") +
-  annotate("text", x = 8.8, y = 5.25, label = "Washout",
-           size = 2.6, fontface = "italic", color = "gray40") +
-  annotate("text", x = 8.8, y = 4.75, label = "6 weeks", size = 2.4, color = "gray40") +
-  annotate("segment", x = 9.8, xend = 10.6, y = 5.0, yend = 5.0,
-           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
-           linewidth = 0.5, color = "gray40") +
-  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 4.4, ymax = 5.6,
-           fill = "#E74C3C", color = "#C0392B", linewidth = 0.6, alpha = 0.15) +
-  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 4.4, ymax = 5.6,
-           fill = NA, color = "#C0392B", linewidth = 0.6) +
-  annotate("text", x = 12.0, y = 5.25, label = "Ertugliflozin 15 mg",
-           size = 2.8, fontface = "bold", color = "#C0392B") +
-  annotate("text", x = 12.0, y = 4.75, label = "4 weeks", size = 2.5, color = "#C0392B") +
-  annotate("point", x = 13.1, y = 4.55, size = 2, shape = 17, color = "#C0392B") +
-  # --- End-of-Period Assessments box ---
-  annotate("segment", x = 13.4, xend = 14.0, y = 8.0, yend = 6.9, linewidth = 0.5, color = "gray40") +
-  annotate("segment", x = 13.4, xend = 14.0, y = 5.0, yend = 6.1, linewidth = 0.5, color = "gray40") +
-  annotate("rect", xmin = 13.8, xmax = 15.8, ymin = 5.0, ymax = 8.0,
-           fill = "#F5F5DC", color = "#8B7D3C", linewidth = 0.6) +
-  annotate("text", x = 14.8, y = 7.65, label = "End-of-Period",
-           size = 2.5, fontface = "bold", color = "#5D4E37") +
-  annotate("text", x = 14.8, y = 7.3, label = "Assessments",
-           size = 2.5, fontface = "bold", color = "#5D4E37") +
-  annotate("text", x = 14.8, y = 6.4,
-           label = "\u2022 \u00B9\u00B9C-Acetate PET/CT\n\u2022 OGTT\n\u2022 mGFR (iohexol)\n\u2022 ERPF (PAH)\n\u2022 24-hr urine",
-           size = 2.1, lineheight = 1.1, hjust = 0.5, color = "#5D4E37") +
-  # --- Labels ---
-  annotate("text", x = 3.9, y = 8.5, label = "Sequence 1",
-           size = 2.3, fontface = "italic", color = "gray50") +
-  annotate("text", x = 3.9, y = 4.5, label = "Sequence 2",
-           size = 2.3, fontface = "italic", color = "gray50") +
-  annotate("text", x = 5.6, y = 3.7, label = "Period 1",
-           size = 2.8, fontface = "bold", color = "gray40") +
-  annotate("text", x = 8.8, y = 3.7, label = "Washout",
-           size = 2.8, fontface = "bold", color = "gray40") +
-  annotate("text", x = 12.0, y = 3.7, label = "Period 2",
-           size = 2.8, fontface = "bold", color = "gray40") +
-  # Timeline
-  annotate("segment", x = 4.2, xend = 13.4, y = 3.3, yend = 3.3, linewidth = 0.6, color = "gray50") +
-  annotate("segment", x = 4.2, xend = 4.2, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("segment", x = 7.0, xend = 7.0, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("segment", x = 7.8, xend = 7.8, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("segment", x = 9.8, xend = 9.8, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("segment", x = 10.6, xend = 10.6, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("segment", x = 13.4, xend = 13.4, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
-  annotate("text", x = 4.2, y = 2.9, label = "Wk 0", size = 2.2, color = "gray50") +
-  annotate("text", x = 7.0, y = 2.9, label = "Wk 4", size = 2.2, color = "gray50") +
-  annotate("text", x = 9.8, y = 2.9, label = "Wk 10", size = 2.2, color = "gray50") +
-  annotate("text", x = 13.4, y = 2.9, label = "Wk 14", size = 2.2, color = "gray50") +
-  annotate("point", x = 5.0, y = 2.3, size = 2, shape = 17, color = "gray40") +
-  annotate("text", x = 5.5, y = 2.3, label = "= End-of-period assessment visit",
-           size = 2.2, hjust = 0, color = "gray40") +
-  theme_void() +
-  theme(plot.margin = margin(5, 5, 5, 5))
+load_image_panel <- function(path, tag) {
+  ext <- tolower(tools::file_ext(path))
+  if (!file.exists(path)) {
+    message(sprintf("Image not found: %s — placeholder used", path))
+    return(ggplot() +
+             annotate("text", x=0.5, y=0.5, label=paste0("Panel ",tag,"\n(file not found)"),
+                      size=4, color="gray50") + theme_void() + labs(tag=tag))
+  }
+  img <- if (ext %in% c("jpg","jpeg")) jpeg::readJPEG(path) else png::readPNG(path)
+  ggplot() +
+    annotation_raster(img, xmin=0, xmax=1, ymin=0, ymax=1) +
+    xlim(0,1) + ylim(0,1) + theme_void() + labs(tag=tag) +
+    theme(plot.margin=margin(5,5,5,5))
+}
 
 # =====================================================================
 # Panel B: PET Methodology Diagram (external PNG)
@@ -488,20 +384,17 @@ fig1e <- plot_corr(rockies_plac, "tna_sodium", "medullary_k2",
                    expression(bold("Medullary k"[2]*" (min"^{-1}*")")),
                    "E", point_col = cols$placebo)
 
-# --- Panel F: Placeholder (urinary metabolomics, separate data) ---
-fig1f <- ggplot() +
-  annotate("text", x = 0.5, y = 0.5,
-           label = "Panel F\nUrinary Metabolomics\n(separate data needed)",
-           size = 4, color = "gray50") +
-  theme_void() + labs(tag = "F")
+library(jpeg)
+fig1f <- load_image_panel(
+  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg", "F")
 
 # --- Panel G: Cortical k2 paired ---
 fig1g <- plot_paired(rockies_long, "id", "treatment", "cortical_k2",
                      expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "G")
 
-# --- Panel H: Medullary k2 paired ---
-fig1h <- plot_paired(rockies_long, "id", "treatment", "medullary_k2",
-                     expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "H")
+# --- Panel H: Cortical k2/F paired ---
+fig1h <- plot_paired(rockies_long, "id", "treatment", "cortical_k2f",
+                     expression(bold("Cortical k"[2]*"/F")), "H")
 
 # --- Panel I: Delta OGIS vs Delta cortical k2 ---
 fig1i <- plot_delta_corr(rockies_long, "id", "treatment",
@@ -537,35 +430,20 @@ fig1m <- plot_delta_corr(rockies_long, "id", "treatment",
 
 
 # --- Assemble Figure 1 ---
-# Row 1: A (study design) and B (PET diagram)
-# Row 2: C, D, E (placebo correlations)
-# Row 3: G, H and placeholder for F
-# Row 4: I, J (delta correlations)
-
 row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
 row2 <- fig1c | fig1d | fig1e
-row3 <- fig1f | fig1g | fig1h
-row4 <- fig1i | fig1j | plot_spacer()
+row3 <- (fig1f + labs(tag = "F")) | plot_spacer() | plot_spacer()
+row4 <- fig1g | fig1h | fig1i | fig1j
+row5 <- fig1k | fig1l | fig1m
 
-fig1 <- row1 / row2 / row3 / row4 +
-  plot_layout(heights = c(2.5, 2, 2, 2)) +
+fig1 <- row1 / row2 / row3 / row4 / row5 +
+  plot_layout(heights = c(3, 2, 2, 2, 2)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
-    theme = theme(plot.title = element_text(size = 12, face = "bold", hjust = 0.5))
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
   )
 
-save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 18)
-
-# Save individual panels for Illustrator
-save_fig(fig1c, "Figure1C_cortical_k2_vs_HOMAIR", width = 5, height = 4.5)
-save_fig(fig1d, "Figure1D_cortical_k2F_vs_HOMAIR", width = 5, height = 4.5)
-save_fig(fig1e, "Figure1E_medullary_k2_vs_TNa", width = 5, height = 4.5)
-save_fig(fig1g, "Figure1G_cortical_k2_paired", width = 4.5, height = 5)
-save_fig(fig1h, "Figure1H_medullary_k2_paired", width = 4.5, height = 5)
-save_fig(fig1i, "Figure1I_delta_OGIS_vs_delta_cortical_k2", width = 5, height = 4.5)
-save_fig(fig1j, "Figure1J_delta_OGIS_vs_delta_medullary_k2", width = 5, height = 4.5)
-
-cat("Figure 1 saved!\n")
+save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 22)
 
 ########################################################################
 # =====================================================================
