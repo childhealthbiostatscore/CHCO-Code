@@ -86,12 +86,29 @@ save_fig <- function(plot, name, width, height, dpi = 300) {
 # =====================================================================
 # ROCKIES trial data — Dutch CSV: semicolon sep, comma decimal
 # =====================================================================
+# Read the raw file
 rockies_wide <- read.csv2(
   "C:/Users/netio/Downloads/PET data ROCKIES variables(Blad1).csv",
   stringsAsFactors = FALSE,
   check.names = FALSE
 )
 
+names(rockies_wide) <- make.names(trimws(names(rockies_wide)))
+
+# Convert all columns: remove tab separators, replace comma decimals
+rockies_wide <- rockies_wide %>%
+  mutate(across(everything(), ~ {
+    cleaned <- gsub("\t", "", as.character(.x))
+    cleaned <- gsub(",", ".", cleaned)
+    conv <- suppressWarnings(as.numeric(cleaned))
+    if (sum(!is.na(conv)) >= sum(!is.na(.x)) * 0.3 & sum(!is.na(conv)) > 0) conv else .x
+  }))
+
+cat("=== ROCKIES columns ===\n")
+print(names(rockies_wide))
+cat("\nRows:", nrow(rockies_wide), "\n")
+cat("Group 0 (placebo-only):", sum(rockies_wide$Group == 0, na.rm = TRUE), "\n")
+cat("Group 1 (crossover):", sum(rockies_wide$Group == 1, na.rm = TRUE), "\n\n")
 names(rockies_wide) <- make.names(trimws(names(rockies_wide)))
 
 # Convert all columns: try numeric (replacing comma decimals)
@@ -229,8 +246,10 @@ plot_paired <- function(data, id_col, trt_col, val_col, ylab, tag) {
   summ <- df %>% group_by(trt) %>%
     summarise(m = mean(val), se = sd(val)/sqrt(n()), .groups = "drop")
   
-  wide <- df %>% pivot_wider(names_from = trt, values_from = val)
-  pv <- wilcox.test(wide$Placebo, wide$Ertugliflozin, paired = TRUE)$p.value
+  wide <- df %>% 
+    pivot_wider(names_from = trt, values_from = val) %>%
+    arrange(id)
+  pv <- t.test(wide$Placebo, wide$Ertugliflozin, paired = TRUE)$p.value
   plab <- ifelse(pv < 0.001, paste0("p=", formatC(pv, format = "e", digits = 1)),
                  paste0("p=", formatC(pv, format = "f", digits = 3)))
   
