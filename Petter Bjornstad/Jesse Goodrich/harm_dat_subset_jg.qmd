@@ -45,17 +45,37 @@ if (user == "choiyej") { # local version
 # harmonized dataset
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
-# harm_dat_recid <- harm_dat %>%
-#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-#                    .by = c(record_id, visit))
-
 # jesse's request (ID and vars)
 jg_ids <- read.csv(file.path(root_path, "Goodrich/Data requests/sample_id.csv"))
 jg_vars <- read.csv(file.path(root_path, "Goodrich/Data requests/variables_020325.csv")) %>%
-  dplyr::filter(variable_name %nin% c("egfr_hyper_135", "mgfr_hyper_2sd", "microalbumin_u_mgdL"))
+  dplyr::filter(variable_name %nin% c("egfr_hyper_135", "mgfr_hyper_2sd", "microalbumin_u_mgdL")) %>%
+  rbind(data.frame(Category = NA,
+                   variable_name = c("creatinine_s",	"bsa_dubois",	"tot_protein",	"aer_24",	"aer_4_coltime"),
+                   variable_description = NA))
 
+# long format
 harm_dat_jg <- harm_dat %>%
   filter(record_id %in% jg_ids$record_id) %>%
-  dplyr::select(record_id, visit, procedure, date, jg_vars$variable_name)
+  group_by(uuid) %>%
+  dplyr::mutate(screen_date = as.Date(screen_date),
+                date = as.Date(date),
+                days_since_baseline = as.numeric((screen_date) - min(screen_date))) %>%
+  dplyr::select(uuid, study, record_id, 
+                attempt_id, croc_id, improve_id, rh_id, rh2_id,
+                visit, procedure, days_since_baseline, jg_vars$variable_name) %>%
+  ungroup()
+
+# collapsed version
+harm_dat_recid <- harm_dat_jg %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::select(uuid, study, record_id, 
+                attempt_id, croc_id, improve_id, rh_id, rh2_id,
+                visit, days_since_baseline, jg_vars$variable_name) %>%
+  ungroup()
+
+write.csv(harm_dat_jg, file.path(root_path, "Goodrich/Data requests/long_datapull_022326.csv"), row.names = F, na = "")
+write.csv(harm_dat_recid, file.path(root_path, "Goodrich/Data requests/collapsed_datapull_022326.csv"), row.names = F, na = "")
+
 ```

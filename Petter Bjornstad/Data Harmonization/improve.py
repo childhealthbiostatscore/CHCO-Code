@@ -391,7 +391,7 @@ def clean_improve():
     # Outcomes
     # --------------------------------------------------------------------------
 
-    var = ["subject_id", "study_visit"] + ["hematocrit_90"] + ["hematocrit_120"] + ["map"] + ["clamp_map"] + ["total_protein"] + [v for v in meta.loc[meta["form_name"]
+    var = ["subject_id", "study_visit"] + ["hematocrit_90"] + ["hematocrit_120"] + ["map"] + ["clamp_map"] + ["total_protein"] + ["mri_visit_date"] + [v for v in meta.loc[meta["form_name"]
                                                                == "outcomes", "field_name"]]
     out = pd.DataFrame(proj.export_records(fields=var))
     out.replace(rep, np.nan, inplace=True)  # Replace missing values
@@ -402,8 +402,8 @@ def clean_improve():
     # necessarily the day of the MRI
     bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
     bold_mri = out[["subject_id", "study_visit",
-                    "mri_date"] + bold_mri_cols].copy()
-    bold_mri.rename({"mri_date": "date",
+                    "mri_visit_date"] + bold_mri_cols].copy()
+    bold_mri.rename({"mri_visit_date": "date",
                      "asl_left": "pcasl3d_left",
                      "asl_right": "pcasl3d_right"}, axis=1, inplace=True)
     out = out[list(set(out.columns).difference(bold_mri_cols))]
