@@ -9,6 +9,21 @@ library(patchwork)
 library(ggbeeswarm)
 library(data.table)
 
+load_image_panel <- function(path, tag) {
+  ext <- tolower(tools::file_ext(path))
+  if (!file.exists(path)) {
+    message(sprintf("Image not found: %s — placeholder used", path))
+    return(ggplot() +
+             annotate("text", x=0.5, y=0.5, label=paste0("Panel ",tag,"\n(file not found)"),
+                      size=4, color="gray50") + theme_void() + labs(tag=tag))
+  }
+  img <- if (ext %in% c("jpg","jpeg")) jpeg::readJPEG(path) else png::readPNG(path)
+  ggplot() +
+    annotation_raster(img, xmin=0, xmax=1, ymin=0, ymax=1) +
+    xlim(0,1) + ylim(0,1) + theme_void() + labs(tag=tag) +
+    theme(plot.margin=margin(5,5,5,5))
+}
+
 base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
 
 ########################################################################
@@ -292,7 +307,7 @@ plot_delta_corr <- function(data, id_col, trt_col, xvar, yvar,
     annotate("text", x = min(deltas$dx) + diff(range(deltas$dx)) * 0.02,
              y = max(deltas$dy) - diff(range(deltas$dy)) * 0.02,
              label = lab, hjust = 0, size = 3, fontface = "italic") +
-    labs(x = bquote(bold(Delta ~ .(xlab))), y = bquote(bold(Delta ~ .(ylab))), tag = tag) +
+    labs(x = paste0("\u0394 ", xlab), y = paste0("\u0394 ", ylab), tag = tag) +
     theme_rockies
 }
 
@@ -396,48 +411,31 @@ fig1g <- plot_paired(rockies_long, "id", "treatment", "cortical_k2",
 fig1h <- plot_paired(rockies_long, "id", "treatment", "cortical_k2f",
                      expression(bold("Cortical k"[2]*"/F")), "H")
 
-# --- Panel I: Delta OGIS vs Delta cortical k2 ---
+# --- Panel I: Delta HOMA-IR vs Delta cortical k2 ---
 fig1i <- plot_delta_corr(rockies_long, "id", "treatment",
-                         "ogis", "cortical_k2",
-                         "OGIS (ml/min/m\u00B2)",
-                         expression("Cortical k"[2]*" (min"^{-1}*")"), "I")
-
-# --- Panel J: Delta OGIS vs Delta medullary k2 ---
-fig1j <- plot_delta_corr(rockies_long, "id", "treatment",
-                         "ogis", "medullary_k2",
-                         "OGIS (ml/min/m\u00B2)",
-                         expression("Medullary k"[2]*" (min"^{-1}*")"), "J")
-
-
-# --- Panel K: Delta HOMA-IR vs Delta cortical k2 ---
-fig1k <- plot_delta_corr(rockies_long, "id", "treatment",
                          "homa_ir", "cortical_k2",
-                         "HOMA-IR",
-                         expression("Cortical k"[2]*" (min"^{-1}*")"), "K")
+                         "HOMA-IR", "Cortical k2 (min-1)", "I")
 
-# --- Panel L: Delta HOMA-IR vs Delta medullary k2 ---
-fig1l <- plot_delta_corr(rockies_long, "id", "treatment",
+# --- Panel J: Delta HOMA-IR vs Delta medullary k2 ---
+fig1j <- plot_delta_corr(rockies_long, "id", "treatment",
                          "homa_ir", "medullary_k2",
-                         "HOMA-IR",
-                         expression("Medullary k"[2]*" (min"^{-1}*")"), "L")
+                         "HOMA-IR", "Medullary k2 (min-1)", "J")
 
-# --- Panel M: Delta HOMA-IR vs Delta cortical k2/F ---
-fig1m <- plot_delta_corr(rockies_long, "id", "treatment",
+# --- Panel K: Delta HOMA-IR vs Delta cortical k2/F ---
+fig1k <- plot_delta_corr(rockies_long, "id", "treatment",
                          "homa_ir", "cortical_k2f",
-                         "HOMA-IR",
-                         expression("Cortical k"[2]*"/F"), "M")
+                         "HOMA-IR", "Cortical k2/F", "K")
 
 
 
 # --- Assemble Figure 1 ---
 row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
 row2 <- fig1c | fig1d | fig1e
-row3 <- (fig1f + labs(tag = "F")) | plot_spacer() | plot_spacer()
-row4 <- fig1g | fig1h | fig1i | fig1j
-row5 <- fig1k | fig1l | fig1m
+row3 <- fig1f | fig1g | fig1h
+row4 <- fig1i | fig1j | fig1k
 
-fig1 <- row1 / row2 / row3 / row4 / row5 +
-  plot_layout(heights = c(3, 2, 2, 2, 2)) +
+fig1 <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(3, 2, 2, 2)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
     theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
@@ -840,17 +838,20 @@ tryCatch({
 # PAGE 1: Figure 1 — ROCKIES Trial
 ########################################################################
 
-# Row 1: A (study design) + B (PET diagram)
 row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
-
-# Row 2: Placebo correlations
 row2 <- fig1c | fig1d | fig1e
-
-# Row 3: Paired plots (+ placeholder for F)
 row3 <- fig1f | fig1g | fig1h
+row4 <- fig1i | fig1j | fig1k
 
-# Row 4: Delta correlations
-row4 <- fig1i | fig1j | plot_spacer()
+fig1 <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(3, 2, 2, 2)) +
+  plot_annotation(
+    title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  )
+
+save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 22)
+
 
 fig1_full <- row1 / row2 / row3 / row4 +
   plot_layout(heights = c(2.5, 2, 2, 2)) +
