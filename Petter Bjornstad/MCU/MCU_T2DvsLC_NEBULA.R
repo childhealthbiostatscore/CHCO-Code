@@ -8,6 +8,8 @@ library(ggplot2)
 library(ggrepel)
 library(pheatmap)
 library(tidyr)
+library(patchwork)
+
 
 # ── 0. GENE LISTS ─────────────────────────────────────────────────────────────
 mcu_complex_genes <- c("MCU", "MCUR1", "MICU1", "MICU2", "SMDT1",
@@ -62,10 +64,12 @@ subset_by_celltype <- function(so_obj, celltype) {
 }
 
 # ── 2. SEURAT OBJECT & POOLED OFFSET ─────────────────────────────────────────
-# Offset MUST be computed on the full object BEFORE any cell-type subsetting.
+load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+so_full <- so_kpmp_sc
+remove(so_kpmp_sc)
+so_full <- subset(so_full, subset = record_id != 'CRC-55')
 
-so_full <- readRDS("")   # ← adjust path
-
+# Offset is computed here on the full object BEFORE any cell-type subsetting.
 counts_full <- round(GetAssayData(so_full, layer = "counts"))
 sce_full    <- SingleCellExperiment(assays = list(counts = counts_full))
 sce_full    <- computeSumFactors(sce_full)
@@ -76,7 +80,7 @@ rm(sce_full, counts_full); gc()
 run_nebula_celltype <- function(so_obj,
                                 celltype,
                                 genes_to_test     = all_genes_of_interest,
-                                predictor_formula = ~diabetes,   # ← adjust
+                                predictor_formula = ~group,
                                 id_col            = "kit_id",
                                 dir_out           = "results/NEBULA_MCU_TCA/") {
   
@@ -111,6 +115,12 @@ run_nebula_celltype <- function(so_obj,
       meta_gene  <- so_sub@meta.data
       
       # Drop cells with NA in any predictor variable
+      # Set Lean_Control as reference level
+      if ("group" %in% colnames(meta_gene)) {
+        meta_gene$group <- factor(meta_gene$group,
+                                  levels = c("Lean_Control", "Type_2_Diabetes"))
+      }
+      
       pred_vars <- all.vars(predictor_formula)
       keep      <- complete.cases(meta_gene[, pred_vars, drop = FALSE])
       if (sum(keep) == 0) stop("No complete cases after NA removal.")
@@ -196,7 +206,7 @@ all_results <- lapply(cell_types_to_run, function(ct) {
     so_obj            = so_full,
     celltype          = ct,
     genes_to_test     = all_genes_of_interest,
-    predictor_formula = ~diabetes,    # ← YOUR predictor here
+    predictor_formula = ~group,    # ← YOUR predictor here
     id_col            = "kit_id",
     dir_out           = "results/NEBULA_MCU_TCA/"
   )
@@ -256,13 +266,16 @@ plot_volcano_celltype <- function(df, celltype, predictor_term,
     theme_bw(base_size = 13)
 }
 
-# Example – adjust predictor_term to match your actual column names
-plot_volcano_celltype(all_results_df, celltype = "PT", predictor_term = "diabetes")
+# With ~group, NEBULA output columns will be named e.g.:
+#   "logFC_groupType_2_Diabetes" and "p_groupType_2_Diabetes"
+# Confirm with colnames(all_results_df) after running, then adjust predictor_term if needed.
+
+plot_volcano_celltype(all_results_df, celltype = "PT", predictor_term = "Type_2_Diabetes")
 
 # ── 6. SUMMARY HEATMAP (genes × cell types) ──────────────────────────────────
 # Check and adjust column names as needed after inspecting all_results_df
-lfc_col  <- grep("logFC.*diabetes", colnames(all_results_df), value = TRUE)[1]
-padj_col <- grep("padj.*diabetes",  colnames(all_results_df), value = TRUE)[1]
+lfc_col  <- grep("logFC.*Type_2_Diabetes", colnames(all_results_df), value = TRUE)[1]
+padj_col <- grep("padj.*Type_2_Diabetes",  colnames(all_results_df), value = TRUE)[1]
 
 heat_df <- all_results_df %>%
   filter(gene %in% all_genes_of_interest) %>%
@@ -309,4 +322,107 @@ pheatmap(lfc_mat,
          main              = "NEBULA logFC (diabetes) – MCU / Ca2+ / TCA / Pyruvate",
          filename          = "results/NEBULA_MCU_TCA/heatmap_all_celltypes.pdf",
          width = 12, height = 14)
+
+
+
+
+
+
+out_dir <- "C:/Users/netio/Documents/UofW/Projects/MCU/"
+
+module_list <- list(
+  "MCU complex"    = mcu_complex_genes,
+  "Ca2+ signaling" = calcium_signaling_genes,
+  "TCA cycle"      = tca_cycle_genes,
+  "Pyruvate"       = pyruvate_genes
+)
+
+module_colors <- c("MCU complex"    = "#E63946",
+                   "Ca2+ signaling" = "#F4A261",
+                   "TCA cycle"      = "#2A9D8F",
+                   "Pyruvate"       = "#457B9D")
+
+make_module_volcano <- function(df, ct, module_name, genes_in_module,
+                                lfc_col, padj_col,
+                                fc_cutoff = 0.25, p_cutoff = 0.05) {
+  sub_df <- df %>%
+    filter(celltype == ct, gene %in% genes_in_module) %>%
+    mutate(
+      logFC      = .data[[lfc_col]],
+      neg_log10p = -log10(.data[[padj_col]]),
+      sig        = .data[[padj_col]] < p_cutoff & abs(.data[[lfc_col]]) > fc_cutoff,
+      label      = ifelse(sig, gene, NA)
+    )
+  
+  if (nrow(sub_df) == 0) return(NULL)
+  
+  ggplot(sub_df, aes(x = logFC, y = neg_log10p, label = label)) +
+    geom_point(aes(color = sig), size = 2.5, alpha = 0.85) +
+    geom_text_repel(size = 2.8, max.overlaps = 20, na.rm = TRUE) +
+    geom_vline(xintercept = c(-fc_cutoff, fc_cutoff), linetype = "dashed", color = "grey60") +
+    geom_hline(yintercept = -log10(p_cutoff),          linetype = "dashed", color = "grey60") +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = module_colors[[module_name]]),
+                       guide = "none") +
+    labs(title = module_name,
+         x     = "log fold change",
+         y     = expression(-log[10](p[adj]))) +
+    theme_bw(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", color = module_colors[[module_name]]))
+}
+
+pdf(file.path(out_dir, "volcano_plots_by_module.pdf"), width = 14, height = 10)
+
+for (ct in unique(all_results_df$celltype)) {
+  plots <- lapply(names(module_list), function(mod) {
+    make_module_volcano(
+      df             = all_results_df,
+      ct             = ct,
+      module_name    = mod,
+      genes_in_module= module_list[[mod]],
+      lfc_col        = lfc_col,
+      padj_col       = padj_col
+    )
+  })
+  
+  # drop any NULL panels (modules with no genes in this cell type)
+  plots <- Filter(Negate(is.null), plots)
+  
+  if (length(plots) > 0) {
+    combined <- patchwork::wrap_plots(plots, ncol = 2) +
+      patchwork::plot_annotation(
+        title    = paste0(ct, "  –  T2D vs Lean Control"),
+        subtitle = "NEBULA-NBLMM  |  colour = padj < 0.05 & |logFC| > 0.25",
+        theme    = theme(plot.title = element_text(size = 14, face = "bold"))
+      )
+    print(combined)
+  }
+}
+
+dev.off()
+message("Saved: ", file.path(out_dir, "volcano_plots_by_module.pdf"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Move all results to final project directory
+file.copy(
+  from      = list.files("results/NEBULA_MCU_TCA/", full.names = TRUE),
+  to        = "C:/Users/netio/Documents/UofW/Projects/MCU/",
+  recursive = TRUE
+)
+unlink("results/NEBULA_MCU_TCA/", recursive = TRUE)
+
+
+
+
+
 
