@@ -327,15 +327,20 @@ format.fxn <- function(results.data){
 
 #Read in & Format all results
 all_formatted_results <- data.frame()
-temp_file <- tempfile(fileext = ".RDS") 
+temp_file <- tempfile(fileext = ".RDS")
 for (scenario in 1:9) {
-# for (scenario in c(1,2,4:9)) {
+# for (scenario in c(6)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
   all_formatted_results <- rbind(all_formatted_results,formatted.results)
 }
-rm(formatted.results)
+rm(formatted.results,results)
+
+#Read in formatted data
+# temp_file <- tempfile(fileext = ".RDS") 
+# s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
+# all_formatted_results <- readRDS(temp_file)
 
 
 #5. Plot Results ----
@@ -382,71 +387,6 @@ NA.mix <- mixture %>%
   filter(indicator=="Not Associated")
 A.mix <- mixture %>%
   filter(indicator=="Associated")
-
-# mix.plot <- ggplot()+
-#   geom_line(data = NA.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
-#   geom_point(data=NA.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
-#   geom_line(data = A.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
-#   geom_point(data=A.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
-#   geom_errorbar(data=NA.mix,
-#                 aes(model,estimate,group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_errorbar(data=A.mix,
-#                 aes(model,estimate,group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_point(data=NA.mix,
-#              aes(model,estimate,group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   geom_point(data=A.mix,
-#              aes(model,estimate,group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   facet_grid(Scenario ~ domain,scales = "free_y")+
-#   theme_bw() +
-#   theme(
-#     text = element_text(family = "Times", size = 20,color="black"),
-#     axis.text = element_text(family = "Times", size = 15),
-#     plot.title = element_text(family = "Times", face = "bold", size = 16),
-#     plot.subtitle = element_text(family = "Times", size = 15),
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_text(family = "Times", size = 20,face="bold"),
-#     axis.text.x=element_text(angle=45,hjust=1),
-#     strip.text.x = element_text(size=15,face="bold"),
-#     legend.position="left") +
-#   scale_colour_gradientn(
-#     colours = c("darkblue","#2166ac", "#f7f7f7", "#b2182b","darkred"),
-#     values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
-#     name = "Estimate")
-# 
-# # mix.plot
-# png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
-# plot(mix.plot)
-# dev.off()
 
 mix.plot.edit <- ggplot()+
   geom_line(data = NA.mix, alpha = 0.3, 
@@ -513,6 +453,10 @@ mix.plot.edit <- ggplot()+
     legend.title = element_text(size = 16, face = "bold"),
     legend.text = element_text(size = 14)) +
   labs(y = "Estimate")
+
+# geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
+#   geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = color_val), na.rm = TRUE) +
+#   scale_color_gradient(low = "#C0504D", high = "#7B0000", guide = "none") +
 
 mix.plot.edit
 
