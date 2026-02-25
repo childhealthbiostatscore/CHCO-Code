@@ -4,6 +4,9 @@ library(ggtree)
 library(ape)
 library(dplyr)
 
+#Lambda
+dir.results <- "/home/hhampson/Results"
+
 #Find names of all taxa in phylum 1
 phy1_names <- names %>% 
   filter(phylum=="phylum1")
@@ -109,6 +112,10 @@ for(p in p_names){
 
 newick_phy1 <- paste0("(", paste(unlist(phylum_list), collapse=","), ")root;")
 tree_phy1   <- ape::read.tree(text = newick_phy1)
+ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4)
+
+#Test
+# dendro_fxn(results_data=all_formatted_results,scenario_num=6,exposure="Mixture")
 
 dendro_fxn <- function(results_data,scenario_num,exposure) {
 
@@ -116,7 +123,7 @@ dendro_fxn <- function(results_data,scenario_num,exposure) {
 # results df has: taxa_full, expectedLogOdds, indicator
 if (exposure=="Mixture") {
 annotation_data_mixture <- results_data %>%
-  filter(scenario==scenario_num) %>% 
+  filter(Scenario==scenario_num) %>% 
   filter(exposure=="Mixture") %>% 
   rename(label = taxa_full) %>%
   select(label, expectedLogOdds, indicator,exposure) %>%
@@ -131,65 +138,75 @@ annotation_data_mixture <- annotation_data_mixture %>%
     color_val = ifelse(indicator == "Associated", abs_logodds, NA)
   )
 
-ggtree(tree, layout = "fan", open.angle = 40, color = "grey40", size = 0.4) %<+% annotation_data_mixture +
-  # Plot Not Associated points first (grey layer)
-  geom_point(
-    data = . %>% filter(is.na(color_val)),
-    aes(size = abs_logodds),
-    color = "grey70",
-    na.rm = TRUE
-  ) +
-  # Plot Associated points with gradient
-  geom_point(
-    data = . %>% filter(!is.na(color_val)),
-    aes(size = abs_logodds, color = color_val),
-    na.rm = TRUE
-  ) +
-  scale_color_gradient(
-    low    = "#C0504D",   # lighter brick red for smaller magnitude
-    high   = "#7B0000",   # dark deep red for larger magnitude
-    name   = "|Expected Log OR|",
-    guide  = "none"       # handled by size legend
-  ) +
-  scale_size_continuous(
-    range  = c(0.3, 3),
-    limits = c(0, NA),
-    breaks = c(0.3, 0.6, 0.9, 1.2),
-    name   = "|Expected Log OR|"
-  ) +
-  theme(
-    legend.position = "right",
-    text            = element_text(family = "Times"),
-    legend.title    = element_text(size = 10),
-    legend.text     = element_text(size = 9)
-  ) +
-  labs(title=paste0("Scenario ",scenario_num))
-  guides(
-    size = guide_legend()
-  )
-
-# Verify all levels present
-cat("Node labels:", tree_phy1$node.label, "\n")
-cat("Tip count:", length(tree_phy1$tip.label), "\n")
-
 annotation_filtered_mixture <- annotation_data_mixture %>% 
   filter(label %in% phy1_names)
 
-p <- ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4) %<+% annotation_data_mixture +
-  geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
-  geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = color_val), na.rm = TRUE) +
-  scale_color_gradient(low = "#C0504D", high = "#7B0000", guide = "none") +
-  scale_size_continuous(range = c(0.3, 5), limits = c(0, NA), breaks = c(0.3, 0.6, 0.9, 1.2), name = "|Expected Log OR|") +
-  theme(text = element_text(family = "Times"))+
-  labs(title=paste0("Scenario ",scenario_num))
+val_range <- range(annotation_filtered_mixture$abs_logodds, na.rm = TRUE)
+size_breaks <- pretty(annotation_filtered_mixture$abs_logodds[!is.na(annotation_filtered_mixture$abs_logodds)], n = 8)
+size_breaks <- size_breaks[size_breaks > 0]
+size_range_max <- min(6, 3 + max(val_range))
 
-print(p)
+p <- ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4) %<+% annotation_filtered_mixture +
+  geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
+  geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = abs_logodds), na.rm = TRUE) +
+  scale_color_gradientn(
+    colours = c("#F2DEDE", "#E8C4C3", "#C0504D", "#8B1A1A", "#4A0000"),
+    values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+    name = "|Expected Log OR|",
+    limits = c(0, NA),
+    breaks = size_breaks
+  ) +
+  scale_size_continuous(
+    range = c(0.3, size_range_max),
+    limits = c(0, NA),
+    breaks = size_breaks,
+    name = "|Expected Log OR|"
+  ) +
+  guides(
+    color = guide_legend(title = "|Expected Log OR|", override.aes = list(size = 4)),
+    size = guide_legend(title = "|Expected Log OR|")
+  ) +
+  theme(text = element_text(family = "Times")) +
+  labs(title = paste0("Scenario ", scenario_num))
+
+# p <- ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4) %<+% annotation_filtered_mixture +
+#   geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
+#   geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = abs_logodds), na.rm = TRUE) +
+#   scale_color_gradient(
+#     low = "#E8C4C3",
+#     high = "#7B0000", 
+#     name = "|Expected Log OR|",
+#     limits = c(0, NA),
+#     breaks = size_breaks
+#   ) +
+#   scale_size_continuous(
+#     range = c(0.3, max(5, max(val_range) * 4)), 
+#     limits = c(0, NA), 
+#     breaks = size_breaks, 
+#     name = "|Expected Log OR|"
+#   ) +
+#   guides(
+#     color = guide_legend(title = "|Expected Log OR|", override.aes = list(size = 4)),
+#     size = guide_legend(title = "|Expected Log OR|")
+#   )+
+#   theme(text = element_text(family = "Times")) +
+#   labs(title = paste0("Scenario ", scenario_num))
+
+# print(p)
+ggsave(
+  filename = fs::path(dir.results, paste0("dendro_", exposure, "_scenario_", scenario_num, ".png")),
+  plot = p,
+  width = 8,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
 } 
-if (exposure == "Individual"){
+if (exposure != "Mixture"){
   # results df has: taxa_full, expectedLogOdds, indicator
   annotation_data_individual <- results_data %>%
-    filter(scenario==scenario_num) %>% 
-    filter(exposure=="Individual") %>% 
+    filter(Scenario==scenario_num) %>% 
+    filter(exposure!="Mixture") %>% 
     rename(label = taxa_full) %>%
     select(label, expectedLogOdds, indicator,exposure) %>%
     mutate(
@@ -203,59 +220,46 @@ if (exposure == "Individual"){
       color_val = ifelse(indicator == "Associated", abs_logodds, NA)
     )
   
-  ggtree(tree, layout = "fan", open.angle = 40, color = "grey40", size = 0.4) %<+% annotation_data_individual +
-    # Plot Not Associated points first (grey layer)
-    geom_point(
-      data = . %>% filter(is.na(color_val)),
-      aes(size = abs_logodds),
-      color = "grey70",
-      na.rm = TRUE
-    ) +
-    # Plot Associated points with gradient
-    geom_point(
-      data = . %>% filter(!is.na(color_val)),
-      aes(size = abs_logodds, color = color_val),
-      na.rm = TRUE
-    ) +
-    scale_color_gradient(
-      low    = "#C0504D",   # lighter brick red for smaller magnitude
-      high   = "#7B0000",   # dark deep red for larger magnitude
-      name   = "|Expected Log OR|",
-      guide  = "none"       # handled by size legend
-    ) +
-    scale_size_continuous(
-      range  = c(0.3, 3),
-      limits = c(0, NA),
-      breaks = c(0.3, 0.6, 0.9, 1.2),
-      name   = "|Expected Log OR|"
-    ) +
-    theme(
-      legend.position = "right",
-      text            = element_text(family = "Times"),
-      legend.title    = element_text(size = 10),
-      legend.text     = element_text(size = 9)
-    ) +
-    labs(title=paste0("Scenario ",scenario_num))
-  guides(
-    size = guide_legend()
-  )
-  
-  # Verify all levels present
-  cat("Node labels:", tree_phy1$node.label, "\n")
-  cat("Tip count:", length(tree_phy1$tip.label), "\n")
-  
   annotation_filtered_individual <- annotation_data_individual %>% 
     filter(label %in% phy1_names)
   
-  p <- ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4) %<+% annotation_data_individual +
-    geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
-    geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = color_val), na.rm = TRUE) +
-    scale_color_gradient(low = "#C0504D", high = "#7B0000", guide = "none") +
-    scale_size_continuous(range = c(0.3, 5), limits = c(0, NA), breaks = c(0.3, 0.6, 0.9, 1.2), name = "|Expected Log OR|") +
-    theme(text = element_text(family = "Times"))+
-    labs(title=paste0("Scenario ",scenario_num))
+  val_range <- range(annotation_filtered_individual$abs_logodds, na.rm = TRUE)
+  size_breaks <- pretty(annotation_filtered_individual$abs_logodds[!is.na(annotation_filtered_individual$abs_logodds)], n = 8)
+  size_breaks <- size_breaks[size_breaks > 0]
+  size_range_max <- min(6, 3 + max(val_range))
   
-  print(p)
+  p <- ggtree(tree_phy1, layout = "fan", open.angle = 225, color = "grey40", size = 0.4) %<+% annotation_filtered_individual +
+    geom_point(data = . %>% filter(is.na(color_val)), aes(size = abs_logodds), color = "grey70", na.rm = TRUE) +
+    geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = abs_logodds), na.rm = TRUE) +
+    scale_color_gradientn(
+      colours = c("#F2DEDE", "#E8C4C3", "#C0504D", "#8B1A1A", "#4A0000"),
+      values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+      name = "|Expected Log OR|",
+      limits = c(0, NA),
+      breaks = size_breaks
+    ) +
+    scale_size_continuous(
+      range = c(0.3, size_range_max),
+      limits = c(0, NA),
+      breaks = size_breaks,
+      name = "|Expected Log OR|"
+    ) +
+    guides(
+      color = guide_legend(title = "|Expected Log OR|", override.aes = list(size = 4)),
+      size = guide_legend(title = "|Expected Log OR|")
+    ) +
+    theme(text = element_text(family = "Times")) +
+    labs(title = paste0("Scenario ", scenario_num))
+  
+  # print(p)
+  ggsave(
+    filename = fs::path(dir.results, paste0("dendro_", exposure, "_scenario_", scenario_num, ".png")),
+    plot = p,
+    width = 8,
+    height = 8,
+    dpi = 300,
+    bg = "white"
+  )
 }
 }
 

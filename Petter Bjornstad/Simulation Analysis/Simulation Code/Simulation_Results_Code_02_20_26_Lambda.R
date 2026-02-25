@@ -357,9 +357,11 @@ names <- readRDS(temp_file)
 #Select random sample of iterations to create and view plots
 # Set seed for reproducibility
 set.seed(123)
+# set.seed(300)
 
 # Sample a small number of iterations
-n_sample_iterations <- 25  # Adjust this number as needed
+# n_sample_iterations <- 500  # Adjust this number as needed
+n_sample_iterations <- 25
 
 # Get unique iterations and sample from them
 sampled_iterations <- sample(unique(all_formatted_results$iteration), n_sample_iterations)
@@ -458,105 +460,14 @@ mix.plot.edit <- ggplot()+
 #   geom_point(data = . %>% filter(!is.na(color_val)), aes(size = abs_logodds, color = color_val), na.rm = TRUE) +
 #   scale_color_gradient(low = "#C0504D", high = "#7B0000", guide = "none") +
 
-mix.plot.edit
+# mix.plot.edit
 
 # ggsave(plot=mix.plot,fs::path(dir.results,"Figure 3.3 Scenario 15.jpeg"),height=4,width=15)
 # png(fs::path(dir.results,"Scenario 4 Test.jpeg"),res=300,height=1000,width=3000)
-png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option2.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Mixture_Results_Plot.png",res=300,height=4000,width=4000)
 plot(mix.plot.edit)
 dev.off()
 
-# # Add a categorical color variable
-# # Add a categorical color variable
-# NA.mix.cat <- NA.mix %>%
-#   mutate(effect_cat = case_when(
-#     estimate >= 0.5 ~ "Strong Positive",
-#     estimate >= 0.25 ~ "Moderate Positive",
-#     estimate >= 0 ~ "Weak Positive",
-#     estimate >= -0.25 ~ "Weak Negative",
-#     TRUE ~ "Negative"
-#   ))
-# 
-# A.mix.cat <- A.mix %>%
-#   mutate(effect_cat = case_when(
-#     estimate >= 0.5 ~ "Strong Positive",
-#     estimate >= 0.25 ~ "Moderate Positive",
-#     estimate >= 0 ~ "Weak Positive",
-#     estimate >= -0.25 ~ "Weak Negative",
-#     TRUE ~ "Negative"
-#   ))
-# 
-# # Create the plot with discrete colors
-# mix.plot.edit3 <- ggplot() +
-#   geom_line(data = NA.mix.cat, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = effect_cat)) +
-#   geom_line(data = A.mix.cat, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = effect_cat)) +
-#   geom_errorbar(data = NA.mix.cat,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_errorbar(data = A.mix.cat,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_point(data = NA.mix.cat,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   geom_point(data = A.mix.cat,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   facet_grid(Scenario ~ domain, scales = "free_y") +
-#   theme_bw() +
-#   theme(
-#     text = element_text(family = "Times", size = 20, color = "black"),
-#     axis.text = element_text(family = "Times", size = 15),
-#     plot.title = element_text(family = "Times", face = "bold", size = 16),
-#     plot.subtitle = element_text(family = "Times", size = 15),
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-#     axis.text.x = element_text(angle = 45, hjust = 1),
-#     strip.text.x = element_text(size = 15, face = "bold"),
-#     legend.position = "right") +
-#   scale_color_manual(
-#     name = "Effect Size",
-#     values = c("Strong Positive" = "#660000",
-#                "Moderate Positive" = "#cc0000",
-#                "Weak Positive" = "#e69f00",
-#                "Weak Negative" = "#cccccc",
-#                "Null" = "#9a9a9a"),
-#     breaks = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-#                "Weak Negative", "Negative")) +
-#   labs(y = "Estimate")
-# 
-# # mix.plot.edit3
-# png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option3.png",res=300,height=4000,width=4000)
-# plot(mix.plot.edit3)
-# dev.off()
 
 ##b. Individual Analysis ----
 # ind <- formatted.data %>%
@@ -576,82 +487,20 @@ NA.ind <- ind %>%
 A.ind <- ind %>%
   filter(indicator=="Associated")
 
-# ind.plot <- ggplot() +
-#   geom_line(data = NA.ind, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = estimate)) +
-#   geom_line(data = A.ind, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = estimate)) +
-#   geom_errorbar(data = NA.ind,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_errorbar(data = A.ind,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_point(data = NA.ind,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   geom_point(data = A.ind,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   facet_grid(Scenario ~ domain, scales = "free_y") +
-#   theme_bw() +
-#   theme(
-#     text = element_text(family = "Times", size = 20, color = "black"),
-#     axis.text = element_text(family = "Times", size = 15),
-#     plot.title = element_text(family = "Times", face = "bold", size = 16),
-#     plot.subtitle = element_text(family = "Times", size = 15),
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-#     axis.text.x = element_text(angle = 45, hjust = 1),
-#     strip.text.x = element_text(size = 15, face = "bold"),
-#     legend.position = "left") +
-#   scale_colour_gradientn(
-#     colours = c("darkblue","#2166ac", "#f7f7f7", "#b2182b","darkred"),
-#     values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
-#     name = "Estimate")+
-#   labs(y = "Estimate")
-# 
-# # ind.plot
-# png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option1.png",res=300,height=4000,width=4000)
-# plot(ind.plot)
-# dev.off()
-
 # First, combine the data with status indicator
 NA.ind_legend <- NA.ind %>% mutate(status = "Not Associated")
 A.ind_legend <- A.ind %>% mutate(status = "Associated")
 combined_ind_data <- bind_rows(NA.ind_legend, A.ind_legend)
 
 # Now create the plot with the combined data
-ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate, color = status)) +
-  geom_line(aes(group = group_number), 
-            alpha = 0.4) +
-  geom_errorbar(stat = "summary",
+ind.plot.edit2 <- ggplot()+
+  geom_line(data = NA.ind, alpha = 0.3, 
+            aes(model, estimate, group = group_number, color = "Not Associated")) +
+  geom_line(data = A.ind, alpha = 0.5, 
+            aes(model, estimate, group = group_number, color = "Associated")) +
+  geom_errorbar(data = NA.ind,
+                aes(model, estimate, group = model),
+                stat = "summary",
                 fun.data = function(x) {
                   mean_val <- mean(x)
                   sd_val <- sd(x)
@@ -659,15 +508,36 @@ ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate, color = status))
                 },
                 width = 0.2,
                 linewidth = 0.8,
-                alpha = 0.8,
-                position = position_dodge(width = 0.3)) +
-  geom_point(stat = "summary",
+                color = "gray30") +
+  geom_errorbar(data = A.ind,
+                aes(model, estimate, group = model),
+                stat = "summary",
+                fun.data = function(x) {
+                  mean_val <- mean(x)
+                  sd_val <- sd(x)
+                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+                },
+                width = 0.2,
+                linewidth = 0.8,
+                color = "firebrick4") +
+  geom_point(data = NA.ind,
+             aes(model, estimate, group = model),
+             stat = "summary",
              fun = mean,
              size = 3,
              shape = 21,
+             color = "gray30",
              fill = "white",
-             stroke = 1.5,
-             position = position_dodge(width = 0.3)) +
+             stroke = 1.5) +
+  geom_point(data = A.ind,
+             aes(model, estimate, group = model),
+             stat = "summary",
+             fun = mean,
+             size = 3,
+             shape = 21,
+             color = "firebrick4",
+             fill = "white",
+             stroke = 1.5) +
   facet_grid(Scenario ~ domain, scales = "free_y") +
   theme_bw() +
   theme(
@@ -677,315 +547,204 @@ ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate, color = status))
     axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
     axis.text.x = element_text(angle = 45, hjust = 1),
     strip.text.x = element_text(size = 15, face = "bold"),
-    strip.text.y = element_text(size = 15, face = "bold"),
-    legend.position = "right",
-    legend.title = element_text(size = 16, face = "bold"),
-    legend.text = element_text(size = 14)) +
+    strip.text.y = element_text(size = 15, face = "bold")) +
   scale_color_manual(
     name = "Taxa Status",
     values = c("Associated" = "firebrick4", 
                "Not Associated" = "gray60"),
     breaks = c("Associated", "Not Associated")) +
-  guides(color = guide_legend(
-    override.aes = list(
-      shape = 21,
-      size = 3,
-      stroke = 1.5,
-      fill = "white",
-      linewidth = 1
-    )
-  )) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 14)) +
   labs(y = "Estimate")
-ind.plot.edit
+ind.plot.edit2
 
-png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option2.png",res=300,height=4000,width=4000)
-plot(ind.plot.edit)
+png("/home/hhampson/Results/Individual_Results_Plot.png",res=300,height=4000,width=4000)
+plot(ind.plot.edit2)
 dev.off()
 
-# # Add categorical color variable
-# NA.ind.cat <- NA.ind %>%
-#   mutate(effect_cat = case_when(
-#     estimate >= 0.5 ~ "Strong Positive",
-#     estimate >= 0.25 ~ "Moderate Positive",
-#     estimate >= 0 ~ "Weak Positive",
-#     estimate >= -0.25 ~ "Weak Negative",
-#     TRUE ~ "Negative"
-#   )) %>%
-#   mutate(effect_cat = factor(effect_cat, 
-#                              levels = c("Strong Positive", 
-#                                         "Moderate Positive", 
-#                                         "Weak Positive", 
-#                                         "Weak Negative", 
-#                                         "Negative")))
-# 
-# A.ind.cat <- A.ind %>%
-#   mutate(effect_cat = case_when(
-#     estimate >= 0.5 ~ "Strong Positive",
-#     estimate >= 0.25 ~ "Moderate Positive",
-#     estimate >= 0 ~ "Weak Positive",
-#     estimate >= -0.25 ~ "Weak Negative",
-#     TRUE ~ "Negative"
-#   )) %>%
-#   mutate(effect_cat = factor(effect_cat, 
-#                              levels = c("Strong Positive", 
-#                                         "Moderate Positive", 
-#                                         "Weak Positive", 
-#                                         "Weak Negative", 
-#                                         "Negative")))
-# 
-# ind.plot.v3 <- ggplot() +
-#   geom_line(data = NA.ind.cat, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = effect_cat)) +
-#   geom_line(data = A.ind.cat, alpha = 0.5, 
-#             aes(model, estimate, group = group_number, color = effect_cat)) +
-#   geom_errorbar(data = NA.ind.cat,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_errorbar(data = A.ind.cat,
-#                 aes(model, estimate, group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black") +
-#   geom_point(data = NA.ind.cat,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   geom_point(data = A.ind.cat,
-#              aes(model, estimate, group = model),
-#              stat = "summary",
-#              fun = mean,
-#              size = 2,
-#              shape = 16,
-#              color = "black",
-#              fill = "black") +
-#   facet_grid(Scenario ~ domain, scales = "free_y") +
-#   theme_bw() +
-#   theme(
-#     text = element_text(family = "Times", size = 20, color = "black"),
-#     axis.text = element_text(family = "Times", size = 15),
-#     plot.title = element_text(family = "Times", face = "bold", size = 16),
-#     plot.subtitle = element_text(family = "Times", size = 15),
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-#     axis.text.x = element_text(angle = 45, hjust = 1),
-#     strip.text.x = element_text(size = 15, face = "bold"),
-#     legend.position = "right") +
-#   scale_color_manual(
-#     name = "Effect Size",
-#     values = c("Strong Positive" = "#660000",
-#                "Moderate Positive" = "#cc0000",
-#                "Weak Positive" = "#e69f00",
-#                "Weak Negative" = "#cccccc",
-#                "Negative" = "#9a9a9a"),
-#     breaks = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-#                "Weak Negative", "Negative")) +
-#   labs(y = "Estimate")
-# 
-# # ind.plot.v3
-# png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option3.png",res=300,height=4000,width=4000)
-# plot(ind.plot.v3)
-# dev.off()
-
 #7. Sensitivity Measures ----
-#GO back and make bahzing and ridge pvalues based on bcis not pvals
 ##A. Individual----
 individual <- all_formatted_results %>% 
   filter(exposure!="Mixture")
 # data <- individual
 #Update function
-# sens.fxn.old <- function(data){
-#   BaH_ZING <- data %>% 
-#     filter(Model=="BaH-ZING") %>% 
-#     filter(Exposure!="Mixture") %>%
-#     # filter(grepl("species",Taxa)) %>% 
-#     mutate(PosNeg = case_when(indicator=="Causal" & P_Value=="*" ~ "True Positive",
-#                               indicator=="Causal" & P_Value!="*" ~ "False Negative",
-#                               indicator=="Non-Causal" & P_Value=="*" ~ "False Positive",
-#                               indicator=="Non-Causal" & P_Value!="*" ~ "True Negative")) %>% 
-#     group_by(Taxa.Level,Scenario) %>%
-#     # group_by(Taxa.Level) %>%
-#     summarise(
-#       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
-#       Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
-#       PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
-#       FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       FDR2 = (1 - PPV)*100,
-#       TypeI = (1-Specificity),
-#       TypeII = 1-Sensitivity
-#     ) %>%  
-#     mutate(Model="BaH-ZING") %>% 
-#     ungroup()
-#   # select(-Specificity)
-#   
-#   measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
-#   
-#   
-#   ZING <- data %>% 
-#     # filter(Model=="ZINB" | Model=="Poisson") %>% 
-#     filter(Model=="ZING") %>% 
-#     filter(Exposure!="Mixture") %>%
-#     # filter(grepl("species",Taxa)) %>% 
-#     mutate(PosNeg = case_when(indicator=="Causal" & P_Value=="*" ~ "True Positive",
-#                               indicator=="Causal" & P_Value!="*" ~ "False Negative",
-#                               indicator=="Non-Causal" & P_Value=="*" ~ "False Positive",
-#                               indicator=="Non-Causal" & P_Value!="*" ~ "True Negative")) %>% 
-#     group_by(Taxa.Level,Scenario) %>%
-#     # group_by(Taxa.Level) %>%
-#     summarise(
-#       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
-#       Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
-#       PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
-#       FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       FDR2 = (1 - PPV)*100,
-#       TypeI = (1-Specificity),
-#       TypeII = 1-Sensitivity
-#     ) %>% 
-#     mutate(Model="ZING") %>% 
-#     ungroup()
-#   # select(-Specificity)
-#   
-#   ZING.fdr <- data %>% 
-#     # filter(Model=="ZINB" | Model=="Poisson") %>% 
-#     filter(Model=="ZING") %>% 
-#     filter(Exposure!="Mixture") %>%
-#     # filter(grepl("species",Taxa)) %>% 
-#     mutate(PosNeg = case_when(indicator=="Causal" & fdr.p=="*" ~ "True Positive",
-#                               indicator=="Causal" & fdr.p!="*" ~ "False Negative",
-#                               indicator=="Non-Causal" & fdr.p=="*" ~ "False Positive",
-#                               indicator=="Non-Causal" & fdr.p!="*" ~ "True Negative")) %>% 
-#     group_by(Taxa.Level,Scenario) %>%
-#     # group_by(Taxa.Level) %>%
-#     summarise(
-#       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
-#       Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
-#       PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
-#       FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
-#       FDR2 = (1 - PPV)*100,
-#       TypeI = (1-Specificity),
-#       TypeII = 1-Sensitivity
-#     ) %>% 
-#     mutate(Model="Adj.ZING") %>% 
-#     ungroup() 
-#   # select(-Specificity)
-#   
-#   # SensSpec <- rbind(BaH_ZING,RBaH_ZING)
-#   SensSpec <- rbind(BaH_ZING,ZING)
-#   # SensSpec <- rbind(SensSpec,ZING)
-#   SensSpec <- rbind(SensSpec,ZING.fdr)
-#   # SensSpec <- rbind(SensSpec,ZING.fdr)
-#   # SensSpec.s <- SensSpec %>%
-#   #   filter(Taxa.Level=="Species")
-#   # SensSpec.g <- SensSpec %>%
-#   #   filter(Taxa.Level=="Genus")
-#   # SensSpec.f <- SensSpec %>%
-#   #   filter(Taxa.Level=="Family")
-#   # SensSpec.o <- SensSpec %>%
-#   #   filter(Taxa.Level=="Order")
-#   # SensSpec.c <- SensSpec %>%
-#   #   filter(Taxa.Level=="Class")
-#   # SensSpec.p <- SensSpec %>%
-#   #   filter(Taxa.Level=="Phylum")
-#   
-#   # B <- SensSpec %>%
-#   #   filter(Model=="BaH-ZING")
-#   # mean(B$Specificity,na.rm=T)#0.998
-#   # range(B$Specificity,na.rm=T)
-#   # mean(B$PPV,na.rm=T)#0.75
-#   # mean(B$Sensitivity,na.rm=T) #0.37
-#   # mean(B$TypeI,na.rm=T)*100 #0.19%
-#   # mean(B$TypeII,na.rm=T)*100 #63%
-#   # 
-#   # R <- SensSpec.s %>% 
-#   #   filter(Model=="Ridge ZING")
-#   # mean(R$Specificity,na.rm=T) #0.995
-#   # range(R$Specificity,na.rm=T)
-#   # mean(R$PPV,na.rm=T) #0.85
-#   # mean(R$Sensitivity,na.rm=T) #100
-#   # mean(R$TypeI,na.rm=T)*100 #0.48% 
-#   # mean(R$TypeII,na.rm=T)*100 #0.024% 
-#   # 
-#   # Z <- SensSpec %>% 
-#   #   filter(Model=="ZING")
-#   # mean(Z$Specificity,na.rm=T)
-#   # range(Z$Specificity,na.rm=T)
-#   # mean(Z$PPV,na.rm=T)
-#   # mean(Z$Sensitivity,na.rm=T)
-#   # mean(Z$TypeI,na.rm=T)*100 #25% 
-#   # mean(Z$TypeII,na.rm=T)*100 #0.006%
-#   # 
-#   # Z.a <- SensSpec %>% 
-#   #   filter(Model=="Adj.ZING")
-#   # mean(Z.a$Specificity,na.rm=T)
-#   # range(Z.a$Specificity,na.rm=T)
-#   # mean(Z.a$PPV,na.rm=T)
-#   # mean(Z.a$Sensitivity,na.rm=T)
-#   # mean(Z.a$TypeI,na.rm=T)*100 #20% 
-#   # mean(Z.a$TypeII,na.rm=T)*100 #0.226%
-#   
-#   # taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
-#   # SensSpec$Taxa.Level <- factor(SensSpec$Taxa.Level, levels = taxa_order)
-#   # write.csv(SensSpec,fs::path(dir.results,"SensitivitySpecificity_All.csv"))
-#   measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
-#   # measures <- c("PPV","FDR","TypeI")
-#   # SensSpec.Sum <-SensSpec %>% 
-#   #   tidylog::select(-c(Taxa.Level,Scenario)) %>% 
-#   #   tidylog::group_by(Model) %>% 
-#   #   tidylog::summarize(across(all_of(measures),~mean(.,na.rm=T))) 
-#   
-#   
-#   #   return(SensSpec)
-#   # }
-#   
-#   #Bias non causal and causal...and add MSE? Variance of mean?
-#   # Melt the data for ggplot2
-#   # SensSpec2 <- SensSpec %>%
-#   #   select(-FDR2) 
-#   # select(-Scenario)
-#   # select(FDR,Model,Scenario:Type2ErrorRate) %>% 
-#   # mutate(Scenario=paste0("Scenario ",Scenario))
-#   # SensitivitySpecificity2$FDR[1:4] <- NA
-#   # scenario.order <- c("Scenario 1", "Scenario 2", "Scenario 3","Scenario 4",
-#   #                     "Scenario 5","Scenario 6","Scenario 7","Scenario 8","Scenario 11")
-#   # Convert Scenario to a factor with the desired order
-#   # SensitivitySpecificity2$Scenario <- factor(SensitivitySpecificity2$Scenario, levels = scenario.order)
-#   
-#   # melted_data <- reshape2::melt(SensSpec2, id.vars = c('Taxa.Level', 'Model','Scenario'))
-#   melted_data <- reshape2::melt(SensSpec, id.vars = c('Model','Taxa.Level','Scenario'))
-#   # melted_data <- melted_data %>% 
-#   # filter(Scenario!="Scenario 11")
-#   # model_order <- c('Ridge ZING', 'BaH-ZING', 'ZING','Adj.ZING')
-#   model_order <- c('BaH-ZING', 'ZING','Adj.ZING')
-#   melted_data$Model <- factor(melted_data$Model, levels = model_order)
-#   taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
-#   # melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
-#   
-#   
-#   #Order Taxa levels
-#   # taxa_order
-#   melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
-#   return(melted_data)
-# }
+sens.fxn.old <- function(data){
+  BaH_ZING <- data %>%
+    filter(Model=="BaH-ZING") %>%
+    filter(Exposure!="Mixture") %>%
+    # filter(grepl("species",Taxa)) %>%
+    mutate(PosNeg = case_when(indicator=="Causal" & P_Value=="*" ~ "True Positive",
+                              indicator=="Causal" & P_Value!="*" ~ "False Negative",
+                              indicator=="Non-Causal" & P_Value=="*" ~ "False Positive",
+                              indicator=="Non-Causal" & P_Value!="*" ~ "True Negative")) %>%
+    group_by(Taxa.Level,Scenario) %>%
+    # group_by(Taxa.Level) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity
+    ) %>%
+    mutate(Model="BaH-ZING") %>%
+    ungroup()
+  # select(-Specificity)
+
+  measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
+
+
+  ZING <- data %>%
+    # filter(Model=="ZINB" | Model=="Poisson") %>%
+    filter(Model=="ZING") %>%
+    filter(Exposure!="Mixture") %>%
+    # filter(grepl("species",Taxa)) %>%
+    mutate(PosNeg = case_when(indicator=="Causal" & P_Value=="*" ~ "True Positive",
+                              indicator=="Causal" & P_Value!="*" ~ "False Negative",
+                              indicator=="Non-Causal" & P_Value=="*" ~ "False Positive",
+                              indicator=="Non-Causal" & P_Value!="*" ~ "True Negative")) %>%
+    group_by(Taxa.Level,Scenario) %>%
+    # group_by(Taxa.Level) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity
+    ) %>%
+    mutate(Model="ZING") %>%
+    ungroup()
+  # select(-Specificity)
+
+  ZING.fdr <- data %>%
+    # filter(Model=="ZINB" | Model=="Poisson") %>%
+    filter(Model=="ZING") %>%
+    filter(Exposure!="Mixture") %>%
+    # filter(grepl("species",Taxa)) %>%
+    mutate(PosNeg = case_when(indicator=="Causal" & fdr.p=="*" ~ "True Positive",
+                              indicator=="Causal" & fdr.p!="*" ~ "False Negative",
+                              indicator=="Non-Causal" & fdr.p=="*" ~ "False Positive",
+                              indicator=="Non-Causal" & fdr.p!="*" ~ "True Negative")) %>%
+    group_by(Taxa.Level,Scenario) %>%
+    # group_by(Taxa.Level) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity
+    ) %>%
+    mutate(Model="Adj.ZING") %>%
+    ungroup()
+  # select(-Specificity)
+
+  # SensSpec <- rbind(BaH_ZING,RBaH_ZING)
+  SensSpec <- rbind(BaH_ZING,ZING)
+  # SensSpec <- rbind(SensSpec,ZING)
+  SensSpec <- rbind(SensSpec,ZING.fdr)
+  # SensSpec <- rbind(SensSpec,ZING.fdr)
+  # SensSpec.s <- SensSpec %>%
+  #   filter(Taxa.Level=="Species")
+  # SensSpec.g <- SensSpec %>%
+  #   filter(Taxa.Level=="Genus")
+  # SensSpec.f <- SensSpec %>%
+  #   filter(Taxa.Level=="Family")
+  # SensSpec.o <- SensSpec %>%
+  #   filter(Taxa.Level=="Order")
+  # SensSpec.c <- SensSpec %>%
+  #   filter(Taxa.Level=="Class")
+  # SensSpec.p <- SensSpec %>%
+  #   filter(Taxa.Level=="Phylum")
+
+  # B <- SensSpec %>%
+  #   filter(Model=="BaH-ZING")
+  # mean(B$Specificity,na.rm=T)#0.998
+  # range(B$Specificity,na.rm=T)
+  # mean(B$PPV,na.rm=T)#0.75
+  # mean(B$Sensitivity,na.rm=T) #0.37
+  # mean(B$TypeI,na.rm=T)*100 #0.19%
+  # mean(B$TypeII,na.rm=T)*100 #63%
+  #
+  # R <- SensSpec.s %>%
+  #   filter(Model=="Ridge ZING")
+  # mean(R$Specificity,na.rm=T) #0.995
+  # range(R$Specificity,na.rm=T)
+  # mean(R$PPV,na.rm=T) #0.85
+  # mean(R$Sensitivity,na.rm=T) #100
+  # mean(R$TypeI,na.rm=T)*100 #0.48%
+  # mean(R$TypeII,na.rm=T)*100 #0.024%
+  #
+  # Z <- SensSpec %>%
+  #   filter(Model=="ZING")
+  # mean(Z$Specificity,na.rm=T)
+  # range(Z$Specificity,na.rm=T)
+  # mean(Z$PPV,na.rm=T)
+  # mean(Z$Sensitivity,na.rm=T)
+  # mean(Z$TypeI,na.rm=T)*100 #25%
+  # mean(Z$TypeII,na.rm=T)*100 #0.006%
+  #
+  # Z.a <- SensSpec %>%
+  #   filter(Model=="Adj.ZING")
+  # mean(Z.a$Specificity,na.rm=T)
+  # range(Z.a$Specificity,na.rm=T)
+  # mean(Z.a$PPV,na.rm=T)
+  # mean(Z.a$Sensitivity,na.rm=T)
+  # mean(Z.a$TypeI,na.rm=T)*100 #20%
+  # mean(Z.a$TypeII,na.rm=T)*100 #0.226%
+
+  # taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
+  # SensSpec$Taxa.Level <- factor(SensSpec$Taxa.Level, levels = taxa_order)
+  # write.csv(SensSpec,fs::path(dir.results,"SensitivitySpecificity_All.csv"))
+  measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
+  # measures <- c("PPV","FDR","TypeI")
+  # SensSpec.Sum <-SensSpec %>%
+  #   tidylog::select(-c(Taxa.Level,Scenario)) %>%
+  #   tidylog::group_by(Model) %>%
+  #   tidylog::summarize(across(all_of(measures),~mean(.,na.rm=T)))
+
+
+  #   return(SensSpec)
+  # }
+
+  #Bias non causal and causal...and add MSE? Variance of mean?
+  # Melt the data for ggplot2
+  # SensSpec2 <- SensSpec %>%
+  #   select(-FDR2)
+  # select(-Scenario)
+  # select(FDR,Model,Scenario:Type2ErrorRate) %>%
+  # mutate(Scenario=paste0("Scenario ",Scenario))
+  # SensitivitySpecificity2$FDR[1:4] <- NA
+  # scenario.order <- c("Scenario 1", "Scenario 2", "Scenario 3","Scenario 4",
+  #                     "Scenario 5","Scenario 6","Scenario 7","Scenario 8","Scenario 11")
+  # Convert Scenario to a factor with the desired order
+  # SensitivitySpecificity2$Scenario <- factor(SensitivitySpecificity2$Scenario, levels = scenario.order)
+
+  # melted_data <- reshape2::melt(SensSpec2, id.vars = c('Taxa.Level', 'Model','Scenario'))
+  melted_data <- reshape2::melt(SensSpec, id.vars = c('Model','Taxa.Level','Scenario'))
+  # melted_data <- melted_data %>%
+  # filter(Scenario!="Scenario 11")
+  # model_order <- c('Ridge ZING', 'BaH-ZING', 'ZING','Adj.ZING')
+  model_order <- c('BaH-ZING', 'ZING','Adj.ZING')
+  melted_data$Model <- factor(melted_data$Model, levels = model_order)
+  taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
+  # melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
+
+
+  #Order Taxa levels
+  # taxa_order
+  melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
+  return(melted_data)
+}
 sens.fxn <- function(data){
   BaH_ZING <- data %>% 
     filter(model=="BaHZING") %>% 
