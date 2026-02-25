@@ -60,8 +60,8 @@ harm_dat_jg <- harm_dat %>%
   dplyr::mutate(screen_date = as.Date(screen_date),
                 date = as.Date(date),
                 days_since_baseline = as.numeric((screen_date) - min(screen_date))) %>%
-  dplyr::select(uuid, study, record_id, 
-                attempt_id, croc_id, improve_id, rh_id, rh2_id,
+  dplyr::select(uuid, study, record_id, group,
+                croc_id, improve_id, rh_id, rh2_id,
                 visit, procedure, days_since_baseline, jg_vars$variable_name) %>%
   ungroup()
 
@@ -70,12 +70,57 @@ harm_dat_recid <- harm_dat_jg %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
-  dplyr::select(uuid, study, record_id, 
-                attempt_id, croc_id, improve_id, rh_id, rh2_id,
+  dplyr::select(uuid, study, record_id, group,
+                croc_id, improve_id, rh_id, rh2_id,
                 visit, days_since_baseline, jg_vars$variable_name) %>%
   ungroup()
 
 write.csv(harm_dat_jg, file.path(root_path, "Goodrich/Data requests/long_datapull_022326.csv"), row.names = F, na = "")
 write.csv(harm_dat_recid, file.path(root_path, "Goodrich/Data requests/collapsed_datapull_022326.csv"), row.names = F, na = "")
+```
+
+```{r}
+# compare with SR's version
+sr_ver <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/rh_it_crc_02232026.csv"))
+
+# subset to the same participants
+sr_ver_subset <- sr_ver %>%
+  filter(record_id %in% jg_ids$record_id)
+# 195 participants
+
+# columns
+setdiff(names(sr_ver_subset), names(harm_dat_recid))
+setdiff(names(harm_dat_recid), names(sr_ver_subset)) 
+# study and rh2_id not in sr_ver_subset
+
+# spot check some vars
+# Add suffixes to each dataframe
+harm_dat_recid_yc <- harm_dat_recid %>%
+  dplyr::select(-rh2_id, -study) %>%
+  rename_with(~ paste0(., "_yc")) 
+
+sr_ver_subset_sr <- sr_ver_subset %>%
+  rename_with(~ paste0(., "_sr"))
+
+# Combine side by side
+combined <- bind_cols(harm_dat_recid_yc, sr_ver_subset_sr)
+
+# Interleave columns: _yc and _sr alternating
+yc_cols <- names(harm_dat_recid_yc)
+sr_cols <- names(sr_ver_subset_sr)
+
+# Pair up matching columns (assumes same base names)
+base_names <- names(sr_ver_subset)  # original names before suffix
+interleaved <- unlist(lapply(base_names, function(var) {
+  c(paste0(var, "_yc"), paste0(var, "_sr"), paste0(var, "_match"))
+}))
+
+
+for (var in base_names) {
+  combined <- combined %>%
+    mutate("{var}_match" := .data[[paste0(var, "_yc")]] == .data[[paste0(var, "_sr")]])
+}
+
+combined <- combined %>% dplyr::select(all_of(interleaved))
 
 ```

@@ -18,6 +18,10 @@ library(kableExtra)
 library(knitr)
 library(purrr)
 library(tidyr)
+library(ggplot2)
+library(GGally)
+library(gtExtras)
+library(gt)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
@@ -38,184 +42,1082 @@ if (user == "choiyej") { # local version
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
+harm_dat_raw <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na = "")
 ```
 
 ```{r, include = F}
-harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+harm_dat <- harm_dat_raw %>%
+  dplyr::mutate(sex = case_when(study == "ULTRA" ~ "Male", T ~ sex)) %>%
+  dplyr::select(-starts_with("seq"), seq.10000.28, seq.10000.28_urine)
 
 harm_dat_recid <- harm_dat %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit))
+                   .by = c(record_id, visit)) %>%
+  dplyr::select(-mrn, -dob)  %>%
+  filter(visit %nin% c("treatment_period_1", "treatment_period_2",
+                       "treatment_period_3", "treatment_period_4", 
+                       "Early Withdrawal", "Unscheduled 1", "Unscheduled 2")) %>%
+  bind_rows(data.frame(study = c(rep("ADAPT-CKD", 2),
+                                 rep("MANATEE", 1),
+                                 rep("INSPIRE", 1),
+                                 rep("SUGAR-N-SALT", 1),
+                                 rep("T1-DISCO", 1),
+                                 rep("MetMod", 1),
+                                 rep("OTTER", 1),
+                                 rep("MANGO", 1)),
+                       visit = c("MO6", "YR1", 
+                                 "MO4",
+                                 "MO3", 
+                                 "YR3",
+                                 "MO6",
+                                 "MO6",
+                                 "MO6",
+                                 "YR1"),
+                       group = c("Type 2 Diabetes", "Obese Control",
+                                 "Type 1 Diabetes",
+                                 "Type 2 Diabetes",
+                                 "Type 1 Diabetes",
+                                 "Type 1 Diabetes",
+                                 "Type 1 Diabetes",
+                                 "Type 1 Diabetes",
+                                 "Obese Control"))) %>%
+  dplyr::mutate(study_design = case_when(study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "PENGUIN",
+                                                      "CROCODILE", "SWEETHEART", "CASPER") ~ "Observational: Cross-sectional",
+                                         study %in% c("ULTRA", "COFFEE") ~ "Interventional: Longitudinal",
+                                         study %in% c("PANTHER") ~ "Observational: Accelerated Longitudinal",
+                                         study %in% c("ADAPT-CKD", "PANDA", "MANGO", "IMPROVE") ~ "Observational: Longitudinal",
+                                         study %in% c("ATTEMPT", "RPC2", "MANATEE", "T1-DISCO", "MetMod", 
+                                                      "OTTER", "SUGAR-N-SALT", "INSPIRE") ~ "Interventional: RCT"),
+                exposure_design = case_when(study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE", "MetMod",
+                                                         "OTTER", "RPC2", "SUGAR-N-SALT", "T1-DISCO" ~ "Interventional",
+                                                         T ~ "Observational")),
+                design_struc = case_when(study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE", "MetMod",
+                                                      "OTTER", "RPC2", "SUGAR-N-SALT", "T1-DISCO", "ADAPT-CKD",
+                                                      "IMPROVE", "MANGO", "PANDA") ~ "Longitudinal",
+                                         study == "PANTHER" ~ "Accelerated Longitudinal",
+                                           T ~ "Cross-Sectional"),
+                study_design_sub = case_when(study %in% c("ATTEMPT", "INSPIRE", "MANATEE", "MetMod", "OTTER", "RPC2", 
+                                                          "SUGAR-N-SALT", "T1-DISCO") ~ "RCT",
+                                             study %in% c("COFFEE", "ULTRA") ~ "Single-arm trial",
+                                             study %in% c("IMPROVE", "MANGO", "ADAPT-CKD") ~ "Registry cohort",
+                                             study %in% c("PANTHER") ~ "Prospective cohort", 
+                                             T ~ "Cohort characterization"),
+                visit = case_when(visit == "screening" ~ "baseline",
+                           study == "ATTEMPT" & visit == "follow_up" ~ "4_months_post",
+                           is.na(visit) & study_design == "Cross-sectional" ~ "baseline",
+                           is.na(visit) ~ "follow up",
+                           T ~ visit),
+                intervention = case_when(study == "COFFEE" ~ "Caffeine (205mg/day)",
+                                         study == "IMPROVE" ~ "Bariatric Surgery (VSG)",
+                                         study == "MANGO" ~ "Bariatric Surgery (VSG)",
+                                         study == "ULTRA" ~ "Pegloticase (Krystexxa 8mg/once)",
+                                         study == "ATTEMPT" ~ "SGLT2i (Dapagliflozin 5mg/day)",
+                                         study == "RPC2" ~ "SGLT2i (Canagliflozin 10mg/day)",
+                                         study == "MANATEE" ~ "AID System + Metformin (2000mg/day)",
+                                         study == "INSPIRE" ~ "IMST (75% PImax, 30 breaths/day, 6 days/wk)",
+                                         study == "SUGAR-N-SALT" ~ "SGLT2i (Sotagliflozin 200mg/day)",
+                                         study == "T1-DISCO" ~ "GLP-1RA (Semaglutide 1mg/week)",
+                                         study == "MetMod" ~ "AMX0035 (Phenylbutyrate + TUDCA)",
+                                         study == "ADAPT-CKD" ~ "SGLT2i, GLP-1RA, OR ns-MRA",
+                                         study == "OTTER" ~ "ns-MRA (Finerenone 20mg/day)")) %>%
+  filter(!is.na(study_design)) %>%
+  filter(study != "RPC2" | visit != "follow up") 
 
-harm_dat_mrn <- harm_dat %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(mrn, screen_date))
+
+# Deidentify data for LLM
+# harm_dat_recid <- harm_dat_recid[, !grepl("date", names(harm_dat_recid), ignore.case = TRUE)]
+# write.csv(harm_dat_recid, file.path(root_path, "Ye Ji Choi/harm_data_deidentified_022326.csv"), row.names = F, na = "")
 ```
 
-# Demographics
+```{r}
+# ── Vitals & Anthropometrics ─────────────────────────────────────────────────
+vitals_anthropometrics <- c(
+  "age",              # Age (years)
+  "sex",              # Sex
+  "race",             # Race
+  "ethnicity",        # Ethnicity
+  "height",           # Height (cm)
+  "weight",           # Weight (kg)
+  "bmi",              # BMI (kg/m²)
+  "sbp",              # Systolic Blood Pressure (mmHg)
+  "dbp",              # Diastolic Blood Pressure (mmHg)
+  "map",              # Mean Arterial Pressure (mmHg)
+  "pulse",            # Pulse (bpm)
+  "waistcm",          # Waist circumference (cm)
+  "hipcm",            # Hip circumference (cm)
+  "waist_hip_ratio",  # Waist/hip ratio
+  "diabetes_duration" # Diabetes duration (months)
+)
 
-```{r, message=F, warning=F, echo=F}
-# demographics
-demo <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, date = consent_date, dob, sex, race, ethnicity, participation_status) %>%
-  filter(visit == "baseline")
+
+# ── Urine Labs ───────────────────────────────────────────────────────────────
+urine_labs <- c(
+  "creatinine_u",       # Urine Creatinine (mg/dL)
+  "microalbumin_u",     # Urine Microalbumin (mcg/mL)
+  "acr_u",              # Urine Albumin-Creatinine Ratio / UACR (mg/g)
+  "elevated_albuminuria", # Elevated Albuminuria flag (UACR ≥30)
+  "albuminuria_cat",    # Albuminuria category (A1/A2/A3)
+  "na_u",               # Urine Sodium
+  "urine_osm",          # Urine Osmolality
+  # 24-hour urine
+  "u24_vl",             # 24hr urine volume (mL)
+  "u24_mab",            # 24hr urine microalbumin (mcg/24hr)
+  "u24_na",             # 24hr urine sodium (nmol/L)
+  "u24_gluc"            # 24hr urine glucose (mg/dL) [from IVGTT]
+)
+
+
+# ── Blood / Serum Labs ───────────────────────────────────────────────────────
+blood_labs <- c(
+  # Glucose / insulin metabolism
+  "glucose",            # Serum Glucose
+  "hba1c",              # HbA1c (%)
+  "fasting_insulin",    # Fasting Insulin
+  "cpeptide",           # C-Peptide
+  "homa_ir",            # HOMA-IR
+  "igf_free",           # Free IGF-1
+  "igf1_z_score",       # IGF-1 Z-score
+  # Kidney function
+  "creatinine_s",       # Serum Creatinine (mg/dL)
+  "cystatin_c_s",       # Cystatin C (mg/L)
+  "bun_s",              # BUN (mg/dL)
+  "na_s",               # Serum Sodium
+  # Lipids
+  "cholesterol",        # Total Cholesterol (mmol/L)
+  "hdl",                # HDL (mg/dL)
+  "ldl",                # LDL (mg/dL)
+  "triglycerides",      # Triglycerides (mg/dL)
+  # CBC / hematology
+  "hemoglobin",         # Hemoglobin (g/dL)
+  "hematocrit",         # Hematocrit
+  # Liver panel
+  "gotast_base",        # AST (U/L)
+  "gptalt_base",        # ALT (U/L)
+  "alkphos_base",       # Alkaline Phosphatase (U/L)
+  "bili_base",          # Total Bilirubin (mg/dL)
+  "alb_base",           # Albumin (g/dL)
+  "tot_protein",        # Total Protein
+  # Basic metabolic panel
+  "bicarb_base",        # Bicarbonate/HCO3 (nmol/L)
+  "ca_base",            # Calcium (mg/dL)
+  "cl_base",            # Chloride (nmol/L)
+  "k_base",             # Potassium (nmol/L)
+  "sodium_base",        # Sodium (baseline)
+  # Hormones (from IVGTT/endocrine)
+  "lh",                 # LH (mIU/mL)
+  "fsh",                # FSH (mIU/mL)
+  "bl_androst",         # Androstenedione (ng/dL)
+  "bl_dheas",           # DHEA-S (ng/dL)
+  # Other biomarkers
+  "copeptin"            # Copeptin
+)
+
+
+# ── eGFR Equations ──────────────────────────────────────────────────────────
+egfr_vars <- c(
+  "eGFR_CKD_epi",         # eGFR by CKD-EPI Creatinine 2021
+  "eGFR_fas_cr",           # eGFR by Full Age Spectrum (Scr)
+  "eGFR_fas_cr_cysc",      # eGFR by Full Age Spectrum (Scr + CysC)
+  "eGFR_bedside_Schwartz", # eGFR by Schwartz Bedside Equation (pediatric)
+  "eGFR_Schwartz",         # eGFR by Schwartz Full Equation (pediatric)
+  "eGFR_Zap"               # eGFR by Zappitelli Equation (pediatric)
+)
+
+
+# ── Renal Clearance Testing (iohexol/PAH) ───────────────────────────────────
+renal_clearance <- c(
+  # GFR (measured)
+  "gfr_bsa_plasma",         # BSA-indexed GFR — plasma clearance (mL/min/1.73m²)
+  "gfr_bsa_plasma_urine",   # BSA-indexed GFR — plasma+urine clearance (mL/min/1.73m²)
+  "gfr_raw_plasma",         # GFR from plasma clearance (mL/min, absolute)
+  "gfr_raw_plasma_urine",   # GFR from plasma+urine clearance (mL/min, absolute)
+  "gfr_ecv_std",            # GFR standardized by ECV
+  "gfr_ecv_percent",        # GFR/ECV (%)
+  "ecv",                    # Extracellular Volume
+  # GFR period-by-period (clearance periods)
+  "gfr_p1",                 # GFR — Period 1
+  "gfr_p2",                 # GFR — Period 2
+  "gfr_sd",                 # GFR SD (between periods)
+  "gfr_cv",                 # GFR CV (between periods)
+  # ERPF / PAH clearance (effective renal plasma flow)
+  "erpf_bsa_plasma",        # BSA-indexed ERPF — plasma clearance (mL/min/1.73m²)
+  "erpf_bsa_plasma_urine",  # BSA-indexed ERPF — plasma+urine clearance (mL/min/1.73m²)
+  "erpf_raw_plasma",        # ERPF from plasma clearance (mL/min)
+  "erpf_raw_plasma_urine",  # ERPF from plasma+urine clearance (mL/min)
+  "pah_bsa",                # BSA-normalized PAH clearance (mL/min/1.73m²)
+  "pah_bsa_plasma_urine",   # BSA-normalized PAH clearance plasma+urine (mL/min/1.73m²)
+  "pah_clear_abs",          # Absolute PAH clearance (mL/min)
+  "pah_clear_bsa",          # BSA-normalized PAH clearance (plasma)
+  "pahcl_12_8mgmin",        # Raw PAH clearance (plasma)
+  "pah_p1",                 # PAH clearance — Period 1
+  "pah_p2",                 # PAH clearance — Period 2
+  "pah_raw",                # Mean raw PAH (mL/min)
+  "pah_sd",                 # PAH SD
+  "pah_cv",                 # PAH CV
+  "rbf",                    # Renal Blood Flow
+  # Derived hemodynamic parameters
+  "ff",                     # Filtration Fraction (GFR/ERPF)
+  "ra",                     # Afferent arteriolar resistance
+  "re",                     # Efferent arteriolar resistance
+  "rvr",                    # Renal Vascular Resistance
+  "pg",                     # Pi G (oncotic pressure)
+  "deltapf",                # Filtration pressure across glomerular capillaries
+  "glomerular_pressure",    # Glomerular capillary pressure (mmHg)
+  "kfg",                    # Kfg (ultrafiltration coefficient)
+  "cm",                     # Plasma protein mean concentration
+  # Clearance agent volumes / procedural
+  "avg_plasma_iohexol",     # Average plasma iohexol concentration (ug/mL)
+  "avg_plasma_pah",         # Average plasma PAH concentration (ug/mL)
+  "plasma_ioh_1",           # Plasma iohexol — Period 1
+  "plasma_ioh_2",           # Plasma iohexol — Period 2
+  "plasma_pah_1",           # Plasma PAH — Period 1
+  "plasma_pah_2",           # Plasma PAH — Period 2
+  "iohexol_urine_150",      # Urine iohexol concentration (T=+150)
+  "iohexol_urine_180",      # Urine iohexol concentration (T=+180)
+  "pah_urine_120",          # Urine PAH concentration (T=+120)
+  "pah_urine_150",          # Urine PAH concentration (T=+150)
+  "urineflow_1",            # Urine flow rate — Period 1 (mL/min)
+  "urineflow_2"             # Urine flow rate — Period 2 (mL/min)
+)
+
+
+# ── BOLD / ASL MRI (Kidney Oxygenation) ─────────────────────────────────────
+# Naming convention: bold_{L/R}_{bl/pf}_{cortex/medulla}
+#   bl = baseline (pre-furosemide), pf = post-furosemide
+bold_mri <- c(
+  # Left kidney — baseline
+  "bold_l_bl_cortex",   # L cortex R2* baseline (s⁻¹)
+  "bold_l_bl_medulla",  # L medulla R2* baseline (s⁻¹)
+  # Right kidney — baseline
+  "bold_r_bl_cortex",   # R cortex R2* baseline (s⁻¹)
+  "bold_r_bl_medulla",  # R medulla R2* baseline (s⁻¹)
+  # Left kidney — post-furosemide
+  "bold_l_pf_cortex",   # L cortex R2* post-furosemide (s⁻¹)
+  "bold_l_pf_medulla",  # L medulla R2* post-furosemide (s⁻¹)
+  # Right kidney — post-furosemide
+  "bold_r_pf_cortex",   # R cortex R2* post-furosemide (s⁻¹)
+  "bold_r_pf_medulla",  # R medulla R2* post-furosemide (s⁻¹)
+  # Change scores (furosemide response)
+  "bold_l_change_cortex",   # L cortex ΔR2* (pf - bl)
+  "bold_r_change_cortex",   # R cortex ΔR2* (pf - bl)
+  "bold_l_change_medulla",  # L medulla ΔR2* (pf - bl)
+  "bold_r_change_medulla",  # R medulla ΔR2* (pf - bl)
+  # Averages
+  "avg_k_r2",   # Average kidney R2* (from renal clearance form)
+  "avg_c_r2",   # Average cortical R2*
+  "avg_m_r2",   # Average medullary R2*
+  # FSOC (Fractional renal tissue oxygenation — from BOLD voxelwise)
+  "fsoc_l_cortex",   # Left cortex FSOC
+  "fsoc_r_cortex",   # Right cortex FSOC
+  "fsoc_l_medulla",  # Left medulla FSOC
+  "fsoc_r_medulla",  # Right medulla FSOC
+  "fsoc_l_kidney",   # Left kidney FSOC (whole)
+  "fsoc_r_kidney",    # Right kidney FSOC (whole)
+  "length_left",          # L kidney length (cm)
+  "length_right",         # R kidney length (cm)
+  "depth_left",           # L kidney depth (cm)
+  "depth_right",          # R kidney depth (cm)
+  "width_left",           # L kidney width (cm)
+  "width_right",          # R kidney width (cm)
+  "vol_left",             # L kidney volume (mL)
+  "vol_right",            # R kidney volume (mL)
+  "volume_left",          # L kidney volume — outcomes form (mL)
+  "volume_right",         # R kidney volume — outcomes form (mL)
+  "volume_left_manual",   # L kidney volume — manually measured (mL)
+  "volume_right_manual",  # R kidney volume — manually measured (mL)
+  "tkv",                  # Total Kidney Volume (cm³)
+  "tkv_outcomes",         # TKV from outcomes form
+  "httkv"                 # Height-adjusted TKV
+)
+
+# Voxelwise BOLD data (one row per voxel — use separately for imaging analyses)
+bold_mri_voxelwise <- c(
+  "vox_r2star",      # Voxel R2* value
+  "vox_region",      # Voxel region label (cortex/medulla)
+  "vox_side",        # Kidney side (L/R)
+  "vox_x", "vox_y", "vox_z"  # Voxel coordinates
+)
+
+
+# ── Cardiac / Abdominal MRI (PC-MRI + cine) ─────────────────────────────────
+cardiac_mri <- c(
+  # Cardiac structure / function
+  "lvedv",           # LV end-diastolic volume (mL)
+  "lvesv",           # LV end-systolic volume (mL)
+  "lvsv",            # LV stroke volume (mL)
+  "lvef",            # LV ejection fraction (%)
+  "lv_mass",         # LV mass (g)
+  "lv_mass_i",       # LV mass index (g/m²)
+  "rvedv",           # RV end-diastolic volume (mL)
+  "rvesv",           # RV end-systolic volume (mL)
+  "rvsv",            # RV stroke volume (mL)
+  "rvef",            # RV ejection fraction (%)
+  # Phase-contrast MRI (flow)
+  "aorta_qp_qs",     # Aorta Qp/Qs
+  "co",              # Cardiac output (L/min)
+  "ci",              # Cardiac index (L/min/m²)
+  "sv",              # Stroke volume
+  "hr_mri",          # Heart rate during MRI
+  # Fat / tissue compartments (abdominal MRI)
+  "hepatic_ff",      # Hepatic fat fraction (MRI/MRS)
+  "total_liver_volume_ml",  # Total liver volume (mL)
+  "pericardial_fat", # Pericardial fat volume
+  "vat_volume",      # Visceral adipose tissue volume (mL)
+  "sat_volume",      # Subcutaneous adipose tissue volume (mL)
+  "pancreas_volume", # Pancreas volume (mL)
+  "pancreatic_ff",   # Pancreatic fat fraction
+  # Vascular stiffness (from sphygmocor / PWV)
+  "pwv",             # Pulse wave velocity (m/s)
+  "augmentation_index", # Augmentation index (%)
+  "bsa"              # Body surface area (cardiac MRI form)
+)
+
+
+# ── DXA (Dual-energy X-ray Absorptiometry) ──────────────────────────────────
+dxa <- c(
+  "dexa_body_fat",            # Body fat percentage (%)
+  "dexa_lean_mass",           # Lean mass percentage (%)
+  "dexa_lean_kg",             # Lean mass (kg)
+  "dexa_fat_kg",              # Fat mass (kg)
+  "dexa_trunk_mass",          # Trunk mass percentage (%)
+  "dexa_trunk_kg",            # Trunk mass (kg)
+  "dexa_ag_ratio",            # Android/Gynoid ratio
+  "dexa_est_vat",             # Estimated VAT mass (g)
+  "dexa_bone_mineral_density" # Bone mineral density (g/cm²)
+)
+
+
+# ── Kidney Biopsy ────────────────────────────────────────────────────────────
+kidney_biopsy <- c(
+  # Glomerular morphometry
+  "gloms",              # Number of glomeruli (total)
+  "gloms_gs",           # Globally sclerotic glomeruli (%)
+  "glom_volume_con",    # Glomerular volume — consensus method (10⁶ µm³)
+  "glom_volume_weibel", # Glomerular volume — Weibel method (10⁶ µm³)
+  "glom_volume_wiggins",# Glomerular volume — Wiggins method (10⁶ µm³)
+  "glom_tuft_area",     # Glomerular tuft area (µm²)
+  "glom_nuc_count",     # Glomerular nuclear count
+  # Interstitial / tubular
+  "fia",                # Fractional interstitial area
+  # Podocyte / glomerular injury (if present)
+  "acan",               # ACAN score
+  "acan_sev",            # ACAN severity
+  "kit_id", "cryostor_id"
+)
+
+
+# ── Liver Biopsy (PET-derived; bx vars not yet in current extract) ──────────
+# Note: liver biopsy pathology vars (bx_date_liver, steatosis, etc.) are in
+# the data dictionary but not in this extract. PET-derived liver kinetics are:
+liver_pet <- c(
+  "liver_k1",           # Liver K1 (PET tracer influx rate constant)
+  "liver_k2",           # Liver K2
+  "liver_k3",           # Liver K3
+  "liver_vb",           # Liver vascular fraction (PET)
+  "total_liver_volume_ml", # Total liver volume (mL)
+  "hepatic_ff"          # Hepatic fat fraction
+)
+
+
+# ── PET Scan ────────────────────────────────────────────────────────────────
+pet_scan <- c(
+  "cpm1",               # PET CPM (sample 1)
+  "cpm2",               # PET CPM (sample 2)
+  "ki_cortex_l",        # Tracer uptake — L cortex Ki
+  "ki_cortex_r",        # Tracer uptake — R cortex Ki
+  "ki_medulla_l",       # Tracer uptake — L medulla Ki
+  "ki_medulla_r",       # Tracer uptake — R medulla Ki
+  "ki_kidney_l",        # Tracer uptake — L kidney Ki
+  "ki_kidney_r",        # Tracer uptake — R kidney Ki
+  "avg_c_k1",
+  "avg_k_k1",
+  "avg_c_k2",
+  "avg_k_k2",
+  "avg_c_f",
+  "avg_k_f"
+)
+
+# ── Hyperglycaemic / Euglycaemic Clamp ──────────────────────────────────────
+# Summary outcomes only (exclude raw time-series glucose_0, glucose_5, etc.)
+clamp_outcomes <- c(
+  # Insulin secretion (hyperglycaemic clamp / IVGTT)
+  "airg",               # Acute Insulin Response to Glucose (hyperglycaemic clamp)
+  "acprg",              # Acute C-Peptide Response to Glucose
+  "di",                 # Disposition Index (AIRg × Si)
+  "acpr",               # ACPR (from CRC sub-study)
+  "acpr_max",           # ACPR max
+  "air",                # AIR (CRC sub-study)
+  "air_max",            # AIR max
+  "ss_c_pep",           # Steady State C-Peptide Response
+  "ss_insulin_response",# Steady State Insulin Response
+  "steady_state_cpeptide", # Steady State C-Peptide (clamp)
+  "steady_state_insulin",  # Steady State Insulin (clamp)
+  # Insulin sensitivity (euglycaemic clamp)
+  "adipose_ir",         # Adipose IR (fasting insulin × fasting FFA)
+  "adipo_ir_mmol_l_pmol_l", # ADIPO-IR (mmol/L / pmol/L units)
+  "adipo_ir_meq_l_iu_ml",   # ADIPO-IR (mEq/L / µIU/mL units)
+  "search_eis",         # Estimated Insulin Sensitivity
+  "homa_ir",            # HOMA-IR
+  # M-values (glucose disposal — euglycaemic clamp)
+  "mval",               # M-value (mg/kg/min)
+  "m_i",                # M/I ratio
+  "p1_raw_m",           # Phase 1: Raw M-value (mg/kg/min)
+  "p1_raw_leanm",       # Phase 1: Raw M-value indexed to lean mass
+  "p1_gc_m",            # Phase 1: Glucose-corrected M-value
+  "p1_gc_leanm",        # Phase 1: GC M-value indexed to lean mass
+  "p2_raw_m",           # Phase 2: Raw M-value
+  "p2_raw_leanm",       # Phase 2: Raw M-value indexed to lean mass
+  "p2_gc_m",            # Phase 2: GC M-value
+  "p2_gc_leanm",        # Phase 2: GC M-value indexed to lean mass
+  # FFA suppression (lipolysis during clamp)
+  "fasting_ffa",        # Fasting FFA
+  "baseline_ffa",       # Baseline FFA (avg)
+  "ffa_suppression",    # FFA Suppression (%)
+  "ffa_suppression_combined",  # FFA Suppression (combined across studies)
+  "p1_ffa_suppression", # Phase 1: FFA suppression
+  "p1_steady_state_ffa",# Phase 1: Steady state FFA
+  "p2_ffa_suppression", # Phase 2: FFA suppression
+  "p2_steady_state_ffa",# Phase 2: Steady state FFA
+  # Baseline labs (clamp visit)
+  "fbg",                # Fasting Blood Glucose (mg/dL)
+  "fasting_insulin",    # Fasting Insulin
+  # Insulin clearance
+  "ins_clear",          # Insulin Clearance
+  "early_ins_clear",    # Early-Phase Insulin Clearance
+  "fasting_insulin_clearance_ng_ml_uiu_l"  # Fasting Insulin Clearance
+)
+
+# Raw clamp time-series (use for AUC calculations, curve fitting)
+# Format: glucose_0, glucose_5 ... glucose_270; insulin_0 ... insulin_270; etc.
+clamp_timeseries_prefixes <- c(
+  "glucose_",     # Blood glucose at each timepoint
+  "insulin_",     # Insulin at each timepoint
+  "cpeptide_",    # C-peptide at each timepoint
+  "ffa_",         # Free fatty acids at each timepoint
+  "d20_infusion_rate_"  # D20 infusion rate at each timepoint
+)
+# To get all time-series vars:
+# clamp_ts_vars <- grep(paste(clamp_timeseries_prefixes, collapse="|"), names(df), value=TRUE)
+
+
+# ── IVGTT (Intravenous Glucose Tolerance Test — MinMod) ─────────────────────
+ivgtt <- c(
+  # MinMod-derived outcomes
+  "mm_si",       # Insulin Sensitivity (Si)
+  "mm_airg",     # AIRg (Acute Insulin Response to Glucose)
+  "mm_di",       # Disposition Index
+  "mm_ir",       # Insulin Resistance
+  "mm_bcell",    # Beta Cell Function
+  "mm_sg",       # Glucose Effectiveness (Sg, min⁻¹)
+  "mm_gb",       # Basal Glucose (mg/dL)
+  "mm_ib",       # Basal Insulin (µU/mL)
+  "mm_r2",       # MinMod R-squared (goodness of fit)
+  # Endocrine labs drawn during IVGTT
+  "lh",          # LH (mIU/mL)
+  "fsh",         # FSH (mIU/mL)
+  "igf1_z_score",# IGF-1 Z-score
+  "bl_androst",  # Androstenedione (ng/dL)
+  "bl_dheas"     # DHEA-S (ng/dL)
+)
+
+
+# ── MMTT + Metabolic Cart (Mixed Meal Tolerance Test) ───────────────────────
+mmtt_outcomes <- c(
+  # AUC summary outcomes
+  "glucose_auc",     # Blood glucose AUC (0–240 min)
+  "insulin_auc",     # Insulin AUC
+  "cpeptide_auc",    # C-Peptide AUC
+  # Insulin clearance
+  "early_phase_insulin_clearance",  # Early-phase insulin clearance (0–60 min)
+  "late_insulin_clearance",         # Late-phase insulin clearance (60–240 min)
+  "total_insulin_clearance",        # Total insulin clearance (0–240 min)
+  # Indirect calorimetry — Baseline (resting metabolic rate)
+  "brmr_ree",        # Resting Energy Expenditure (kcal/day)
+  "brmr_rq",         # Respiratory Quotient (baseline)
+  "brmr_vo2_l",      # VO2 baseline (L/min)
+  "brmr_vco2",       # VCO2 baseline (L/min)
+  "brmr_fo",         # Fat Oxidation (baseline)
+  "brmr_co",         # Carbohydrate Oxidation (baseline)
+  "ree_bw",          # REE / body weight
+  "ree_ffm",         # REE / fat-free mass
+  # Indirect calorimetry — Post-meal (60 min stimulated)
+  "srmr_ree",        # REE (60 min)
+  "srmr_rq",         # RQ (60 min)
+  "srmr_vo2_l",      # VO2 (60 min, L/min)
+  "srmr_co2",        # VCO2 (60 min, L/min)
+  "srmr_fo",         # Fat Oxidation (60 min)
+  "srmr_co",         # Carbohydrate Oxidation (60 min)
+  "ree_bw_60min",    # REE/BW at 60 min
+  # Insulin sensitivity / adipose IR
+  "adipo_ir_mmol_l_pmol_l",  # ADIPO-IR (mmol/L / pmol/L)
+  "adipo_ir_meq_l_iu_ml",    # ADIPO-IR (mEq/L / µIU/mL)
+  "steady_state_ffa"         # Steady state FFA
+)
+
+# MMTT time-series (one row per timepoint per subject)
+# Analytes: glucose, insulin, cpeptide, glp1, glucagon, ffa, yy (peptide YY)
+# Timepoints: -10, 0, 10, 30, 45, 60, 120, 180, 240
+mmtt_timeseries_prefixes <- c(
+  "glucose_",    # Blood glucose at each MMTT timepoint
+  "insulin_",    # Insulin at each MMTT timepoint
+  "cpeptide_",   # C-peptide
+  "glp1_",       # GLP-1
+  "glucagon_",   # Glucagon
+  "ffa_",        # Free fatty acids
+  "yy_"          # Peptide YY
+)
+
+
+# ── Omics (Serum / Urine / Tissue) ──────────────────────────────────────────
+# Note: proteomics (SomaScan), Nightingale NMR, and lipidomics vars are in
+# the data dictionary but stored in long format / separate files.
+# The variable name prefixes below identify them in the wide dataset.
+
+# Proteomics (SomaScan) — seq_XXXXX_XX naming
+# Blood proteomics (seq_ + digits only, no _urine suffix)
+proteomics_blood_pattern  <- "seq.10000.28"
+# To extract: grep(proteomics_blood_pattern, names(df), value = TRUE)
+
+# Urine proteomics (seq_ + digits + _urine suffix)
+proteomics_urine_pattern  <- "seq.10000.28_urine"
+# To extract: grep("^seq_", names(df), value = TRUE)
+
+# Lipidomics — ~1278 vars in the data
+lipidomics_prefix <- c("lpc_", "pc_", "pe_", "sm_", "cer_", "dg_", "tg_", "mg_",
+                        "lpe_", "fa_", "hex_", "lac_")
+# To extract: grep(paste(lipidomics_prefix, collapse="|"), names(df), value=TRUE)
+
+# Nightingale NMR metabolomics (serum) — not in current extract, stored separately
+# Metabolomics (urine/plasma, untargeted)
+metabolomics_prefix <- c("az_", "met_")
+
+# Key named metabolomics / NMR outcomes (when available in wide format):
+nmr_metabolomics <- c(
+  # Nightingale NMR lipoproteins (examples — full list ~250 vars)
+  "xxl_vldl_p",   # XXL-VLDL particle concentration
+  "ldl_d",        # LDL particle diameter
+  "hdl_d",        # HDL particle diameter
+  "gp_",          # Glycoprotein acetyls (GlycA/GlycB)
+  "glucose_nmr",  # NMR glucose
+  "lactate",      # Lactate
+  "citrate",      # Citrate
+  "glutamine"     # Glutamine
+)
+
+has_any <- function(df, vars) {
+  vars_present <- intersect(vars, names(df))
+  if (length(vars_present) == 0) return(rep(FALSE, nrow(df)))
+  rowSums(!is.na(df[, vars_present, drop = FALSE])) > 0
+}
+
+
+# ── Main function ─────────────────────────────────────────────────────────────
+add_procedure_flags <- function(df) {
+
+  # ── Clamp time-series vars (pulled by pattern, not fixed list) ──────────────
+  clamp_ts_vars <- grep("^(glucose|insulin|cpeptide|ffa|d20_infusion_rate)_\\d",
+                        names(df), value = TRUE)
+
+  # ── MMTT time-series vars ────────────────────────────────────────────────────
+  mmtt_ts_vars  <- grep("^(glucose|insulin|cpeptide|glp1|glucagon|ffa|yy)_\\d",
+                        names(df), value = TRUE)
+
+  # ── SomaScan proteomics (when present) ──────────────────────────────────────
+  prot_blood_vars <- grep("^seq_\\d+_\\d+$",      names(df), value = TRUE)
+  prot_urine_vars <- grep("^seq_\\d+_\\d+_urine$", names(df), value = TRUE)
+
+  # ── Lipidomics ───────────────────────────────────────────────────────────────
+  lipid_vars <- grep(
+    "^(lpc|pc|pe|sm|cer|dg|tg|mg|lpe|fa|hex|lac)_",
+    names(df), value = TRUE
+  )
+
+  # ── Urine metabolomics (Astrozeneca) ─────────────────────────────────────────
+  az_metab_vars <- grep("^az_", names(df), value = TRUE)
+
+  # ── Add flags ─────────────────────────────────────────────────────────────────
+  df <- df %>%
+    dplyr::mutate(
+
+      # Demographics / vitals
+      flag_vitals          = has_any(df, vitals_anthropometrics),
+
+      # Lab procedures
+      flag_urine_labs      = has_any(df, urine_labs),
+      flag_blood_labs      = has_any(df, blood_labs),
+      flag_egfr            = has_any(df, egfr_vars),
+
+      # Imaging
+      flag_bold_mri        = has_any(df, bold_mri),
+      flag_cardiac_mri     = has_any(df, cardiac_mri),
+      flag_dxa             = has_any(df, dxa),
+      flag_kidney_pet        = has_any(df, pet_scan),
+
+      # Renal physiology
+      flag_renal_clearance = has_any(df, renal_clearance),
+
+      # Metabolic testing
+      flag_clamp           = has_any(df, c(clamp_outcomes, clamp_ts_vars)),
+      flag_ivgtt           = has_any(df, ivgtt),
+      flag_mmtt            = has_any(df, c(mmtt_outcomes, mmtt_ts_vars)),
+
+      # Biopsy
+      flag_kidney_biopsy   = has_any(df, kidney_biopsy),
+      flag_liver_pet       = has_any(df, liver_pet),
+
+      # Omics
+      flag_proteomics_blood  = has_any(df, proteomics_blood_pattern),
+      flag_proteomics_urine  = has_any(df, proteomics_urine_pattern),
+      flag_lipidomics        = has_any(df, lipid_vars),
+      flag_urine_metabolomics = has_any(df, az_metab_vars)
+
+    )
+
+  df
+}
+
+
+# ── Summary helper: count flags per study ────────────────────────────────────
+summarise_procedure_flags <- function(df) {
+  flag_cols <- grep("^flag_", names(df), value = TRUE)
+
+  df %>%
+    dplyr::group_by(study) %>%
+    dplyr::summarise(
+      n_participants = dplyr::n_distinct(record_id),
+      dplyr::across(
+        dplyr::all_of(flag_cols),
+        ~ sum(.x, na.rm = TRUE),
+        .names = "{.col}"
+      ),
+      .groups = "drop"
+    ) %>%
+    # Rename flag_ columns to drop prefix for readability
+    dplyr::rename_with(~ sub("^flag_", "n_", .x), dplyr::starts_with("flag_"))
+}
+
+# ── Summary helper: count flags per study ────────────────────────────────────
+summarise_procedure_flags <- function(df) {
+  flag_cols <- grep("^flag_", names(df), value = TRUE)
+
+  df %>%
+    dplyr::group_by(study) %>%
+    dplyr::summarise(
+      n_participants = dplyr::n_distinct(record_id),
+      dplyr::across(
+        dplyr::all_of(flag_cols),
+        ~ sum(.x, na.rm = TRUE),
+        .names = "{.col}"
+      ),
+      .groups = "drop"
+    ) %>%
+    # Rename flag_ columns to drop prefix for readability
+    dplyr::rename_with(~ sub("^flag_", "n_", .x), dplyr::starts_with("flag_"))
+}
+
 
 ```
 
-* RPC-45 also missing race, ethnicity, phone number
+```{r}
+harm_dat_recid <- add_procedure_flags(harm_dat_recid)
+harm_dat_recid_flag <- harm_dat_recid %>%
+  select(record_id, study, visit, starts_with("flag_"))
 
-# Medical History
+flag_cols <- grep("^flag_", names(harm_dat_recid_flag), value = TRUE)
 
-```{r, message=F, warning=F, echo=F}
-# medical history
-harm_dat_recid_med_history <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(procedure == "medical_history") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
+summary_df <- harm_dat_recid %>%
 
-med_history <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, metformin_timepoint, insulin_timepoint, tzd_timepoint, glp1_agonist_timepoint, sglti_timepoint, other_diabetes_med_timepoint, ace_inhibitor, angiotensin_receptor_blocker, beta_blocker, ca_channel_blocker, diuretic, statin, fibrates, niacin, topiramate, phentermine, mra, uric_acid_med, raasi_timepoint) %>%
+  dplyr::group_by(study, study_design, visit) %>%
+  dplyr::summarise(
+    n = dplyr::n_distinct(record_id),
+    dplyr::across(dplyr::all_of(flag_cols), ~ sum(.x, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(
+    cols      = dplyr::all_of(flag_cols),
+    names_to  = "procedure",
+    values_to = "n_with_data"
+  ) %>%
+  dplyr::mutate(
+    pct       = round(100 * n_with_data / n),
+    procedure = sub("^flag_", "", procedure),
+    procedure = gsub("_", " ", procedure)
+  ) %>%
+  mutate()
+
+summary_df %>%
   filter(visit == "baseline") %>%
-  left_join(harm_dat_recid_med_history)
-```
+  ggplot(aes(x = procedure, y = interaction(study, study_design), color = ifelse(n_with_data > 0, "Available", "NA"))) +
+  geom_point(size = 8) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        text = element_text(size = 20),
+        legend.position = "none") +
+  scale_color_manual(values = c("NA" = "white", 
+                                "Available" = "#588157")) +
+  labs(x = NULL, y = NULL)
 
-* RPC-45 missing ALL medical history
-
-# Vitals
-
-```{r, message=F, warning=F, echo=F}
-# Vitals
-harm_dat_recid_vitals <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(procedure == "physical_exam") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
-
-vitals <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, height, weight, bmi, sbp, dbp, map, pulse) %>%
-  filter(visit %in% c("baseline", "post_treatment")) %>%
-  left_join(harm_dat_recid_vitals)
-```
-
-# Screening Labs
-
-```{r, message=F, warning=F, echo=F}
-# screening labs
-harm_dat_recid_screen_labs <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(visit == "screening") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
-
-screen_labs <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, creatinine_s, bun,
-       microalbumin_u, creatinine_u, acr_u) %>%
-  filter(visit %in% c("screening")) %>%
-  left_join(harm_dat_recid_screen_labs)
+harm_dat_recid %>%
+  dplyr::group_by(study, study_design, visit) %>%
+  dplyr::summarise(
+    n = dplyr::n_distinct(record_id),
+    dplyr::across(dplyr::all_of(flag_cols), ~ sum(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+  gt() %>%
+  tab_spanner(columns = c(flag_blood_labs, flag_urine_labs),
+              label = "labs")
 
 ```
 
-# Labs
+```{r}
+# ── 1. Variable lists per procedure domain ────────────────────────────────────
+cols <- names(harm_dat_recid)
 
-```{r, message=F, warning=F, echo=F}
-# labs
-harm_dat_recid_labs <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(procedure == "labs") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
+blood_labs <- intersect(c(
+  "glucose","hba1c","fasting_insulin","cpeptide","homa_ir","creatinine_s",
+  "cystatin_c_s","bun_s","na_s","cholesterol","hdl","ldl","triglycerides",
+  "hemoglobin","hematocrit","gotast_base","gptalt_base","alkphos_base",
+  "bili_base","alb_base","tot_protein","bicarb_base","ca_base","cl_base",
+  "k_base","sodium_base","lh","fsh","bl_androst","bl_dheas","copeptin",
+  "igf1_z_score","alb","alk_phos","bili","bun","bg"
+), cols)
 
-labs <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, hemoglobin, hematocrit, pltct,
-       neutrophil, lymphocyte, monocyte, eosinophil, basophil,
-       abs_neut, abs_lymph, abs_monocyte, abs_eosin, abs_basophil,
-       abs_egc, sodium_s, k_base, cl_base, co2, bun,
-       creatinine_s, bg, ca_base, tot_prot, albumin, alkphos_base,
-       gotast_base, gptalt_base, bili_base, pt, ptt, inr, hba1c,
-       fbg, chol_base, hdl, ldl, triglycerides, cystatin_c_s,
-       microalbumin_u, creatinine_u) %>%
-  filter(visit %in% c("baseline", "post_treatment")) %>%
-  left_join(harm_dat_recid_labs)
+urine_labs <- intersect(c(
+  "creatinine_u","microalbumin_u","acr_u","elevated_albuminuria",
+  "albuminuria_cat","na_u","urine_osm","u24_vl","u24_mab","u24_na",
+  "u24_gluc","acr"
+), cols)
+
+clamp_outcomes <- intersect(c(
+  "m_value","gir","m_ffm","hepatic_glucose_output","steady_state_glucose",
+  "steady_state_insulin","glucose_infusion_rate_ss","endogenous_glucose_production",
+  "hgc_bg_ss","hgc_insulin_ss","hgc_gir_ss","hgc_cpeptide_ss"
+), cols)
+clamp_ts_vars <- grep("^(glucose|insulin|cpeptide|ffa|d20_infusion_rate)_\\d",
+                      cols, value = TRUE)
+clamp_all <- unique(c(clamp_outcomes, clamp_ts_vars))
+
+renal_clearance <- intersect(c(
+  "gfr_bsa_plasma","gfr_bsa_plasma_urine","gfr_raw_plasma","gfr_raw_plasma_urine",
+  "gfr_ecv_std","erpf_bsa_plasma","erpf_bsa_plasma_urine","erpf_raw_plasma",
+  "erpf_raw_plasma_urine","rbf","ff","ra","re","rvr","pg","deltapf",
+  "glomerular_pressure","kfg","gfr_p1","gfr_p2","pah_bsa","pah_raw",
+  "plasma_ioh_1","plasma_ioh_2"
+), cols)
+
+bold_mri <- intersect(c(
+  "bold_l_bl_cortex","bold_l_bl_medulla","bold_r_bl_cortex","bold_r_bl_medulla",
+  "bold_l_pf_cortex","bold_l_pf_medulla","bold_r_pf_cortex","bold_r_pf_medulla",
+  "avg_k_r2","avg_c_r2","avg_m_r2","fsoc_l_cortex","fsoc_r_cortex",
+  "left_cortex_ox_metab_mean","right_cortex_ox_metab_mean"
+), cols)
+
+dxa <- intersect(c(
+  "dexa_body_fat","dexa_lean_mass","dexa_lean_kg","dexa_fat_kg","dexa_trunk_mass",
+  "dexa_trunk_kg","dexa_ag_ratio","dexa_est_vat","dexa_bone_mineral_density"
+), cols)
+
+kidney_bx <- intersect(c(
+  "gloms","gloms_gs","glom_volume_con","glom_volume_weibel","glom_volume_wiggins",
+  "glom_tuft_area","glom_nuc_count","fia","acan"
+), cols)
+
+cardiac_mri <- intersect(c(
+  "lvedv","lvedvi","lvesv","lvesvi","lvef","lvsv","lv_myo_mass_dias",
+  "lv_myo_mass_syst","lv_cardiac_output","lv_cardiac_index","lv_stroke_volume",
+  "rvedv","rvef","rvsv","cardiac_output","ef_percent","edv_ml","esv_ml",
+  "sv_ml","lved_mass","lved_massi"
+), cols)
+
+kidney_size_vars <- intersect(c(
+  "left_kidney_volume_ml","right_kidney_volume_ml","volume_left_manual",
+  "volume_right_manual","length_left","length_right","httkv",
+  "left_kidney_length","right_kidney_length","total_kidney_volume"
+), cols)
+kidney_perf_vars <- grep("^(pcasl|pasl|asl).*_(left|right)", cols, value = TRUE)
+kidney_mri_all   <- unique(c(kidney_size_vars, kidney_perf_vars, bold_mri))
+
+# lipidomics: lipid species columns
+lipid_vars <- grep("^(lpc|pc|pe|sm|cer|dg|tg_|mg|lpe|fa_|hex|lac)_",
+                   cols, value = TRUE)
+
+# proteomics (not in current extract — patterns retained for completeness)
+prot_blood_vars <- intersect(c("seq.10000.28"), cols)
+prot_urine_vars <-intersect(c("seq.10000.28_urine"), cols)
+
+# ── 2. Helper: does a study have ≥1 non-missing value in a domain? ─────────
+has_any <- function(study_name, varlist) {
+  present <- intersect(varlist, cols)
+  if (length(present) == 0) return(FALSE)
+  sub <- harm_dat_recid[!is.na(harm_dat_recid$study) & harm_dat_recid$study == study_name, present, drop = FALSE]
+  any(rowSums(!is.na(sub)) > 0)
+}
+
+# ── 3. Build procedure matrix for studies present in the data ─────────────
+studies_in_data <- sort(unique(na.omit(harm_dat_recid$study)))
+
+proc_matrix <- lapply(studies_in_data, function(s) {
+  sub   <- harm_dat_recid[!is.na(harm_dat_recid$study) & harm_dat_recid$study == s, ]
+  sd   <- unique(sub$study_design)
+  n_pts <- length(unique(subset(sub, visit == "baseline")$record_id))
+  groups <- sort(unique(na.omit(sub$group)))
+
+  list(
+    study           = s,
+    n               = n_pts,
+    groups          = groups,
+    study_design    = sd,
+    intervention    = unique(sub$intervention),
+    visits          = unique(subset(sub, visit != "baseline")$visit),
+    blood_labs      = has_any(s, blood_labs),
+    urine_labs      = has_any(s, urine_labs),
+    clamp           = has_any(s, clamp_all),
+    renal_clear     = has_any(s, renal_clearance),
+    bold_mri        = has_any(s, bold_mri),
+    dxa             = has_any(s, dxa),
+    kidney_bx       = has_any(s, kidney_bx),
+    cardiac_mri     = has_any(s, cardiac_mri),
+    kidney_mri      = has_any(s, kidney_mri_all),
+    lipidomics      = has_any(s, lipid_vars),
+    blood_proteomics      = has_any(s, prot_blood_vars),
+    urine_proteomics      = has_any(s, prot_urine_vars)
+  )
+})
+
+proc_harm_dat_recid <- bind_rows(lapply(proc_matrix, function(x) {
+  as.data.frame(x[names(x) %nin% c("groups", "visits")], stringsAsFactors = FALSE)
+})) %>%
+  mutate(kidney_bx = case_when(study %in% c("ATTEMPT", "RPC2") ~ T, T ~ kidney_bx),
+         intervention = case_when(is.na(intervention) ~ "", T ~ intervention))
+
+# Add cohort string
+groups_list <- lapply(proc_matrix, `[[`, "groups")
+names(groups_list) <- proc_harm_dat_recid$study
+
+visits_list <- lapply(proc_matrix, `[[`, "visits")
+names(visits_list) <- proc_harm_dat_recid$study
+visits_list$COFFEE <- "WK1"
+
+# Map group labels to abbreviations
+abbrev_group <- function(g) {
+  dplyr::case_when(
+    grepl("Type 1",  g, ignore.case = TRUE) ~ "T1D",
+    grepl("Type 2",  g, ignore.case = TRUE) ~ "T2D",
+    grepl("^Lean",   g, ignore.case = TRUE) ~ "HC",
+    grepl("^Obese",  g, ignore.case = TRUE) ~ "OB",
+    grepl("PKD|ADPKD", g, ignore.case = TRUE) ~ "ADPKD",
+    TRUE ~ g
+  )
+}
+
+# Map visit labels to abbreviations
+abbrev_visit <- function(v) {
+  dplyr::case_when(
+    grepl("baseline",   v, ignore.case = TRUE) ~ "0",
+    grepl("4_weeks_post",  v, ignore.case = TRUE) ~ "MO1",
+    grepl("3_months_post_surgery",  v, ignore.case = TRUE) ~ "MO3",
+    grepl("4_months_post",  v, ignore.case = TRUE) ~ "MO4",
+    grepl("12_months_post_surgery", v, ignore.case = TRUE) ~ "YR1",
+    grepl("year_1",  v, ignore.case = TRUE) ~ "YR1",
+    grepl("year_2", v, ignore.case = TRUE) ~ "YR2",
+    grepl("year_3",  v, ignore.case = TRUE) ~ "YR3",
+    grepl("year_4", v, ignore.case = TRUE) ~ "YR4",
+    grepl("follow up", v, ignore.case = TRUE) ~ "WK1",
+    grepl("post_treatment", v, ignore.case = TRUE) ~ "MO6",
+    TRUE ~ v
+  )
+}
+
+# ── 4. HTML helpers ───────────────────────────────────────────────────────────
+cohort_colors <- c(
+  T1D   = "#e77c76",
+  T2D   = "#e37902",
+  HC    = "#8cb369",
+  OB    = "#5b8e7d",
+  ADPKD = "#bc4b51"
+)
+
+visit_colors <- c(
+  `0`   = "#d6ccc2",
+  `WK1` = "#f8ad9d", 
+  `MO1`   = "#ff9e00",
+  `MO3`    = "#ff9100",
+  `MO4`    = "#ff8500",
+  `MO6` = "#ff6d00",
+  `YR1`   = "#64a4ce",
+  `YR2`    = "#4893c6",
+  `YR3`    = "#2d82bd",
+  `YR4` = "#2476b1"
+)
+
+badge_html <- function(label) {
+  bg <- cohort_colors[label]
+  if (is.na(bg)) bg <- "#9ca3af"
+  sprintf(
+    paste0('<span style="background:%s;color:white;font-size:0.68em;font-weight:600;',
+           'padding:2px 7px;border-radius:999px;margin:1px 2px;',
+           'display:inline-block;white-space:nowrap;line-height:1.7">%s</span>'),
+    bg, label
+  )
+}
+
+badge_visit_html <- function(label) {
+  bg <- visit_colors[label]
+  if (is.na(bg)) bg <- "#9ca3af"
+  sprintf(
+    paste0('<span style="background:%s;color:white;font-size:0.68em;font-weight:600;',
+           'padding:2px 7px;border-radius:999px;margin:1px 2px;',
+           'display:inline-block;white-space:nowrap;line-height:1.7">%s</span>'),
+    bg, label
+  )
+}
+
+make_cohort_html <- function(study_name) {
+  gs   <- groups_list[[study_name]]
+  abbr <- unique(abbrev_group(gs))
+  paste(vapply(abbr, badge_html, character(1)), collapse = "")
+}
+
+make_visit_html <- function(study_name) {
+  vs   <- visits_list[[study_name]]
+  abbr <- sort(unique(abbrev_visit(vs)))
+  paste(vapply(abbr, badge_visit_html, character(1)), collapse = "")
+}
+
+dot_yes <- '<span style="color:#cb1b16;font-size:2em;">&#9679;</span>'
+dot_no  <- '<span style="color:#d1d5db;font-size:2em;">&#9675;</span>'
+dot     <- function(x) ifelse(x, dot_yes, dot_no)
+
+# ── 5. Assemble display data frame ────────────────────────────────────────────
+display_harm_dat_recid <- proc_harm_dat_recid |>
+  mutate(
+    cohorts_html = sapply(study, make_cohort_html),
+    visits_html = sapply(study, make_visit_html),
+    across(c(blood_labs, urine_labs, clamp, renal_clear, bold_mri, dxa,
+             kidney_bx, cardiac_mri, kidney_mri, lipidomics, blood_proteomics, urine_proteomics),
+           ~ sapply(.x, dot))
+  ) |>
+  select(study, study_design, intervention, cohorts_html, visits_html, n,
+         blood_labs, urine_labs, clamp, renal_clear,
+         bold_mri, dxa, kidney_bx, cardiac_mri, kidney_mri,
+         lipidomics, blood_proteomics, urine_proteomics) |>
+  arrange(study_design)
+
+# ── 6. Build gt table ─────────────────────────────────────────────────────────
+study_gt_table <- display_harm_dat_recid |>
+  gt(id = "harm-study-table") |>
+  
+  cols_label(
+    study        = "STUDY",
+    study_design = "STUDY DESIGN",
+    intervention = "EXPOSURE",
+    visits_html = "VISITS",
+    cohorts_html = "COHORTS",
+    n            = "N AT BASE LINE",
+    blood_labs   = "BLOOD LABS",
+    urine_labs   = "URINE LABS",
+    clamp        = "CLAMP",
+    renal_clear  = "RENAL CLEARANCE",
+    bold_mri     = "BOLD MRI",
+    dxa          = "DXA",
+    kidney_bx    = "KIDNEY BX",
+    cardiac_mri  = "CARDIAC MRI",
+    kidney_mri   = "KIDNEY MRI",
+    lipidomics   = "LIPIDOMICS",
+    blood_proteomics   = "BLOOD PROTEOMICS",
+    urine_proteomics = "URINE PROTEOMICS"
+  ) |>
+  
+  fmt_markdown(columns = everything()) |>
+  
+  # Study name: bold
+  tab_style(
+    style = cell_text(weight = "bold", size = "15px"),
+    locations = cells_body(columns = study)
+  ) |>
+  
+  # Column headers: uppercase, small, bold
+  tab_style(
+    style = cell_text(
+      weight = "bold", size = "12px",
+      transform = "uppercase", color = "#374151"
+    ),
+    locations = cells_column_labels()
+  ) |>
+  
+  # N: right-aligned, muted
+  tab_style(
+    style = list(cell_text(color = "#6b7280", weight = "600")),
+    locations = cells_body(columns = n)
+  ) |>
+  
+  # Procedure columns: center
+  cols_align(align = "center",
+             columns = c(blood_labs, urine_labs, clamp, renal_clear,
+                         bold_mri, dxa, kidney_bx, cardiac_mri,
+                         kidney_mri, lipidomics, blood_proteomics, urine_proteomics)) |>
+  cols_align(align = "right",  columns = n) |>
+  
+  # Column widths
+  cols_width(
+    study        ~ px(145),
+    study_design ~ px(150),
+    visits_html ~ px(120),
+    intervention ~ px(150),
+    cohorts_html ~ px(120),
+    n            ~ px(40),
+    blood_labs   ~ px(68),
+    urine_labs   ~ px(68),
+    clamp        ~ px(58),
+    renal_clear  ~ px(78),
+    bold_mri     ~ px(65),
+    dxa          ~ px(48),
+    kidney_bx    ~ px(68),
+    cardiac_mri  ~ px(72),
+    kidney_mri   ~ px(72),
+    lipidomics   ~ px(72),
+    blood_proteomics   ~ px(72),
+    urine_proteomics   ~ px(72)
+  )
+
+# ── 7. View / save ────────────────────────────────────────────────────────────
+study_gt_table
+
 
 ```
 
-```{r, message=F, warning=F, echo=F}
-# mri
-mri <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, pcasl3d_right, pcasl3d_left,
-       adc_right, adc_left, right_kidney_volume_ml,
-       left_kidney_volume_ml, bold_r_bl_cortex, bold_r_bl_kidney,
-       bold_r_t1_cortex, bold_r_t1_kidney, bold_l_bl_cortex,
-       bold_l_bl_kidney, bold_l_t1_cortex, bold_l_t1_kidney,
-) %>%
-  filter(visit %in% c("baseline", "post_treatment"))
-```
+# List of studies
 
-# Kidney Biopsies
+## Cross-sectional, obeservational
+* RENAL-HEIR
+* RENAL-HEIRitage
+* CROCODILE
+* SWEETHEART
+* CASPER
+* PENGUIN
 
-```{r, message=F, warning=F, echo=F}
-# kidney biopsies
-harm_dat_recid_bx <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(procedure == "kidney_biopsy") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
+## Longitudinal (Interventional)
+* ULTRA-T2D
+* IMST
+* COFFEE
 
-bx <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn, baseline_bx, followup_bx, kit_id, glut_id, form_id,
-       rnalater_id, cryomold_id, cryostor_id,
-       kidney_side, kidney_length, kidney_location, passes_attempt,
-       pass1_time, pass1_core_cm, pass1_cortex_cm, pass1_core_spec,
-       pass2_time, pass2_core_cm, pass2_cortex_cm, pass2_core_spec,
-       pass3_time, pass3_core_cm, pass3_cortex_cm, pass3_core_spec,
-       pass4_time, pass4_core_cm, pass4_cortex_cm, pass4_core_spec,
-       core_diagnostic, diagnostic_pass, diagnostic_formalin_time,
-       diagnostic_glut_time, core_oct, oct_pass, oct_time,
-       core_hypo_cryo, cryo_hypo_pass, hypo_time, cryo_time,
-       core_rna, rna_pass, rna_time
-) %>%
-  filter((visit %in% c("baseline") & baseline_bx == "y") | (visit %in% c("post_treatment") & followup_bx == "y")) %>%
-  left_join(harm_dat_recid_bx) %>%
-  rowwise() %>%
-  mutate(pass1_time = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_time, T ~ "N/A"),
-         pass1_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_cm, T ~ 0),
-         pass1_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_cortex_cm, T ~ 0),
-         pass1_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_spec, T ~ 0),
-         pass2_time = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_time, T ~ "N/A"),
-         pass2_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_cm, T ~ 0),
-         pass2_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_cortex_cm, T ~ 0),
-         pass2_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_spec, T ~ 0),
-         pass3_time = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_time, T ~ "N/A"),
-         pass3_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_cm, T ~ 0),
-         pass3_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_cortex_cm, T ~ 0),
-         pass3_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_spec, T ~ 0),
-         pass4_time = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass3_time, T ~ "N/A"),
-         pass4_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_cm, T ~ 0),
-         pass4_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_cortex_cm, T ~ 0),
-         pass4_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_spec, T ~ 0)) %>%
-  ungroup()
+## Accelerated longitudinal
+* PANTHER
 
-```
+## Longitudinal (Observational)
+* ADAPT-CKD
+* PANDA
+* IMPROVE-T2D
+* MANGO
 
-# RCT
-
-```{r, message=F, warning=F, echo=F}
-# rct
-harm_dat_recid_rct <- harm_dat %>%
-  filter(study == "harm_dat_recid") %>%
-  filter(procedure == "renal_clearance_testing") %>%
-  dplyr::select(record_id, visit, date) %>%
-  filter(!is.na(date))
-
-rct <- harm_dat_recid %>%
-  dplyr::select(record_id, visit, mrn,
-                gfr_raw_plasma, gfr_bsa_plasma,
-       erpf_raw_plasma, erpf_bsa_plasma
-) %>%
-  filter(visit %in% c("baseline", "post_treatment")) %>%
-  left_join(harm_dat_recid_rct)
-
-```
+## RCT
+* ATTEMPT
+* RPC2
+* MANATEE-T1D
+* SUGAR-N-SALT
+* T1-DISCO
+* MetMod-T1D
+* OTTER
