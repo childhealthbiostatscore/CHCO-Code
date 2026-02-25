@@ -198,12 +198,12 @@ temp_file <- tempfile(fileext = ".gmt")
 s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
 c8 <- GSA.read.gmt(temp_file)
 
-# #Load formatted organoid data
-# gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-# s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
-# sc_org <- readRDS(temp_file)
+#Load formatted organoid data
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+sc_org <- readRDS(temp_file)
 
 # #Load cleaned organoid data
 # gc()
@@ -613,39 +613,29 @@ length(unique(sc_org$record_id)) #should be 6
 nrow(sc_org) #62,754 genes before filtering, now 62,754
 ncol(sc_org) #194,063 cells before filtering, now 171,662 
 
-
-#Filter out cells that express less than 500 genes or more than 5000 genes and cells that have more than 50% of gene expression coming from mitochondrial genes
+####
+# Cell-level QC (unchanged — this doesn't remove genes)
 sc_org <- subset(sc_org,
                  subset = nFeature_RNA > 500 &
                    nFeature_RNA < 5000 &
                    percent.mt < 50)
 
-nrow(sc_org) #62,754 genes after filtering
-ncol(sc_org) #156387 cells after filltering
 expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
-
-# Calculate the proportion of cells expressing each gene
-num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
-total_cells <- ncol(expr_matrix)  # Total number of cells
-gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)
+total_cells <- ncol(expr_matrix)
+gene_proportion <- num_cells_per_gene / total_cells
 remove(expr_matrix)
 
-# Keep genes expressed in at least "gene_pct" of cells
+# Keep genes expressed in at least 5% of cells — BUT always keep GLP1R
 genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
-# genes_to_keep <- names(gene_proportion)
+genes_to_keep <- union(genes_to_keep, "GLP1R")
 sc_org <- subset(sc_org, features = genes_to_keep)
-ncol(sc_org) #156387 Cells, 137604
-nrow(sc_org) # 7472 genes, 7497
 
-#Remove mitochondrial genes (those starting with "MT-")
+# Remove mitochondrial genes — BUT protect GLP1R
 mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
-sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), mito_genes))
-sum(grepl("^MT-", rownames(sc_org))) #0
-ncol(sc_org) #156387 cells, 137604
-nrow(sc_org) #7457 genes, 7482
+sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), setdiff(mito_genes, "GLP1R")))
 
-#Remove ribosomal Genes
-# Identify ribosomal genes
+# Remove ribosomal genes — BUT protect GLP1R
 ribo_genes <- c(
   "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
   "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
@@ -655,10 +645,57 @@ ribo_genes <- c(
   "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
   "RPL10", "RPS4Y1"
 )
-sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), ribo_genes))
-length(which(rownames(sc_org) %in% ribo_genes)) #0
-ncol(sc_org) #156387 cells
-nrow(sc_org) #7383 genes
+sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), setdiff(ribo_genes, "GLP1R")))
+
+# Confirm GLP1R survived
+"GLP1R" %in% rownames(sc_org)
+####
+# #Filter out cells that express less than 500 genes or more than 5000 genes and cells that have more than 50% of gene expression coming from mitochondrial genes
+# sc_org <- subset(sc_org,
+#                  subset = nFeature_RNA > 500 &
+#                    nFeature_RNA < 5000 &
+#                    percent.mt < 50)
+# 
+# nrow(sc_org) #62,754 genes after filtering
+# ncol(sc_org) #156387 cells after filltering
+# expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
+# 
+# # Calculate the proportion of cells expressing each gene
+# num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+# total_cells <- ncol(expr_matrix)  # Total number of cells
+# gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+# remove(expr_matrix)
+# 
+# # Keep genes expressed in at least "gene_pct" of cells
+# genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+# # genes_to_keep <- names(gene_proportion)
+# sc_org <- subset(sc_org, features = genes_to_keep)
+# ncol(sc_org) #156387 Cells, 137604
+# nrow(sc_org) # 7472 genes, 7497
+# 
+# #Remove mitochondrial genes (those starting with "MT-")
+# mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
+# sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), mito_genes))
+# sum(grepl("^MT-", rownames(sc_org))) #0
+# ncol(sc_org) #156387 cells, 137604
+# nrow(sc_org) #7457 genes, 7482
+# 
+# #Remove ribosomal Genes
+# # Identify ribosomal genes
+# ribo_genes <- c(
+#   "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+#   "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+#   "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+#   "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+#   "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+#   "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+#   "RPL10", "RPS4Y1"
+# )
+# sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), ribo_genes))
+# length(which(rownames(sc_org) %in% ribo_genes)) #0
+# ncol(sc_org) #156387 cells
+# nrow(sc_org) #7383 genes
+#####
 
 #Remove ID IT_19
 sc_org <- subset(sc_org,record_id!="IT_19")
@@ -872,7 +909,7 @@ Idents(so_combined) <- "cell_type_abbrev"
 DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE, label.size = 6)+
   theme(legend.position = "none")
 # Save the plot
-ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated_v2.png", width = 10, height = 10, dpi = 300)
+# ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated_v2.png", width = 10, height = 10, dpi = 300)
 
 p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
   labs(title = "Cell Type Annotations",
@@ -6997,4 +7034,93 @@ ggplot(celltype_counts, aes(x = group, y = proportion, fill = celltype2)) +
   )
 dev.off()
 
+```
+
+
+#Check for GLP1 Gene Expression in Orgnoids
+```{r}
+# which(grepl("GLP1R",rownames(so_combined)))
+# rownames(sc_org)[which(grepl("GLP1R",rownames(sc_org)))]
+# rownames(sc_org)[which(grepl("GLP1R",rownames(sc_org)))]
+
+# Feature plot for GLP1R
+p <- FeaturePlot(so_combined, 
+                 features = "GLP1R", 
+                 reduction = "umap", 
+                 raster = TRUE,
+                 order = TRUE,
+                 min.cutoff = 0,        # anything > 0 gets color
+                 max.cutoff = "q99") +
+  scale_colour_gradientn(
+    colours = c("lightgrey", "red", "darkred"),
+    values = scales::rescale(c(0, 0.01, 1))  # sharp jump from grey to color
+  ) +
+  labs(title = "GLP1R Expression in LC & T2D", color = "Expression") +
+  theme_minimal()
+
+# Add cell type labels
+p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
+print(p)
+ggsave("GLP1R_expression_LC_T2D.png", plot = p, width = 10, height = 8, dpi = 300)
+
+# Get expression data
+expr <- GetAssayData(so_combined, assay = "RNA", layer = "data")["GLP1R", ]
+cell_types <- Idents(so_combined)
+
+# Calculate percent expression by cell type
+pct_expr <- data.frame(
+  cell_type = cell_types,
+  expressed = expr > 0
+) %>%
+  dplyr::group_by(cell_type) %>%
+  dplyr::summarise(
+    n_expressing = sum(expressed),
+    n_total = n(),
+    pct_expressing = round(n_expressing / n_total * 100, 2)
+  ) %>%
+  dplyr::arrange(desc(pct_expressing))
+
+print(pct_expr)
+write.csv(pct_expr,"/home/hhampson/Results/T2D_LC_Expression_Percentages.csv")
+
+#T2D only
+so_t2d <- subset(so_combined, subset = group == "Type 2 Diabetes")  
+# Feature plot for GLP1R
+p2 <- FeaturePlot(so_t2d, 
+                 features = "GLP1R", 
+                 reduction = "umap", 
+                 raster = TRUE,
+                 order = TRUE,
+                 min.cutoff = 0,        # anything > 0 gets color
+                 max.cutoff = "q99") +
+  scale_colour_gradientn(
+    colours = c("lightgrey", "red", "darkred"),
+    values = scales::rescale(c(0, 0.01, 1))  # sharp jump from grey to color
+  ) +
+  labs(title = "GLP1R Expression in T2D", color = "Expression") +
+  theme_minimal()
+
+# Add cell type labels
+p2 <- LabelClusters(p2, id = "ident", fontface = "bold", size = 6, repel = TRUE)
+print(p2)
+ggsave("GLP1R_expression_T2D.png", plot = p2, width = 10, height = 8, dpi = 300)
+
+# Same for T2D only
+expr_t2d <- GetAssayData(so_t2d, assay = "RNA", layer = "data")["GLP1R", ]
+cell_types_t2d <- Idents(so_t2d)
+
+pct_expr_t2d <- data.frame(
+  cell_type = cell_types_t2d,
+  expressed = expr_t2d > 0
+) %>%
+  dplyr::group_by(cell_type) %>%
+  dplyr::summarise(
+    n_expressing = sum(expressed),
+    n_total = n(),
+    pct_expressing = round(n_expressing / n_total * 100, 2)
+  ) %>%
+  dplyr::arrange(desc(pct_expressing))
+
+print(pct_expr_t2d)
+write.csv(pct_expr_t2d,"/home/hhampson/Results/T2D_Expression_Percentages.csv")
 ```
