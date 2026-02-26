@@ -408,6 +408,8 @@ def load_study_metadata(data_file):
 
     # For proc_n: unique record_ids per (study, proc)
     qualified = collections.defaultdict(set)   # (study, proc) -> set of record_ids
+    # For instructions matrix: unique record_ids per (proc, group) across all studies
+    proc_group_qualified = collections.defaultdict(set)  # (proc, group) -> set of record_ids
 
     # For data dictionary: which clinical cols have ≥1 non-missing value per study
     study_col_tracker = collections.defaultdict(set)
@@ -481,9 +483,14 @@ def load_study_metadata(data_file):
 
             # ── proc_n: participants with ≥1 non-missing clinical value ────
             if proc:
-                if any(row.get(c,"").strip().strip('"') not in MISSING_VALUES
-                       for c in clinical_cols):
+                has_clinical = any(
+                    row.get(c,"").strip().strip('"') not in MISSING_VALUES
+                    for c in clinical_cols
+                )
+                if has_clinical:
                     qualified[(study, proc)].add(rid)
+                    if group:
+                        proc_group_qualified[(proc, group)].add(rid)
 
             # ── Table 1: accumulate one value per (study, rid) ────────────
             if group:
@@ -567,21 +574,29 @@ def load_study_metadata(data_file):
         m["omics"] = {k: len(v) for k, v in om.items()}
         m["omics"]["any"] = len(any_omics)
 
+    # build proc_group_n: proc -> group -> count
+    proc_group_n = collections.defaultdict(dict)
+    for (proc, group), rids in proc_group_qualified.items():
+        proc_group_n[proc][group] = len(rids)
+
     return (dict(sorted(study_meta.items())),
-            soma_cols, olink_cols, clinical_cols)
+            soma_cols, olink_cols, clinical_cols,
+            dict(proc_group_n))
 
 
 # ── build workbook ────────────────────────────────────────────────────────────
 
 def build_workbook(study_meta, soma_cols, olink_cols, clinical_cols,
-                   scrna_meta=None, data_dict=None):
+                   scrna_meta=None, data_dict=None, proc_group_n=None):
     if scrna_meta is None:
         scrna_meta = {}
     if data_dict is None:
         data_dict = {}
+    if proc_group_n is None:
+        proc_group_n = {}
     wb = Workbook()
     wb.remove(wb.active)
-    _add_instructions_sheet(wb, study_meta)
+    _add_instructions_sheet(wb, study_meta, proc_group_n)
     for study_name, meta in study_meta.items():
         _add_study_sheet(wb, study_name, meta,
                          soma_cols, olink_cols, clinical_cols,
@@ -592,28 +607,48 @@ def build_workbook(study_meta, soma_cols, olink_cols, clinical_cols,
 
 # ── instructions sheet ────────────────────────────────────────────────────────
 
-def _add_instructions_sheet(wb, study_meta):
+def _add_instructions_sheet(wb, study_meta, proc_group_n=None):
+    from openpyxl.utils import get_column_letter
+    if proc_group_n is None:
+        proc_group_n = {}
+
     ws = wb.create_sheet("Instructions")
     ws.sheet_view.showGridLines = False
+
+    # ── derive column layout for wide procedure matrix ──────────────────────
+    all_studies = list(study_meta.keys())          # already sorted
+    all_groups  = sorted({g for m in study_meta.values() for g in m["groups"]})
+    all_procs   = sorted({p for m in study_meta.values()
+                           for p in m.get("proc_n", {}).keys()})
+
+    # col B = procedure name, then one col per study, then one per group
+    n_studies   = len(all_studies)
+    n_groups    = len(all_groups)
+    proc_col    = 2                          # column B
+    study_start = 3                          # columns C …
+    group_start = study_start + n_studies    # … then groups
+    tbl_end     = group_start + n_groups - 1 # last column of the table
+
     ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 30
-    ws.column_dimensions["C"].width = 20
-    ws.column_dimensions["D"].width = 3
+    ws.column_dimensions[get_column_letter(proc_col)].width = 28
+    for i in range(n_studies + n_groups):
+        ws.column_dimensions[get_column_letter(study_start + i)].width = 13
 
     r = 1
-    title_row(ws, r, 2, 3,
+    title_row(ws, r, proc_col, tbl_end,
               "SomaScan / Olink Harmonized Dataset — Study Reference Summary",
               size=15, height=36); r += 1
-    title_row(ws, r, 2, 3,
+    title_row(ws, r, proc_col, tbl_end,
               "Biostatistics Core – University of Washington",
               bg=MID_BLUE, size=11, height=22); r += 1
     blank_row(ws, r); r += 1
 
-    section_row(ws, r, 2, 3, "PURPOSE"); r += 1
-    ws.merge_cells(f"B{r}:C{r}")
+    section_row(ws, r, proc_col, tbl_end, "PURPOSE"); r += 1
+    ws.merge_cells(start_row=r, start_column=proc_col,
+                   end_row=r, end_column=tbl_end)
     ws.row_dimensions[r].height = 130
     style_cell(
-        ws.cell(row=r, column=2),
+        ws.cell(row=r, column=proc_col),
         (
             "This workbook is a reference summary of the harmonised "
             "SomaScan / Olink dataset (soma_olink_harmonized_dataset.csv), "
@@ -633,68 +668,79 @@ def _add_instructions_sheet(wb, study_meta):
     ); r += 1
     blank_row(ws, r); r += 1
 
-    section_row(ws, r, 2, 3, "COLOUR KEY"); r += 1
-    key_items = [
+    section_row(ws, r, proc_col, tbl_end, "COLOUR KEY"); r += 1
+    for bg, fg, txt in [
         (LIGHT_GREEN, "000000", "Green  =  reference data (auto-populated from master dataset)"),
         (LIGHT_BLUE,  "000000", "Blue   =  alternating data rows"),
-    ]
-    for bg, fg, txt in key_items:
+    ]:
         ws.row_dimensions[r].height = 20
-        style_cell(ws.cell(row=r, column=2), "", bg=bg)
-        style_cell(ws.cell(row=r, column=3), txt, bg=bg, fg=fg, size=10)
+        ws.merge_cells(start_row=r, start_column=proc_col,
+                       end_row=r, end_column=tbl_end)
+        style_cell(ws.cell(row=r, column=proc_col), txt, bg=bg, fg=fg, size=10)
         r += 1
 
     blank_row(ws, r); r += 1
 
-    # ── Study sheets summary table ─────────────────────────────────────────
-    section_row(ws, r, 2, 3, "STUDY SHEETS"); r += 1
-    header_row(ws, r, ["Study", "# Participants"], col_start=2); r += 1
+    # ── Study sheets summary table (narrow — just name + N) ────────────────
+    section_row(ws, r, proc_col, tbl_end, "STUDY SHEETS"); r += 1
+    header_row(ws, r, ["Study", "# Participants"], col_start=proc_col); r += 1
     total_participants = 0
     for i, (sname, meta) in enumerate(study_meta.items()):
         bg = LIGHT_BLUE if i % 2 == 0 else WHITE
         ws.row_dimensions[r].height = 20
-        style_cell(ws.cell(row=r, column=2), sname, bg=bg, bold=True)
+        style_cell(ws.cell(row=r, column=proc_col), sname, bg=bg, bold=True)
         n = len(meta["subjects"])
         total_participants += n
-        style_cell(ws.cell(row=r, column=3), n,
-                   bg=bg, h_align="center"); r += 1
-    # Total row
+        style_cell(ws.cell(row=r, column=study_start), n,
+                   bg=bg, h_align="center")
+        r += 1
     ws.row_dimensions[r].height = 22
-    style_cell(ws.cell(row=r, column=2), "Total",
+    style_cell(ws.cell(row=r, column=proc_col), "Total",
                bg=DARK_BLUE, fg=WHITE, bold=True, size=11)
-    style_cell(ws.cell(row=r, column=3), total_participants,
+    style_cell(ws.cell(row=r, column=study_start), total_participants,
                bg=DARK_BLUE, fg=WHITE, h_align="center", bold=True, size=11)
     r += 1
 
     blank_row(ws, r); r += 1
 
-    # ── All-studies procedure table ────────────────────────────────────────
-    section_row(ws, r, 2, 3,
-                "ALL PROCEDURES"); r += 1
-    header_row(ws, r, ["Procedure", "# Participants"], col_start=2); r += 1
+    # ── All-studies procedure matrix ────────────────────────────────────────
+    # Rows = procedures; cols = one per study + one per group
+    section_row(ws, r, proc_col, tbl_end,
+                "ALL PROCEDURES  —  # participants with ≥1 non-missing clinical value"); r += 1
 
-    # Aggregate proc_n across all studies (sum per procedure)
-    all_procs = collections.defaultdict(int)
-    for meta in study_meta.values():
-        for proc, n in meta.get("proc_n", {}).items():
-            all_procs[proc] += n
+    # Header: Procedure | Study1 | Study2 | … | [Group1 | Group2 | …]
+    hdr_labels = ["Procedure"] + all_studies + all_groups
+    for j, lbl in enumerate(hdr_labels):
+        c = proc_col + j
+        # Shade study headers slightly different from group headers
+        bg = MID_BLUE if j == 0 or j <= n_studies else DARK_BLUE
+        style_cell(ws.cell(row=r, column=c), lbl,
+                   bg=bg, fg=WHITE, size=9, bold=True,
+                   h_align="center", wrap=True)
+    ws.row_dimensions[r].height = 36
+    r += 1
 
-    total_proc_n = 0
-    for i, proc in enumerate(sorted(all_procs.keys())):
-        n = all_procs[proc]
+    for i, proc in enumerate(all_procs):
         bg = LIGHT_GREEN if i % 2 == 0 else WHITE
         ws.row_dimensions[r].height = 20
-        style_cell(ws.cell(row=r, column=2), proc, bg=bg, fg=DARK_BLUE)
-        style_cell(ws.cell(row=r, column=3), n, bg=bg, h_align="center")
-        total_proc_n += n
+
+        style_cell(ws.cell(row=r, column=proc_col), proc,
+                   bg=bg, fg=DARK_BLUE, size=10)
+
+        # one cell per study
+        for j, study in enumerate(all_studies):
+            n = study_meta[study].get("proc_n", {}).get(proc, "")
+            style_cell(ws.cell(row=r, column=study_start + j),
+                       n if n != "" else "—",
+                       bg=bg, h_align="center", size=10)
+
+        # one cell per group
+        for j, grp in enumerate(all_groups):
+            n = proc_group_n.get(proc, {}).get(grp, "")
+            style_cell(ws.cell(row=r, column=group_start + j),
+                       n if n != "" else "—",
+                       bg=bg, h_align="center", size=10)
         r += 1
-    # Total row
-    ws.row_dimensions[r].height = 22
-    style_cell(ws.cell(row=r, column=2), "Total",
-               bg=DARK_BLUE, fg=WHITE, bold=True, size=11)
-    style_cell(ws.cell(row=r, column=3), total_proc_n,
-               bg=DARK_BLUE, fg=WHITE, h_align="center", bold=True, size=11)
-    r += 1
 
 
 # ── per-study sheet ───────────────────────────────────────────────────────────
@@ -1094,7 +1140,7 @@ if __name__ == "__main__":
     print("Loading data dictionary …")
     data_dict = load_data_dictionary(DATA_DICT_FILE)
 
-    study_meta, soma_cols, olink_cols, clinical_cols = load_study_metadata(DATA_FILE)
+    study_meta, soma_cols, olink_cols, clinical_cols, proc_group_n = load_study_metadata(DATA_FILE)
 
     print(f"\n  {len(study_meta)} studies found:")
     for name, m in study_meta.items():
@@ -1109,7 +1155,8 @@ if __name__ == "__main__":
 
     print("\nBuilding workbook …")
     wb = build_workbook(study_meta, soma_cols, olink_cols, clinical_cols,
-                        scrna_meta, data_dict=data_dict)
+                        scrna_meta, data_dict=data_dict,
+                        proc_group_n=proc_group_n)
 
     print(f"Saving → {OUTPUT_FILE}")
     wb.save(OUTPUT_FILE)

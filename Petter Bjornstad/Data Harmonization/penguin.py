@@ -46,7 +46,7 @@ def clean_penguin():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -72,12 +72,12 @@ def clean_penguin():
                               base_name="ethnicity",
                               levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({2: "Male", 1: "Female", 3: "Other",
-                        "2": "Male", "1": "Female", "3": "Other"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({2: "Male", 1: "Female", 3: "Other",
+                        "2": "Male", "1": "Female", "3": "Other"})
     demo["diabetes_dx_date"] = np.nan
     demo["co_enroll_id"] = np.nan
     demo["group"] = "PKD"
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medications
@@ -103,8 +103,9 @@ def clean_penguin():
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["ace_inhibitor"]), pd.to_numeric(med["angiotensin_receptor_blocker"])))
     # Replace 0/1 values with yes/no
-    med.iloc[:, 1:] = med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
+    for col in med.columns[1:]:
+        med[col] = med[col].astype(object).replace(
+            {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
     med["visit"] = "baseline"
 
@@ -400,6 +401,6 @@ def clean_penguin():
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
 
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False) 
     return df

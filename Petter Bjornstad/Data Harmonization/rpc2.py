@@ -56,7 +56,7 @@ def clean_rpc2_redcap():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     invalid = ["", " ", np.nan]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
     
     # --------------------------------------------------------------------------
     # Demographics
@@ -69,10 +69,10 @@ def clean_rpc2_redcap():
     demo.rename({"mr_number": "mrn", "gender": "sex",  "date_of_consent":"consent_date"}, axis=1, inplace=True)
     demo = combine_checkboxes(demo, base_name="race", levels=["American Indian or Alaskan Native", "Asian", "Hawaiian or Pacific Islander", "Black or African American", "White", "Unknown", "Other"])
     demo = combine_checkboxes(demo, base_name="ethnicity", levels=["Hispanic", "Non-Hispanic", "Unknown/Not Reported"])
-    demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
-                        "1": "Male", "0": "Female", "2": "Other"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
+                        "1": "Male", "0": "Female", "2": "Other"})
     demo["group"] = demo["diabetes_hx_type"].replace({"1": "Type 1 Diabetes", "2": "Type 2 Diabetes", 1: "Type 1 Diabetes", 2: "Type 2 Diabetes"})
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
     demo.drop(["diabetes_hx_type", "redcap_event_name", "redcap_repeat_instance", "redcap_repeat_instrument"], axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'].isin(demo.columns), 'form_name'] = 'demographics'
     demo["procedure"] = "demographics"
@@ -113,8 +113,9 @@ def clean_rpc2_redcap():
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["ace_inhibitor"]), pd.to_numeric(med["angiotensin_receptor_blocker"])))
     # Replace 0/1 values with yes/no
-    med.iloc[:, 1:] = med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in med.columns[1:]:
+        med[col] = med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     dictionary.loc[dictionary['variable_name'].isin(med.columns), 'form_name'] = 'medications'
 
     med["procedure"] = "medications"
@@ -126,12 +127,11 @@ def clean_rpc2_redcap():
     disp.replace(rep, np.nan, inplace=True)
     disp["procedure"] = "med_dispense"
     
-    disp["redcap_event_name"].replace(
+    disp["redcap_event_name"] = disp["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     disp.rename({"study_med_disp_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'].isin(disp.columns), 'form_name'] = 'med_dispense'
 
@@ -153,12 +153,11 @@ def clean_rpc2_redcap():
     phys.drop(["bmi_percentile", "bp_arm", "bp_position", "bp_rest_yn", "sys_bp_1", "sys_bp_2", "sys_bp_3", 
                 "dys_bp_1","dys_bp_2", "dys_bp_3", "pulse_1", "pulse_2", "pulse_3", "vitals_norm", "vitals_no"], axis=1, inplace=True)
 
-    phys["redcap_event_name"].replace(
+    phys["redcap_event_name"] = phys["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     phys["procedure"] = "physical_exam"
     # set to kidney_biopsy for specific events
     phys.loc[
@@ -180,12 +179,11 @@ def clean_rpc2_redcap():
     screen.replace(rep, np.nan, inplace=True)
     screen.rename({ "date_of_screen": "date"}, axis=1, inplace=True)
     screen["procedure"] = "labs"
-    screen["redcap_event_name"].replace(
+    screen["redcap_event_name"] = screen["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     screen = screen.rename(columns={"redcap_event_name": "visit", "screen_urine_acr": "acr_u"})
     screen["microalbumin_u"] = pd.to_numeric(screen["microalbumin_u"], errors="coerce") * 10
     
@@ -208,12 +206,11 @@ def clean_rpc2_redcap():
               "ua_urobilinogen", "ua_bilirubin", "ua_blood", "urineculture", "uric_acid", "phys_date", "vitals_date"], axis=1, inplace=True)            
     labs["microalbumin_u"] = pd.to_numeric(labs["microalbumin_u"], errors="coerce") * 10
     labs["procedure"] = "labs"
-    labs["redcap_event_name"].replace(
+    labs["redcap_event_name"] = labs["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     labs = labs.rename(columns={"redcap_event_name": "visit"})
     dictionary.loc[dictionary['variable_name'].isin(labs.columns), 'form_name'] = 'labs'
     labs["procedure"] = "labs"
@@ -252,12 +249,11 @@ def clean_rpc2_redcap():
     biopsy.columns = biopsy.columns.str.replace(r"bx_", "", regex=True)
 
     biopsy["procedure"] = "kidney_biopsy"
-    biopsy["redcap_event_name"].replace(
+    biopsy["redcap_event_name"] = biopsy["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     biopsy = biopsy.rename(columns={"redcap_event_name": "visit"})
     dictionary.loc[dictionary['variable_name'].isin(biopsy.columns), 'form_name'] = 'biopsy'
 
@@ -279,12 +275,11 @@ def clean_rpc2_redcap():
               axis=1, inplace=True)
 
     mri["procedure"] = "bold_mri"
-    mri["redcap_event_name"].replace(
+    mri["redcap_event_name"] = mri["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     mri = mri.rename(columns={"redcap_event_name": "visit"})
     #print(mri)
     dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'bold_mri'
@@ -349,12 +344,11 @@ def clean_rpc2_redcap():
     rct["procedure"] = "renal_clearance_testing"
     rct["date"] = phys["date"]
     
-    rct["redcap_event_name"].replace(
+    rct["redcap_event_name"] = rct["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     rct = rct.rename(columns={"redcap_event_name": "visit"})
     dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'study_visit_renal_clearance_testing'
     rct["procedure"] = "renal_clearance_testing"

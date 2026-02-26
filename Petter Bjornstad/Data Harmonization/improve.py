@@ -57,7 +57,7 @@ def clean_improve():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -91,13 +91,12 @@ def clean_improve():
                                       "Not Hispanic or Latino",
                                       "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
-                        "1": "Male", "0": "Female", "2": "Other"}, inplace=True)
-    demo["sglt2i"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"},
-                           inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
+                        "1": "Male", "0": "Female", "2": "Other"})
+    demo["sglt2i"] = demo["sglt2i"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"})
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
     demo.rename({"sglt2i": "sglt2i_ever"}, axis=1, inplace=True)
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medications
@@ -113,44 +112,44 @@ def clean_improve():
     med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
-    med["diabetes_med_other___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med_other___3"] = med["diabetes_med_other___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___3": "sglti_timepoint"},
                axis=1, inplace=True)
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
-    med["raasi_timepoint"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["raasi_timepoint"] = med["raasi_timepoint"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     # Metformin
-    med["diabetes_med___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___1"] = med["diabetes_med___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___1": "metformin_timepoint"},
                axis=1, inplace=True)
     # Insulin
-    med["diabetes_med___2"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___2"] = med["diabetes_med___2"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___2": "insulin_med_timepoint"},
                axis=1, inplace=True)
     # Hypertension Y/N
-    med["hypertension"].replace(
-        {2: "No", "2": "No", 1: "Yes", "1": "Yes"}, inplace=True)
-    med["htn_med_type___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["hypertension"] = med["hypertension"].replace(
+        {2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    med["htn_med_type___1"] = med["htn_med_type___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___1": "ace_inhibitor"},
                axis=1, inplace=True)
-    med["htn_med_type___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___3"] = med["htn_med_type___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___3": "beta_blocker"},
                axis=1, inplace=True)
-    med["htn_med_type___5"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___5"] = med["htn_med_type___5"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___5": "diuretic"},
                axis=1, inplace=True)
 
     # Statin
-    med["addl_hld_meds___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["addl_hld_meds___1"] = med["addl_hld_meds___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"addl_hld_meds___1": "statin"},
            axis=1, inplace=True)
     med.rename({"med_date": "date"},
@@ -483,8 +482,9 @@ def clean_improve():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med["procedure"] = "epic_medications"
     epic_med["date"] = biopsy["date"]
     
@@ -602,8 +602,8 @@ def clean_improve():
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
     # Change study visit names
-    df["visit"].replace({np.nan: "baseline", '1': "baseline",
-                         '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
+    df["visit"] = df["visit"].replace({np.nan: "baseline", '1': "baseline",
+                         '2': "3_months_post_surgery", '3': "12_months_post_surgery"})
     df["visit"] = pd.Categorical(df["visit"],
                                  categories=["baseline", "3_months_post_surgery",
                                  "12_months_post_surgery"],
@@ -617,6 +617,6 @@ def clean_improve():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False) 
     return df
