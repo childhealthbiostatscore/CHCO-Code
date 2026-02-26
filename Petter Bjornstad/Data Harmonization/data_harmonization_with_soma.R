@@ -1,5 +1,5 @@
 library(reticulate)
-use_python("/usr/bin/python3", required = TRUE)
+use_python("/Users/shivaniramesh/.virtualenvs/r-reticulate/bin/python", required = TRUE)
 py_config()
 
 library(reticulate)
@@ -19,7 +19,7 @@ if (user == "choiyej") {
 } else if (user == "shivaniramesh") {
   root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
   git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
-  use_python("/usr/bin/python3", required = TRUE)
+  use_python("/Users/shivaniramesh/.virtualenvs/r-reticulate/bin/python", required = TRUE)
 } else {
   stop("Unknown user: please specify root path for this user.")
 }

@@ -21,7 +21,7 @@ def harmonize_data():
     import os
     import sys
     sys.path.insert(0, os.path.expanduser('~') +
-                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
+                    "/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import pandas as pd
     import numpy as np
     from natsort import natsorted, ns

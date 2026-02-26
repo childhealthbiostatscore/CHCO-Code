@@ -56,6 +56,7 @@ def clean_rpc2_redcap():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     invalid = ["", " ", np.nan]
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
     
     # --------------------------------------------------------------------------
     # Demographics
@@ -73,6 +74,8 @@ def clean_rpc2_redcap():
     demo["group"] = demo["diabetes_hx_type"].replace({"1": "Type 1 Diabetes", "2": "Type 2 Diabetes", 1: "Type 1 Diabetes", 2: "Type 2 Diabetes"})
     demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
     demo.drop(["diabetes_hx_type", "redcap_event_name", "redcap_repeat_instance", "redcap_repeat_instrument"], axis=1, inplace=True)
+    dictionary.loc[dictionary['variable_name'].isin(demo.columns), 'form_name'] = 'demographics'
+    demo["procedure"] = "demographics"
 
     # --------------------------------------------------------------------------
     # Medications
@@ -112,7 +115,9 @@ def clean_rpc2_redcap():
     # Replace 0/1 values with yes/no
     med.iloc[:, 1:] = med.iloc[:, 1:].replace(
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    dictionary.loc[dictionary['variable_name'].isin(med.columns), 'form_name'] = 'medications'
 
+    med["procedure"] = "medications"
     # --------------------------------------------------------------------------
     # Med Dispense
     # --------------------------------------------------------------------------
@@ -128,7 +133,9 @@ def clean_rpc2_redcap():
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
         inplace=True)
     disp.rename({"study_med_disp_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
+    dictionary.loc[dictionary['variable_name'].isin(disp.columns), 'form_name'] = 'med_dispense'
 
+    disp["procedure"] = "med_dispense"
     # --------------------------------------------------------------------------
     # Physical exam/vitals
     # --------------------------------------------------------------------------
@@ -161,7 +168,9 @@ def clean_rpc2_redcap():
     # then rename
     phys = phys.rename(columns={"redcap_event_name": "visit"})
     #phys.drop(["redcap_event_name"], axis=1, inplace=True)
-    
+    dictionary.loc[dictionary['variable_name'].isin(phys.columns), 'form_name'] = 'physical_exam'
+
+    phys["procedure"] = "physical_exam"
     # --------------------------------------------------------------------------
     # Screening Lab results
     # --------------------------------------------------------------------------
@@ -181,7 +190,8 @@ def clean_rpc2_redcap():
     screen["microalbumin_u"] = pd.to_numeric(screen["microalbumin_u"], errors="coerce") * 10
     
     screen.drop(["time_of_screen_blood", "screen_egfr", "time_of_screen_urine", "screen_pregnant"], axis=1, inplace=True)
-
+    dictionary.loc[dictionary['variable_name'].isin(screen.columns), 'form_name'] = 'screening_labs'
+    screen["procedure"] = "screening_labs"
     # --------------------------------------------------------------------------
     # Lab results
     # --------------------------------------------------------------------------
@@ -205,6 +215,8 @@ def clean_rpc2_redcap():
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
         inplace=True)
     labs = labs.rename(columns={"redcap_event_name": "visit"})
+    dictionary.loc[dictionary['variable_name'].isin(labs.columns), 'form_name'] = 'labs'
+    labs["procedure"] = "labs"
     
     # --------------------------------------------------------------------------
     # Kidney Hemodynamic Outcomes
@@ -247,7 +259,9 @@ def clean_rpc2_redcap():
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
         inplace=True)
     biopsy = biopsy.rename(columns={"redcap_event_name": "visit"})
-    
+    dictionary.loc[dictionary['variable_name'].isin(biopsy.columns), 'form_name'] = 'biopsy'
+
+    biopsy["procedure"] = "kidney_biopsy"
     # --------------------------------------------------------------------------
     # MRI Outcomes
     # --------------------------------------------------------------------------
@@ -273,7 +287,9 @@ def clean_rpc2_redcap():
         inplace=True)
     mri = mri.rename(columns={"redcap_event_name": "visit"})
     #print(mri)
+    dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'bold_mri'
 
+    mri["procedure"] = "bold_mri"
     # --------------------------------------------------------------------------
     # Renal Clearance testing
     # --------------------------------------------------------------------------
@@ -340,6 +356,8 @@ def clean_rpc2_redcap():
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
         inplace=True)
     rct = rct.rename(columns={"redcap_event_name": "visit"})
+    dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'study_visit_renal_clearance_testing'
+    rct["procedure"] = "renal_clearance_testing"
     #print(rct)
 
     # --------------------------------------------------------------------------
