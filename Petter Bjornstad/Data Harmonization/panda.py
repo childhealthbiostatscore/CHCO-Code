@@ -48,7 +48,7 @@ def clean_panda():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -71,10 +71,10 @@ def clean_panda():
                               base_name="ethnicity",
                               levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
-                        "1": "Male", "2": "Female", "3": "Other"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
+                        "1": "Male", "2": "Female", "3": "Other"})
     demo["group"]="Type 1 Diabetes"
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
     demo.drop(["redcap_event_name"], axis = 1, inplace=True)
 
     # --------------------------------------------------------------------------
@@ -116,8 +116,9 @@ def clean_panda():
     med = med.assign(insulin_med_timepoint=np.maximum(pd.to_numeric(
         med["insulin_pump_timepoint"]), pd.to_numeric(med["insulin_injections_timepoint"])))
     # Replace 0/1 values with yes/no
-    med.iloc[:, 1:] = med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
+    for col in med.columns[1:]:
+        med[col] = med[col].astype(object).replace(
+            {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
     med["visit"] = "baseline"
 
@@ -131,8 +132,9 @@ def clean_panda():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med["procedure"] = "epic_medications"
     epic_med["visit"] = "baseline"
     
@@ -200,6 +202,20 @@ def clean_panda():
     labs["visit"] = labs["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     labs["visit"] = labs["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     labs.drop(["redcap_event_name"], axis=1, inplace=True)
+
+    # --------------------------------------------------------------------------
+    # CGM
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "cgm", "field_name"]]
+    cgm = pd.DataFrame(proj.export_records(fields=var))
+    cgm = cgm.loc[~cgm.redcap_event_name.str.contains("screen|annual_visit_1_arm_1")]
+    # Replace missing values
+    cgm.replace(rep, np.nan, inplace=True)
+    cgm.rename({'cgm_avgbg': 'cgm_avg_glucose', 'cgm_range_vhigh':'cgm_v_high', 'cgm_range_high': 'cgm_high', 
+                'cgm_range_low': 'cgm_low', 'cgm_range_vlow': 'cgm_v_low'}, axis=1, inplace=True)
+    cgm["procedure"] = "cgm"
+    cgm["date"] = labs["date"]
     
     # --------------------------------------------------------------------------
     # CROC Labs
@@ -449,6 +465,7 @@ def clean_panda():
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
+    cgm.dropna(thresh=5, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
@@ -468,6 +485,7 @@ def clean_panda():
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = pd.concat([df, dxa], join='outer', ignore_index=True)
     df = pd.concat([df, clamp_merge], join='outer', ignore_index=True)
+    df = pd.concat([df, cgm], join='outer', ignore_index=True)
     df = pd.concat([df, croc_labs], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, med], join='outer', ignore_index=True)

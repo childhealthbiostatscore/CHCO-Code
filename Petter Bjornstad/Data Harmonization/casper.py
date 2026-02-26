@@ -49,7 +49,7 @@ def clean_casper():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -83,11 +83,11 @@ def clean_casper():
                                       "Not Hispanic or Latino",
                                       "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 0: "Female", 3: "Other",
-                        "1": "Male", "0": "Female", "3": "Other"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 0: "Female", 3: "Other",
+                        "1": "Male", "0": "Female", "3": "Other"})
     demo["group"] = "Type 1 Diabetes"
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medications
@@ -103,8 +103,8 @@ def clean_casper():
                "htn_med_type___2", "diabetes_med_other___1", "diabetes_med___1",
                "diabetes_med___2"]]
     # SGLT2i
-    med["diabetes_med_other___4"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med_other___4"] = med["diabetes_med_other___4"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___4": "sglti_timepoint"},
                axis=1, inplace=True)
     # RAASi
@@ -112,11 +112,11 @@ def clean_casper():
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
     med.drop(med[['htn_med_type___1', 'htn_med_type___2']],
              axis=1, inplace=True)
-    med["raasi_timepoint"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["raasi_timepoint"] = med["raasi_timepoint"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     # Metformin
-    med["diabetes_med_other___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med_other___1"] = med["diabetes_med_other___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___1": "metformin_timepoint"},
                axis=1, inplace=True)
     # Insulin
@@ -124,8 +124,8 @@ def clean_casper():
         med["diabetes_med___1"]), pd.to_numeric(med["diabetes_med___2"])))
     med.drop(med[['diabetes_med___1', 'diabetes_med___2']],
              axis=1, inplace=True)
-    med["insulin_med_timepoint"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["insulin_med_timepoint"] = med["insulin_med_timepoint"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
     med["visit"] = "baseline"
 

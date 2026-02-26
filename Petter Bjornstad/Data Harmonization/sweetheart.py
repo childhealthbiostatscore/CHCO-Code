@@ -61,8 +61,8 @@ def clean_sweetheart():
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
     # Replace missing values
     demo.replace(rep, np.nan, inplace=True)
-    demo["group"].replace({"2": "Type 2 Diabetes", "3": "Obese Control",
-                        "4": "Lean Control"}, inplace=True)
+    demo["group"] = demo["group"].replace({"2": "Type 2 Diabetes", "3": "Obese Control",
+                        "4": "Lean Control"})
     # Race columns combined into one
     demo = combine_checkboxes(demo, base_name="race", levels=[
         "American Indian or Alaskan Native", "Asian",
@@ -75,11 +75,11 @@ def clean_sweetheart():
                                       "Not Hispanic or Latino",
                                       "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
-                        "1": "Male", "2": "Female", "3": "Other"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
+                        "1": "Male", "2": "Female", "3": "Other"})
 
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medical History
@@ -96,44 +96,44 @@ def clean_sweetheart():
     med = med[["record_id", "diabetes_med_other___3", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
-    med["diabetes_med_other___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med_other___3"] = med["diabetes_med_other___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___3": "sglti_timepoint"},
                axis=1, inplace=True)
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
-    med["raasi_timepoint"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["raasi_timepoint"] = med["raasi_timepoint"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     # Metformin
-    med["diabetes_med___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___1"] = med["diabetes_med___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___1": "metformin_timepoint"},
                axis=1, inplace=True)
     # Insulin
-    med["diabetes_med___2"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___2"] = med["diabetes_med___2"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___2": "insulin_med_timepoint"},
                axis=1, inplace=True)
     # Hypertension Y/N
-    med["hypertension"].replace(
-        {2: "No", "2": "No", 1: "Yes", "1": "Yes"}, inplace=True)
-    med["htn_med_type___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["hypertension"] = med["hypertension"].replace(
+        {2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    med["htn_med_type___1"] = med["htn_med_type___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___1": "ace_inhibitor"},
                axis=1, inplace=True)
-    med["htn_med_type___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___3"] = med["htn_med_type___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___3": "beta_blocker"},
                axis=1, inplace=True)
-    med["htn_med_type___5"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___5"] = med["htn_med_type___5"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___5": "diuretic"},
                axis=1, inplace=True)
 
     # Statin
-    med["addl_hld_meds___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["addl_hld_meds___1"] = med["addl_hld_meds___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"addl_hld_meds___1": "statin"},
            axis=1, inplace=True)
     med.rename({"med_date": "date"},

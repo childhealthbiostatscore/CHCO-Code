@@ -46,7 +46,7 @@ def clean_crocodile():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -148,8 +148,9 @@ def clean_crocodile():
     print(epic_med["epic_ever_sglt2i_1"].dropna().head())
     print("Data type of first epic_ever_sglt2i_1 value:")   
     print(epic_med["epic_ever_sglt2i_1"].dropna().head().apply(type))
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     print("First 5 valid values in epic_ever_sglt2i_1 after replacement:")
     print(epic_med["epic_ever_sglt2i_1"].dropna().head())
     epic_med["procedure"] = "epic_medications"
@@ -632,6 +633,6 @@ def clean_crocodile():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Print final data
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
     return df

@@ -46,7 +46,7 @@ def clean_renal_heir():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -73,16 +73,15 @@ def clean_renal_heir():
                               base_name="ethnicity",
                               levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
     # Relevel sex and group and participation status
-    demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
-                        "1": "Male", "0": "Female", "2": "Other"}, inplace=True)
-    demo["group"].replace({2: "Type 2 Diabetes", 3: "Obese Control",
+    demo["sex"] = demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
+                        "1": "Male", "0": "Female", "2": "Other"})
+    demo["group"] = demo["group"].replace({2: "Type 2 Diabetes", 3: "Obese Control",
                            4: "Lean Control",
                            "2": "Type 2 Diabetes", "3": "Obese Control",
-                           "4": "Lean Control"}, inplace=True)
+                           "4": "Lean Control"})
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
-    demo["sglt2i_ever"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"},
-                       inplace=True)
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["sglt2i_ever"] = demo["sglt2i_ever"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"})
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medications
@@ -116,10 +115,12 @@ def clean_renal_heir():
                 "htn_med_type___5": "diuretic"}
     og_names = list(med_list.keys())
     med.rename(med_list, axis=1, inplace=True)
-    med.iloc[:, 1:2] = med.iloc[:, 1:2].replace(
-        {2: "No", "2": "No", 1: "Yes", "1": "Yes"})
-    med.iloc[:, 2:] = med.iloc[:, 2:].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
+    for col in med.columns[1:2]:
+        med[col] = med[col].astype(object).replace(
+            {2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in med.columns[2:]:
+        med[col] = med[col].astype(object).replace(
+            {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
 
     med["procedure"] = "medications"
     med["visit"] = "baseline"
@@ -134,8 +135,9 @@ def clean_renal_heir():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med['epic_glp1ra_1'] = epic_med['epic_glp1ra_1'].replace(
                 {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med['epic_glp1ra_2'] = epic_med['epic_glp1ra_2'].replace(

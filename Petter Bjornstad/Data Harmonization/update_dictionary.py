@@ -23,7 +23,7 @@ elif user == "shivaniramesh":
     git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 else:
     sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
-dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 tokens = pd.read_csv(base_data_path + "Data Harmonization/api_tokens.csv")
 uri = "https://redcap.ucdenver.edu/api/"
@@ -116,7 +116,7 @@ dictionary = dictionary.dropna(subset=['label'])
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
 harmonized = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/harmonized_dataset.csv")
-tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
 dictionary.to_csv(tocsv_path, index=False)
 
         

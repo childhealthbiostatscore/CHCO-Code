@@ -97,7 +97,7 @@ def harmonize_data():
 
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
                            
@@ -109,15 +109,15 @@ def harmonize_data():
                                    'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy",
                                    "treatment_period_1", "treatment_period_2", "treatment_period_3", 
                                    "treatment_period_4", "post_treatment"], ordered=True)
-    harmonized["race"].replace(
+    harmonized["race"] = harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
          "Black or African American & White",
          'American Indian or Alaskan Native & Black or African American',
-         'Asian & White'], "More Than One", inplace=True)
-    harmonized["race"].replace(
+         'Asian & White'], "More Than One")
+    harmonized["race"] = harmonized["race"].replace(
         {'Black/African American': 'Black or African American',
-         "": "Unknown"}, inplace=True)
-    harmonized["ethnicity"].replace({"": "Unknown"}, inplace=True)
+         "": "Unknown"})
+    harmonized["ethnicity"] = harmonized["ethnicity"].replace({"": "Unknown"})
     race_ethnicity = harmonized["race"] + \
         ", " + harmonized["ethnicity"]
     harmonized = pd.concat([harmonized, race_ethnicity], axis=1)
@@ -138,7 +138,9 @@ def harmonize_data():
     dates = ["dob", "date", "diabetes_dx_date"]
     for col in harmonized.columns:
         try:
-            harmonized[col] = pd.to_numeric(harmonized[col], errors="ignore")
+            converted = pd.to_numeric(harmonized[col], errors="coerce")
+            if converted.notna().sum() == harmonized[col].notna().sum():
+                harmonized[col] = converted
         except Exception as e:
             print(f"Skipping numeric conversion for {col}: {e}")
 
@@ -461,8 +463,8 @@ def harmonize_data():
     
     # Merge copeptin values (CASPER, RH2, CROCODILE)
     # Step 1: Replace empty strings with NaN in both columns
-    harmonized['copeptin'].replace("", np.nan, inplace=True)
-    harmonized['pi_copeptin'].replace("", np.nan, inplace=True)
+    harmonized['copeptin'] = harmonized['copeptin'].replace("", np.nan)
+    harmonized['pi_copeptin'] = harmonized['pi_copeptin'].replace("", np.nan)
 
     # Step 2: Convert both columns to numeric (coerce errors to NaN)
     harmonized['copeptin'] = pd.to_numeric(harmonized['copeptin'], errors='coerce')
@@ -561,8 +563,11 @@ def harmonize_data():
     # Format dates nicely
     harmonized[dates] = harmonized[dates].apply(
         lambda x: x.dt.strftime('%Y-%m-%d'))
-    # Return
-    harmonized = harmonized.astype(object)
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    # Write to temp CSV and return path (reticulate pandas 3.x conversion workaround)
+    harmonized = harmonized.astype(object).reset_index(drop=True)
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
-    return harmonized
+    import tempfile
+    temp_path = os.path.join(tempfile.gettempdir(), "harmonized_temp.csv")
+    harmonized.to_csv(temp_path, index=False, na_rep="")
+    return temp_path
