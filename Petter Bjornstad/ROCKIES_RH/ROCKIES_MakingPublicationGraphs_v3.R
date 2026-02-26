@@ -361,106 +361,125 @@ plot_two_group <- function(data, group_var, value_var,
 }
 
 ########################################################################
-# =====================================================================
-#  FIGURE 1: ROCKIES TRIAL — k2 and k2/F focused
-# =====================================================================
+# FIGURE 1 — Updated Layout
+# Row 1: A (Trial Design) | B (Study Day Overview) | C (PET Picture)
+# Row 2: D (Delta Heatmap) | E (Urine Omics)
+# Row 3: F (k2 cortex) | G (k2/F cortex) | H (k2 medulla) | I (k2/F medulla)
 ########################################################################
 
-# =====================================================================
-# Panel A: Study Design Diagram (generated in R)
-# =====================================================================
-library(png)
+# --- Panel A: Trial Design ---
 fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan.png", "A")
 
-load_image_panel <- function(path, tag) {
-  ext <- tolower(tools::file_ext(path))
-  if (!file.exists(path)) {
-    message(sprintf("Image not found: %s — placeholder used", path))
-    return(ggplot() +
-             annotate("text", x=0.5, y=0.5, label=paste0("Panel ",tag,"\n(file not found)"),
-                      size=4, color="gray50") + theme_void() + labs(tag=tag))
-  }
-  img <- if (ext %in% c("jpg","jpeg")) jpeg::readJPEG(path) else png::readPNG(path)
-  ggplot() +
-    annotation_raster(img, xmin=0, xmax=1, ymin=0, ymax=1) +
-    xlim(0,1) + ylim(0,1) + theme_void() + labs(tag=tag) +
-    theme(plot.margin=margin(5,5,5,5))
-}
+# --- Panel B: PET Picture ---
+fig1b <- load_image_panel(
+  "C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram.png", "B")
 
-# =====================================================================
-# Panel B: PET Methodology Diagram (external PNG)
-# =====================================================================
-library(png)
+# --- Panel C: PET Image Placeholder) ---
+fig1c <- ggplot() + theme_void() + labs(tag = "C")
 
-pet_img <- readPNG("C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram.png")
+# --- Panel D: Delta Heatmap ---
+# Compute deltas (Ertugliflozin - Placebo) for each participant
+deltas_heatmap <- rockies_long %>%
+  dplyr::select(id, treatment, cortical_k2, medullary_k2, 
+                cortical_k2f, medullary_k2f,
+                weight, homa_ir, ogis) %>%
+  pivot_wider(names_from = treatment, 
+              values_from = c(cortical_k2, medullary_k2, 
+                              cortical_k2f, medullary_k2f,
+                              weight, homa_ir, ogis)) %>%
+  transmute(
+    id,
+    d_cortical_k2   = cortical_k2_Ertugliflozin   - cortical_k2_Placebo,
+    d_medullary_k2  = medullary_k2_Ertugliflozin  - medullary_k2_Placebo,
+    d_cortical_k2f  = cortical_k2f_Ertugliflozin  - cortical_k2f_Placebo,
+    d_medullary_k2f = medullary_k2f_Ertugliflozin - medullary_k2f_Placebo,
+    d_weight        = weight_Ertugliflozin         - weight_Placebo,
+    d_homa_ir       = homa_ir_Ertugliflozin        - homa_ir_Placebo,
+    d_ogis          = ogis_Ertugliflozin           - ogis_Placebo
+  )
 
-fig1b <- ggplot() +
-  annotation_raster(pet_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
-  xlim(0, 1) + ylim(0, 1) +
-  theme_void() +
-  theme(plot.margin = margin(5, 5, 5, 5))
+# PET variables (rows) vs clinical variables (columns)
+pet_vars <- list(
+  list(var = "d_cortical_k2",   label = "k\u2082 Cortex"),
+  list(var = "d_medullary_k2",  label = "k\u2082 Medulla"),
+  list(var = "d_cortical_k2f",  label = "k\u2082/F Cortex"),
+  list(var = "d_medullary_k2f", label = "k\u2082/F Medulla")
+)
 
-# --- Panel C: Cortical k2 vs HOMA-IR (placebo) ---
-fig1c <- plot_corr(rockies_plac, "homa_ir", "cortical_k2",
-                   "HOMA-IR",
-                   expression(bold("Cortical k"[2]*" (min"^{-1}*")")),
-                   "C", point_col = cols$placebo)
+clin_vars <- list(
+  list(var = "d_weight",  label = "Body Weight"),
+  list(var = "d_homa_ir", label = "HOMA-IR"),
+  list(var = "d_ogis",    label = "OGIS")
+)
 
-# --- Panel D: Cortical k2/F vs HOMA-IR (placebo) ---
-fig1d <- plot_corr(rockies_plac, "homa_ir", "cortical_k2f",
-                   "HOMA-IR",
-                   expression(bold("Cortical k"[2]*"/F")),
-                   "D", point_col = cols$placebo)
+heatmap_results <- purrr::map_dfr(pet_vars, function(pv) {
+  purrr::map_dfr(clin_vars, function(cv) {
+    df <- deltas_heatmap %>% 
+      dplyr::select(all_of(c(pv$var, cv$var))) %>%
+      filter(complete.cases(.))
+    ct <- cor.test(df[[pv$var]], df[[cv$var]], method = "spearman")
+    data.frame(
+      pet_label  = pv$label,
+      clin_label = cv$label,
+      rho        = ct$estimate,
+      pval       = ct$p.value,
+      label      = formatC(ct$estimate, format = "f", digits = 2),
+      sig        = ifelse(ct$p.value < 0.001, "***",
+                          ifelse(ct$p.value < 0.01, "**",
+                                 ifelse(ct$p.value < 0.05, "*", "")))
+    )
+  })
+})
 
-# --- Panel E: Medullary k2 vs Tubular Na reabsorption (placebo) ---
-fig1e <- plot_corr(rockies_plac, "tna_sodium", "medullary_k2",
-                   expression(bold("Tubular Na"^"+"*" Reabsorption (mmol/min)")),
-                   expression(bold("Medullary k"[2]*" (min"^{-1}*")")),
-                   "E", point_col = cols$placebo)
+heatmap_results$pet_label <- factor(heatmap_results$pet_label,
+                                    levels = c("k\u2082/F Medulla", "k\u2082/F Cortex",
+                                               "k\u2082 Medulla",   "k\u2082 Cortex"))
+heatmap_results$clin_label <- factor(heatmap_results$clin_label,
+                                     levels = c("Body Weight", "HOMA-IR", "OGIS"))
 
-library(jpeg)
-fig1f <- load_image_panel(
-  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg", "F")
+fig1d <- ggplot(heatmap_results, aes(x = clin_label, y = pet_label, fill = rho)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(aes(label = paste0(label, sig)), size = 4, fontface = "bold") +
+  scale_fill_gradient2(low = cols$control, mid = "white", high = cols$t2d,
+                       midpoint = 0, limits = c(-1, 1),
+                       name = "Spearman\nrho") +
+  labs(x = NULL, y = NULL, tag = "D") +
+  theme_rockies +
+  theme(legend.position = "right",
+        axis.text.x = element_text(face = "bold", size = 9),
+        axis.text.y = element_text(face = "bold", size = 9))
 
-# --- Panel G: Cortical k2 paired ---
-fig1g <- plot_paired(rockies_long, "id", "treatment", "cortical_k2",
-                     expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "G")
+# --- Panel E: Urine Omics ---
+fig1e <- load_image_panel(
+  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg", "E")
 
-# --- Panel H: Cortical k2/F paired ---
-fig1h <- plot_paired(rockies_long, "id", "treatment", "cortical_k2f",
-                     expression(bold("Cortical k"[2]*"/F")), "H")
+# --- Panels F-I: Paired plots ---
+fig1f <- plot_paired(rockies_long, "id", "treatment", "cortical_k2",
+                     expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "F")
 
-# --- Panel I: Delta HOMA-IR vs Delta cortical k2 ---
-fig1i <- plot_delta_corr(rockies_long, "id", "treatment",
-                         "homa_ir", "cortical_k2",
-                         "HOMA-IR", "Cortical k2 (min-1)", "I")
+fig1g <- plot_paired(rockies_long, "id", "treatment", "cortical_k2f",
+                     expression(bold("Cortical k"[2]*"/F")), "G")
 
-# --- Panel J: Delta HOMA-IR vs Delta medullary k2 ---
-fig1j <- plot_delta_corr(rockies_long, "id", "treatment",
-                         "homa_ir", "medullary_k2",
-                         "HOMA-IR", "Medullary k2 (min-1)", "J")
+fig1h <- plot_paired(rockies_long, "id", "treatment", "medullary_k2",
+                     expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "H")
 
-# --- Panel K: Delta HOMA-IR vs Delta cortical k2/F ---
-fig1k <- plot_delta_corr(rockies_long, "id", "treatment",
-                         "homa_ir", "cortical_k2f",
-                         "HOMA-IR", "Cortical k2/F", "K")
-
-
+fig1i <- plot_paired(rockies_long, "id", "treatment", "medullary_k2f",
+                     expression(bold("Medullary k"[2]*"/F")), "I")
 
 # --- Assemble Figure 1 ---
-row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
-row2 <- fig1c | fig1d | fig1e
-row3 <- fig1f | fig1g | fig1h
-row4 <- fig1i | fig1j | fig1k
+row1 <- fig1a | fig1b | fig1c
+row2 <- fig1d | fig1e
+row3 <- fig1f | fig1g | fig1h | fig1i
 
-fig1 <- row1 / row2 / row3 / row4 +
-  plot_layout(heights = c(3, 2, 2, 2)) +
+fig1 <- row1 / row2 / row3 +
+  plot_layout(heights = c(2.5, 2.5, 2)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
     theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
   )
 
-save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 22)
+save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 18)
+cat("Figure 1 saved!\n")
 
 ########################################################################
 # =====================================================================
