@@ -268,6 +268,21 @@ DXA$visit <- DXA$mvisit
 keepDXA <- DXA %>% select(releaseid, visit, WB_TOT_PFAT, WB_TOT_PFAT_P)
 baseDXA <- keepDXA %>% filter(visit=="M00")
 
+# LIPOSCIENCE
+lipo <- read.csv("./Clinical data/TODAY2/LIPO.csv")
+colnames(lipo)[5:ncol(lipo)] <- paste0("LIPO_", colnames(lipo)[5:ncol(lipo)])
+lipo <- lipo %>% mutate(visit = case_when(
+  LPMONTH == 0 ~ "M00",
+  LPMONTH == 12 ~ "M12",
+  LPMONTH == 24 ~ "M24",
+  LPMONTH == 36 ~ "M36",
+  LPMONTH == 48 ~ "M48",
+  LPMONTH == 60 ~ "M60"
+))
+lipo$releaseid <- lipo$RELEASEID
+lipo$RELEASEID <- NULL
+base_lipo <- lipo %>% filter(visit == "M00")
+
 # create new dataset of baseline risk factors
 basecbl <- CBL %>% filter(mvisit=="M00")
 baseaddcbl <- ADDCBL %>% filter(mvisit=="M00")
@@ -289,6 +304,7 @@ baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
   sex_char == "M" ~ 64 - ((20*height)/wastcirc)),
   TRUE == NA_real_
 )
+baserisk <- full_join(baserisk, base_lipo, by = "releaseid")
   
 # Save
 save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
@@ -414,6 +430,7 @@ long$visit_num <- as.numeric(str_sub(long$visit,2,length(long$visit)))
 # calculated variables - eIS
 long$si_1_ins0 <- 1/long$ins0min
 long <- merge(long, fup_length, by = "releaseid", all.x = T, all.y = T)
+long <- full_join(long, lipo, by = c("releaseid", "visit"))
 
 # length of follow-up
 long_unique <- long %>% select(releaseid, fup_years) %>% unique() 
