@@ -53,6 +53,8 @@ def harmonize_data():
     renal_heiritage = clean_renal_heiritage()
     panther = clean_panther()
     panda = clean_panda()
+    print("Final number of rows with CGM data:  ", panda['cgm_avg_glucose'].notnull().sum())
+
     attempt = clean_attempt()
     rpc2 = clean_rpc2_redcap()
     ultra = clean_ultra()
@@ -73,6 +75,8 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, panda],
                            join='outer', ignore_index=True)
+    print("Final number of rows with CGM data:  ", harmonized['cgm_avg_glucose'].notnull().sum())
+
     harmonized = pd.concat([harmonized, attempt],
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, rpc2],
@@ -109,6 +113,8 @@ def harmonize_data():
                                    'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy",
                                    "treatment_period_1", "treatment_period_2", "treatment_period_3", 
                                    "treatment_period_4", "post_treatment"], ordered=True)
+    print("Final number of rows with CGM data:  ", harmonized['cgm_avg_glucose'].notnull().sum())
+
     harmonized["race"] = harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
          "Black or African American & White",
