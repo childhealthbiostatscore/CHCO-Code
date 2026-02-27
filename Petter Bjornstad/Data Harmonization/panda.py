@@ -207,15 +207,21 @@ def clean_panda():
     # CGM
     # --------------------------------------------------------------------------
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
-                                               == "cgm", "field_name"]]
+                                               == "main_study_visit_cgm_data", "field_name"]]
     cgm = pd.DataFrame(proj.export_records(fields=var))
     cgm = cgm.loc[~cgm.redcap_event_name.str.contains("screen|annual_visit_1_arm_1")]
     # Replace missing values
     cgm.replace(rep, np.nan, inplace=True)
+    print("PANDA CGM data:")
+    print(cgm.head())
     cgm.rename({'cgm_avgbg': 'cgm_avg_glucose', 'cgm_range_vhigh':'cgm_v_high', 'cgm_range_high': 'cgm_high', 
                 'cgm_range_low': 'cgm_low', 'cgm_range_vlow': 'cgm_v_low'}, axis=1, inplace=True)
     cgm["procedure"] = "cgm"
     cgm["date"] = labs["date"]
+    #print number of record_ids with non-null cgm_avg_glucose
+    print("PANDA CGM data:")
+    print(cgm.head())
+    print(f"Number of record_ids with non-null cgm_avg_glucose: {cgm['cgm_avg_glucose'].notnull().sum()}")
     
     # --------------------------------------------------------------------------
     # CROC Labs
@@ -465,7 +471,7 @@ def clean_panda():
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
-    cgm.dropna(thresh=5, axis=0, inplace=True)
+    cgm.dropna(thresh=4, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
