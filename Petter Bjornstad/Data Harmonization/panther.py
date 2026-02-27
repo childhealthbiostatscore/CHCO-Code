@@ -139,7 +139,7 @@ def clean_panther():
                 },
                 inplace=True, axis=1)
     meds=["sglti_timepoint", "raasi_timepoint", "metformin_timepoint", "insulin_med_timepoint", "glp1_agonist_timepoint", "mra", "diuretic", "ca_channel_blocker", "beta_blocker", "statin", "fibrates", "topiramate", "phentermine", "uric_acid_med"]
-    med[meds] = med[meds].map(lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x))
+    med[meds] = med[meds].applymap(lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x))
     # SGLT2i, RAASi, Metformin
     med = med[["record_id", "visit", "sglti_timepoint", "raasi_timepoint", "metformin_timepoint", "insulin_med_timepoint",\
     "glp1_agonist_timepoint", "mra", "diuretic", "ca_channel_blocker", "beta_blocker", "statin", "fibrates", "topiramate", "phentermine", "uric_acid_med", "birthweight"]].copy()

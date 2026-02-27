@@ -219,7 +219,6 @@ def clean_panda():
     cgm["visit"] = cgm["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     cgm["visit"] = cgm["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     cgm["procedure"] = "cgm"
-    cgm["date"] = labs["date"]
     #print number of record_ids with non-null cgm_avg_glucose
     print("PANDA CGM data:")
     print(cgm.head())
@@ -474,7 +473,7 @@ def clean_panda():
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
-    cgm.dropna(thresh=3, axis=0, inplace=True)
+    cgm.dropna(thresh=7, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
