@@ -8,6 +8,8 @@ library(ggplot2)
 library(ggrepel)
 library(pheatmap)
 library(tidyr)
+library(purrr)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 0. LOAD & PREPARE SEURAT OBJECT (T2D only, matching your established setup)
@@ -16,6 +18,38 @@ library(tidyr)
 load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
 so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
+
+# ── Merge baseline_ffa from harmonized dataset ──────────────────────────────
+harmonized_data <- read.csv(
+  "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
+  na = ''
+)
+
+dat <- harmonized_data %>%
+  dplyr::select(-dob) %>%
+  arrange(date_of_screen) %>%
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm = TRUE))),
+    .by = c(record_id, visit)
+  )
+
+# Check how many T2D participants have baseline_ffa
+cat("Participants with baseline_ffa (T2D):",
+    sum(!is.na(dat$baseline_ffa[dat$group == "Type_2_Diabetes"])), "\n")
+
+# Merge into Seurat metadata by record_id (one value per participant → all cells get same value)
+ffa_merge <- dat %>%
+  dplyr::select(record_id, baseline_ffa) %>%
+  distinct()
+
+so_subset@meta.data <- so_subset@meta.data %>%
+  dplyr::select(-any_of("baseline_ffa")) %>%   # drop old all-NA column
+  left_join(ffa_merge, by = "record_id")
+
+cat("Cells with baseline_ffa after merge:",
+    sum(!is.na(so_subset@meta.data$baseline_ffa)), "\n")
+# ────────────────────────────────────────────────────────────────────────────
 
 so_subset$celltype1 <- case_when(
   grepl("PT-",  so_subset$celltype_rpca) ~ "PT",
@@ -267,3 +301,91 @@ for (ct in cell_types_of_interest) {
          plot = p, width = 7, height = 6)
   print(p)
 }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. GSEA — MSigDB Hallmark + GO:BP gene sets
+# ══════════════════════════════════════════════════════════════════════════════
+
+library(fgsea)
+library(msigdbr)
+
+# Build gene sets: Hallmark + GO Biological Process
+msig_h  <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol)
+msig_bp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+gene_sets <- bind_rows(msig_h, msig_bp) %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+
+run_gsea_nefa <- function(df, ct) {
+  cat("\nRunning GSEA for:", ct, "\n")
+  
+  df_ct <- df %>% filter(cell_type == ct)
+  
+  if (nrow(df_ct) == 0) {
+    cat("  No results for", ct, "— skipping.\n")
+    return(NULL)
+  }
+  
+  # Ranking statistic: -log10(p) * sign(logFC) — prioritises significance + direction
+  ranked <- df_ct %>%
+    filter(!is.na(p_ffa_scaled), !is.na(logFC_ffa_scaled)) %>%
+    mutate(stat = -log10(p_ffa_scaled) * sign(logFC_ffa_scaled)) %>%
+    arrange(desc(stat)) %>%
+    distinct(gene, .keep_all = TRUE) %>%
+    { setNames(.$stat, .$gene) }
+  
+  set.seed(123)
+  res <- fgsea(pathways  = gene_sets,
+               stats     = ranked,
+               minSize   = 15,
+               maxSize   = 500)
+  
+  res$cell_type <- ct
+  res %>% arrange(pval)
+}
+
+gsea_results <- lapply(cell_types_of_interest, run_gsea_nefa)
+gsea_results_df <- do.call(rbind, gsea_results) %>%
+  group_by(cell_type) %>%
+  mutate(FDR_gsea = p.adjust(pval, method = "BH")) %>%
+  ungroup() %>%
+  arrange(cell_type, pval)
+
+write.csv(gsea_results_df %>% dplyr::select(-leadingEdge),
+          file = file.path(dir.results, "NEFA_GSEA_results.csv"),
+          row.names = FALSE)
+
+# Dot plot: top 20 pathways by nominal p-value per cell type
+for (ct in cell_types_of_interest) {
+  df_plot <- gsea_results_df %>%
+    filter(cell_type == ct) %>%
+    slice_min(pval, n = 20) %>%
+    mutate(pathway = gsub("_", " ", pathway),
+           pathway = stringr::str_wrap(pathway, 40),
+           direction = ifelse(NES > 0, "Positive NES", "Negative NES"))
+  
+  p <- ggplot(df_plot, aes(x = NES, y = reorder(pathway, NES),
+                           size = size, color = pval)) +
+    geom_point() +
+    scale_color_gradient(low = "#e63946", high = "grey80", name = "p-value") +
+    scale_size_continuous(name = "Gene set size", range = c(2, 8)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    labs(title    = paste("GSEA — Baseline FFA —", ct, "(T2D)"),
+         subtitle = "Top 20 pathways by p-value | Hallmark + GO:BP",
+         x        = "Normalized Enrichment Score (NES)",
+         y        = NULL) +
+    theme_classic(base_size = 11) +
+    theme(axis.text.y = element_text(size = 8))
+  
+  ggsave(filename = file.path(dir.results, paste0("GSEA_dotplot_FFA_", ct, ".pdf")),
+         plot = p, width = 9, height = 7)
+  print(p)
+}
+
+cat("\nGSEA complete. Results saved to:", dir.results, "\n")
+
+
+

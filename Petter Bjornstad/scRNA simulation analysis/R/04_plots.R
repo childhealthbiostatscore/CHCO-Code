@@ -106,15 +106,17 @@ option_list <- list(
 opt <- parse_args(OptionParser(option_list = option_list))
 
 # ── Load benchmark data from S3 ───────────────────────────────────────────────
-message("── [06] Loading benchmark_avg from S3 ──")
+message("── [04] Loading benchmark_avg from S3 ──")
 avg <- s3readRDS(
   object = paste0(S3_BENCH_PFX, "benchmark_avg.rds"),
   bucket = S3_BUCKET,
   region = ""
 )
 
-METHOD_COLORS <- c(nebula = "#E64B35", deseq2 = "#4DBBD5", edger = "#00A087")
-METHOD_LABELS <- c(nebula = "NEBULA-LN", deseq2 = "DESeq2 PB", edger = "edgeR PB")
+METHOD_COLORS <- c(nebula = "#E64B35", deseq2 = "#4DBBD5", edger = "#00A087",
+                   wilcox = "#F39B7F", mast   = "#8491B4")
+METHOD_LABELS <- c(nebula = "NEBULA-LN", deseq2 = "DESeq2 PB", edger = "edgeR PB",
+                   wilcox = "Wilcoxon",  mast   = "MAST")
 
 base_theme <- theme_bw(base_size = 12) +
   theme(strip.background = element_rect(fill = "grey90"),
@@ -141,7 +143,7 @@ p_power <- ggplot(pw_dat,
   scale_fill_manual(values   = METHOD_COLORS, labels = METHOD_LABELS) +
   scale_y_continuous(limits = c(0, 1), labels = percent) +
   labs(title  = "Power vs Sample Size",
-       x      = "Subjects per arm (each with PRE + POST)",
+       x      = "Subjects per arm (each with timepoint1 + timepoint2)",
        y      = "Power (mean ± SD across replicates)",
        colour = NULL, fill = NULL) +
   base_theme
@@ -297,4 +299,4 @@ p_auc <- ggplot(auc_dat,
 ggsave_to_s3(p_auc, paste0(S3_PLOTS_PFX, "auc_heatmap.pdf"),
              width = 14, height = 6)
 
-message(sprintf("── [06] All plots saved to s3://%s/%s ──", S3_BUCKET, S3_PLOTS_PFX))
+message(sprintf("── [04] All plots saved to s3://%s/%s ──", S3_BUCKET, S3_PLOTS_PFX))
