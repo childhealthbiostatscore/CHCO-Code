@@ -89,7 +89,7 @@ option_list <- list(
   make_option("--n_cores", type = "integer", default = 32L)
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-BiocParallel::register(MulticoreParam(opt$n_cores))
+BiocParallel::register(BiocParallel::MulticoreParam(opt$n_cores))
 
 # ── Load param grid from S3 ───────────────────────────────────────────────────
 message("── [03] Loading param_grid from S3 ──")
@@ -156,7 +156,9 @@ process_task <- function(i) {
   timing <- tryCatch(
     s3readRDS(object = paste0(pfx_i, "timing.rds"),
               bucket = S3_BUCKET, region = ""),
-    error = function(e) c(sim = NA, nebula = NA, deseq2 = NA, edger = NA)
+    error = function(e) c(sim    = NA_real_, nebula = NA_real_,
+                          deseq2 = NA_real_, edger  = NA_real_,
+                          wilcox = NA_real_, mast   = NA_real_)
   )
 
   # Scenario parameters to attach
@@ -167,14 +169,18 @@ process_task <- function(i) {
                "effect_size","indiv_var_factor","cells_mean","interaction_lfc")
   prow <- param_grid[i, p_cols]
 
-  # Methods
+  # Methods — all five DE methods produced by 02_simulate_analyze.R
   methods <- list(
     nebula = list(file = "nebula_stats.rds",
                   time = as.numeric(timing["nebula"])),
     deseq2 = list(file = "deseq2_stats.rds",
                   time = as.numeric(timing["deseq2"])),
     edger  = list(file = "edger_stats.rds",
-                  time = as.numeric(timing["edger"]))
+                  time = as.numeric(timing["edger"])),
+    wilcox = list(file = "wilcox_stats.rds",
+                  time = as.numeric(timing["wilcox"])),
+    mast   = list(file = "mast_stats.rds",
+                  time = as.numeric(timing["mast"]))
   )
 
   rows <- lapply(names(methods), function(meth) {
@@ -193,7 +199,7 @@ process_task <- function(i) {
 
 message("  Processing tasks in parallel...")
 raw_list <- bplapply(seq_len(n_scenarios), process_task,
-                     BPPARAM = MulticoreParam(opt$n_cores))
+                     BPPARAM = BiocParallel::MulticoreParam(opt$n_cores))
 
 benchmark_raw <- bind_rows(Filter(Negate(is.null), raw_list))
 message(sprintf("  Collected %d rows from %d tasks",

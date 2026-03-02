@@ -14,14 +14,14 @@
 #   The task:
 #     1. Draws the simulated design (subjects x visits x cells)
 #     2. Modifies the scDesign3 fitted model to inject DE signal + indiv variance
-#     3. Calls simulate_new_data() -- count matrix lives only in memory
-#     4. Immediately runs NEBULA, DESeq2, edgeR on the in-memory counts
+#     3. Calls extract_para() + simu_new() -- count matrix lives only in memory
+#     4. Immediately runs NEBULA, DESeq2, edgeR, Wilcoxon, MAST on the in-memory counts
 #     5. Saves three small stats data.frames + timing + truth to S3
 #     6. Frees the count matrix (gc())
 #
 # STUDY DESIGN CLARIFICATION:
 #   n_subjects_per_arm = number of SUBJECTS in each treatment arm.
-#   Each subject has BOTH a PRE and a POST visit (paired design).
+#   Each subject has BOTH a timepoint1 and a timepoint2 visit (paired design).
 #   So the full cell-level design is:
 #     2 arms x n_subjects_per_arm subjects x 2 visits x ~cells_mean cells
 #   And the pseudobulk design is:
@@ -430,12 +430,14 @@ run_nebula <- function(counts, new_covariate, method, n_cores,
                     pred   = X,
                     offset = offset_vec)
 
-  subjects_grpA <- names(neb$id)[neb$id %in% paste0("grpA_S0", 1:5)]
-  subjects_grpB <- names(neb$id)[neb$id %in% paste0("grpB_S0", 1:5)]
-  
-  keep <- sapply(1:nrow(neb$count), function(g) {
-    subA <- length(unique(neb$id[neb$count[g, ] > 0 & neb$id %in% paste0("grpA_S0", 1:5)]))
-    subB <- length(unique(neb$id[neb$count[g, ] > 0 & neb$id %in% paste0("grpB_S0", 1:5)]))
+  # Identify subjects per arm dynamically from new_covariate (not hardcoded)
+  subjects_grpA <- unique(nc$subject_id[nc$treatment == "groupA"])
+  subjects_grpB <- unique(nc$subject_id[nc$treatment == "groupB"])
+
+  keep <- sapply(seq_len(nrow(neb$count)), function(g) {
+    expr_vec <- neb$count[g, ]
+    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpA]))
+    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpB]))
     (subA >= 2) & (subB >= 2)
   })
   
@@ -530,8 +532,24 @@ pb_counts_filt <- pb_counts[keep, ]
 message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
                 ncol(pb_counts), sum(keep), nrow(pb_counts)))
 
-# Design matrix: paired pseudobulk (subject_id controls within-subject pairing)
-pb_design <- model.matrix(~ subject_id + visit * treatment, data = pb_meta)
+# Design matrix: paired pseudobulk
+#
+# CORRECT FORMULA FOR A PAIRED 2x2 DESIGN:
+#   ~ subject_id + visit + visit:treatment
+#
+# Why NOT ~ subject_id + visit * treatment:
+#   Each subject belongs to exactly one treatment arm for their entire study
+#   duration, so treatment is a linear combination of the subject_id dummies.
+#   Adding a treatment main effect makes the matrix rank-deficient and
+#   DESeq2/edgeR will refuse to fit.
+#
+# What the terms mean:
+#   subject_id       absorbs all between-subject variance, INCLUDING the
+#                    arm-level mean difference (i.e. the treatment main effect)
+#   visit            the within-subject visit effect averaged across arms
+#   visit:treatment  the INTERACTION -- how much the visit effect differs
+#                    between groupA and groupB -- this is the estimand of interest
+pb_design <- model.matrix(~ subject_id + visit + visit:treatment, data = pb_meta)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. DESeq2
@@ -542,7 +560,7 @@ message("  Running DESeq2...")
 deseq2_stats <- tryCatch({
   dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
                                 colData   = pb_meta,
-                                design    = ~ subject_id + visit * treatment)
+                                design    = ~ subject_id + visit + visit:treatment)
   
   dds <- DESeq(dds, parallel = TRUE,
                BPPARAM  = BiocParallel::MulticoreParam(opt$n_cores),

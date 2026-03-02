@@ -26,6 +26,8 @@
 #     hvg_genes.rds           -- character vector of top 2k HVG gene names
 #     sce_ref.rds             -- SingleCellExperiment used for fitting
 #     scdesign3_fit.rds       -- fitted scDesign3 model object
+#     construct_data.rds      -- list(dat, filtered_gene) from construct_data()
+#                                required by extract_para() and simu_new() in step 02
 #     effect_size_summary.rds -- realistic mean/SD effect sizes from data
 #
 # USAGE (command line):
