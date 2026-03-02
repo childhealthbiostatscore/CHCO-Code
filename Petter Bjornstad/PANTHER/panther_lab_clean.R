@@ -85,6 +85,10 @@ labs_df_clean <- labs_df %>%
     )
   )
 
+# filter to cpeptide related vars
+cpeptide_labs <- labs_df_clean %>%
+  filter(grepl("peptide", test_name, ignore.case = T))
+
 # filter to UACR related vars
 # unique(labs_df_clean$test_name)
 urine_labs <- labs_df_clean %>%

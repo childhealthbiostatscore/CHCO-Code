@@ -14,14 +14,14 @@
 #   The task:
 #     1. Draws the simulated design (subjects x visits x cells)
 #     2. Modifies the scDesign3 fitted model to inject DE signal + indiv variance
-#     3. Calls simulate_new_data() -- count matrix lives only in memory
-#     4. Immediately runs NEBULA, DESeq2, edgeR on the in-memory counts
+#     3. Calls extract_para() + simu_new() -- count matrix lives only in memory
+#     4. Immediately runs NEBULA, DESeq2, edgeR, Wilcoxon, MAST on the in-memory counts
 #     5. Saves three small stats data.frames + timing + truth to S3
 #     6. Frees the count matrix (gc())
 #
 # STUDY DESIGN CLARIFICATION:
 #   n_subjects_per_arm = number of SUBJECTS in each treatment arm.
-#   Each subject has BOTH a PRE and a POST visit (paired design).
+#   Each subject has BOTH a timepoint1 and a timepoint2 visit (paired design).
 #   So the full cell-level design is:
 #     2 arms x n_subjects_per_arm subjects x 2 visits x ~cells_mean cells
 #   And the pseudobulk design is:
@@ -356,6 +356,32 @@ if (is.null(sim_result)) {
 
 counts <- sim_result               # simu_new() returns dgCMatrix directly in this build
 if (is.null(rownames(counts))) rownames(counts) <- hvg_genes
+
+# ── Validate simulated counts ──────────────────────────────────────────────
+# qnbinom() returns NA when mu ~ 0 and the uniform draw is near 1 (extreme
+# tail of a near-degenerate NB). Inf can appear with tiny size + large mu.
+# Both poison every downstream DE method's likelihood. Replace with 0 (treat
+# as structural dropout — equivalent to the cell not expressing that gene).
+if (inherits(counts, "dgCMatrix")) {
+  bad <- !is.finite(counts@x)   # catches NA, NaN, Inf, -Inf
+  if (any(bad)) {
+    message(sprintf("  WARNING: %d non-finite values in counts (NA/Inf from qnbinom) — set to 0",
+                    sum(bad)))
+    counts@x[bad] <- 0L
+    counts <- drop0(counts)      # remove structural zeros introduced above
+  }
+} else {
+  bad <- !is.finite(counts)
+  if (any(bad)) {
+    message(sprintf("  WARNING: %d non-finite values in counts — set to 0", sum(bad)))
+    counts[bad] <- 0L
+  }
+}
+ls_vec <- colSums(counts)
+message(sprintf("  lib_size: min=%.0f  median=%.0f  max=%.0f  (%.1f%% zero-count cells)",
+                min(ls_vec), median(ls_vec), max(ls_vec), 100 * mean(ls_vec == 0)))
+
+
 message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
@@ -399,27 +425,43 @@ run_nebula <- function(counts, new_covariate, method, n_cores,
   nc$treatment <- factor(nc$treatment,  levels = c("groupB",     "groupA"))
 
   X   <- model.matrix(~ visit * treatment, data = nc)
-  neb <- group_cell(count  = counts,
+  neb <- list(count  = counts,
                     id     = nc$subject_id,
                     pred   = X,
                     offset = offset_vec)
 
+  # Identify subjects per arm dynamically from new_covariate (not hardcoded)
+  subjects_grpA <- unique(nc$subject_id[nc$treatment == "groupA"])
+  subjects_grpB <- unique(nc$subject_id[nc$treatment == "groupB"])
+
+  keep <- sapply(seq_len(nrow(neb$count)), function(g) {
+    expr_vec <- neb$count[g, ]
+    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpA]))
+    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpB]))
+    (subA >= 2) & (subB >= 2)
+  })
+  
+  neb$count <- neb$count[keep, ]
+  
   nebula(count   = neb$count,
          id      = neb$id,
          pred    = neb$pred,
          offset  = neb$offset,
          method  = method,
          ncore   = n_cores,
-         verbose = FALSE)
+         verbose = T)
 }
+
 
 extract_nebula_stats <- function(fit_neb) {
   summ     <- fit_neb$summary
+  # NEBULA stores gene names in a $gene column; rownames are just integers 1..n
+  gene_vec <- if ("gene" %in% colnames(summ)) summ$gene else rownames(summ)
   lfc_col  <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
                    colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
-  tidy_join(gene  = rownames(summ),
+  tidy_join(gene  = gene_vec,
             logfc = summ[[lfc_col[1]]],
             pval  = summ[[pval_col]])
 }
@@ -490,8 +532,24 @@ pb_counts_filt <- pb_counts[keep, ]
 message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
                 ncol(pb_counts), sum(keep), nrow(pb_counts)))
 
-# Design matrix: paired pseudobulk (subject_id controls within-subject pairing)
-pb_design <- model.matrix(~ subject_id + visit * treatment, data = pb_meta)
+# Design matrix: paired pseudobulk
+#
+# CORRECT FORMULA FOR A PAIRED 2x2 DESIGN:
+#   ~ subject_id + visit + visit:treatment
+#
+# Why NOT ~ subject_id + visit * treatment:
+#   Each subject belongs to exactly one treatment arm for their entire study
+#   duration, so treatment is a linear combination of the subject_id dummies.
+#   Adding a treatment main effect makes the matrix rank-deficient and
+#   DESeq2/edgeR will refuse to fit.
+#
+# What the terms mean:
+#   subject_id       absorbs all between-subject variance, INCLUDING the
+#                    arm-level mean difference (i.e. the treatment main effect)
+#   visit            the within-subject visit effect averaged across arms
+#   visit:treatment  the INTERACTION -- how much the visit effect differs
+#                    between groupA and groupB -- this is the estimand of interest
+pb_design <- model.matrix(~ subject_id + visit + visit:treatment, data = pb_meta)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. DESeq2
@@ -502,7 +560,7 @@ message("  Running DESeq2...")
 deseq2_stats <- tryCatch({
   dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
                                 colData   = pb_meta,
-                                design    = ~ subject_id + visit * treatment)
+                                design    = ~ subject_id + visit + visit:treatment)
   
   dds <- DESeq(dds, parallel = TRUE,
                BPPARAM  = BiocParallel::MulticoreParam(opt$n_cores),

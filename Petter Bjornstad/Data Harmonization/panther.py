@@ -205,6 +205,8 @@ def clean_panther():
                   "bl_tot_test" : "tot_test",
                   "bl_free_test" : "free_test"},
               axis=1, inplace=True)
+    ivgtt["cpeptide"] = ivgtt["cpeptide"].combine_first(ivgtt["cpep_minus_15"])    
+    
     # Insulin
     # ins=list(ivgtt.loc[:, ivgtt.columns.str.startswith("insulin_")].columns.values)
     # ivgtt[ins] = ivgtt[ins].apply(
@@ -329,7 +331,8 @@ def clean_panther():
     cgm = pd.DataFrame(proj.export_records(fields=var))
     cgm["redcap_event_name"] = cgm["redcap_event_name"].replace(
         {"screening_arm_1": "screening", "baseline_arm_1": "baseline", "year_1_arm_1": "year_1", "year_2_arm_1": "year_2",  "year_3_arm_1": "year_3",  "year_4_arm_1": "year_4"})
-    cgm = cgm.rename(columns={"redcap_event_name": "visit"})   
+    cgm = cgm.rename(columns={"redcap_event_name": "visit"})
+    cgm = cgm[cgm["visit"] != "screening"].copy()
     cgm.replace(rep, np.nan, inplace=True)  # Replace missing values
     cgm["cgm_yn"] = cgm["cgm_yn"].replace({"1":"Yes", "0":"No"})
     cgm["procedure"] = "cgm"

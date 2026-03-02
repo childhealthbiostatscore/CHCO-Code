@@ -7,8 +7,8 @@
 #
 # DESIGN CHOICES (see README for rationale):
 #   - 432 unique scenarios × 50 reps = 21,600 total runs
-#   - n_subjects_per_arm = subjects per treatment arm (Dapagliflozin or
-#     Placebo).  Each subject contributes BOTH a PRE and POST visit, so the
+#   - n_subjects_per_arm = subjects per treatment arm (Group A or
+#     Group B).  Each subject contributes BOTH a timepoint1 and timepoint2 visit, so the
 #     full design per arm is:
 #         n_subjects_per_arm subjects × 2 visits = 2 × n pseudobulk samples
 #     Total pseudobulk samples = 2 arms × n_subjects_per_arm × 2 visits
