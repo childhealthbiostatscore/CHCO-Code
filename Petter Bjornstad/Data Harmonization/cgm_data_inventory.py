@@ -31,19 +31,23 @@ if missing_cgm_cols:
 
 # --- FILTER TO CGM PROCEDURE ROWS ONLY ---
 # Only studies with procedure='cgm' have meaningful CGM numeric data
-cols_to_load = [c for c in ID_COLS + ['study', 'procedure'] + existing_cgm_cols if c in harmonized.columns]
+cols_to_load = [c for c in ID_COLS + ['study', 'procedure', 'cgm_yn'] + existing_cgm_cols if c in harmonized.columns]
 df = harmonized[cols_to_load].copy()
-df = df[df['procedure'] == 'cgm'].copy()
+df = df[(df['procedure'] == 'cgm') & (df['visit'] != 'screening')].copy()
 
 # --- COLLAPSE TO ONE ROW PER record_id x visit ---
-# Numeric CGM cols: take mean across any duplicate rows; if all NaN, stays NaN
+# Numeric CGM cols: take mean; cgm_yn/study: take first value
+study_lookup = df.groupby(ID_COLS)[['study', 'cgm_yn']].first().reset_index()
 agg_rules = {c: 'mean' for c in existing_cgm_cols}
 df_condensed = df.groupby(ID_COLS, as_index=False).agg(agg_rules)
+df_condensed = df_condensed.merge(study_lookup, on=ID_COLS, how='left')
 
 total = len(existing_cgm_cols)
 
 # --- BUILD INVENTORY ---
 def compute_status(row):
+    if row['cgm_yn'] == 'No':
+        return 'cgm not worn'
     values = row[existing_cgm_cols]
     n_missing = values.isna().sum()
     if n_missing == 0:
@@ -53,10 +57,11 @@ def compute_status(row):
     else:
         return f'{n_missing} of {total} missing'
 
-df_condensed['data_in_redcap'] = df_condensed[existing_cgm_cols].notna().any(axis=1)
+# data_in_redcap = TRUE if cgm_yn was filled in (someone recorded whether CGM was worn)
+df_condensed['data_in_redcap'] = df_condensed['cgm_yn'].notna()
 df_condensed['status'] = df_condensed.apply(compute_status, axis=1)
 
-inventory = df_condensed[ID_COLS + ['data_in_redcap', 'status']].copy()
+inventory = df_condensed[['record_id', 'study', 'visit', 'data_in_redcap', 'status']].copy()
 
 # --- SAVE ---
 inventory.to_csv(OUTPUT_FILE, index=False)

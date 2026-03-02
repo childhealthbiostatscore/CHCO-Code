@@ -75,10 +75,6 @@ COHORT_MAP = {
     "RENAL HEIRITAGE":  "RENAL-HEIRitage",
 }
 
-# ── Study-specific enrollment ID columns ──────────────────────────────────────
-# Used as a filter: only rows where this column is non-null are counted as
-# participants of that study.  record_id is still used as the unique participant
-# identifier (the study-specific IDs are just the enrollment gate).
 # Study-specific visit allowlists.  Rows whose visit value is not in the set
 # are skipped entirely (subjects, proc_n, Table 1, omics, proc_cols).
 # Studies not listed here keep all visits.
@@ -131,7 +127,7 @@ KEY_COLS = {
     "record_id","attempt_id","casper_id","coffee_id","croc_id",
     "improve_id","penguin_id","rh_id","rh2_id","panther_id",
     "panda_id","rpc2_id","swht_id","ultra_id","co_enroll_id","mrn",
-    "date","screen_date","study","dob","diabetes_dx_date",
+    "date","screen_date","date_of_screen","study","dob","diabetes_dx_date",
     "sex","race","ethnicity","visit","procedure","group","age",
 }
 
@@ -363,6 +359,7 @@ def load_scrna_metadata():
         for grp_val, grp_df in cohort_df.groupby("group"):
             entry["by_group"][str(grp_val)] = {
                 "n_cells":    len(grp_df),
+                "n_subjects": grp_df["record_id"].nunique(),
                 "cell_types": grp_df["celltype_rpca"].value_counts().to_dict(),
             }
         scrna[study] = entry
@@ -694,7 +691,7 @@ def _add_instructions_sheet(wb, study_meta, proc_group_n=None):
         style_cell(ws.cell(row=r, column=study_start), n,
                    bg=bg, h_align="center")
         r += 1
-    ws.row_dimensions[r].height = 22
+    ws.row_dimensions[r].height = 20
     style_cell(ws.cell(row=r, column=proc_col), "Total",
                bg=DARK_BLUE, fg=WHITE, bold=True, size=11)
     style_cell(ws.cell(row=r, column=study_start), total_participants,
@@ -722,7 +719,6 @@ def _add_instructions_sheet(wb, study_meta, proc_group_n=None):
 
     for i, proc in enumerate(all_procs):
         bg = LIGHT_GREEN if i % 2 == 0 else WHITE
-        ws.row_dimensions[r].height = 20
 
         style_cell(ws.cell(row=r, column=proc_col), proc,
                    bg=bg, fg=DARK_BLUE, size=10)
@@ -795,47 +791,71 @@ def _add_study_sheet(wb, study_name, meta,
         study_procs     = [p for p in meta["procedures"] if p]
         study_proc_cols = meta.get("proc_cols", {})
 
+        # ── Step 1: build per-procedure candidate variable lists ──────────────
+        # raw_proc_groups: exclusion-filtered (EXCLUDED_DICT_FORMS applied)
+        # full_proc_groups: all data_dict vars, no exclusion filter (fallback)
+        raw_proc_groups  = {}
+        full_proc_groups = {}
+
         for proc in sorted(study_procs):
             proc_col_set = study_proc_cols.get(proc, set())
             proc_lower   = proc.lower()
-            _pv = []
+            _filtered, _full = [], []
             for col_name in sorted(proc_col_set):
                 if col_name not in data_dict:
                     continue
                 info     = data_dict[col_name]
-                fn       = info.get("form_name", "")
-                fn_lower = fn.lower() if fn else ""
-                # Only skip if the form_name is explicitly in the exclusion
-                # list AND it doesn't self-match this procedure.
-                # Variables with an empty/missing form_name are allowed through
-                # — they are typically procedure-specific columns that simply
-                # lack a form assignment in the master data dictionary.
-                if fn_lower in EXCLUDED_DICT_FORMS and fn_lower != proc_lower:
-                    continue
-                _pv.append((col_name, info))
-            proc_groups[proc] = _pv
+                fn_lower = (info.get("form_name", "") or "").lower()
+                _full.append((col_name, info))
+                if fn_lower not in EXCLUDED_DICT_FORMS or fn_lower == proc_lower:
+                    _filtered.append((col_name, info))
+            raw_proc_groups[proc]  = _filtered
+            full_proc_groups[proc] = _full
 
-            # ── Detailed diagnosis for 0-var procedures ──────────────────
-            if DEBUG_DICT and not _pv:
-                n_raw       = len(proc_col_set)
-                n_in_dd     = sum(1 for c in proc_col_set if c in data_dict)
-                n_no_form   = sum(1 for c in proc_col_set
-                                  if c in data_dict and not data_dict[c].get("form_name","").strip())
-                fn_counts   = collections.Counter(
-                    data_dict[c]["form_name"].lower()
-                    for c in proc_col_set
-                    if c in data_dict and data_dict[c].get("form_name","").strip()
-                )
-                print(f"  [{study_name}] '{proc}' 0-var diagnosis: "
-                      f"raw_cols={n_raw}, in_data_dict={n_in_dd}, "
-                      f"empty_form_name={n_no_form}")
-                if fn_counts:
-                    print(f"    form_names (top 10): {dict(fn_counts.most_common(10))}")
-                if n_raw == 0:
-                    print(f"    -> proc_col_tracker has no entries for this procedure")
+        # ── Step 2: deduplicate — assign each variable to exactly one proc ────
+        # Priority: (1) form_name exactly matches proc name; (2) first alpha proc.
+        var_to_proc = {}
+
+        # First pass: exact form_name → proc name matches take priority
+        for proc in sorted(study_procs):
+            proc_lower = proc.lower()
+            for col_name, info in raw_proc_groups.get(proc, []):
+                if (info.get("form_name", "") or "").lower() == proc_lower:
+                    var_to_proc[col_name] = proc
+
+        # Second pass: claim remaining unassigned vars (first alphabetical proc wins)
+        for proc in sorted(study_procs):
+            for col_name, info in raw_proc_groups.get(proc, []):
+                if col_name not in var_to_proc:
+                    var_to_proc[col_name] = proc
+
+        # Build proc_groups from assignment map
+        proc_groups = {proc: [] for proc in sorted(study_procs)}
+        for col_name, best_proc in var_to_proc.items():
+            proc_groups[best_proc].append((col_name, data_dict[col_name]))
+        for proc in proc_groups:
+            proc_groups[proc].sort(key=lambda x: x[0])
+
+        # ── Step 3: QC — ensure no procedure section is empty ─────────────────
+        for proc in sorted(study_procs):
+            if proc_groups[proc]:
+                continue
+            # Fallback 1: include full (non-exclusion-filtered) unassigned vars
+            for col_name, info in full_proc_groups.get(proc, []):
+                if col_name not in var_to_proc:
+                    proc_groups[proc].append((col_name, info))
+                    var_to_proc[col_name] = proc
+            proc_groups[proc].sort(key=lambda x: x[0])
+            # Fallback 2: include proc_col_set vars not in data_dict (bare names)
+            if not proc_groups[proc]:
+                proc_col_set = study_proc_cols.get(proc, set())
+                unassigned = sorted(c for c in proc_col_set if c not in var_to_proc)
+                proc_groups[proc] = [(c, {}) for c in unassigned]
+                for c in unassigned:
+                    var_to_proc[c] = proc
 
         if DEBUG_DICT:
-            print(f"  [{study_name}] proc_groups (empirical): "
+            print(f"  [{study_name}] proc_groups (deduplicated): "
                   + ", ".join(f"{p}({len(v)})" for p, v in proc_groups.items()))
 
         # Pre-compute dr row positions for hyperlinks.
@@ -875,13 +895,12 @@ def _add_study_sheet(wb, study_name, meta,
     ]
     for i, (k, v) in enumerate(summary_items):
         bg = LIGHT_GREEN if i % 2 == 0 else WHITE
-        ws.row_dimensions[r].height = 22
         style_cell(ws.cell(row=r, column=2), k, bg=bg, fg=DARK_BLUE, bold=True)
         ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
         style_cell(ws.cell(row=r, column=3), v, bg=bg)
         r += 1
 
-    blank_row(ws, r, height=6); r += 1
+    blank_row(ws, r, height=8); r += 1
 
     # ── procedure participation table ──────────────────────────────────────
     section_row(ws, r, 2, 6,
@@ -896,7 +915,6 @@ def _add_study_sheet(wb, study_name, meta,
     proc_n = meta.get("proc_n", {})
     for i, proc in enumerate(meta["procedures"]):
         bg = LIGHT_GREEN if i % 2 == 0 else WHITE
-        ws.row_dimensions[r].height = 20
         proc_cell = ws.cell(row=r, column=2)
         style_cell(proc_cell, proc, bg=bg, fg=DARK_BLUE)
         _matched_fn, _matched_row = _proc_form_row(proc)
@@ -911,17 +929,19 @@ def _add_study_sheet(wb, study_name, meta,
         style_cell(ws.cell(row=r, column=3), proc_n.get(proc, 0),
                    bg=bg, h_align="center"); r += 1
 
-    blank_row(ws, r, height=6); r += 1
+    blank_row(ws, r, height=8); r += 1
 
     # ── Table 1 characteristics ────────────────────────────────────────────
     groups_in_study = meta["groups"]
     table1_data     = meta.get("table1", {})
     n_groups        = len(groups_in_study)
 
-    # cols: B=variable label, then 2 per group (N, value)
-    t1_col_end = 2 + 1 + n_groups * 2
+    # cols: B=variable label, then 2 per group (N, value), then 2 for Total
+    total_n_col    = 3 + n_groups * 2
+    total_stat_col = 4 + n_groups * 2
+    t1_col_end     = total_stat_col
 
-    # ensure wide-enough columns for extra group cols beyond F
+    # ensure wide-enough columns for extra group/total cols beyond F
     for col_idx in range(7, t1_col_end + 2):
         ws.column_dimensions[get_column_letter(col_idx)].width = 16
 
@@ -932,10 +952,11 @@ def _add_study_sheet(wb, study_name, meta,
                bg=MID_BLUE, fg=WHITE, bold=True, size=11)
     ws.row_dimensions[r].height = 20; r += 1
 
-    # header: Variable | Group1 N | Group1 Stat | ...
+    # header: Variable | Group1 N | Group1 Stat | ... | Total N | Total Stat
     hdr_vals = ["Variable"]
     for g in groups_in_study:
         hdr_vals += [f"{g}\nN", f"{g}\nMean / Median / %"]
+    hdr_vals += ["Total\nN", "Total\nMean / Median / %"]
     header_row(ws, r, hdr_vals, col_start=2, height=32)
     r += 1
 
@@ -954,9 +975,19 @@ def _add_study_sheet(wb, study_name, meta,
                        bg=bg, h_align="center")
             style_cell(ws.cell(row=r, column=4 + j * 2), val,
                        bg=bg, h_align="center")
+
+        # Total column: combine values across all groups
+        all_values = []
+        for grp in groups_in_study:
+            all_values.extend(table1_data.get(grp, {}).get(col, []))
+        total_n, total_val = compute_stats(all_values, stat)
+        style_cell(ws.cell(row=r, column=total_n_col), total_n,
+                   bg=bg, h_align="center", bold=True)
+        style_cell(ws.cell(row=r, column=total_stat_col), total_val,
+                   bg=bg, h_align="center", bold=True)
         r += 1
 
-    blank_row(ws, r, height=6); r += 1
+    blank_row(ws, r, height=8); r += 1
 
     # ── Omics data availability ────────────────────────────────────────────
     section_row(ws, r, 2, 6, "OMICS DATA AVAILABILITY"); r += 1
@@ -981,7 +1012,7 @@ def _add_study_sheet(wb, study_name, meta,
         style_cell(ws.cell(row=r, column=3), n, bg=bg, h_align="center")
         r += 1
     # Total (any omics) row
-    ws.row_dimensions[r].height = 22
+    ws.row_dimensions[r].height = 20
     style_cell(ws.cell(row=r, column=2), "Total (any omics)",
                bg=DARK_BLUE, fg=WHITE, bold=True, size=11)
     ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
@@ -989,7 +1020,7 @@ def _add_study_sheet(wb, study_name, meta,
                bg=DARK_BLUE, fg=WHITE, h_align="center", bold=True, size=11)
     r += 1
 
-    blank_row(ws, r, height=6); r += 1
+    blank_row(ws, r, height=8); r += 1
 
     # ── PB90 scRNA inventory ──────────────────────────────────────────────
     if scrna:
@@ -1019,24 +1050,34 @@ def _add_study_sheet(wb, study_name, meta,
                    bg=GREY, fg="888888", italic=True)
         ws.row_dimensions[r].height = 20; r += 1
     else:
-        # Overview row
+        # Overview row: total participants only
         ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=hdr_span)
         style_cell(ws.cell(row=r, column=2),
-                   f"Total cells: {scrna['n_cells']:,}   |   "
                    f"Total participants: {scrna['n_subjects']:,}",
                    bg=LIGHT_GREEN, fg=DARK_BLUE, bold=True)
         ws.row_dimensions[r].height = 20; r += 1
 
-        # Header: Cell Type | Group1 | Group2 | ... | Total
-        pb90_hdr = ["Cell Type"] + scrna_groups + ["Total"]
+        # Participants-per-group row
+        ws.row_dimensions[r].height = 20
+        style_cell(ws.cell(row=r, column=2), "Participants with Data",
+                   bg=LIGHT_GREEN, fg=DARK_BLUE, bold=True, size=11)
+        for j, grp in enumerate(scrna_groups):
+            n_subj = scrna["by_group"].get(grp, {}).get("n_subjects", 0)
+            style_cell(ws.cell(row=r, column=3 + j), n_subj,
+                       bg=LIGHT_GREEN, h_align="center", bold=True)
+        style_cell(ws.cell(row=r, column=3 + n_scrna_grps), scrna["n_subjects"],
+                   bg=LIGHT_GREEN, h_align="center", bold=True)
+        r += 1
+
+        # Header: Cell Type | Group1 | Group2 | ...
+        pb90_hdr = ["Cell Type"] + scrna_groups
         header_row(ws, r, pb90_hdr, col_start=2, height=20); r += 1
 
         # Sort cell types by overall total count, descending
         sorted_ct = sorted(scrna["cell_types"].items(),
                            key=lambda x: x[1], reverse=True)
 
-        grp_totals       = {g: 0 for g in scrna_groups}
-        overall_ct_total = 0
+        grp_totals = {g: 0 for g in scrna_groups}
 
         for i, (ct, ct_total) in enumerate(sorted_ct):
             bg = LIGHT_BLUE if i % 2 == 0 else WHITE
@@ -1050,22 +1091,16 @@ def _add_study_sheet(wb, study_name, meta,
                 grp_totals[grp] += n_ct_grp
                 style_cell(ws.cell(row=r, column=3 + j), n_ct_grp,
                            bg=bg, h_align="center")
-            style_cell(ws.cell(row=r, column=3 + n_scrna_grps), ct_total,
-                       bg=bg, h_align="center", bold=True)
-            overall_ct_total += ct_total
             r += 1
 
         # ── Total row for PB90 table ──────────────────────────────────────
-        ws.row_dimensions[r].height = 22
+        ws.row_dimensions[r].height = 20
         style_cell(ws.cell(row=r, column=2), "Total",
                    bg=DARK_BLUE, fg=WHITE, bold=True, size=11)
         for j, grp in enumerate(scrna_groups):
             style_cell(ws.cell(row=r, column=3 + j), grp_totals[grp],
                        bg=DARK_BLUE, fg=WHITE, h_align="center",
                        bold=True, size=11)
-        style_cell(ws.cell(row=r, column=3 + n_scrna_grps), overall_ct_total,
-                   bg=DARK_BLUE, fg=WHITE, h_align="center",
-                   bold=True, size=11)
         r += 1
 
     # ── Data dictionary (right-side panel, separate row counter dr) ────────
@@ -1091,7 +1126,7 @@ def _add_study_sheet(wb, study_name, meta,
             style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                        f"{proc_name}  ({n_label})",
                        bg=MID_BLUE, fg=WHITE, bold=True, size=11)
-            ws.row_dimensions[dr].height = 24; dr += 1
+            ws.row_dimensions[dr].height = 20; dr += 1
 
             if not proc_vars:
                 # Placeholder row for procedures with no matched dict variables
@@ -1117,7 +1152,6 @@ def _add_study_sheet(wb, study_name, meta,
 
                 for i, (col_name, info) in enumerate(proc_vars):
                     bg = LIGHT_GREEN if i % 2 == 0 else WHITE
-                    ws.row_dimensions[dr].height = 20
                     style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                                col_name, bg=bg, fg=DARK_BLUE, size=9)
                     style_cell(ws.cell(row=dr, column=DICT_LABEL_COL),

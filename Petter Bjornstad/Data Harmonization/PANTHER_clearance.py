@@ -71,7 +71,9 @@ def panther_redcap_data(base_data_path, tokens):
         "PAN-90-C", "PAN-91-C", "PAN-92-O", "PAN-93-O", "PAN-94-O", "PAN-95-O",
         "PAN-96-O", "PAN-97-C", "PAN-98-O", "PAN-99-O", "PAN-100-T", "PAN-101-O",
         "PAN-102-O", "PAN-103-O", "PAN-104-T", "PAN-105-O", "PAN-106-O", "PAN-107-O",
-        "PAN-108-O", "PAN-109-C", "PAN-110-C",
+        "PAN-108-O", "PAN-109-C", "PAN-110-C", "PAN_201_O", "PAN_202_T", "PAN_203_O", 
+        "PAN_204_T", "PAN_205_O", "PAN_206_O", "PAN_207_O", "PAN_208_O", "PAN_209_O",
+        "PAN_210_O", "PAN_211_O",
     ]
 
     year_1_include = [
@@ -87,7 +89,8 @@ def panther_redcap_data(base_data_path, tokens):
         "PAN-75-O", "PAN-76-O", "PAN-77-T", "PAN-78-O", "PAN-79-C", "PAN-80-O",
         "PAN-83-O", "PAN-85-C", "PAN-86-C", "PAN-87-C", "PAN-88-O", "PAN-89-C",
         "PAN-90-C", "PAN-91-C", "PAN-92-O", "PAN-93-O", "PAN-94-O", "PAN-95-O",
-        "PAN-99-O", "PAN-102-O", "PAN-103-O",
+        "PAN-99-O", "PAN-102-O", "PAN-103-O", "PAN_202_T", "PAN_203_O", 
+        "PAN_204_T",  "PAN_207_O",
     ]
 
     year_2_include = [
