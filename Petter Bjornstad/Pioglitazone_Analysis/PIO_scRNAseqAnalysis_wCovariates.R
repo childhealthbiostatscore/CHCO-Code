@@ -1041,6 +1041,471 @@ cat("  Comparison/FullyRobustPathways.csv  — pathways sig in ALL models\n")
 
 #Interaction Analysis 
 
+# ============================================================================
+# PIOGLITAZONE x GLP-1RA INTERACTION ANALYSIS
+# Appended to sensitivity script — uses same scrna_small object
+# ============================================================================
+
+cat("\n=== Running Pioglitazone x GLP-1RA Interaction Analysis ===\n")
+
+dir.interaction <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/Interaction_PIO_GLP1/'
+dir.create(paste0(dir.interaction, 'NEBULA/'),       recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/Raw/'),     recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/DotPlots/'),recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/Heatmaps/'),recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'VolcanoPlots/'), recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'Comparison/'),   recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================================
+# CHECK CROSSTAB
+# ============================================================================
+
+cat("\n--- Patient-level PIO x GLP-1RA crosstab ---\n")
+patient_crosstab <- scrna_small@meta.data %>%
+  dplyr::select(record_id, group_labels, epic_glp1ra_1) %>%
+  filter(!duplicated(record_id)) %>%
+  filter(!is.na(group_labels) & !is.na(epic_glp1ra_1))
+print(table(PIO = patient_crosstab$group_labels, GLP1RA = patient_crosstab$epic_glp1ra_1))
+cat("\n")
+
+# ============================================================================
+# NEBULA INTERACTION FUNCTION
+# ============================================================================
+
+run_nebula_interaction <- function(so_obj, dir.out, celltype) {
+  
+  # --- cell type subsetting (same logic as sensitivity script) ---
+  if (celltype == 'All') {
+    so_celltype <- so_obj
+  } else if (celltype %in% c('TAL', 'EC', 'PT')) {
+    so_celltype <- subset(so_obj, celltype2 == celltype)
+  } else if (celltype == 'IC') {
+    so_celltype <- subset(so_obj, celltype1 %in% c("B", "T", "MON", "MAC"))
+  } else if (celltype == 'DCT') {
+    so_celltype <- subset(so_obj, DCT_celltype == "DCT")
+  } else if (celltype == 'POD') {
+    so_celltype <- subset(so_obj, celltype1 == "POD")
+  } else {
+    if (celltype %in% unique(so_obj$celltype2)) {
+      so_celltype <- subset(so_obj, celltype2 == celltype)
+    } else if (celltype %in% unique(so_obj$celltype1)) {
+      so_celltype <- subset(so_obj, celltype1 == celltype)
+    } else {
+      cat(paste0("Cell type '", celltype, "' not found. Skipping.\n"))
+      return(invisible(NULL))
+    }
+  }
+  
+  DefaultAssay(so_celltype) <- "RNA"
+  ct_clean <- str_replace_all(str_replace_all(celltype, "/", "_"), "-", "_")
+  cat(paste0("\n=== Interaction: ", ct_clean, " ===\n"))
+  
+  counts_mat <- round(GetAssayData(so_celltype, layer = "counts"))
+  meta_gene  <- so_celltype@meta.data
+  
+  # Complete cases for both variables
+  complete_idx <- complete.cases(meta_gene$group_labels, meta_gene$epic_glp1ra_1)
+  cat("Cells with complete PIO + GLP1RA data:", sum(complete_idx), "\n")
+  
+  meta_gene  <- meta_gene[complete_idx, ]
+  counts_mat <- counts_mat[, complete_idx]
+  
+  # Patient-level crosstab for this cell type
+  tmp_df <- meta_gene %>%
+    dplyr::select(record_id, group_labels, epic_glp1ra_1) %>%
+    distinct(record_id, .keep_all = TRUE)
+  cat("Cell-type patient crosstab:\n")
+  ct_tab <- table(PIO = tmp_df$group_labels, GLP1RA = tmp_df$epic_glp1ra_1)
+  print(ct_tab)
+  
+  if (any(ct_tab < 2)) {
+    cat("WARNING: Some interaction groups have <2 patients. Results may be unstable.\n")
+  }
+  
+  # Factor levels: No as reference
+  meta_gene$group_labels  <- factor(meta_gene$group_labels,  levels = c("No", "Yes"))
+  meta_gene$epic_glp1ra_1 <- factor(meta_gene$epic_glp1ra_1, levels = c("No", "Yes"))
+  
+  # Design matrix with interaction
+  pred_gene <- model.matrix(~ group_labels * epic_glp1ra_1, data = meta_gene)
+  cat("Design matrix columns:", paste(colnames(pred_gene), collapse = ", "), "\n")
+  
+  lib    <- meta_gene$pooled_offset
+  data_g <- group_cell(count = counts_mat, id = meta_gene$record_id,
+                       pred = pred_gene, offset = lib)
+  if (is.null(data_g)) {
+    data_g <- list(count = counts_mat, id = meta_gene$record_id,
+                   pred = pred_gene, offset = lib)
+  }
+  
+  result <- nebula(count = data_g$count, id = data_g$id,
+                   pred = data_g$pred, ncore = 1, reml = TRUE,
+                   model = "NBLMM", output_re = TRUE, covariance = TRUE,
+                   offset = data_g$offset)
+  
+  full_results <- as.data.frame(result)
+  full_results$num_cells <- nrow(meta_gene)
+  
+  out_file <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  write.csv(full_results, out_file, row.names = FALSE)
+  cat("Saved:", out_file, "\n")
+  
+  return(invisible(full_results))
+}
+
+# ============================================================================
+# RUN INTERACTION FOR ALL CELL TYPES
+# ============================================================================
+
+for (ct in celltypes_vec) {
+  run_nebula_interaction(so_obj = scrna_small, dir.out = dir.interaction, celltype = ct)
+}
+
+# ============================================================================
+# HELPER: LOAD INTERACTION EFFECT
+# ============================================================================
+
+load_interaction_effect <- function(dir.out, ct_clean) {
+  fp <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  
+  # Identify interaction columns from NEBULA output
+  # NEBULA names: summary.logFC_group_labelsYes.epic_glp1ra_1Yes (or similar with ":")
+  logfc_cols <- grep("logFC", names(df), value = TRUE)
+  p_cols     <- grep("^summary\\.p_", names(df), value = TRUE)
+  
+  # Interaction column contains both group_labels and glp1ra
+  int_logfc <- logfc_cols[grepl("group_labels", logfc_cols) & grepl("glp1ra", logfc_cols)]
+  int_p     <- p_cols[grepl("group_labels", p_cols) & grepl("glp1ra", p_cols)]
+  
+  if (length(int_logfc) == 0 | length(int_p) == 0) {
+    cat("  Could not find interaction columns. Available:\n")
+    cat("  LogFC cols:", paste(logfc_cols, collapse = ", "), "\n")
+    cat("  P cols:", paste(p_cols, collapse = ", "), "\n")
+    return(NULL)
+  }
+  
+  df %>%
+    transmute(
+      gene   = summary.gene,
+      logFC  = .data[[int_logfc[1]]],
+      pvalue = .data[[int_p[1]]],
+      fdr    = p.adjust(pvalue, method = "BH")
+    )
+}
+
+# Also load main effects for comparison
+load_pio_main_from_interaction <- function(dir.out, ct_clean) {
+  fp <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  df %>%
+    transmute(
+      gene   = summary.gene,
+      logFC  = summary.logFC_group_labelsYes,
+      pvalue = summary.p_group_labelsYes,
+      fdr    = p.adjust(pvalue, method = "BH")
+    )
+}
+
+# ============================================================================
+# VOLCANO PLOTS FOR INTERACTION TERM
+# ============================================================================
+
+cat("\n=== Building interaction volcano plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  int_df <- load_interaction_effect(dir.interaction, ct_clean)
+  if (is.null(int_df)) next
+  
+  plot_df <- int_df %>%
+    filter(!is.na(pvalue) & !is.na(logFC)) %>%
+    mutate(
+      diffexp = case_when(
+        pvalue < 0.05 & logFC > 0 ~ "Up",
+        pvalue < 0.05 & logFC < 0 ~ "Down",
+        TRUE ~ "NS"
+      )
+    ) %>%
+    arrange(pvalue) %>%
+    mutate(label = ifelse(row_number() <= 10, gene, NA)) %>%
+    filter(abs(logFC) < 10)
+  
+  cat(ct, "— Interaction DEGs (p<0.05):", sum(plot_df$pvalue < 0.05),
+      "| FDR<0.05:", sum(plot_df$fdr < 0.05), "\n")
+  
+  # Save top 20
+  top20 <- plot_df %>% head(20) %>% dplyr::select(gene, logFC, pvalue, fdr)
+  write.csv(top20, paste0(dir.interaction, 'NEBULA/Top20_Interaction_', ct_clean, '.csv'),
+            row.names = FALSE)
+  
+  color_vals <- c(Down = "orange", NS = "grey70", Up = "purple")
+  color_labs <- c(Down = "Negative interaction", NS = "NS", Up = "Positive interaction")
+  present <- intersect(names(color_vals), unique(plot_df$diffexp))
+  
+  p <- ggplot(plot_df, aes(x = logFC, y = -log10(pvalue), color = diffexp, label = label)) +
+    geom_point(size = 1.5, alpha = 0.7) +
+    ggrepel::geom_text_repel(size = 2.5, color = "black", max.overlaps = 15) +
+    scale_color_manual(values = color_vals[present], labels = color_labs[present]) +
+    geom_hline(yintercept = -log10(0.05), color = "blue", linetype = "dashed") +
+    geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+    theme_classic() +
+    labs(x = "Interaction LogFC (PIO x GLP-1RA)",
+         y = "-log10(p-value)",
+         color = "Interaction Effect",
+         title = paste0(ct, ": PIO x GLP-1RA Interaction")) +
+    theme(plot.title = element_text(face = "bold", size = 12))
+  
+  ggsave(paste0(dir.interaction, 'VolcanoPlots/Volcano_Interaction_', ct_clean, '.pdf'),
+         p, width = 8, height = 7)
+  ggsave(paste0(dir.interaction, 'VolcanoPlots/Volcano_Interaction_', ct_clean, '.png'),
+         p, width = 8, height = 7, dpi = 300)
+}
+
+# ============================================================================
+# COMPARISON: BASE PIO EFFECT vs INTERACTION PIO EFFECT (scatter)
+# ============================================================================
+
+cat("\n=== Comparing base PIO effect vs interaction model PIO effect ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  base_df <- load_pio_effect(dir.results, ct_clean, "base")  # from sensitivity helper
+  int_pio <- load_pio_main_from_interaction(dir.interaction, ct_clean)
+  if (is.null(base_df) | is.null(int_pio)) next
+  
+  merged <- inner_join(
+    base_df %>% dplyr::select(gene, logFC_base = logFC, pval_base = pvalue),
+    int_pio %>% dplyr::select(gene, logFC_int = logFC, pval_int = pvalue),
+    by = "gene"
+  ) %>%
+    mutate(
+      status = case_when(
+        pval_base < 0.05 & pval_int < 0.05  ~ "Sig in both",
+        pval_base < 0.05 & pval_int >= 0.05 ~ "Lost in interaction model",
+        pval_base >= 0.05 & pval_int < 0.05 ~ "Gained in interaction model",
+        TRUE ~ "NS in both"
+      ),
+      delta = abs(logFC_int - logFC_base),
+      label = ifelse(rank(-delta) <= 8 & status != "NS in both", gene, NA)
+    )
+  
+  r_val  <- round(cor(merged$logFC_base, merged$logFC_int, use = "complete.obs"), 3)
+  n_lost <- sum(merged$status == "Lost in interaction model")
+  n_gain <- sum(merged$status == "Gained in interaction model")
+  
+  p <- ggplot(merged, aes(x = logFC_base, y = logFC_int, color = status, label = label)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+    ggrepel::geom_text_repel(size = 2.5, color = "black", max.overlaps = 15) +
+    scale_color_manual(values = c(
+      "Sig in both"                 = "#d73027",
+      "Lost in interaction model"   = "#fc8d59",
+      "Gained in interaction model" = "#4575b4",
+      "NS in both"                  = "grey80"
+    )) +
+    theme_bw() +
+    labs(x = "PIO LogFC (base model)",
+         y = "PIO LogFC (interaction model: PIO*GLP1RA)",
+         color = NULL,
+         title = paste0(ct, ": PIO main effect — Base vs Interaction model"),
+         subtitle = paste0("r = ", r_val, " | Lost: ", n_lost, " | Gained: ", n_gain)) +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9),
+          legend.position = "bottom")
+  
+  ggsave(paste0(dir.interaction, 'Comparison/Scatter_BaseVsInteraction_', ct_clean, '.pdf'),
+         p, width = 8, height = 7)
+  ggsave(paste0(dir.interaction, 'Comparison/Scatter_BaseVsInteraction_', ct_clean, '.png'),
+         p, width = 8, height = 7, dpi = 200)
+  cat("Saved base vs interaction scatter for", ct, "\n")
+}
+
+# ============================================================================
+# GSEA ON INTERACTION TERM
+# ============================================================================
+
+cat("\n=== Running GSEA on interaction term ===\n")
+
+all_interaction_gsea <- list()
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  int_df <- load_interaction_effect(dir.interaction, ct_clean)
+  if (is.null(int_df)) next
+  
+  # Rank genes by interaction logFC
+  ranked_genes <- int_df %>%
+    filter(!is.na(logFC)) %>%
+    arrange(desc(logFC)) %>%
+    { setNames(.$logFC, .$gene) }
+  
+  cat(paste0("\n=== GSEA Interaction: ", ct, " (", length(ranked_genes), " genes) ===\n"))
+  
+  for (gs_name in names(geneset_types)) {
+    cat("  Running fgsea for", gs_name, "...\n")
+    
+    set.seed(42)
+    gsea_res <- fgsea(
+      pathways    = geneset_types[[gs_name]],
+      stats       = ranked_genes,
+      minSize     = GSEA_PARAMS$minSize,
+      maxSize     = GSEA_PARAMS$maxSize,
+      nPermSimple = GSEA_PARAMS$nPermSimple
+    )
+    
+    gsea_res$celltype      <- ct
+    gsea_res$geneset_type  <- gs_name
+    gsea_res$pathway_clean <- clean_pathway(gsea_res$pathway)
+    
+    key <- paste0(ct, "__", gs_name)
+    all_interaction_gsea[[key]] <- gsea_res
+    
+    # Dot plot for top significant pathways
+    top_paths <- gsea_res %>%
+      filter(pval < P_THRESH) %>%
+      arrange(pval) %>%
+      slice_head(n = 20) %>%
+      mutate(pathway_clean = factor(pathway_clean, levels = rev(pathway_clean)))
+    
+    if (nrow(top_paths) > 0) {
+      p <- ggplot(top_paths, aes(x = NES, y = pathway_clean)) +
+        geom_point(aes(size = -log10(pval), color = NES)) +
+        scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+        scale_size_continuous(range = c(2, 10)) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+        theme_bw() +
+        theme(axis.text.y = element_text(size = 9),
+              plot.title = element_text(face = "bold", hjust = 0.5)) +
+        labs(x = "NES (Interaction)", y = "",
+             title = paste0(ct, " — ", gs_name, "\nPIO x GLP-1RA Interaction"))
+      
+      h <- max(5, nrow(top_paths) * 0.35 + 2)
+      ggsave(paste0(dir.interaction, 'GSEA/DotPlots/', gs_name, '_Interaction_', ct_clean, '.pdf'),
+             p, width = 10, height = h)
+      ggsave(paste0(dir.interaction, 'GSEA/DotPlots/', gs_name, '_Interaction_', ct_clean, '.png'),
+             p, width = 10, height = h, dpi = 300)
+    }
+  }
+}
+
+# Save combined interaction GSEA
+combined_int_gsea <- bind_rows(all_interaction_gsea) %>%
+  mutate(leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+write.csv(combined_int_gsea,
+          paste0(dir.interaction, 'GSEA/Raw/all_interaction_gsea_results.csv'),
+          row.names = FALSE)
+
+# ============================================================================
+# INTERACTION GSEA HEATMAP: compare interaction NES vs base PIO NES
+# ============================================================================
+
+cat("\n=== Building interaction vs base NES heatmaps ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    base_key <- paste(ct, "base", gs_name, sep = "__")
+    int_key  <- paste0(ct, "__", gs_name)
+    
+    base_gsea <- all_gsea[[base_key]]
+    int_gsea  <- all_interaction_gsea[[int_key]]
+    if (is.null(base_gsea) | is.null(int_gsea)) next
+    
+    # Pathways significant in either base or interaction
+    sig_paths <- unique(c(
+      base_gsea %>% filter(pval < P_THRESH) %>% pull(pathway),
+      int_gsea  %>% filter(pval < P_THRESH) %>% pull(pathway)
+    ))
+    if (length(sig_paths) == 0) next
+    
+    merged <- full_join(
+      base_gsea %>% filter(pathway %in% sig_paths) %>%
+        dplyr::select(pathway, pathway_clean, NES_base = NES, pval_base = pval),
+      int_gsea %>% filter(pathway %in% sig_paths) %>%
+        dplyr::select(pathway, NES_interaction = NES, pval_interaction = pval),
+      by = "pathway"
+    )
+    
+    mat <- merged %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(NES_base, NES_interaction) %>%
+      as.matrix()
+    colnames(mat) <- c("Base (PIO effect)", "Interaction (PIO x GLP1)")
+    
+    pval_mat <- merged %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(pval_base, pval_interaction) %>%
+      as.matrix()
+    
+    cell_labels <- matrix(
+      ifelse(pval_mat < 0.05,
+             paste0(round(mat, 2), "*"),
+             round(mat, 2)),
+      nrow = nrow(mat), ncol = ncol(mat),
+      dimnames = dimnames(mat)
+    )
+    
+    if (nrow(mat) > 50) {
+      # Too many rows — take top 30 by significance in either
+      top_idx <- order(pmin(pval_mat[,1], pval_mat[,2], na.rm = TRUE))[1:30]
+      mat <- mat[top_idx, , drop = FALSE]
+      cell_labels <- cell_labels[top_idx, , drop = FALSE]
+    }
+    
+    col_lim <- max(abs(mat), na.rm = TRUE)
+    
+    png(paste0(dir.interaction, 'GSEA/Heatmaps/Heatmap_BaseVsInteraction_', ct_clean, '_', gs_name, '.png'),
+        width = 800, height = max(400, nrow(mat) * 22 + 200), res = 120)
+    pheatmap::pheatmap(
+      mat,
+      display_numbers = cell_labels,
+      number_fontsize = 7,
+      color  = colorRampPalette(rev(brewer.pal(9, "RdBu")))(100),
+      breaks = seq(-col_lim, col_lim, length.out = 101),
+      cluster_cols = FALSE,
+      cluster_rows = nrow(mat) > 1,
+      border_color = "white",
+      main = paste0(ct, " — ", gs_name, "\nBase PIO effect vs Interaction (* = p<0.05)"),
+      fontsize_row = 8,
+      fontsize_col = 10
+    )
+    dev.off()
+    cat("  Saved heatmap:", ct, gs_name, "\n")
+  }
+}
+
+# ============================================================================
+# SUMMARY TABLE
+# ============================================================================
+
+interaction_summary <- combined_int_gsea %>%
+  filter(pval < P_THRESH) %>%
+  group_by(celltype, geneset_type) %>%
+  summarise(
+    n_sig = n(),
+    n_positive = sum(NES > 0),
+    n_negative = sum(NES < 0),
+    .groups = 'drop'
+  ) %>%
+  pivot_wider(names_from = geneset_type,
+              values_from = c(n_sig, n_positive, n_negative),
+              values_fill = 0)
+
+cat("\n=== Interaction GSEA summary ===\n")
+print(interaction_summary)
+write.csv(interaction_summary,
+          paste0(dir.interaction, 'GSEA/interaction_gsea_summary.csv'),
+          row.names = FALSE)
+
+cat("\n=== Pioglitazone x GLP-1RA interaction analysis complete! ===\n")
+cat("Output directory:", dir.interaction, "\n")
+
 
 
 
