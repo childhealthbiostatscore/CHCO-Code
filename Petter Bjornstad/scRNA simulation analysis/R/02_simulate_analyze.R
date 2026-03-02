@@ -39,20 +39,29 @@
 #     reference/hvg_genes.rds
 #     reference/sce_ref.rds
 #
-# OUTPUT (to S3, per array task, ~1 MB total):
+# OUTPUT (to S3, per array task, ~1-2 MB total):
 #   bucket: scrna
 #   prefix: Projects/Paired scRNA simulation analysis/results/stats/array_NNNNN/
 #     nebula_stats.rds    -- gene x {logFC, pval, padj, is_de, beta_int_true}
 #     deseq2_stats.rds    -- same structure
 #     edger_stats.rds     -- same structure
-#     timing.rds          -- named vector: sim, nebula, deseq2, edger (seconds)
+#     wilcox_stats.rds    -- same structure (contrast: groupA POST vs groupB POST)
+#     mast_stats.rds      -- same structure (MAST + subject_id latent covariate)
+#     timing.rds          -- named vector: sim, nebula, deseq2, edger, wilcox, mast (s)
 #     params.rds          -- single-row data.frame of this task's parameters
 #     truth.rds           -- data.frame: gene, is_de, beta_int_true
 #
+# NOTE on Wilcoxon / MAST contrast:
+#   These methods compare groupA POST cells vs groupB POST cells, which tests
+#   (b_trt + b_int), not the pure interaction b_int. Under prop_de = 0 (b_int=0),
+#   detections reflect the main treatment effect from the reference model,
+#   demonstrating type I error inflation from ignoring paired structure.
+#
 # USAGE:
 #   Rscript 02_simulate_analyze.R \
-#       --array_id    1 \
-#       --n_cores     4
+#       --array_id      1 \
+#       --n_cores       4 \
+#       --mast_max_cells 5000
 ################################################################################
 
 suppressPackageStartupMessages({
@@ -66,6 +75,8 @@ suppressPackageStartupMessages({
   library(BiocParallel)
   library(optparse)
   library(aws.s3)
+  library(Seurat)
+  library(MAST)
 })
 
 # ── S3 / Multi-user setup ─────────────────────────────────────────────────────
@@ -104,12 +115,14 @@ option_list <- list(
   make_option("--array_id",      type = "integer",   default = NULL,
               help = "Row index in param_grid (1-based) [required]"),
   make_option("--n_cores",       type = "integer",   default = 4L),
-  make_option("--nebula_method", type = "character", default = "LN",
+  make_option("--nebula_method",   type = "character", default = "LN",
               help = "NEBULA method: LN or HL"),
-  make_option("--pb_min_count",  type = "integer",   default = 10L,
+  make_option("--pb_min_count",    type = "integer",   default = 10L,
               help = "Min rowSum for pseudobulk filtering"),
-  make_option("--pb_min_samples",type = "integer",   default = 2L,
-              help = "Min samples meeting pb_min_count threshold")
+  make_option("--pb_min_samples",  type = "integer",   default = 2L,
+              help = "Min samples meeting pb_min_count threshold"),
+  make_option("--mast_max_cells",  type = "integer",   default = 5000L,
+              help = "Max POST cells to pass to MAST (subsample if exceeded) [default: 5000]")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
 if (is.null(opt$array_id)) stop("--array_id is required")
@@ -241,12 +254,6 @@ modify_gene_model <- function(gm, beta_int, iv_factor) {
   gm
 }
 
-build_cs_corr <- function(n, rho) {
-  S      <- matrix(rho, n, n)
-  diag(S) <- 1.0
-  S
-}
-
 message("  Modifying scDesign3 model (DE injection + individual variance)...")
 modified_marginal <- bplapply(
   seq_along(fit_obj$marginal_list),
@@ -257,20 +264,13 @@ modified_marginal <- bplapply(
 )
 names(modified_marginal) <- names(fit_obj$marginal_list)
 
-# Rebuild copula with requested within-subject cell correlation
-modified_copula <- fit_obj$copula_list
-if (!is.null(modified_copula)) {
-  for (subj in names(modified_copula)) {
-    if (!is.null(modified_copula[[subj]]$corr)) {
-      nc <- nrow(modified_copula[[subj]]$corr)
-      modified_copula[[subj]]$corr <- build_cs_corr(nc, params$corr_cells)
-    }
-  }
-}
-
+# copula_list is set to NULL: simulate gene marginals independently.
+# The fitted copula from 00_fit_reference.R is keyed on reference subject IDs
+# and cannot be directly applied to new simulated subjects. For benchmarking
+# DE methods, marginal accuracy (per-gene mean/dispersion) matters more than
+# between-gene correlation. Between-gene correlation structure is dropped here.
 fit_mod <- fit_obj
 fit_mod$marginal_list <- modified_marginal
-if (!is.null(modified_copula)) fit_mod$copula_list <- modified_copula
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. SIMULATE COUNTS (held in memory only)
@@ -308,14 +308,26 @@ if (is.null(sim_para)) {
 }
 
 message("  Simulating counts with simu_new()...")
+# simu_new() in scDesign3 v1.x does not handle copula_list = NULL gracefully —
+# it enters the copula branch regardless and crashes on an empty list.
+# The workaround: supply quantile_mat directly (independent U(0,1) draws per
+# gene per cell). simu_new() skips copula sampling when quantile_mat is provided
+# and uses these values to invert the fitted NB marginals instead.
+quantile_mat_ind <- matrix(
+  runif(prod(dim(sim_para$mean_mat))),
+  nrow     = nrow(sim_para$mean_mat),
+  ncol     = ncol(sim_para$mean_mat),
+  dimnames = dimnames(sim_para$mean_mat)
+)
+
 sim_result <- tryCatch(
   simu_new(
     sce               = sce_ref,
     mean_mat          = sim_para$mean_mat,
     sigma_mat         = sim_para$sigma_mat,
     zero_mat          = sim_para$zero_mat,
-    quantile_mat      = NULL,
-    copula_list       = fit_mod$copula_list,
+    quantile_mat      = quantile_mat_ind,  # bypasses copula; genes are independent
+    copula_list       = NULL,
     n_cores           = opt$n_cores,
     family_use        = "nb",
     input_data        = ref_data$dat,
@@ -328,6 +340,7 @@ sim_result <- tryCatch(
     NULL
   }
 )
+rm(quantile_mat_ind); gc(verbose = FALSE)
 
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
@@ -341,13 +354,13 @@ if (is.null(sim_result)) {
   quit(status = 1)
 }
 
-counts <- sim_result$new_count   # genes x cells, in memory
+counts <- sim_result               # simu_new() returns dgCMatrix directly in this build
 if (is.null(rownames(counts))) rownames(counts) <- hvg_genes
 message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
 # Free heavy objects no longer needed (ref_data retained only as long as needed above)
-rm(fit_mod, modified_marginal, modified_copula, sim_result, sim_para, ref_data)
+rm(fit_mod, modified_marginal, sim_result, sim_para, ref_data)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,42 +381,80 @@ tidy_join <- function(gene, logfc, pval) {
 t_neb <- proc.time()
 message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 
-nebula_stats <- tryCatch({
-  lib_size    <- colSums(counts)
-  size_factor <- lib_size / median(lib_size)
-  
-  new_covariate$visit     <- factor(new_covariate$visit,
-                                    levels = c("timepoint1", "timepoint2"))
-  new_covariate$treatment <- factor(new_covariate$treatment,
-                                    levels = c("groupB", "groupA"))
-  
-  X   <- model.matrix(~ visit * treatment, data = new_covariate)
+run_nebula <- function(counts, new_covariate, method, n_cores,
+                       offset_vec = NULL) {
+  # Build offset if not supplied.
+  # Independent simulation (no copula) creates extreme library-size variability:
+  # top HVGs dominate some cells, making ratio-based offsets (lib/median) take
+  # values like log(100) = 4.6 that push the NB log-likelihood into NaN.
+  # Fix: mean-center on the log scale and clip to [-5, 5] (~150-fold range).
+  # As last resort the caller may pass rep(0, ncol(counts)) (zero offset).
+  if (is.null(offset_vec)) {
+    log_ls     <- log(pmax(colSums(counts), 1L))
+    offset_vec <- pmin(pmax(log_ls - mean(log_ls), -5), 5)
+  }
+
+  nc <- new_covariate
+  nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
+  nc$treatment <- factor(nc$treatment,  levels = c("groupB",     "groupA"))
+
+  X   <- model.matrix(~ visit * treatment, data = nc)
   neb <- group_cell(count  = counts,
-                    id     = new_covariate$subject_id,
+                    id     = nc$subject_id,
                     pred   = X,
-                    offset = log(size_factor))
-  
-  fit_neb <- nebula(count   = neb$count,
-                    id      = neb$id,
-                    pred    = neb$pred,
-                    offset  = neb$offset,
-                    method  = opt$nebula_method,
-                    ncore   = opt$n_cores,
-                    verbose = FALSE)
-  
-  summ    <- fit_neb$summary
-  # Robustly find interaction column (visittimepoint2:treatmentgroupA)
-  lfc_col <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
-                  colnames(summ), value = TRUE)
+                    offset = offset_vec)
+
+  nebula(count   = neb$count,
+         id      = neb$id,
+         pred    = neb$pred,
+         offset  = neb$offset,
+         method  = method,
+         ncore   = n_cores,
+         verbose = FALSE)
+}
+
+extract_nebula_stats <- function(fit_neb) {
+  summ     <- fit_neb$summary
+  lfc_col  <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
+                   colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
-  
   tidy_join(gene  = rownames(summ),
             logfc = summ[[lfc_col[1]]],
             pval  = summ[[pval_col]])
+}
+
+nebula_stats <- tryCatch({
+
+  fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
+  extract_nebula_stats(fit_neb)
+
 }, error = function(e) {
-  message("  NEBULA error: ", conditionMessage(e))
-  NULL
+  # Fallback 1: switch method (LN <-> HL), serial to avoid parallel noise
+  fb1 <- if (opt$nebula_method == "LN") "HL" else "LN"
+  message(sprintf("  NEBULA-%s failed; retrying %s ncore=1  [%s]",
+                  opt$nebula_method, fb1, conditionMessage(e)))
+  tryCatch({
+    r <- extract_nebula_stats(run_nebula(counts, new_covariate, fb1, 1L))
+    attr(r, "nebula_fallback") <- fb1
+    r
+  }, error = function(e2) {
+    # Fallback 2: same alternate method but zero offset.
+    # Independent simulation produces extreme library-size variance; dropping
+    # the offset removes that source of NaN gradients entirely.
+    message(sprintf("  NEBULA-%s also failed; retrying zero offset  [%s]",
+                    fb1, conditionMessage(e2)))
+    tryCatch({
+      r2 <- extract_nebula_stats(
+              run_nebula(counts, new_covariate, fb1, 1L,
+                         offset_vec = rep(0, ncol(counts))))
+      attr(r2, "nebula_fallback") <- paste0(fb1, "_zero_offset")
+      r2
+    }, error = function(e3) {
+      message("  NEBULA all fallbacks failed: ", conditionMessage(e3))
+      NULL
+    })
+  })
 })
 
 t_neb_elapsed <- (proc.time() - t_neb)["elapsed"]
@@ -531,12 +582,136 @@ t_er_elapsed <- (proc.time() - t_er)["elapsed"]
 message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. SAVE RESULTS TO S3 (small files only; counts already freed)
+# 11. BUILD SEURAT OBJECT FOR CELL-LEVEL METHODS (Wilcoxon, MAST)
+#
+# Both FindMarkers methods compare groupA POST cells vs groupB POST cells.
+# NOTE: This contrast tests (b_trt + b_int), NOT the pure interaction b_int.
+# For null scenarios (prop_de = 0, b_int = 0), any detections reflect the
+# main treatment effect in the reference model (illustrating type I error
+# inflation from ignoring the paired structure).
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Building Seurat object for cell-level methods...")
+so_sim <- CreateSeuratObject(
+  counts    = counts,
+  meta.data = new_covariate,
+  min.cells = 0, min.features = 0
+)
+so_sim <- NormalizeData(so_sim, verbose = FALSE)
+
+# Subset to POST cells only; set identity to treatment group
+so_post <- subset(so_sim, subset = visit == "timepoint2")
+Idents(so_post) <- "treatment"
+n_post <- ncol(so_post)
+message(sprintf("  POST cells: %d  (groupA=%d, groupB=%d)",
+                n_post,
+                sum(so_post$treatment == "groupA"),
+                sum(so_post$treatment == "groupB")))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. FINDMARKERS — Wilcoxon (naive, treats each cell as independent)
+# ─────────────────────────────────────────────────────────────────────────────
+t_wilcox <- proc.time()
+message("  Running FindMarkers (Wilcoxon)...")
+
+wilcox_stats <- tryCatch({
+  fm_w <- FindMarkers(
+    so_post,
+    ident.1         = "groupA",
+    ident.2         = "groupB",
+    test.use        = "wilcox",
+    logfc.threshold = 0,    # no pre-filtering: we evaluate all 2k genes
+    min.pct         = 0,
+    verbose         = FALSE
+  )
+
+  full <- data.frame(gene = hvg_genes,
+                     logFC_int = NA_real_, pval_int = NA_real_,
+                     stringsAsFactors = FALSE)
+  hit                 <- match(rownames(fm_w), full$gene)
+  full$logFC_int[hit] <- fm_w$avg_log2FC
+  full$pval_int[hit]  <- fm_w$p_val
+  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
+  left_join(full, truth_df, by = "gene")
+
+}, error = function(e) {
+  message("  Wilcoxon error: ", conditionMessage(e))
+  NULL
+})
+
+t_wilcox_elapsed <- (proc.time() - t_wilcox)["elapsed"]
+message(sprintf("  Wilcoxon done: %.1f s", t_wilcox_elapsed))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. FINDMARKERS — MAST (hurdle model; subject_id as fixed latent covariate)
+#
+# Seurat's latent.vars adds subject_id as a fixed covariate in the continuous
+# component of the MAST hurdle model — partial control for subject effects,
+# NOT a true random effect.
+#
+# Cell subsampling: MAST is slow at high cell counts. If POST cells exceed
+# mast_max_cells, randomly subsample to that limit (stratified by treatment).
+# ─────────────────────────────────────────────────────────────────────────────
+t_mast <- proc.time()
+message(sprintf("  Running FindMarkers (MAST, max_cells=%d)...", opt$mast_max_cells))
+
+mast_stats <- tryCatch({
+  so_mast <- so_post  # may be subsampled below
+
+  if (n_post > opt$mast_max_cells) {
+    n_per_group <- floor(opt$mast_max_cells / 2)
+    cells_A <- WhichCells(so_post, idents = "groupA")
+    cells_B <- WhichCells(so_post, idents = "groupB")
+    keep <- c(
+      sample(cells_A, min(n_per_group, length(cells_A))),
+      sample(cells_B, min(n_per_group, length(cells_B)))
+    )
+    so_mast <- subset(so_post, cells = keep)
+    message(sprintf("  MAST: subsampled to %d POST cells (%d/group)",
+                    ncol(so_mast), n_per_group))
+  }
+
+  fm_m <- FindMarkers(
+    so_mast,
+    ident.1         = "groupA",
+    ident.2         = "groupB",
+    test.use        = "MAST",
+    latent.vars     = "subject_id",
+    logfc.threshold = 0,
+    min.pct         = 0,
+    verbose         = FALSE
+  )
+
+  full <- data.frame(gene = hvg_genes,
+                     logFC_int = NA_real_, pval_int = NA_real_,
+                     stringsAsFactors = FALSE)
+  hit                 <- match(rownames(fm_m), full$gene)
+  full$logFC_int[hit] <- fm_m$avg_log2FC
+  full$pval_int[hit]  <- fm_m$p_val
+  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
+  left_join(full, truth_df, by = "gene")
+
+}, error = function(e) {
+  message("  MAST error: ", conditionMessage(e))
+  NULL
+})
+
+t_mast_elapsed <- (proc.time() - t_mast)["elapsed"]
+message(sprintf("  MAST done: %.1f s", t_mast_elapsed))
+
+# Free Seurat objects
+rm(so_sim, so_post)
+if (exists("so_mast")) rm(so_mast)
+gc(verbose = FALSE)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. SAVE RESULTS TO S3 (small files only; counts already freed)
 # ─────────────────────────────────────────────────────────────────────────────
 timing <- c(sim    = t_sim_elapsed,
             nebula = t_neb_elapsed,
             deseq2 = t_d2_elapsed,
-            edger  = t_er_elapsed)
+            edger  = t_er_elapsed,
+            wilcox = t_wilcox_elapsed,
+            mast   = t_mast_elapsed)
 
 message(sprintf("  Saving results to s3://%s/%s ...", S3_BUCKET, S3_OUT))
 
@@ -548,6 +723,12 @@ s3saveRDS(deseq2_stats,
           bucket = S3_BUCKET, region = "")
 s3saveRDS(edger_stats,
           object = paste0(S3_OUT, "edger_stats.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(wilcox_stats,
+          object = paste0(S3_OUT, "wilcox_stats.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(mast_stats,
+          object = paste0(S3_OUT, "mast_stats.rds"),
           bucket = S3_BUCKET, region = "")
 s3saveRDS(timing,
           object = paste0(S3_OUT, "timing.rds"),
@@ -561,7 +742,8 @@ s3saveRDS(params,
 
 total_elapsed <- sum(timing)
 message(sprintf(
-  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1f | neb=%.1f | d2=%.1f | er=%.1f) ══",
+  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1f | neb=%.1f | d2=%.1f | er=%.1f | wilcox=%.1f | mast=%.1f) ══",
   opt$array_id, total_elapsed,
-  timing["sim"], timing["nebula"], timing["deseq2"], timing["edger"]
+  timing["sim"], timing["nebula"], timing["deseq2"], timing["edger"],
+  timing["wilcox"], timing["mast"]
 ))

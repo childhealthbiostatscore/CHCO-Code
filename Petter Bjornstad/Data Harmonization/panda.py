@@ -214,10 +214,11 @@ def clean_panda():
     cgm.replace(rep, np.nan, inplace=True)
     print("PANDA CGM data:")
     print(cgm.head())
-    cgm.rename({'cgm_avgbg': 'cgm_avg_glucose', 'cgm_range_vhigh':'cgm_v_high', 'cgm_range_high': 'cgm_high', 
+    cgm.rename({'cgm_avgbg': 'cgm_avg_glucose', 'cgm_range_vhigh':'cgm_v_high', 'cgm_range_high': 'cgm_high',
                 'cgm_range_low': 'cgm_low', 'cgm_range_vlow': 'cgm_v_low'}, axis=1, inplace=True)
+    cgm["visit"] = cgm["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
+    cgm["visit"] = cgm["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     cgm["procedure"] = "cgm"
-    cgm["date"] = labs["date"]
     #print number of record_ids with non-null cgm_avg_glucose
     print("PANDA CGM data:")
     print(cgm.head())
@@ -465,13 +466,14 @@ def clean_panda():
     # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------
+    print("rows with CGM data:  ", cgm['cgm_avg_glucose'].notnull().sum())
 
     med.dropna(thresh=5, axis=0, inplace=True)
     epic_med.dropna(thresh=6, axis=0, inplace=True)
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
-    cgm.dropna(thresh=4, axis=0, inplace=True)
+    cgm.dropna(thresh=7, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
@@ -479,6 +481,10 @@ def clean_panda():
     biopsy.dropna(thresh=20, axis=0, inplace=True)
     az_u_metab.dropna(thresh=6, axis=0, inplace=True)
     croc_labs.dropna(thresh=5, axis=0, inplace=True)
+
+    print("POST DROP: rows with CGM data:  ", cgm['cgm_avg_glucose'].notnull().sum())
+    print("POST DROP: total CGM rows (including all-missing):  ", len(cgm))
+    print("POST DROP: CGM visit values:  ", cgm['visit'].value_counts().to_dict() if 'visit' in cgm.columns else "NO VISIT COLUMN")
 
     # --------------------------------------------------------------------------
     # Merge
@@ -501,6 +507,7 @@ def clean_panda():
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
 
+    print("POST CONCAT: procedure=cgm rows: ", (df['procedure'] == 'cgm').sum())
     # --------------------------------------------------------------------------
     # Reorganize
     # --------------------------------------------------------------------------
@@ -514,6 +521,12 @@ def clean_panda():
     # Sort
     df.sort_values(["record_id", "date", "procedure"], inplace=True)
     # Drop empty columns
+    print("PRE-DROP cgm_avg_glucose in cols:", 'cgm_avg_glucose' in df.columns)
+    if 'cgm_avg_glucose' in df.columns:
+        print("PRE-DROP cgm_avg_glucose non-null count:", df['cgm_avg_glucose'].notnull().sum())
     df.dropna(how='all', axis=1, inplace=True)
+    print("POST-DROP cgm_avg_glucose in cols:", 'cgm_avg_glucose' in df.columns)
+    print("FINAL: procedure=cgm rows: ", (df['procedure'] == 'cgm').sum())
+
     # Print final data
     return df

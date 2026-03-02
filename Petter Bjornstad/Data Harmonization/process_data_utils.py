@@ -28,7 +28,7 @@ def subset_harmonized(data,
         data = data[data["study"].isin(study_subset)]
 
     # Replace empty strings or whitespace-only strings with NaN for all columns
-    data = data.map(lambda x: np.nan if (isinstance(x, str) and x.strip() == "") else x)
+    data = data.applymap(lambda x: np.nan if (isinstance(x, str) and x.strip() == "") else x)
 
     # Impute numeric missing with numeric_fn
     numeric_cols = data.select_dtypes(include="number").columns
