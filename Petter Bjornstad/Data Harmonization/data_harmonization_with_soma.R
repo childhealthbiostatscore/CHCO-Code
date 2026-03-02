@@ -1,5 +1,4 @@
 library(reticulate)
-use_python("/Users/shivaniramesh/.virtualenvs/r-reticulate/bin/python", required = TRUE)
 py_config()
 
 library(reticulate)
@@ -27,8 +26,9 @@ if (user == "choiyej") {
 
 # Import python harmonization function & run
 source_python(file.path(git_path, 'Data Harmonization/data_harmonization.py'))
-clean <- harmonize_data()
-clean <- data.frame(lapply(clean, as.character))
+temp_path <- harmonize_data()
+clean <- read.csv(temp_path, na.strings = c("", "NaN"), check.names = FALSE)
+clean <- data.frame(lapply(clean, as.character), check.names = FALSE)
 clean[clean == "NaN"] <- NA # Replace NaN from Python to NA
 clean[clean == ""] <- NA
 

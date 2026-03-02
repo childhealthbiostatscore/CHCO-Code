@@ -47,7 +47,7 @@ def clean_renal_heiritage():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -77,15 +77,14 @@ def clean_renal_heiritage():
                               base_name="ethnicity",
                               levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
     # Relevel sex and group and participation status
-    demo["sex"].replace({1: "Female", 2: "Male", 3: "Other",
-                        "1": "Female", "2": "Male", "3": "Other"}, inplace=True)
-    demo["group"].replace({1: "Type 2 Diabetes", 2: "Obese Control", 3: "Lean Control",
+    demo["sex"] = demo["sex"].replace({1: "Female", 2: "Male", 3: "Other",
+                        "1": "Female", "2": "Male", "3": "Other"})
+    demo["group"] = demo["group"].replace({1: "Type 2 Diabetes", 2: "Obese Control", 3: "Lean Control",
                            "1": "Type 2 Diabetes", "2": "Obese Control",
-                           "3": "Lean Control"}, inplace=True)
+                           "3": "Lean Control"})
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
-    demo["sglt2i_ever"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"},
-                       inplace=True)
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["sglt2i_ever"] = demo["sglt2i_ever"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"})
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
 
     # --------------------------------------------------------------------------
@@ -136,8 +135,9 @@ def clean_renal_heiritage():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med["procedure"] = "epic_medications"
     epic_med["visit"] = "baseline"   
     
@@ -192,7 +192,7 @@ def clean_renal_heiritage():
     rct = pd.DataFrame(proj.export_records(fields=var))
     numeric_cols = [col for col in rct.columns if col not in ['record_id', 'redcap_event_name'] 
                     and not col.startswith('tm_') and not col.endswith(('_date', '_com', '_start'))]
-    rct[numeric_cols] = rct[numeric_cols].apply(pd.to_numeric, errors = 'ignore')
+    rct[numeric_cols] = rct[numeric_cols].apply(pd.to_numeric, errors='coerce')
     rct = rct.groupby('record_id', as_index=False).max()
     rct.drop(["redcap_event_name"], inplace=True, axis=1)
     # Replace missing values
@@ -335,7 +335,19 @@ def clean_renal_heiritage():
     biopsy.rename({"hg": "hemoglobin"}, axis=1, inplace=True)
     biopsy["procedure"] = "kidney_biopsy"
     biopsy["visit"] = "baseline"
-    
+
+    # --------------------------------------------------------------------------
+    # J-Wire
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "j_wire", "field_name"]]
+    j_wire = pd.DataFrame(proj.export_records(fields=var))
+    j_wire.drop(["redcap_event_name"], axis=1, inplace=True)
+    # Replace missing values
+    j_wire.replace(rep, np.nan, inplace=True)
+    j_wire["procedure"] = "j_wire"
+    j_wire["visit"] = "baseline"
+
     # --------------------------------------------------------------------------
     # Sphygmocor
     # --------------------------------------------------------------------------
@@ -451,6 +463,7 @@ def clean_renal_heiritage():
     liver_pet.dropna(thresh=5, axis=0, inplace=True)
     brain.dropna(thresh=2, axis=0, inplace=True)
     biopsy.dropna(thresh=7, axis=0, inplace=True)
+    j_wire.dropna(thresh=4, axis=0, inplace=True)
     neuro.dropna(thresh=4, axis=0, inplace=True)
     voxelwise.dropna(thresh=4, axis=0, inplace=True)
     az_u_metab.dropna(thresh=5, axis=0, inplace=True)
@@ -477,6 +490,7 @@ def clean_renal_heiritage():
     df = pd.concat([df, brain], join='outer', ignore_index=True)
     df = pd.concat([df, neuro], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    df = pd.concat([df, j_wire], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
     df = pd.concat([df, lip], join='outer', ignore_index=True)

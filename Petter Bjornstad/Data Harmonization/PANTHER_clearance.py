@@ -52,9 +52,8 @@ def panther_redcap_data(base_data_path, tokens):
     rct.replace(rep, np.nan, inplace=True)
     rct["group"] = rct.groupby(["record_id"])["group"].ffill()
     rct = rct.loc[rct["redcap_event_name"] != "screening_arm_1"].copy()
-    rct["redcap_event_name"].replace(
-        {"screening_arm_1": "screening", "baseline_arm_1": "baseline", "year_1_arm_1": "year_1", "year_2_arm_1": "year_2",  "year_3_arm_1": "year_3",  "year_4_arm_1": "year_4"},
-        inplace=True)
+    rct["redcap_event_name"] = rct["redcap_event_name"].replace(
+        {"screening_arm_1": "screening", "baseline_arm_1": "baseline", "year_1_arm_1": "year_1", "year_2_arm_1": "year_2",  "year_3_arm_1": "year_3",  "year_4_arm_1": "year_4"})
     rct = rct.rename(columns={"redcap_event_name": "visit"})
 
     baseline_include = [
@@ -130,7 +129,7 @@ def crocodile_redcap_data(base_data_path, tokens):
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
     var = list(dict.fromkeys(["record_id", "group", "bl_tot_protein", "hct_210", "visit_map", "phys_map"] + REDCAP_KEY_VARS +
                [v for v in meta.loc[meta["form_name"] == "study_visit_renal_clearance_testing", "field_name"]]))
@@ -159,7 +158,7 @@ def penguin_redcap_data(base_data_path, tokens):
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
     var = list(dict.fromkeys(["record_id", "group", "bl_tot_protein", "hct_210", "visit_map", "phys_map"] + REDCAP_KEY_VARS +
                [v for v in meta.loc[meta["form_name"] == "study_visit_renal_clearance_testing", "field_name"]]))
     rct = pd.DataFrame(proj.export_records(fields=var))
@@ -194,12 +193,11 @@ def rpc2_redcap_data(base_data_path, tokens):
     rct.replace(rep, np.nan, inplace=True)
     rct.rename({"subject_id": "record_id"}, axis=1, inplace=True)
 
-    rct["redcap_event_name"].replace(
+    rct["redcap_event_name"] = rct["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
          "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
-        inplace=True)
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     rct = rct.rename(columns={"redcap_event_name": "visit"})
 
     exclude_ids = [
@@ -228,7 +226,7 @@ def rpc2_redcap_data(base_data_path, tokens):
 
 def harmonized_clearance_data(base_data_path):
     # Load data dictionary and get renal clearance variable names
-    dd = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dd = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
     renal_vars = dd.loc[dd["form_name"] == "renal_clearance", "variable_name"].tolist()
 
     # Load harmonized dataset, filter to renal clearance columns
