@@ -381,12 +381,18 @@ tidy_join <- function(gene, logfc, pval) {
 t_neb <- proc.time()
 message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 
-run_nebula <- function(counts, new_covariate, method, n_cores) {
-  # Clamp lib_size: log(0) = -Inf in offset -> NaN gradients. Any cell with
-  # zero total counts is effectively uninformative; clamping to 1 is equivalent
-  # to assigning it a minimal but valid library size.
-  lib_size    <- pmax(colSums(counts), 1L)
-  size_factor <- lib_size / median(lib_size)
+run_nebula <- function(counts, new_covariate, method, n_cores,
+                       offset_vec = NULL) {
+  # Build offset if not supplied.
+  # Independent simulation (no copula) creates extreme library-size variability:
+  # top HVGs dominate some cells, making ratio-based offsets (lib/median) take
+  # values like log(100) = 4.6 that push the NB log-likelihood into NaN.
+  # Fix: mean-center on the log scale and clip to [-5, 5] (~150-fold range).
+  # As last resort the caller may pass rep(0, ncol(counts)) (zero offset).
+  if (is.null(offset_vec)) {
+    log_ls     <- log(pmax(colSums(counts), 1L))
+    offset_vec <- pmin(pmax(log_ls - mean(log_ls), -5), 5)
+  }
 
   nc <- new_covariate
   nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
@@ -396,7 +402,7 @@ run_nebula <- function(counts, new_covariate, method, n_cores) {
   neb <- group_cell(count  = counts,
                     id     = nc$subject_id,
                     pred   = X,
-                    offset = log(size_factor))
+                    offset = offset_vec)
 
   nebula(count   = neb$count,
          id      = neb$id,
@@ -419,25 +425,35 @@ extract_nebula_stats <- function(fit_neb) {
 }
 
 nebula_stats <- tryCatch({
+
   fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
   extract_nebula_stats(fit_neb)
+
 }, error = function(e) {
-  # LN can fail with "NA/NaN gradient evaluation" at small N (n=5/arm) or with
-  # extreme sparsity. Fall back to NEBULA-HL, which uses a more stable
-  # hierarchical likelihood approximation (conservative but convergence-robust).
-  # Run serial (ncore=1) to prevent parallel error propagation masking the cause.
-  fallback_method <- if (opt$nebula_method == "LN") "HL" else "LN"
-  message(sprintf("  NEBULA-%s failed (%s); retrying with %s ncore=1...",
-                  opt$nebula_method, conditionMessage(e), fallback_method))
+  # Fallback 1: switch method (LN <-> HL), serial to avoid parallel noise
+  fb1 <- if (opt$nebula_method == "LN") "HL" else "LN"
+  message(sprintf("  NEBULA-%s failed; retrying %s ncore=1  [%s]",
+                  opt$nebula_method, fb1, conditionMessage(e)))
   tryCatch({
-    fit_neb2 <- run_nebula(counts, new_covariate, fallback_method, 1L)
-    result   <- extract_nebula_stats(fit_neb2)
-    # Tag the result so downstream benchmarking knows the fallback was used
-    attr(result, "nebula_fallback") <- fallback_method
-    result
+    r <- extract_nebula_stats(run_nebula(counts, new_covariate, fb1, 1L))
+    attr(r, "nebula_fallback") <- fb1
+    r
   }, error = function(e2) {
-    message("  NEBULA fallback also failed: ", conditionMessage(e2))
-    NULL
+    # Fallback 2: same alternate method but zero offset.
+    # Independent simulation produces extreme library-size variance; dropping
+    # the offset removes that source of NaN gradients entirely.
+    message(sprintf("  NEBULA-%s also failed; retrying zero offset  [%s]",
+                    fb1, conditionMessage(e2)))
+    tryCatch({
+      r2 <- extract_nebula_stats(
+              run_nebula(counts, new_covariate, fb1, 1L,
+                         offset_vec = rep(0, ncol(counts))))
+      attr(r2, "nebula_fallback") <- paste0(fb1, "_zero_offset")
+      r2
+    }, error = function(e3) {
+      message("  NEBULA all fallbacks failed: ", conditionMessage(e3))
+      NULL
+    })
   })
 })
 
