@@ -22,6 +22,8 @@ library(ggplot2)
 library(GGally)
 library(gtExtras)
 library(gt)
+library(purrr)
+library(Hmisc)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
@@ -407,8 +409,7 @@ proc_harm_dat_recid <- bind_rows(lapply(proc_matrix, function(x) {
   )
 
 # Define all procedures
-flagged_procs <- c("vitals", "blood_labs", "urine_labs", 
-                   "dxa",
+flagged_procs <- c("vitals", "blood_labs", "urine_labs", "dxa",
                    "clamp", "ivgtt", "oroboros", 
                    "renal_clear", "kidney_mri", "kidney_pet", 
                    "sphyg",  "cardiac_mri", 
@@ -683,6 +684,161 @@ study_gt_table %>%
 study_gt_table %>%
   gt::opt_interactive()
 ```
+
+## Version with N's
+
+```{r}
+# ── N-version table: replace dots with per-procedure observed N ───────────────
+# For studies present in the dataset: count unique baseline participants with
+# ≥1 non-NA value in each procedure's variable set.
+# For hard-coded / still-enrolling studies: show ≤[hard-coded N].
+
+hardcoded_studies_n <- c("ADAPT-CKD", "INSPIRE", "MANATEE", "MetMod",
+                         "OTTER", "SUGAR-N-SALT", "SWEETHEART", "T1-DISCO")
+
+# Variable sets per procedure flag (for N-counting)
+proc_n_varlist <- list(
+  vitals           = c("height", "weight", "bmi", "sbp", "dbp"),
+  blood_labs       = blood_labs,
+  urine_labs       = urine_labs,
+  clamp            = clamp_all,
+  ivgtt            = ivgtt,
+  oroboros         = character(0),
+  renal_clear      = renal_clearance,
+  kidney_mri       = kidney_mri_all,
+  kidney_pet       = kidney_pet,
+  sphyg            = character(0),
+  cardiac_mri      = cardiac_mri,
+  kidney_bx        = kidney_bx,
+  muscle_bx        = character(0),
+  liver_bx         = character(0),
+  jwire            = intersect(c("jwire_side", "jwire_num"), cols),
+  lipidomics       = lipid_vars,
+  blood_proteomics = prot_blood_vars,
+  urine_proteomics = prot_urine_vars,
+  blood_metabolomics = character(0),
+  urine_metabolomics = character(0),
+  cgm              = intersect(c("cgm_v_high", "cgm_high", "cgm_low", "cgm_v_low"), cols)
+)
+
+count_proc_n <- function(study_name, proc_name) {
+  proc_on <- proc_harm_dat_recid[proc_harm_dat_recid$study == study_name,
+                                 proc_name, drop = TRUE]
+  if (!isTRUE(proc_on)) return("")                       # procedure not done
+
+  hard_n <- proc_harm_dat_recid$n[proc_harm_dat_recid$study == study_name]
+
+  if (study_name %in% hardcoded_studies_n) return(hard_n) # show ≤N for hard-coded
+
+  vlist <- intersect(proc_n_varlist[[proc_name]], cols)
+  if (length(vlist) == 0) return(hard_n)                 # no vars mapped → ≤N
+
+  sub <- harm_dat_recid[
+    !is.na(harm_dat_recid$study) &
+    harm_dat_recid$study == study_name &
+    harm_dat_recid$visit == "baseline",
+    vlist, drop = FALSE
+  ]
+  n_obs <- sum(rowSums(!is.na(sub)) > 0)
+  if (n_obs == 0) hard_n else as.character(n_obs)
+}
+
+# Build N display data frame (same structure as the dot table)
+display_n <- proc_harm_dat_recid %>%
+  mutate(
+    cohorts_html = sapply(study, make_cohort_html),
+    visits_html  = sapply(study, make_visit_html),
+    decode_html  = sapply(study, make_decode_html)
+  )
+
+for (proc in flagged_procs) {
+  display_n[[proc]] <- vapply(display_n$study,
+                              function(s) count_proc_n(s, proc),
+                              character(1))
+}
+
+display_n <- display_n %>%
+  select(decode_html, study, exposure_design, design_struc, study_design_sub,
+         intervention, cohorts_html, visits_html, n, all_of(flagged_procs)) %>%
+  arrange(decode_html, exposure_design, desc(design_struc), study_design_sub)
+
+study_gt_n_table <- display_n %>%
+  gt(id = "harm-study-table-n") %>%
+  cols_label(
+    decode_html = "PART OF DECODE",
+    study        = "STUDY",
+    exposure_design = "STUDY DESIGN",
+    design_struc = "TEMPORAL DESIGN",
+    study_design_sub = "STUDY SUB-DESIGN",
+    intervention = "EXPOSURE",
+    visits_html = "FOLLOW-UP VISITS",
+    cohorts_html = "COHORTS",
+    n            = "N AT BASELINE",
+    vitals = "VITALS",
+    blood_labs   = "BLOOD",
+    urine_labs   = "URINE",
+    clamp        = "CLAMP",
+    renal_clear  = "RENAL CLEARANCE TEST",
+    dxa          = "DXA",
+    kidney_bx    = "KIDNEY BX",
+    cardiac_mri  = "CARDIAC MRI",
+    kidney_mri   = "KIDNEY MRI",
+    lipidomics   = "LIPID",
+    blood_proteomics   = "PROTEOMICS (PLASMA)",
+    urine_proteomics = "PROTEOMICS (URINE)",
+    blood_metabolomics = "METABO (PLASMA)",
+    urine_metabolomics = "METABO (URINE)",
+    muscle_bx = "MUSCLE BX",
+    liver_bx = "LIVER BX",
+    jwire = "J-WIRE",
+    sphyg = "SPHYGMOCOR",
+    kidney_pet = "KIDNEY PET",
+    cgm = "CGM"
+  ) %>%
+  fmt_markdown(columns = everything()) %>%
+  tab_spanner(label = "Labs",              columns = c(blood_labs, urine_labs)) %>%
+  tab_spanner(label = "Metabolic Testing", columns = c(clamp, ivgtt, oroboros)) %>%
+  tab_spanner(label = "Kidney Function",   columns = c(renal_clear, kidney_mri, kidney_pet)) %>%
+  tab_spanner(label = "Cardiac",           columns = c(sphyg, cardiac_mri)) %>%
+  tab_spanner(label = "Biopsies/Procedures",
+              columns = c(kidney_bx, muscle_bx, liver_bx, jwire)) %>%
+  tab_spanner(label = "Omics",
+              columns = c(lipidomics, blood_proteomics, urine_proteomics,
+                          blood_metabolomics, urine_metabolomics)) %>%
+  tab_style(style = cell_text(weight = "bold", size = "12px",
+                              transform = "uppercase", color = "#374151"),
+            locations = cells_column_spanners()) %>%
+  tab_style(style = cell_text(weight = "bold", size = "15px"),
+            locations = cells_body(columns = study)) %>%
+  tab_style(style = cell_text(weight = "bold", size = "12px",
+                              transform = "uppercase", color = "#374151"),
+            locations = cells_column_labels()) %>%
+  tab_style(style = cell_text(size = "15px"),
+            locations = cells_body()) %>%
+  cols_align(align = "center",
+             columns = c(decode_html, study, exposure_design, design_struc,
+                         study_design_sub, visits_html, intervention,
+                         cohorts_html, n, all_of(flagged_procs))) %>%
+  cols_width(study        ~ px(145),
+             exposure_design ~ px(150),
+             design_struc ~ px(150),
+             study_design_sub ~ px(150),
+             visits_html ~ px(120),
+             intervention ~ px(150),
+             cohorts_html ~ px(120),
+             n            ~ px(70),
+             flagged_procs   ~ px(70)) %>%
+  opt_row_striping(row_striping = TRUE)
+
+study_gt_n_table
+
+study_gt_n_table %>%
+  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table_n.png"),
+         vwidth = 3000, vheight = 1000)
+
+study_gt_n_table %>% gt::opt_interactive()
+```
+
 
 # Data availability by cohort
 
@@ -1071,4 +1227,394 @@ non_decode_cohort_table %>%
 
 non_decode_cohort_table %>%
   gt::opt_interactive()
+```
+---
+
+# Summary visualizations
+
+```{r}
+# ── Shared theme and palette ──────────────────────────────────────────────────
+theme_harm <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor  = element_blank(),
+    strip.text        = element_text(face = "bold"),
+    legend.position   = "bottom",
+    axis.text.x       = element_text(angle = 45, hjust = 1)
+  )
+
+cohort_fill <- c(T1D = "#e77c76", T2D = "#e37902",
+                 HC  = "#8cb369", OB  = "#5b8e7d", ADPKD = "#bc4b51")
+
+# Output dir for saved PNGs
+fig_dir <- file.path(root_path,
+  "Data Harmonization/Report_files/Summary Report/figures")
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+save_fig <- function(p, filename, width = 10, height = 5) {
+  ggsave(file.path(fig_dir, filename), plot = p,
+         width = width, height = height, dpi = 300, bg = "white")
+  p
+}
+```
+
+```{r}
+# ── Hard-coded study metadata (group composition + ≤N) ───────────────────────
+# Used to supplement observed data with upper-bound estimates for studies that
+# are still enrolling / not yet fully entered in the dataset.
+hardcoded_meta <- list(
+  "ADAPT-CKD"    = list(groups = c("T2D"), n_total = 100),
+  "INSPIRE"      = list(groups = c("T1D"), n_total = 90),
+  "MANATEE"      = list(groups = c("T1D"), n_total = 60),
+  "MetMod"       = list(groups = c("T1D"), n_total = 60),
+  "OTTER"        = list(groups = c("T2D"), n_total = 60),
+  "SUGAR-N-SALT" = list(groups = c("T2D"), n_total = 150),
+  "SWEETHEART"   = list(groups = c("T1D"), n_total = 30),
+  "T1-DISCO"     = list(groups = c("T1D"), n_total = 60)
+)
+
+# Procedure order matches flagged_procs / main summary table column order.
+# Only procedures with a mappable variable set are included for N-counting.
+proc_varlist_plot <- list(
+  "Blood Labs"       = blood_labs,
+  "Urine Labs"       = urine_labs,
+  "DXA"              = dxa,
+  "Clamp"            = clamp_all,
+  "IVGTT"            = ivgtt,
+  "Renal Clearance"  = renal_clearance,
+  "Kidney MRI"       = kidney_mri_all,
+  "Kidney PET"       = kidney_pet,
+  "Cardiac MRI"      = cardiac_mri,
+  "Kidney Biopsy"    = kidney_bx,
+  "Lipidomics"       = lipid_vars,
+  "Blood Proteomics" = prot_blood_vars,
+  "Urine Proteomics" = prot_urine_vars,
+  "CGM"              = intersect(c("cgm_v_high","cgm_high","cgm_low","cgm_v_low"), cols)
+)
+proc_order <- names(proc_varlist_plot)
+
+# proc_flag_to_label: maps proc_harm_dat_recid column name → plot label
+proc_flag_to_label <- c(
+  blood_labs       = "Blood Labs",
+  urine_labs       = "Urine Labs",
+  dxa              = "DXA",
+  clamp            = "Clamp",
+  ivgtt            = "IVGTT",
+  renal_clear      = "Renal Clearance",
+  kidney_mri       = "Kidney MRI",
+  kidney_pet       = "Kidney PET",
+  cardiac_mri      = "Cardiac MRI",
+  kidney_bx        = "Kidney Biopsy",
+  lipidomics       = "Lipidomics",
+  blood_proteomics = "Blood Proteomics",
+  urine_proteomics = "Urine Proteomics",
+  cgm              = "CGM"
+)
+```
+
+```{r}
+# ── Data-building helpers ─────────────────────────────────────────────────────
+# decode_map: study → DECODE / NOT PART OF DECODE
+decode_map <- setNames(proc_harm_dat_recid$decode, proc_harm_dat_recid$study)
+
+# ── make_pie_dat() ─────────────────────────────────────────────────────────────
+# Builds cohort composition counts.
+# include_hardcoded = TRUE adds ≤N estimates from hard-coded studies.
+# ≤ prefix only applied to groups that receive an estimated contribution.
+make_pie_dat <- function(include_hardcoded = FALSE,
+                         decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
+  decode_filter <- match.arg(decode_filter)
+
+  real_dat <- harm_dat_recid %>%
+    filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
+    distinct(record_id, .keep_all = TRUE) %>%
+    mutate(group_abbr   = abbrev_group(group),
+           study_decode = decode_map[study]) %>%
+    { if (decode_filter == "DECODE")
+        filter(., study_decode == "DECODE")
+      else if (decode_filter == "NOT PART OF DECODE")
+        filter(., study_decode == "NOT PART OF DECODE")
+      else . } %>%
+    count(group_abbr) %>%
+    mutate(has_estimated = FALSE)
+
+  if (!include_hardcoded) {
+    return(real_dat %>%
+      mutate(pct   = n / sum(n),
+             label = paste0(group_abbr, "\n(n=", n, ")")) %>%
+      select(-has_estimated))
+  }
+
+  hc_rows <- bind_rows(lapply(names(hardcoded_meta), function(s) {
+    meta <- hardcoded_meta[[s]]
+    if (decode_filter == "DECODE"             && decode_map[s] != "DECODE")             return(NULL)
+    if (decode_filter == "NOT PART OF DECODE" && decode_map[s] != "NOT PART OF DECODE") return(NULL)
+    data.frame(group_abbr    = meta$groups,
+               n             = floor(meta$n_total / length(meta$groups)),
+               has_estimated = TRUE, stringsAsFactors = FALSE)
+  }))
+
+  bind_rows(real_dat, hc_rows) %>%
+    group_by(group_abbr) %>%
+    summarise(n = sum(n), has_estimated = any(has_estimated), .groups = "drop") %>%
+    mutate(pct   = n / sum(n),
+           label = ifelse(has_estimated,
+                          paste0(group_abbr, "\n(≤", n, ")"),
+                          paste0(group_abbr, "\n(n=",  n, ")")))
+}
+
+# ── make_bar_dat() ─────────────────────────────────────────────────────────────
+# Builds per-procedure N by cohort group.
+# ≤ prefix only applied to group×procedure cells that include an estimated study.
+make_bar_dat <- function(include_hardcoded = FALSE,
+                         decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
+  decode_filter <- match.arg(decode_filter)
+
+  real_rows <- bind_rows(lapply(names(proc_varlist_plot), function(proc_name) {
+    vlist <- intersect(proc_varlist_plot[[proc_name]], cols)
+    if (length(vlist) == 0) return(NULL)
+    harm_dat_recid %>%
+      filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
+      distinct(record_id, .keep_all = TRUE) %>%
+      mutate(has_proc     = rowSums(!is.na(select(., all_of(vlist)))) > 0,
+             study_decode = decode_map[study]) %>%
+      { if (decode_filter == "DECODE")
+          filter(., study_decode == "DECODE")
+        else if (decode_filter == "NOT PART OF DECODE")
+          filter(., study_decode == "NOT PART OF DECODE")
+        else . } %>%
+      filter(has_proc) %>%
+      mutate(group_abbr = abbrev_group(group)) %>%
+      count(group_abbr) %>%
+      mutate(procedure = proc_name, has_estimated = FALSE)
+  }))
+
+  if (!include_hardcoded) {
+    return(real_rows %>%
+      mutate(procedure = factor(procedure, levels = proc_order)))
+  }
+
+  hc_rows <- bind_rows(lapply(names(hardcoded_meta), function(s) {
+    meta <- hardcoded_meta[[s]]
+    if (decode_filter == "DECODE"             && decode_map[s] != "DECODE")             return(NULL)
+    if (decode_filter == "NOT PART OF DECODE" && decode_map[s] != "NOT PART OF DECODE") return(NULL)
+    study_flags <- proc_harm_dat_recid[proc_harm_dat_recid$study == s, ]
+    if (nrow(study_flags) == 0) return(NULL)
+    bind_rows(lapply(names(proc_flag_to_label), function(flag) {
+      if (!isTRUE(study_flags[[flag]])) return(NULL)
+      data.frame(group_abbr    = meta$groups,
+                 n             = floor(meta$n_total / length(meta$groups)),
+                 procedure     = proc_flag_to_label[[flag]],
+                 has_estimated = TRUE, stringsAsFactors = FALSE)
+    }))
+  }))
+
+  bind_rows(real_rows, hc_rows) %>%
+    group_by(procedure, group_abbr) %>%
+    summarise(n = sum(n), has_estimated = any(has_estimated), .groups = "drop") %>%
+    mutate(procedure = factor(procedure, levels = proc_order))
+}
+
+# ── make_proc_summary_tbl() ────────────────────────────────────────────────────
+# Builds a numeric summary table: rows = procedures, cols = cohort groups,
+# cells = N (observed) or ≤N (estimated). Used for the compiled N table.
+make_proc_summary_tbl <- function(include_hardcoded = TRUE,
+                                  decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
+  decode_filter <- match.arg(decode_filter)
+
+  bar_dat <- make_bar_dat(include_hardcoded = include_hardcoded,
+                          decode_filter     = decode_filter)
+
+  bar_dat %>%
+    mutate(n_label = ifelse(has_estimated, paste0("≤", n), as.character(n))) %>%
+    select(procedure, group_abbr, n_label) %>%
+    pivot_wider(names_from = group_abbr, values_from = n_label, values_fill = "—") %>%
+    arrange(factor(procedure, levels = proc_order)) %>%
+    rename(Procedure = procedure)
+}
+```
+
+```{r}
+# ── Plot helpers ──────────────────────────────────────────────────────────────
+
+make_pie_plot <- function(pie_dat, filename = NULL) {
+  p <- ggplot(pie_dat, aes(x = "", y = pct, fill = group_abbr)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    scale_fill_manual(values = cohort_fill, name = "Cohort") +
+    geom_text(aes(label = label),
+              position = position_stack(vjust = 0.5),
+              size = 3.5, color = "white", fontface = "bold") +
+    labs(x = NULL, y = NULL) +
+    theme_void(base_size = 12) +
+    theme(legend.position = "none")
+  if (!is.null(filename)) save_fig(p, filename, width = 6, height = 6) else p
+}
+
+make_bar_plot <- function(bar_dat, filename = NULL) {
+  p <- ggplot(bar_dat, aes(x = procedure, y = n, fill = group_abbr)) +
+    geom_col(position = "dodge", width = 0.7) +
+    scale_fill_manual(values = cohort_fill, name = "Cohort") +
+    labs(x = NULL, y = "N") +
+    theme_harm
+  if (!is.null(filename)) save_fig(p, filename) else p
+}
+
+bp_base <- harm_dat_recid %>%
+  filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(group_abbr = factor(abbrev_group(group),
+                             levels = c("HC", "OB", "T1D", "T2D", "ADPKD")))
+
+make_boxplot <- function(data, var, ylabel, filename = NULL, log_transform = FALSE) {
+  d <- data %>% filter(!is.na(.data[[var]]))
+  p <- ggplot(d, aes(x = group_abbr, y = !!sym(var), fill = group_abbr)) +
+    { if (log_transform) scale_y_log10() } +
+    geom_boxplot(outlier.shape = 21, outlier.size = 1.5, alpha = 0.85) +
+    geom_jitter(width = 0.15, size = 0.8, alpha = 0.35, color = "grey30") +
+    scale_fill_manual(values = cohort_fill, guide = "none") +
+    labs(x = NULL, y = ylabel) +
+    theme_harm +
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
+  if (!is.null(filename)) save_fig(p, filename, width = 6, height = 5) else p
+}
+```
+
+---
+
+## Data-only (observed data in dataset)
+
+> Baseline participants with ≥1 non-missing value per procedure variable set.
+> Hard-coded / still-enrolling studies are **excluded**.
+
+### Cohort composition
+
+```{r}
+make_pie_plot(make_pie_dat(FALSE, "ALL"), "pie_data_only_all.png")
+```
+
+### N per procedure × cohort
+
+```{r}
+make_bar_plot(make_bar_dat(FALSE, "ALL"), "bar_data_only_all.png")
+```
+
+### Compiled procedure N table
+
+```{r}
+make_proc_summary_tbl(include_hardcoded = FALSE, decode_filter = "ALL") %>%
+  knitr::kable(caption = "N per procedure × cohort — data only")
+```
+
+### Key outcome box plots
+
+```{r}
+make_boxplot(subset(bp_base, is.na(acr_u) | acr_u > 0), "acr_u",
+             "UACR (mg/g) [log scale]", "box_data_only_uacr.png", log_transform = TRUE)
+```
+
+```{r}
+make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)", "box_data_only_mvalue.png")
+```
+
+```{r}
+make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)", "box_data_only_gfr.png")
+```
+
+```{r}
+make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)", "box_data_only_r2star.png")
+```
+
+---
+
+## Full (observed + hard-coded estimates, all studies)
+
+> Combines observed N with ≤N estimates for hard-coded / still-enrolling studies.
+> ≤ appears only on cohort groups that include at least one estimated study.
+
+### Cohort composition
+
+```{r}
+make_pie_plot(make_pie_dat(TRUE, "ALL"), "pie_full_all.png")
+```
+
+### N per procedure × cohort
+
+```{r}
+make_bar_plot(make_bar_dat(TRUE, "ALL"), "bar_full_all.png")
+```
+
+### Compiled procedure N table
+
+```{r}
+make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "ALL") %>%
+  knitr::kable(caption = "N per procedure × cohort — full (observed + ≤ estimated)")
+```
+
+---
+
+## DECODE studies only (observed + hard-coded estimates)
+
+### Cohort composition
+
+```{r}
+make_pie_plot(make_pie_dat(TRUE, "DECODE"), "pie_full_decode.png")
+```
+
+### N per procedure × cohort
+
+```{r}
+make_bar_plot(make_bar_dat(TRUE, "DECODE"), "bar_full_decode.png")
+```
+
+### Compiled procedure N table
+
+```{r}
+make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "DECODE") %>%
+  knitr::kable(caption = "N per procedure × cohort — DECODE studies (observed + ≤ estimated)")
+```
+
+---
+
+## Non-DECODE studies only (observed + hard-coded estimates)
+
+### Cohort composition
+
+```{r}
+make_pie_plot(make_pie_dat(TRUE, "NOT PART OF DECODE"), "pie_full_nondecode.png")
+```
+
+### N per procedure × cohort
+
+```{r}
+make_bar_plot(make_bar_dat(TRUE, "NOT PART OF DECODE"), "bar_full_nondecode.png")
+```
+
+### Compiled procedure N table
+
+```{r}
+make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "NOT PART OF DECODE") %>%
+  knitr::kable(caption = "N per procedure × cohort — non-DECODE studies (observed + ≤ estimated)")
+```
+
+---
+
+## Box plots — key outcomes by cohort
+
+> Observed data only; hard-coded studies have no measured values.
+
+```{r}
+make_boxplot(subset(bp_base, is.na(acr_u) | acr_u > 0), "acr_u",
+             "UACR (mg/g) [log scale]", "box_uacr.png", log_transform = TRUE)
+```
+
+```{r}
+make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)", "box_mvalue.png")
+```
+
+```{r}
+make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)", "box_gfr.png")
+```
+
+```{r}
+make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)", "box_r2star.png")
 ```
