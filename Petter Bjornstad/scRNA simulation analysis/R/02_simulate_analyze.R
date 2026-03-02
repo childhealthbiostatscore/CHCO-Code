@@ -308,14 +308,26 @@ if (is.null(sim_para)) {
 }
 
 message("  Simulating counts with simu_new()...")
+# simu_new() in scDesign3 v1.x does not handle copula_list = NULL gracefully —
+# it enters the copula branch regardless and crashes on an empty list.
+# The workaround: supply quantile_mat directly (independent U(0,1) draws per
+# gene per cell). simu_new() skips copula sampling when quantile_mat is provided
+# and uses these values to invert the fitted NB marginals instead.
+quantile_mat_ind <- matrix(
+  runif(prod(dim(sim_para$mean_mat))),
+  nrow     = nrow(sim_para$mean_mat),
+  ncol     = ncol(sim_para$mean_mat),
+  dimnames = dimnames(sim_para$mean_mat)
+)
+
 sim_result <- tryCatch(
   simu_new(
     sce               = sce_ref,
     mean_mat          = sim_para$mean_mat,
     sigma_mat         = sim_para$sigma_mat,
     zero_mat          = sim_para$zero_mat,
-    quantile_mat      = NULL,
-    copula_list       = NULL,          # simulate genes independently (see note above)
+    quantile_mat      = quantile_mat_ind,  # bypasses copula; genes are independent
+    copula_list       = NULL,
     n_cores           = opt$n_cores,
     family_use        = "nb",
     input_data        = ref_data$dat,
@@ -328,6 +340,7 @@ sim_result <- tryCatch(
     NULL
   }
 )
+rm(quantile_mat_ind); gc(verbose = FALSE)
 
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
@@ -341,13 +354,13 @@ if (is.null(sim_result)) {
   quit(status = 1)
 }
 
-counts <- sim_result$new_count   # genes x cells, in memory
+counts <- sim_result               # simu_new() returns dgCMatrix directly in this build
 if (is.null(rownames(counts))) rownames(counts) <- hvg_genes
 message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
 # Free heavy objects no longer needed (ref_data retained only as long as needed above)
-rm(fit_mod, modified_marginal, modified_copula, sim_result, sim_para, ref_data)
+rm(fit_mod, modified_marginal, sim_result, sim_para, ref_data)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,42 +381,64 @@ tidy_join <- function(gene, logfc, pval) {
 t_neb <- proc.time()
 message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 
-nebula_stats <- tryCatch({
-  lib_size    <- colSums(counts)
+run_nebula <- function(counts, new_covariate, method, n_cores) {
+  # Clamp lib_size: log(0) = -Inf in offset -> NaN gradients. Any cell with
+  # zero total counts is effectively uninformative; clamping to 1 is equivalent
+  # to assigning it a minimal but valid library size.
+  lib_size    <- pmax(colSums(counts), 1L)
   size_factor <- lib_size / median(lib_size)
-  
-  new_covariate$visit     <- factor(new_covariate$visit,
-                                    levels = c("timepoint1", "timepoint2"))
-  new_covariate$treatment <- factor(new_covariate$treatment,
-                                    levels = c("groupB", "groupA"))
-  
-  X   <- model.matrix(~ visit * treatment, data = new_covariate)
+
+  nc <- new_covariate
+  nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
+  nc$treatment <- factor(nc$treatment,  levels = c("groupB",     "groupA"))
+
+  X   <- model.matrix(~ visit * treatment, data = nc)
   neb <- group_cell(count  = counts,
-                    id     = new_covariate$subject_id,
+                    id     = nc$subject_id,
                     pred   = X,
                     offset = log(size_factor))
-  
-  fit_neb <- nebula(count   = neb$count,
-                    id      = neb$id,
-                    pred    = neb$pred,
-                    offset  = neb$offset,
-                    method  = opt$nebula_method,
-                    ncore   = opt$n_cores,
-                    verbose = FALSE)
-  
-  summ    <- fit_neb$summary
-  # Robustly find interaction column (visittimepoint2:treatmentgroupA)
-  lfc_col <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
-                  colnames(summ), value = TRUE)
+
+  nebula(count   = neb$count,
+         id      = neb$id,
+         pred    = neb$pred,
+         offset  = neb$offset,
+         method  = method,
+         ncore   = n_cores,
+         verbose = FALSE)
+}
+
+extract_nebula_stats <- function(fit_neb) {
+  summ     <- fit_neb$summary
+  lfc_col  <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
+                   colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
-  
   tidy_join(gene  = rownames(summ),
             logfc = summ[[lfc_col[1]]],
             pval  = summ[[pval_col]])
+}
+
+nebula_stats <- tryCatch({
+  fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
+  extract_nebula_stats(fit_neb)
 }, error = function(e) {
-  message("  NEBULA error: ", conditionMessage(e))
-  NULL
+  # LN can fail with "NA/NaN gradient evaluation" at small N (n=5/arm) or with
+  # extreme sparsity. Fall back to NEBULA-HL, which uses a more stable
+  # hierarchical likelihood approximation (conservative but convergence-robust).
+  # Run serial (ncore=1) to prevent parallel error propagation masking the cause.
+  fallback_method <- if (opt$nebula_method == "LN") "HL" else "LN"
+  message(sprintf("  NEBULA-%s failed (%s); retrying with %s ncore=1...",
+                  opt$nebula_method, conditionMessage(e), fallback_method))
+  tryCatch({
+    fit_neb2 <- run_nebula(counts, new_covariate, fallback_method, 1L)
+    result   <- extract_nebula_stats(fit_neb2)
+    # Tag the result so downstream benchmarking knows the fallback was used
+    attr(result, "nebula_fallback") <- fallback_method
+    result
+  }, error = function(e2) {
+    message("  NEBULA fallback also failed: ", conditionMessage(e2))
+    NULL
+  })
 })
 
 t_neb_elapsed <- (proc.time() - t_neb)["elapsed"]
