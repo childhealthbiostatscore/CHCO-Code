@@ -356,6 +356,32 @@ if (is.null(sim_result)) {
 
 counts <- sim_result               # simu_new() returns dgCMatrix directly in this build
 if (is.null(rownames(counts))) rownames(counts) <- hvg_genes
+
+# ── Validate simulated counts ──────────────────────────────────────────────
+# qnbinom() returns NA when mu ~ 0 and the uniform draw is near 1 (extreme
+# tail of a near-degenerate NB). Inf can appear with tiny size + large mu.
+# Both poison every downstream DE method's likelihood. Replace with 0 (treat
+# as structural dropout — equivalent to the cell not expressing that gene).
+if (inherits(counts, "dgCMatrix")) {
+  bad <- !is.finite(counts@x)   # catches NA, NaN, Inf, -Inf
+  if (any(bad)) {
+    message(sprintf("  WARNING: %d non-finite values in counts (NA/Inf from qnbinom) — set to 0",
+                    sum(bad)))
+    counts@x[bad] <- 0L
+    counts <- drop0(counts)      # remove structural zeros introduced above
+  }
+} else {
+  bad <- !is.finite(counts)
+  if (any(bad)) {
+    message(sprintf("  WARNING: %d non-finite values in counts — set to 0", sum(bad)))
+    counts[bad] <- 0L
+  }
+}
+ls_vec <- colSums(counts)
+message(sprintf("  lib_size: min=%.0f  median=%.0f  max=%.0f  (%.1f%% zero-count cells)",
+                min(ls_vec), median(ls_vec), max(ls_vec), 100 * mean(ls_vec == 0)))
+
+
 message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
@@ -399,27 +425,41 @@ run_nebula <- function(counts, new_covariate, method, n_cores,
   nc$treatment <- factor(nc$treatment,  levels = c("groupB",     "groupA"))
 
   X   <- model.matrix(~ visit * treatment, data = nc)
-  neb <- group_cell(count  = counts,
+  neb <- list(count  = counts,
                     id     = nc$subject_id,
                     pred   = X,
                     offset = offset_vec)
 
+  subjects_grpA <- names(neb$id)[neb$id %in% paste0("grpA_S0", 1:5)]
+  subjects_grpB <- names(neb$id)[neb$id %in% paste0("grpB_S0", 1:5)]
+  
+  keep <- sapply(1:nrow(neb$count), function(g) {
+    subA <- length(unique(neb$id[neb$count[g, ] > 0 & neb$id %in% paste0("grpA_S0", 1:5)]))
+    subB <- length(unique(neb$id[neb$count[g, ] > 0 & neb$id %in% paste0("grpB_S0", 1:5)]))
+    (subA >= 2) & (subB >= 2)
+  })
+  
+  neb$count <- neb$count[keep, ]
+  
   nebula(count   = neb$count,
          id      = neb$id,
          pred    = neb$pred,
          offset  = neb$offset,
          method  = method,
          ncore   = n_cores,
-         verbose = FALSE)
+         verbose = T)
 }
+
 
 extract_nebula_stats <- function(fit_neb) {
   summ     <- fit_neb$summary
+  # NEBULA stores gene names in a $gene column; rownames are just integers 1..n
+  gene_vec <- if ("gene" %in% colnames(summ)) summ$gene else rownames(summ)
   lfc_col  <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
                    colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
-  tidy_join(gene  = rownames(summ),
+  tidy_join(gene  = gene_vec,
             logfc = summ[[lfc_col[1]]],
             pval  = summ[[pval_col]])
 }
