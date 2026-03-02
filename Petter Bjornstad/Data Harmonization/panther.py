@@ -205,6 +205,8 @@ def clean_panther():
                   "bl_tot_test" : "tot_test",
                   "bl_free_test" : "free_test"},
               axis=1, inplace=True)
+    ivgtt["cpeptide"] = ivgtt["cpeptide"].combine_first(ivgtt["cpep_minus_15"])    
+    
     # Insulin
     # ins=list(ivgtt.loc[:, ivgtt.columns.str.startswith("insulin_")].columns.values)
     # ivgtt[ins] = ivgtt[ins].apply(
