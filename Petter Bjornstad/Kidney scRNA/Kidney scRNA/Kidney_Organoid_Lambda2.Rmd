@@ -6749,6 +6749,338 @@ cat("\n=== PDF Complete ===\n")
 
 ```
 
+###iv. Pseudobulk
+```{r}
+# ==============================================================
+# DESeq2 Pseudobulk Analysis: Biopsies — T2D vs LC (group only)
+# + GSEA from DEGs
+# ==============================================================
+
+library(Seurat)
+library(DESeq2)
+library(tidyverse)
+library(ggrepel)
+library(fgsea)
+library(msigdbr)
+
+# ----- 1. Setup -----
+dir.results <- "/home/hhampson/Results/Biopsy_DESeq2_T2DvsLC"
+dir.gsea <- file.path(dir.results, "GSEA")
+dir.create(dir.results, recursive = TRUE, showWarnings = FALSE)
+dir.create(dir.gsea, recursive = TRUE, showWarnings = FALSE)
+
+# Factor setup
+so_kpmp_sc$group <- factor(so_kpmp_sc$group)
+so_kpmp_sc$group <- relevel(so_kpmp_sc$group, ref = "Lean_Control")
+
+# Check metadata
+table(so_kpmp_sc$group)
+table(so_kpmp_sc$celltype2)
+head(so_kpmp_sc@meta.data[, c("group", "celltype2", "record_id")])
+
+# ----- 2. Get cell types -----
+celltypes <- unique(so_kpmp_sc$celltype2)
+
+# ----- 3. Storage -----
+deseq_results <- list()
+all_results <- data.frame()
+
+# ----- 4. Loop through cell types -----
+for (ct in celltypes) {
+  
+  cat("\n=== Processing:", ct, "===\n")
+  
+  so_ct <- subset(so_kpmp_sc, celltype2 == ct)
+  DefaultAssay(so_ct) <- "RNA"
+  
+  cat("Cells:", ncol(so_ct), "\n")
+  
+  # CHECK: Skip if not both groups present
+  group_table <- table(so_ct$group)
+  if (length(group_table) < 2) {
+    cat("Skipping - only has", names(group_table), "\n")
+    next
+  }
+  cat("Group distribution:", paste(names(group_table), "=", group_table, collapse = ", "), "\n")
+  
+  # CHECK: Need at least 2 samples per group
+  sample_group <- so_ct@meta.data %>%
+    dplyr::select(kit_id, group) %>%
+    dplyr::distinct()
+  samples_per_group <- table(sample_group$group)
+  
+  if (any(samples_per_group < 2)) {
+    cat("Skipping - need ≥2 samples per group. Have:", 
+        paste(names(samples_per_group), "=", samples_per_group, collapse = ", "), "\n")
+    next
+  }
+  cat("Samples per group:", paste(names(samples_per_group), "=", samples_per_group, collapse = ", "), "\n")
+  
+  # ----- Pseudobulk aggregation -----
+  pseudobulk_counts <- AggregateExpression(
+    so_ct,
+    assays = "RNA",
+    return.seurat = FALSE,
+    group.by = "kit_id"
+  )$RNA
+  
+  pseudobulk_counts <- round(as.matrix(pseudobulk_counts))
+  cat("Pseudobulk matrix:", nrow(pseudobulk_counts), "genes x", ncol(pseudobulk_counts), "samples\n")
+  
+  # ----- Build sample metadata -----
+  col_data <- so_ct@meta.data %>%
+    dplyr::distinct(kit_id, .keep_all = TRUE) %>%
+    dplyr::select(kit_id, group) %>%
+    as.data.frame()
+  rownames(col_data) <- col_data$kit_id
+  
+  col_data$group <- factor(col_data$group)
+  col_data$group <- relevel(col_data$group, ref = "Lean_Control")
+  
+  # Match column order
+  pseudobulk_counts <- pseudobulk_counts[, rownames(col_data)]
+  
+  # ----- Filter low-expressed genes -----
+  keep <- rowSums(pseudobulk_counts >= 10) >= 2
+  pseudobulk_counts <- pseudobulk_counts[keep, ]
+  cat("Genes after filtering:", nrow(pseudobulk_counts), "\n")
+  
+  if (nrow(pseudobulk_counts) < 10) {
+    cat("Skipping - too few genes after filtering\n")
+    next
+  }
+  
+  # ----- DESeq2 -----
+  dds <- DESeqDataSetFromMatrix(
+    countData = pseudobulk_counts,
+    colData = col_data,
+    design = ~ group
+  )
+  
+  tryCatch({
+    dds <- DESeq(dds)
+    
+    res <- results(dds, contrast = c("group", "Type_2_Diabetes", "Lean_Control"))
+    
+    res_df <- as.data.frame(res) %>%
+      rownames_to_column("gene") %>%
+      mutate(
+        cell_type = ct,
+        sig = padj < 0.05 & !is.na(padj)
+      ) %>%
+      arrange(padj)
+    
+    deseq_results[[ct]] <- list(dds = dds, results = res_df)
+    all_results <- bind_rows(all_results, res_df)
+    
+    n_sig <- sum(res_df$sig, na.rm = TRUE)
+    n_up <- sum(res_df$sig & res_df$log2FoldChange > 0, na.rm = TRUE)
+    n_down <- sum(res_df$sig & res_df$log2FoldChange < 0, na.rm = TRUE)
+    cat("Significant (FDR<0.05):", n_sig, "| Up:", n_up, "| Down:", n_down, "\n")
+    
+  }, error = function(e) {
+    cat("DESeq2 error for", ct, ":", e$message, "\n")
+  })
+}
+
+# ----- 5. Save combined results -----
+write.csv(all_results, file.path(dir.results, "deseq2_biopsy_T2DvsLC_all_celltypes.csv"), 
+          row.names = FALSE)
+
+# ----- 6. Volcano plots (skip if not enough data to plot) -----
+for (ct in names(deseq_results)) {
+  
+  df <- deseq_results[[ct]]$results %>%
+    filter(!is.na(pvalue))
+  
+  # Skip if too few genes or no variation
+  if (nrow(df) < 5) {
+    cat("Skipping volcano for", ct, "- too few genes with p-values\n")
+    next
+  }
+  
+  df <- df %>%
+    mutate(
+      padj = ifelse(is.na(padj), 1, padj),
+      sig_label = case_when(
+        padj < 0.05 & log2FoldChange > 0.5 ~ "Up in T2D",
+        padj < 0.05 & log2FoldChange < -0.5 ~ "Down in T2D",
+        TRUE ~ "NS"
+      )
+    )
+  
+  # Skip if no significant genes to color
+  n_colored <- sum(df$sig_label != "NS")
+  
+  # Get top genes for labeling (only if there are significant ones)
+  top_genes <- data.frame()
+  if (n_colored > 0) {
+    top_up <- df %>% filter(sig_label == "Up in T2D") %>% arrange(padj) %>% head(10)
+    top_down <- df %>% filter(sig_label == "Down in T2D") %>% arrange(padj) %>% head(10)
+    top_genes <- bind_rows(top_up, top_down)
+  }
+  
+  tryCatch({
+    p <- ggplot(df, aes(x = log2FoldChange, y = -log10(pvalue), color = sig_label)) +
+      geom_point(size = 0.8, alpha = 0.6) +
+      scale_color_manual(values = c("Up in T2D" = "#990000",
+                                     "Down in T2D" = "#003366",
+                                     "NS" = "grey70")) +
+      geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey50", linewidth = 0.3) +
+      labs(title = paste("DESeq2 Pseudobulk:", ct, "— Biopsy"),
+           subtitle = paste0("T2D vs Lean Control | Up: ", 
+                             sum(df$sig_label == "Up in T2D"), 
+                             " | Down: ", sum(df$sig_label == "Down in T2D")),
+           x = "log2 Fold Change", y = "-log10(p-value)") +
+      theme_minimal() +
+      theme(legend.title = element_blank(),
+            plot.title = element_text(hjust = 0.5, face = "bold"),
+            plot.subtitle = element_text(hjust = 0.5))
+    
+    # Only add labels if there are genes to label
+    if (nrow(top_genes) > 0) {
+      p <- p + geom_text_repel(data = top_genes,
+                                aes(label = gene),
+                                size = 2.5,
+                                max.overlaps = 20,
+                                segment.size = 0.3,
+                                segment.alpha = 0.5,
+                                show.legend = FALSE)
+    }
+    
+    ct_clean <- gsub("[/ ]", "_", ct)
+    ggsave(file.path(dir.results, paste0("volcano_deseq2_biopsy_T2DvsLC_", ct_clean, ".pdf")),
+           p, width = 7, height = 5)
+    cat("Volcano saved for:", ct, "\n")
+    
+  }, error = function(e) {
+    cat("Volcano plot error for", ct, ":", e$message, "\n")
+  })
+}
+
+
+# ==============================================================
+# 7. GSEA — Reactome only
+# ==============================================================
+
+# ----- Load Reactome gene sets -----
+reactome <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  split(.$gs_name) %>%
+  lapply(function(x) x$gene_symbol)
+
+cat("\nReactome gene sets loaded:", length(reactome), "\n")
+
+# ----- GSEA plotting function -----
+plot_fgsea <- function(fgsea_res, title = "", xlimit = 5, top_n = 20) {
+  
+  sig_res <- fgsea_res %>%
+    filter(pval < 0.05) %>%
+    arrange(pval) %>%
+    head(top_n) %>%
+    mutate(
+      pathway_clean = gsub("^REACTOME_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = str_to_title(pathway_clean),
+      direction = ifelse(NES > 0, "Up in T2D", "Down in T2D")
+    )
+  
+  if (nrow(sig_res) == 0) return(NULL)
+  
+  ggplot(sig_res, aes(x = NES, y = reorder(pathway_clean, NES), fill = direction)) +
+    geom_col() +
+    scale_fill_manual(values = c("Up in T2D" = "#990000", "Down in T2D" = "#003366")) +
+    labs(title = title, x = "Normalized Enrichment Score (NES)", y = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 11),
+      axis.text.y = element_text(size = 8),
+      legend.position = "top"
+    ) +
+    xlim(-xlimit, xlimit)
+}
+
+# ----- Run GSEA per cell type -----
+all_gsea_results <- data.frame()
+
+for (ct in names(deseq_results)) {
+  
+  cat("\n=== GSEA Reactome for:", ct, "===\n")
+  
+  res_df <- deseq_results[[ct]]$results
+  
+  # Rank by Wald statistic (log2FC / lfcSE)
+  ranked_genes <- res_df %>%
+    filter(!is.na(stat)) %>%
+    dplyr::select(gene, stat) %>%
+    dplyr::distinct(gene, .keep_all = TRUE) %>%
+    deframe() %>%
+    sort(decreasing = TRUE)
+  
+  cat("Ranked genes:", length(ranked_genes), "\n")
+  
+  if (length(ranked_genes) < 50) {
+    cat("Skipping GSEA - too few ranked genes\n")
+    next
+  }
+  
+  ct_clean <- gsub("[/ ]", "_", ct)
+  
+  tryCatch({
+    fgsea_res <- fgsea(
+      pathways = reactome,
+      stats = ranked_genes,
+      minSize = 15,
+      maxSize = 500,
+      nPermSimple = 10000
+    )
+    
+    fgsea_df <- as.data.frame(fgsea_res) %>%
+      mutate(cell_type = ct, database = "Reactome") %>%
+      arrange(pval)
+    
+    fgsea_df$leadingEdge <- sapply(fgsea_df$leadingEdge, function(x) paste(x, collapse = ";"))
+    
+    all_gsea_results <- bind_rows(all_gsea_results, fgsea_df)
+    
+    n_sig <- sum(fgsea_df$pval < 0.05)
+    cat("Significant (p<0.05):", n_sig, "\n")
+    
+    # Save CSV
+    write.csv(fgsea_df, 
+              file.path(dir.gsea, paste0("GSEA_Reactome_", ct_clean, ".csv")),
+              row.names = FALSE)
+    
+    # Plot
+    if (n_sig > 0) {
+      max_nes <- ceiling(max(abs(fgsea_df$NES[fgsea_df$pval < 0.05]), na.rm = TRUE) + 0.5)
+      plot_height <- min(10, max(4, 3 + 0.3 * min(n_sig, 20)))
+      
+      p <- plot_fgsea(fgsea_df, 
+                      title = paste0(ct, " — Reactome (T2D vs LC, Biopsy DESeq2)"),
+                      xlimit = max_nes)
+      
+      if (!is.null(p)) {
+        ggsave(file.path(dir.gsea, paste0("GSEA_Reactome_", ct_clean, ".png")),
+               plot = p, width = 12, height = plot_height, dpi = 300)
+        cat("GSEA plot saved for:", ct, "\n")
+      }
+    }
+    
+  }, error = function(e) {
+    cat("GSEA error for", ct, ":", e$message, "\n")
+  })
+}
+
+# ----- Save all GSEA results -----
+write.csv(all_gsea_results, 
+          file.path(dir.gsea, "GSEA_Reactome_all_celltypes_biopsy.csv"),
+          row.names = FALSE)
+
+cat("\n=== DESeq2 + GSEA Reactome Biopsy Analysis Complete ===\n")
+
+```
+
 # 5. Comparative Analysis - Biopsy vs. Organoid
 ##a. Heatmap
 ```{r}
