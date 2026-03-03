@@ -198,12 +198,12 @@ temp_file <- tempfile(fileext = ".gmt")
 s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
 c8 <- GSA.read.gmt(temp_file)
 
-#Load formatted organoid data
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
-sc_org <- readRDS(temp_file)
+# #Load formatted organoid data
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+# sc_org <- readRDS(temp_file)
 
 # #Load cleaned organoid data
 # gc()
@@ -246,24 +246,24 @@ temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 harm_meta_data2 <- read.csv(temp_file)
 
-#Load SE Annotations
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/cluster_annotations_SE.csv", temp_file)
-se_annotations <- read.csv(temp_file)
-se_annotations <- se_annotations %>% 
-  janitor::clean_names()
-annot_key <- se_annotations %>% 
-  dplyr::select(c("cluster_number","putative_assignment")) %>% 
-  dplyr::rename(cell_type = putative_assignment) %>% 
-  mutate(cell_type=str_to_lower(str_replace_all(cell_type," ","_")))
+# #Load SE Annotations
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/cluster_annotations_SE.csv", temp_file)
+# se_annotations <- read.csv(temp_file)
+# se_annotations <- se_annotations %>% 
+#   janitor::clean_names()
+# annot_key <- se_annotations %>% 
+#   dplyr::select(c("cluster_number","putative_assignment")) %>% 
+#   dplyr::rename(cell_type = putative_assignment) %>% 
+#   mutate(cell_type=str_to_lower(str_replace_all(cell_type," ","_")))
 
-# Download Reactome GMT
-temp_file <- tempfile(fileext = ".gmt")
-s3$download_file("gsea", "gmt_files/c2.cp.reactome.v2024.1.Hs.symbols.gmt", temp_file)
-reactome_sets <- gmtPathways(temp_file)
-cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
+# # Download Reactome GMT
+# temp_file <- tempfile(fileext = ".gmt")
+# s3$download_file("gsea", "gmt_files/c2.cp.reactome.v2024.1.Hs.symbols.gmt", temp_file)
+# reactome_sets <- gmtPathways(temp_file)
+# cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
 
 # Output directory
 dir.gsea <- "/home/hhampson/Results/GSEA_T2DvsLC_Reactome"
@@ -5572,6 +5572,578 @@ dev.off()
 cat("\n=== PDF Complete ===\n")
 
 ```
+
+## d. Pseudobulk Analysis - Organoid
+###1. T2D vs. LC, Adj. for treatment
+```{r}
+# ============================================================
+# Seurat → DESeq2 Pseudobulk Pipeline
+# Organoids: T2D vs LC, adjusting for treatment (15mM vs 30mM)
+# ============================================================
+# ----- 1. Quick checks and set reference levels -----
+table(so_combined$group, so_combined$treatment)
+table(so_combined$cell_type)
+
+so_combined$group <- factor(so_combined$group, levels = c("Lean Control", "Type 2 Diabetes"))
+so_combined$treatment <- factor(so_combined$treatment, levels = c("15", "30"))
+
+# ----- 2. Pseudobulk aggregation (by record_id + treatment) -----
+pseudobulk_by_celltype <- function(seurat_obj, cell_type_col = "cell_type") {
+  
+  counts <- GetAssayData(seurat_obj, layer = "counts", assay = "RNA")
+  meta <- seurat_obj@meta.data
+  
+  # Composite sample ID so each participant x treatment is a separate column
+  meta$sample_id <- paste(meta$record_id, meta$treatment, sep = "_")
+  meta$pb_treatment <- paste(meta[[cell_type_col]], meta$sample_id, sep = "__")
+  
+  pb_list <- list()
+  for (grp in unique(meta$pb_treatment)) {
+    cells <- rownames(meta)[meta$pb_treatment == grp]
+    if (length(cells) > 1) {
+      pb_list[[grp]] <- Matrix::rowSums(counts[, cells])
+    } else {
+      pb_list[[grp]] <- counts[, cells]
+    }
+  }
+  
+  pb_matrix <- do.call(cbind, pb_list)
+  colnames(pb_matrix) <- names(pb_list)
+  return(pb_matrix)
+}
+
+pb_counts <- pseudobulk_by_celltype(so_combined)
+
+# ----- 3. Build sample-level metadata -----
+check <- so_combined@meta.data %>%
+  mutate(sample_id = paste(record_id, treatment, sep = "_")) %>%
+  distinct(sample_id) %>%
+  nrow()
+
+so_combined@meta.data %>%
+  mutate(sample_id = paste(record_id, treatment, sep = "_")) %>%
+  distinct(sample_id, record_id, group, treatment) %>%
+  print(n = 20)
+
+
+sample_meta <- so_combined@meta.data %>%
+  mutate(sample_id = paste(record_id, treatment, sep = "_")) %>%
+  distinct(sample_id, record_id, group, treatment)
+
+sample_meta$group <- factor(sample_meta$group, levels = c("Lean Control", "Type 2 Diabetes"))
+sample_meta$treatment <- factor(sample_meta$treatment, levels = c("15", "30"))
+
+rownames(sample_meta) <- NULL
+sample_meta <- column_to_rownames(sample_meta, "sample_id")
+
+# Verify
+print(sample_meta)
+
+# ----- 4. Run DESeq2 per cell type -----
+cell_types <- unique(so_combined$cell_type)
+deseq_results <- list()
+
+for (ct in cell_types) {
+  
+  # Extract columns for this cell type
+  ct_cols <- grep(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"),
+                  colnames(pb_counts), value = TRUE)
+  
+  if (length(ct_cols) < 2) {
+    cat("  Skipping — not enough samples\n")
+    next
+  }
+  
+  ct_counts <- pb_counts[, ct_cols]
+  
+  # Extract composite sample IDs from column names
+  sample_ids <- gsub(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"), 
+                     "", colnames(ct_counts))
+  colnames(ct_counts) <- sample_ids
+  
+  # Match metadata
+  ct_meta <- sample_meta[sample_ids, , drop = FALSE]
+  
+  # Check we have both groups represented
+  if (length(unique(ct_meta$group)) < 2) {
+    cat("  Skipping — only one group present\n")
+    next
+  }
+  
+  # Filter low-count genes
+  min_samples <- ceiling(ncol(ct_counts) * 0.25)
+  keep <- rowSums(ct_counts >= 10) >= min_samples
+  ct_counts <- ct_counts[keep, ]
+  
+  cat("  Samples:", ncol(ct_counts), "\n")
+  cat("  Genes after filtering:", nrow(ct_counts), "\n")
+  
+  if (nrow(ct_counts) < 100) {
+    cat("  Skipping — too few genes passed filtering\n")
+    next
+  }
+  
+  # Create DESeq2 object
+  dds <- DESeqDataSetFromMatrix(
+    countData = round(ct_counts),
+    colData = ct_meta,
+    design = ~ treatment + group
+  )
+  
+  # Run DESeq2
+  tryCatch({
+    dds <- DESeq(dds)
+    
+    # Extract results: T2D vs LC
+    res <- results(dds, 
+                   contrast = c("group", "Type 2 Diabetes", "Lean Control"),
+                   alpha = 0.05)
+    
+    res_df <- as.data.frame(res) %>%
+      rownames_to_column("gene") %>%
+      arrange(pvalue) %>%
+      mutate(cell_type = ct)
+    
+    deseq_results[[ct]] <- list(
+      dds = dds,
+      results = res_df
+    )
+    
+    cat("  Sig genes (padj < 0.05):", sum(res_df$padj < 0.05, na.rm = TRUE), "\n")
+    cat("  Up in T2D:", sum(res_df$padj < 0.05 & res_df$log2FoldChange > 0, na.rm = TRUE), "\n")
+    cat("  Down in T2D:", sum(res_df$padj < 0.05 & res_df$log2FoldChange < 0, na.rm = TRUE), "\n")
+    
+  }, error = function(e) {
+    cat("  ERROR:", e$message, "\n")
+  })
+}
+
+# ----- 5. Combine all results -----
+all_results <- bind_rows(lapply(deseq_results, function(x) x$results))
+
+# ----- 6. Save -----
+write.csv(all_results, "deseq2_organoid_T2DvsLC_all_celltypes.csv", row.names = FALSE)
+saveRDS(deseq_results, "deseq2_organoid_results_list.rds")
+
+# ----- 7. Volcano plots per cell type -----
+# ----- 7. Volcano plots per cell type (with top gene labels) -----
+library(ggrepel)
+
+for (ct in names(deseq_results)) {
+  
+  df <- deseq_results[[ct]]$results %>%
+    mutate(sig = case_when(
+      padj < 0.05 & log2FoldChange > 0.5 ~ "Up in T2D",
+      padj < 0.05 & log2FoldChange < -0.5 ~ "Down in T2D",
+      TRUE ~ "NS"
+    ))
+  
+  # Top 10 significant upregulated
+  top_up <- df %>%
+    filter(sig == "Up in T2D") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  # Top 10 significant downregulated
+  top_down <- df %>%
+    filter(sig == "Down in T2D") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  top_genes <- bind_rows(top_up, top_down)
+  
+  p <- ggplot(df, aes(x = log2FoldChange, y = -log10(pvalue), color = sig)) +
+    geom_point(size = 0.8, alpha = 0.6) +
+    geom_text_repel(data = top_genes,
+                    aes(label = gene),
+                    size = 2.5,
+                    max.overlaps = 20,
+                    segment.size = 0.3,
+                    segment.alpha = 0.5,
+                    show.legend = FALSE) +
+    scale_color_manual(values = c("Up in T2D" = "#990000",
+                                   "Down in T2D" = "#003366",
+                                   "NS" = "grey70")) +
+    labs(title = paste("DESeq2:", ct, "— T2D vs LC"),
+         subtitle = "Organoids | Adjusted for treatment (15mM/30mM)",
+         x = "log2 Fold Change", y = "-log10(p-value)") +
+    theme_minimal() +
+    theme(legend.title = element_blank())
+  
+  ggsave(paste0("volcano_deseq2_", gsub(" ", "_", ct), ".pdf"),
+         p, width = 7, height = 5)
+}
+
+```
+
+###2. T2D vs. LC, Effect Modification with treatment
+```{r}
+# ============================================================
+# Seurat → DESeq2 Pseudobulk Pipeline
+# Organoids: Interaction between group (T2D/LC) and treatment (30mM/15mM)
+# ============================================================
+# ----- 1. Quick checks and set reference levels -----
+table(so_combined$group, so_combined$treatment)
+table(so_combined$cell_type)
+
+so_combined$group <- factor(so_combined$group, levels = c("Lean Control", "Type 2 Diabetes"))
+so_combined$treatment <- factor(so_combined$treatment, levels = c("15", "30"))
+
+# ----- 2. Pseudobulk aggregation (by record_id + treatment) -----
+pseudobulk_by_celltype <- function(seurat_obj, cell_type_col = "cell_type") {
+  
+  counts <- GetAssayData(seurat_obj, layer = "counts", assay = "RNA")
+  meta <- seurat_obj@meta.data
+  
+  meta$sample_id <- paste(meta$record_id, meta$treatment, sep = "_")
+  meta$pb_treatment <- paste(meta[[cell_type_col]], meta$sample_id, sep = "__")
+  
+  pb_list <- list()
+  for (grp in unique(meta$pb_treatment)) {
+    cells <- rownames(meta)[meta$pb_treatment == grp]
+    if (length(cells) > 1) {
+      pb_list[[grp]] <- Matrix::rowSums(counts[, cells])
+    } else {
+      pb_list[[grp]] <- counts[, cells]
+    }
+  }
+  
+  pb_matrix <- do.call(cbind, pb_list)
+  colnames(pb_matrix) <- names(pb_list)
+  return(pb_matrix)
+}
+
+pb_counts <- pseudobulk_by_celltype(so_combined)
+
+# ----- 3. Build sample-level metadata -----
+sample_meta <- so_combined@meta.data %>%
+  mutate(sample_id = paste(record_id, treatment, sep = "_")) %>%
+  distinct(sample_id, record_id, group, treatment)
+
+sample_meta$group <- factor(sample_meta$group, levels = c("Lean Control", "Type 2 Diabetes"))
+sample_meta$treatment <- factor(sample_meta$treatment, levels = c("15", "30"))
+
+rownames(sample_meta) <- NULL
+sample_meta <- column_to_rownames(sample_meta, "sample_id")
+
+print(sample_meta)
+
+# ----- 4. Run DESeq2 per cell type -----
+cell_types <- unique(so_combined$cell_type)
+deseq_results_int <- list()
+
+for (ct in cell_types) {
+  
+  cat("\n========================================\n")
+  cat("Processing:", ct, "\n")
+  cat("========================================\n")
+  
+  ct_cols <- grep(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"),
+                  colnames(pb_counts), value = TRUE)
+  
+  if (length(ct_cols) < 2) {
+    cat("  Skipping — not enough samples\n")
+    next
+  }
+  
+  ct_counts <- pb_counts[, ct_cols]
+  
+  sample_ids <- gsub(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"), 
+                     "", colnames(ct_counts))
+  colnames(ct_counts) <- sample_ids
+  
+  ct_meta <- sample_meta[sample_ids, , drop = FALSE]
+  
+  # Need both groups AND both treatments
+  if (length(unique(ct_meta$group)) < 2 | length(unique(ct_meta$treatment)) < 2) {
+    cat("  Skipping — need both groups and both treatments for interaction\n")
+    next
+  }
+  
+  min_samples <- ceiling(ncol(ct_counts) * 0.25)
+  keep <- rowSums(ct_counts >= 10) >= min_samples
+  ct_counts <- ct_counts[keep, ]
+  
+  cat("  Samples:", ncol(ct_counts), "\n")
+  cat("  Genes after filtering:", nrow(ct_counts), "\n")
+  
+  if (nrow(ct_counts) < 100) {
+    cat("  Skipping — too few genes passed filtering\n")
+    next
+  }
+  
+  # Design with interaction term
+  dds <- DESeqDataSetFromMatrix(
+    countData = round(ct_counts),
+    colData = ct_meta,
+    design = ~ group + treatment + group:treatment
+  )
+  
+  tryCatch({
+    dds <- DESeq(dds)
+    
+    # Check what coefficients are available
+    cat("  Coefficients:", resultsNames(dds), "\n")
+    
+    # Extract the interaction term
+    # This is: (T2D 30mM vs T2D 15mM) - (LC 30mM vs LC 15mM)
+    # i.e., does the treatment effect differ between T2D and LC?
+    res <- results(dds, 
+                   name = "groupType.2.Diabetes.treatment30",
+                   alpha = 0.05)
+    
+    res_df <- as.data.frame(res) %>%
+      rownames_to_column("gene") %>%
+      arrange(pvalue) %>%
+      mutate(cell_type = ct)
+    
+    deseq_results_int[[ct]] <- list(
+      dds = dds,
+      results = res_df
+    )
+    
+    cat("  Sig genes (padj < 0.05):", sum(res_df$padj < 0.05, na.rm = TRUE), "\n")
+    cat("  Positive interaction:", sum(res_df$padj < 0.05 & res_df$log2FoldChange > 0, na.rm = TRUE), "\n")
+    cat("  Negative interaction:", sum(res_df$padj < 0.05 & res_df$log2FoldChange < 0, na.rm = TRUE), "\n")
+    
+  }, error = function(e) {
+    cat("  ERROR:", e$message, "\n")
+    # If the auto-generated name doesn't match, try to find it
+    cat("  Available names:", resultsNames(dds), "\n")
+  })
+}
+
+# ----- 5. Combine all results -----
+all_results_int <- bind_rows(lapply(deseq_results_int, function(x) x$results))
+
+# ----- 6. Save -----
+write.csv(all_results_int, "deseq2_organoid_interaction_all_celltypes.csv", row.names = FALSE)
+saveRDS(deseq_results_int, "deseq2_organoid_interaction_results_list.rds")
+
+# ----- 7. Volcano plots — interaction term only -----
+library(ggrepel)
+
+for (ct in names(deseq_results_int)) {
+  
+  df <- deseq_results_int[[ct]]$results %>%
+    mutate(sig = case_when(
+      padj < 0.05 & log2FoldChange > 0.5 ~ "T2D responds more to 30mM",
+      padj < 0.05 & log2FoldChange < -0.5 ~ "LC responds more to 30mM",
+      TRUE ~ "NS"
+    ))
+  
+  top_up <- df %>%
+    filter(sig == "T2D responds more to 30mM") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  top_down <- df %>%
+    filter(sig == "LC responds more to 30mM") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  top_genes <- bind_rows(top_up, top_down)
+  
+  p <- ggplot(df, aes(x = log2FoldChange, y = -log10(pvalue), color = sig)) +
+    geom_point(size = 0.8, alpha = 0.6) +
+    geom_text_repel(data = top_genes,
+                    aes(label = gene),
+                    size = 2.5,
+                    max.overlaps = 20,
+                    segment.size = 0.3,
+                    segment.alpha = 0.5,
+                    show.legend = FALSE) +
+    scale_color_manual(values = c("T2D responds more to 30mM" = "#990000",
+                                   "LC responds more to 30mM" = "#003366",
+                                   "NS" = "grey70")) +
+    labs(title = paste("DESeq2 Interaction:", ct),
+         subtitle = "Group × Treatment | (T2D 30→15) vs (LC 30→15)",
+         x = "log2 Fold Change (Interaction)", y = "-log10(p-value)") +
+    theme_minimal() +
+    theme(legend.title = element_blank())
+  
+  ggsave(paste0("volcano_deseq2_interaction_", gsub(" ", "_", ct), ".pdf"),
+         p, width = 7, height = 5)
+}
+```
+
+###3. Treatment, Adj. for group
+```{r}
+###2. 30mM vs. 15mM, Adj. for group
+# ============================================================
+# Seurat → DESeq2 Pseudobulk Pipeline
+# Organoids: 30mM vs 15mM, adjusting for group (T2D vs LC)
+# ============================================================
+# ----- 1. Quick checks and set reference levels -----
+table(so_combined$group, so_combined$treatment)
+table(so_combined$cell_type)
+
+so_combined$group <- factor(so_combined$group, levels = c("Lean Control", "Type 2 Diabetes"))
+so_combined$treatment <- factor(so_combined$treatment, levels = c("15", "30"))
+
+# ----- 2. Pseudobulk aggregation (by record_id + treatment) -----
+pseudobulk_by_celltype <- function(seurat_obj, cell_type_col = "cell_type") {
+  
+  counts <- GetAssayData(seurat_obj, layer = "counts", assay = "RNA")
+  meta <- seurat_obj@meta.data
+  
+  meta$sample_id <- paste(meta$record_id, meta$treatment, sep = "_")
+  meta$pb_treatment <- paste(meta[[cell_type_col]], meta$sample_id, sep = "__")
+  
+  pb_list <- list()
+  for (grp in unique(meta$pb_treatment)) {
+    cells <- rownames(meta)[meta$pb_treatment == grp]
+    if (length(cells) > 1) {
+      pb_list[[grp]] <- Matrix::rowSums(counts[, cells])
+    } else {
+      pb_list[[grp]] <- counts[, cells]
+    }
+  }
+  
+  pb_matrix <- do.call(cbind, pb_list)
+  colnames(pb_matrix) <- names(pb_list)
+  return(pb_matrix)
+}
+
+pb_counts <- pseudobulk_by_celltype(so_combined)
+
+# ----- 3. Build sample-level metadata -----
+sample_meta <- so_combined@meta.data %>%
+  mutate(sample_id = paste(record_id, treatment, sep = "_")) %>%
+  distinct(sample_id, record_id, group, treatment)
+
+sample_meta$group <- factor(sample_meta$group, levels = c("Lean Control", "Type 2 Diabetes"))
+sample_meta$treatment <- factor(sample_meta$treatment, levels = c("15", "30"))
+
+rownames(sample_meta) <- NULL
+sample_meta <- column_to_rownames(sample_meta, "sample_id")
+
+print(sample_meta)
+
+# ----- 4. Run DESeq2 per cell type -----
+cell_types <- unique(so_combined$cell_type)
+deseq_results_trt <- list()
+
+for (ct in cell_types) {
+  
+  ct_cols <- grep(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"),
+                  colnames(pb_counts), value = TRUE)
+  
+  if (length(ct_cols) < 2) {
+    cat("  Skipping — not enough samples\n")
+    next
+  }
+  
+  ct_counts <- pb_counts[, ct_cols]
+  
+  sample_ids <- gsub(paste0("^", gsub("([.+*?^${}()|\\[\\]])", "\\\\\\1", ct), "__"), 
+                     "", colnames(ct_counts))
+  colnames(ct_counts) <- sample_ids
+  
+  ct_meta <- sample_meta[sample_ids, , drop = FALSE]
+  
+  if (length(unique(ct_meta$treatment)) < 2) {
+    cat("  Skipping — only one treatment present\n")
+    next
+  }
+  
+  min_samples <- ceiling(ncol(ct_counts) * 0.25)
+  keep <- rowSums(ct_counts >= 10) >= min_samples
+  ct_counts <- ct_counts[keep, ]
+  
+  cat("  Samples:", ncol(ct_counts), "\n")
+  cat("  Genes after filtering:", nrow(ct_counts), "\n")
+  
+  if (nrow(ct_counts) < 100) {
+    cat("  Skipping — too few genes passed filtering\n")
+    next
+  }
+  
+  # Design: adjust for group, test treatment
+  dds <- DESeqDataSetFromMatrix(
+    countData = round(ct_counts),
+    colData = ct_meta,
+    design = ~ group + treatment
+  )
+  
+  tryCatch({
+    dds <- DESeq(dds)
+    
+    # Extract results: 30mM vs 15mM
+    res <- results(dds, 
+                   contrast = c("treatment", "30", "15"),
+                   alpha = 0.05)
+    
+    res_df <- as.data.frame(res) %>%
+      rownames_to_column("gene") %>%
+      arrange(pvalue) %>%
+      mutate(cell_type = ct)
+    
+    deseq_results_trt[[ct]] <- list(
+      dds = dds,
+      results = res_df
+    )
+    
+    cat("  Sig genes (padj < 0.05):", sum(res_df$padj < 0.05, na.rm = TRUE), "\n")
+    cat("  Up in 30mM:", sum(res_df$padj < 0.05 & res_df$log2FoldChange > 0, na.rm = TRUE), "\n")
+    cat("  Down in 30mM:", sum(res_df$padj < 0.05 & res_df$log2FoldChange < 0, na.rm = TRUE), "\n")
+    
+  }, error = function(e) {
+    cat("  ERROR:", e$message, "\n")
+  })
+}
+
+# ----- 5. Combine all results -----
+all_results_trt <- bind_rows(lapply(deseq_results_trt, function(x) x$results))
+
+# ----- 6. Save -----
+write.csv(all_results_trt, "deseq2_organoid_30vs15_all_celltypes.csv", row.names = FALSE)
+
+# ----- 7. Volcano plots per cell type -----
+for (ct in names(deseq_results_trt)) {
+  
+  df <- deseq_results_trt[[ct]]$results %>%
+    mutate(sig = case_when(
+      padj < 0.05 & log2FoldChange > 0.5 ~ "Up in 30mM",
+      padj < 0.05 & log2FoldChange < -0.5 ~ "Down in 30mM",
+      TRUE ~ "NS"
+    ))
+  
+  top_up <- df %>%
+    filter(sig == "Up in 30mM") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  top_down <- df %>%
+    filter(sig == "Down in 30mM") %>%
+    arrange(padj) %>%
+    head(10)
+  
+  top_genes <- bind_rows(top_up, top_down)
+  
+  p <- ggplot(df, aes(x = log2FoldChange, y = -log10(pvalue), color = sig)) +
+    geom_point(size = 0.8, alpha = 0.6) +
+    geom_text_repel(data = top_genes,
+                    aes(label = gene),
+                    size = 2.5,
+                    max.overlaps = 20,
+                    segment.size = 0.3,
+                    segment.alpha = 0.5,
+                    show.legend = FALSE) +
+    scale_color_manual(values = c("Up in 30mM" = "#990000",
+                                   "Down in 30mM" = "#003366",
+                                   "NS" = "grey70")) +
+    labs(title = paste("DESeq2:", ct, "— 30mM vs 15mM"),
+         subtitle = "Organoids | Adjusted for group (T2D/LC)",
+         x = "log2 Fold Change", y = "-log10(p-value)") +
+    theme_minimal() +
+    theme(legend.title = element_blank())
+  
+  ggsave(paste0("volcano_deseq2_trt_", gsub(" ", "_", ct), ".pdf"),
+         p, width = 7, height = 5)
+}
+```
+
 
 #4. Biopsy Analysis
 ## a. Visualize
