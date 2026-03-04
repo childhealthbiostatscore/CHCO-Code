@@ -6268,115 +6268,8 @@ for (ct in names(deseq_results_int)) {
          p, width = 7, height = 5)
 }
 ```
+
 ```{r}
-# For RNA-seq: start with raw counts
-dge <- DGEList(counts = count_matrix, group = group_factor)
-dge <- calcNormFactors(dge)  # TMM normalization
-logcpm <- cpm(dge, log = TRUE, prior.count = 1)  # voom alternative
-
-# Extract raw counts
-counts <- GetAssayData(so_combined, assay = "RNA", layer = "counts")
-
-# Extract metadata
-meta <- so_combined@meta.data
-
-# Aggregate by sample + cell type (adjust grouping vars to your column names)
-pseudo <- AggregateExpression(
-  so_combined,
-  assays = "RNA",
-  return.seurat = TRUE,
-  group.by = c("record_id", "cell_type_abbrev")  # adjust to your metadata columns
-)
-
-# Extract pseudobulk counts
-pb_counts <- GetAssayData(pseudo, assay = "RNA", layer = "counts")
-
-# Extract one row per sample from original metadata
-sample_meta <- so_combined@meta.data %>%
-  dplyr::distinct(record_id, .keep_all = TRUE) %>%
-  dplyr::select(record_id, group, treatment)  # keep your key variables
-
-# Match to pseudobulk column order
-# pseudobulk cols are named like "record_id_celltype"
-# You may need to parse them:
-sample_ids <- sub("_.*", "", colnames(pb_counts))  # extract record_id prefix
-sample_meta_aligned <- sample_meta[match(sample_ids, sample_meta$record_id), ]
-
-dge <- DGEList(counts = pb_counts)
-dge <- calcNormFactors(dge, method = "TMM")
-
-keep <- filterByExpr(dge, group = sample_meta_aligned$group)
-dge <- dge[keep, , keep.lib.sizes = FALSE]
-
-group     <- factor(sample_meta_aligned$group)
-treatment <- factor(sample_meta_aligned$treatment)
-
-# Option A: additive model (group effect, controlling for treatment)
-design <- model.matrix(~ treatment + group)
-
-# Option B: interaction model (if you want group × treatment effect)
-# design <- model.matrix(~ treatment * group)
-
-v    <- voom(dge, design, plot = TRUE)
-fit  <- lmFit(v, design)
-fit2 <- eBayes(fit) 
-
-# For the group coefficient (last coef by default with reference coding)
-results <- topTable(fit2, coef = "groupType 2 Diabetes", number = Inf, adjust.method = "BH")
-
-# Significant DEGs
-sig <- dplyr::filter(results, adj.P.Val < 0.05, abs(logFC) > 1)
-nrow(sig)
-
-# Add significance and direction labels
-results <- results %>%
-  dplyr::mutate(
-    gene = rownames(.),
-    sig  = dplyr::case_when(
-      adj.P.Val < 0.05 & logFC >  1 ~ "Up in T2D",
-      adj.P.Val < 0.05 & logFC < -1 ~ "Down in T2D",
-      TRUE                           ~ "NS"
-    )
-  )
-
-# Top genes to label
-top_genes <- results %>%
-  dplyr::filter(sig != "NS") %>%
-  dplyr::arrange(adj.P.Val) %>%
-  dplyr::slice_head(n = 20)
-
-# Plot
-ggplot(results, aes(x = logFC, y = -log10(adj.P.Val), color = sig)) +
-  geom_point(alpha = 0.6, size = 1.5) +
-  geom_label_repel(
-    data        = top_genes,
-    aes(label   = gene),
-    size        = 3,
-    max.overlaps = 20,
-    show.legend = FALSE
-  ) +
-  scale_color_manual(
-    values = c(
-      "Up in T2D"   = "#990000",
-      "Down in T2D" = "#003366",
-      "NS"          = "grey70"
-    )
-  ) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey40") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey40") +
-  labs(
-    title    = "T2D vs Lean Control",
-    subtitle = "limma-voom | adj.P.Val < 0.05, |logFC| > 1",
-    x        = "log2 Fold Change",
-    y        = "-log10(adjusted p-value)",
-    color    = NULL
-  ) +
-  theme_bw(base_size = 13) +
-  theme(
-    legend.position = "top",
-    plot.title      = element_text(face = "bold")
-  )
-
 library(Seurat)
 library(limma)
 library(edgeR)
@@ -6390,6 +6283,7 @@ cell_types <- unique(so_combined@meta.data$cell_type_abbrev)
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 results_list <- list()
+emm_list     <- list()
 volcano_list <- list()
 
 # ── Loop ──────────────────────────────────────────────────────────────────────
@@ -6403,14 +6297,13 @@ for (ct in cell_types) {
   # ── 2. Pseudobulk aggregation ──────────────────────────────────────────────
   pseudo <- AggregateExpression(
     so_sub,
-    assays       = "RNA",
+    assays        = "RNA",
     return.seurat = TRUE,
-    group.by     = c("record_id", "cell_type_abbrev")
+    group.by      = c("record_id", "cell_type_abbrev")
   )
   
   pb_counts <- GetAssayData(pseudo, assay = "RNA", layer = "counts")
   
-  # skip if too few samples
   if (ncol(pb_counts) < 4) {
     message("  Skipping ", ct, " — too few pseudobulk samples (n=", ncol(pb_counts), ")")
     next
@@ -6425,7 +6318,6 @@ for (ct in cell_types) {
   
   sample_meta_aligned <- sample_meta[match(sample_ids, sample_meta$record_id), ]
   
-  # skip if metadata misaligned
   if (any(is.na(sample_meta_aligned$group))) {
     message("  Skipping ", ct, " — metadata alignment failed")
     next
@@ -6435,127 +6327,208 @@ for (ct in cell_types) {
   group     <- relevel(factor(sample_meta_aligned$group),     ref = "Lean Control")
   treatment <- relevel(factor(sample_meta_aligned$treatment), ref = "15")
   
-# ── ADD THIS CHECK ─────────────────────────────────────────────────────────
-if (nlevels(group) < 2) {
-  message("  Skipping ", ct, " — only 1 level in group: ", paste(levels(group), collapse = ", "))
-  next
-}
-
-if (nlevels(treatment) < 2) {
-  message("  Skipping ", ct, " — only 1 level in treatment: ", paste(levels(treatment), collapse = ", "))
-  next
-}
+  if (nlevels(group) < 2) {
+    message("  Skipping ", ct, " — only 1 level in group: ", paste(levels(group), collapse = ", "))
+    next
+  }
+  if (nlevels(treatment) < 2) {
+    message("  Skipping ", ct, " — only 1 level in treatment: ", paste(levels(treatment), collapse = ", "))
+    next
+  }
+  
   # ── 5. TMM normalization + filter ─────────────────────────────────────────
   dge  <- DGEList(counts = pb_counts)
   dge  <- calcNormFactors(dge, method = "TMM")
   keep <- filterByExpr(dge, group = group)
   dge  <- dge[keep, , keep.lib.sizes = FALSE]
   
-  # skip if too few genes remain
   if (nrow(dge) < 10) {
     message("  Skipping ", ct, " — too few genes after filtering (n=", nrow(dge), ")")
     next
   }
   
-  # ── 6. Design + voom + fit ────────────────────────────────────────────────
-  design <- model.matrix(~ treatment + group)
+  # ── 6. Interaction design + voom + fit ────────────────────────────────────
+  # ~ 0 + group:treatment gives one coefficient per group×treatment combination
+  # making EMM extraction straightforward
+  design <- model.matrix(~ 0 + group:treatment)
+  
+  # clean up colnames: "groupLean Control:treatment15" → "LC_15" etc.
+  # colnames(design) <- colnames(design) %>%
+  #   gsub("group", "", .) %>%
+  #   gsub("treatment", "", .) %>%
+  #   gsub("Lean Control:", "LC_", .) %>%
+  #   gsub("Type 2 Diabetes:", "T2D_", .) %>%
+  #   gsub(" ", "", .)
+  
+  # check all columns have variance (drop zero-variance columns)
+  design <- design[, colSums(design) > 0, drop = FALSE]
+  
+  if (ncol(design) < 2) {
+    message("  Skipping ", ct, " — not enough design columns after cleaning")
+    next
+  }
   
   v    <- voom(dge, design, plot = FALSE)
   fit  <- lmFit(v, design)
-  fit2 <- eBayes(fit)
   
-  # ── 7. Extract results ────────────────────────────────────────────────────
-  # get exact coef name for group
-  group_coef <- grep("^group", colnames(fit2$coefficients), value = TRUE)
+  # ── 7. Contrasts: interaction term = (T2D_30 - T2D_15) - (LC_30 - LC_15) ──
+  # First check which group×treatment combos exist in this cell type
+  available_cols <- colnames(design)
+  message("  Design columns: ", paste(available_cols, collapse = ", "))
   
-  res <- topTable(fit2, coef = group_coef, number = Inf, adjust.method = "BH") %>%
-    dplyr::mutate(
-      gene      = rownames(.),
-      cell_type = ct,
-      sig       = dplyr::case_when(
-        adj.P.Val < 0.05 & logFC >  1 ~ "Up in T2D",
-        adj.P.Val < 0.05 & logFC < -1 ~ "Down in T2D",
-        TRUE                           ~ "NS"
-      )
+  # Build contrast only if all 4 groups present
+  if (all(c("LC_15", "LC_30", "T2D_15", "T2D_30") %in% available_cols)) {
+    
+    contrast_mat <- makeContrasts(
+      # Main effect: T2D vs LC at baseline (15mM)
+      T2D_vs_LC_baseline  = T2D_15 - LC_15,
+      # Main effect: T2D vs LC at high glucose (30mM)
+      T2D_vs_LC_highgluc  = T2D_30 - LC_30,
+      # Interaction: does the T2D vs LC difference change with glucose treatment?
+      Interaction         = (T2D_30 - T2D_15) - (LC_30 - LC_15),
+      levels = design
     )
-  
-  results_list[[ct]] <- res
-  
-  # ── 8. Volcano plot ───────────────────────────────────────────────────────
-  top_genes <- res %>%
-    dplyr::filter(sig != "NS") %>%
-    dplyr::arrange(adj.P.Val) %>%
-    dplyr::slice_head(n = 20)
-  
-  # if no sig genes, label by p-value instead
-  if (nrow(top_genes) == 0) {
-    top_genes <- res %>%
-      dplyr::arrange(P.Value) %>%
-      dplyr::slice_head(n = 10)
+    
+  } else {
+    # Fall back to whatever groups are available
+    message("  Warning: not all 4 group×treatment combos present, fitting available contrast")
+    # build a simple T2D vs LC contrast from whatever is available
+    t2d_col <- grep("T2D", available_cols, value = TRUE)[1]
+    lc_col  <- grep("LC",  available_cols, value = TRUE)[1]
+    contrast_expr <- setNames(c(1, -1), c(t2d_col, lc_col))
+    contrast_mat  <- makeContrasts(contrasts = paste0(t2d_col, " - ", lc_col), levels = design)
   }
   
-  n_up   <- sum(res$sig == "Up in T2D")
-  n_down <- sum(res$sig == "Down in T2D")
+  fit2 <- contrasts.fit(fit, contrast_mat)
+  fit2 <- eBayes(fit2)
   
-  p <- ggplot(res, aes(x = logFC, y = -log10(adj.P.Val), color = sig)) +
-    geom_point(alpha = 0.6, size = 1.5) +
-    geom_label_repel(
-      data         = top_genes,
-      aes(label    = gene),
-      size         = 2.8,
-      max.overlaps = 20,
-      show.legend  = FALSE
-    ) +
-    scale_color_manual(
-      values = c(
-        "Up in T2D"   = "#990000",
-        "Down in T2D" = "#003366",
-        "NS"          = "grey70"
+  # ── 8. Extract DE results for each contrast ────────────────────────────────
+  contrast_names <- colnames(contrast_mat)
+  
+  for (cname in contrast_names) {
+    res <- topTable(fit2, coef = cname, number = Inf, adjust.method = "BH") %>%
+      dplyr::mutate(
+        gene      = rownames(.),
+        cell_type = ct,
+        contrast  = cname,
+        sig       = dplyr::case_when(
+          adj.P.Val < 0.05 & logFC >  1 ~ "Up in T2D",
+          adj.P.Val < 0.05 & logFC < -1 ~ "Down in T2D",
+          TRUE                           ~ "NS"
+        )
       )
-    ) +
-    geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey40") +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey40") +
-    annotate("text", x = Inf,  y = Inf, hjust = 1.1, vjust = 1.5,
-             label = paste0("Up: ", n_up),   color = "#990000", size = 3.5) +
-    annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.5,
-             label = paste0("Down: ", n_down), color = "#003366", size = 3.5) +
-    labs(
-      title = ct,
-      x     = "log2 Fold Change (T2D vs Lean Control)",
-      y     = "-log10(adjusted p-value)",
-      color = NULL
-    ) +
-    theme_bw(base_size = 11) +
-    theme(
-      legend.position = "top",
-      plot.title      = element_text(face = "bold")
+    results_list[[paste0(ct, "_", cname)]] <- res
+    
+    write.csv(res,
+              file = paste0("/home/hhampson/Results/limma_interaction_", ct, "_", cname, ".csv"),
+              row.names = FALSE)
+  }
+  
+  # ── 9. Estimated marginal means per group×treatment ────────────────────────
+  # EMMs = fitted values from the ~ 0 + group:treatment model
+  # = the model-estimated mean log-CPM for each group×treatment cell
+  # fit$coefficients columns ARE the EMMs directly (because ~ 0 + full factorial)
+  
+  emm_df <- as.data.frame(t(fit$coefficients)) %>%   # genes as columns, groups as rows
+    tibble::rownames_to_column("condition") %>%
+    tidyr::pivot_longer(-condition, names_to = "gene", values_to = "emm_logcpm") %>%
+    dplyr::mutate(
+      cell_type = ct,
+      group     = dplyr::case_when(
+        grepl("T2D", condition) ~ "Type 2 Diabetes",
+        grepl("LC",  condition) ~ "Lean Control"
+      ),
+      treatment = dplyr::case_when(
+        grepl("_30", condition) ~ "30",
+        grepl("_15", condition) ~ "15"
+      )
     )
   
-  volcano_list[[ct]] <- p
+  emm_list[[ct]] <- emm_df
   
-  # ── 9. Save individual results CSV ────────────────────────────────────────
-  write.csv(res, file = paste0("/home/hhampson/Results/limma_T2DvsLC_", ct, ".csv"),
+  write.csv(emm_df,
+            file = paste0("/home/hhampson/Results/limma_EMM_", ct, ".csv"),
             row.names = FALSE)
   
-  message("  Done: ", n_up, " up, ", n_down, " down")
+  # ── 10. Volcano plot for interaction term ──────────────────────────────────
+  res_interaction <- results_list[[paste0(ct, "_Interaction")]]
+  
+  if (!is.null(res_interaction)) {
+    
+    top_genes <- res_interaction %>%
+      dplyr::filter(sig != "NS") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::slice_head(n = 20)
+    
+    if (nrow(top_genes) == 0) {
+      top_genes <- res_interaction %>%
+        dplyr::arrange(P.Value) %>%
+        dplyr::slice_head(n = 10)
+    }
+    
+    n_up   <- sum(res_interaction$sig == "Up in T2D")
+    n_down <- sum(res_interaction$sig == "Down in T2D")
+    
+    p <- ggplot(res_interaction, aes(x = logFC, y = -log10(adj.P.Val), color = sig)) +
+      geom_point(alpha = 0.6, size = 1.5) +
+      geom_label_repel(
+        data         = top_genes,
+        aes(label    = gene),
+        size         = 2.8,
+        max.overlaps = 20,
+        show.legend  = FALSE
+      ) +
+      scale_color_manual(
+        values = c(
+          "Up in T2D"   = "#990000",
+          "Down in T2D" = "#003366",
+          "NS"          = "grey70"
+        )
+      ) +
+      geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey40") +
+      geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey40") +
+      annotate("text", x =  Inf, y = Inf, hjust =  1.1, vjust = 1.5,
+               label = paste0("Up: ",   n_up),   color = "#990000", size = 3.5) +
+      annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.5,
+               label = paste0("Down: ", n_down), color = "#003366", size = 3.5) +
+      labs(
+        title    = ct,
+        subtitle = "Interaction: (T2D_30 - T2D_15) - (LC_30 - LC_15)",
+        x        = "log2 Fold Change",
+        y        = "-log10(adjusted p-value)",
+        color    = NULL
+      ) +
+      theme_bw(base_size = 11) +
+      theme(
+        legend.position = "top",
+        plot.title      = element_text(face = "bold")
+      )
+    
+    volcano_list[[ct]] <- p
+  }
+  
+  message("  Done: ", ct)
 }
 
-# ── Combine all results into one dataframe ────────────────────────────────────
+# ── Combine & save all results ────────────────────────────────────────────────
 results_all <- dplyr::bind_rows(results_list)
-write.csv(results_all, "/home/hhampson/Results/limma_T2DvsLC_allcelltypes.csv", row.names = FALSE)
+write.csv(results_all, "/home/hhampson/Results/limma_interaction_allcelltypes.csv", row.names = FALSE)
 
-# ── Save volcano plots as PDF ─────────────────────────────────────────────────
-n_plots  <- length(volcano_list)
-n_cols   <- 3
-n_rows   <- ceiling(n_plots / n_cols)
+emm_all <- dplyr::bind_rows(emm_list)
+write.csv(emm_all, "/home/hhampson/Results/limma_EMM_allcelltypes.csv", row.names = FALSE)
 
-pdf("/home/hhampson/Results/limma_volcanos_T2DvsLC.pdf",
+# ── Save volcano PDFs ─────────────────────────────────────────────────────────
+n_plots <- length(volcano_list)
+n_cols  <- 3
+n_rows  <- ceiling(n_plots / n_cols)
+
+pdf("/home/hhampson/Results/limma_interaction_volcanos.pdf",
     width  = n_cols * 5,
     height = n_rows * 5)
 
 wrap_plots(volcano_list, ncol = n_cols) +
   plot_annotation(
-    title    = "Limma-voom: T2D vs Lean Control by Cell Type",
+    title    = "Limma-voom Interaction: (T2D_30 - T2D_15) - (LC_30 - LC_15)",
     subtitle = "adj.P.Val < 0.05, |logFC| > 1",
     theme    = theme(plot.title = element_text(face = "bold", size = 16))
   )
