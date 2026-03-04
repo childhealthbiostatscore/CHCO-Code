@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#SBATCH --job-name=<name>
+#SBATCH --mail-type=END
+#SBATCH --mail-user=tvigers@uw.edu
+#SBATCH --account=togo
+#SBATCH --partition=cpu-g2
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=24
+#SBATCH --mem=100G
+#SBATCH --time=01-00:00:00 # Max runtime in DD-HH:MM:SS format.
+#SBATCH --export=all
+
+# Your programs to run.
+cd /gscratch/togo/tvigers
+s3cmd sync "s3://uwmdi/Hailey Hampson" ./Data/UWMDI
+apptainer exec --bind /gscratch ubuntu.sif Rscript /gscratch/togo/tvigers/path/to/script.R
