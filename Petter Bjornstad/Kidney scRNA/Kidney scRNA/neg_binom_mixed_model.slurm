@@ -14,4 +14,4 @@
 # Your programs to run.
 cd /gscratch/togo/tvigers
 s3cmd sync "s3://uwmdi/Hailey Hampson" ./Data/UWMDI
-apptainer exec --bind /gscratch ubuntu.sif Rscript /gscratch/togo/tvigers/path/to/script.R
+apptainer exec --bind /gscratch ubuntu.sif Rscript GitHub/CHCO-Code/Petter\ Bjornstad/Kidney\ scRNA/Kidney\ scRNA/neg_binom_mixed_model.R

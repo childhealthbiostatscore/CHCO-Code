@@ -4,8 +4,12 @@ library(glmmTMB)
 library(parallel)
 setwd("/gscratch/togo/tvigers")
 # Import annotated objects
-biopsy = readRDS("./Data/cleaned_biopsy.rds")
-organoid = readRDS("./Data/cleaned_organoid.rds")
+biopsy = readRDS(
+  "./Data/UWMDI/Hailey Hampson/Kidney scRNAseq Project/Data_Clean/cleaned_biopsy.rds"
+)
+organoid = readRDS(
+  "./Data/UWMDI/Hailey Hampson/Kidney scRNAseq Project/Data_Clean/cleaned_organoid.rds"
+)
 # Create model matrices
 biopsy_meta = biopsy@meta.data |>
   select(record_id, group) |>
@@ -60,3 +64,7 @@ model_results = parLapply(cl, gene_overlap, function(gene) {
 # Stop the cluster
 stopCluster(cl)
 # Save results
+save(
+  model_results,
+  "./Data/UWMDI/Hailey Hampson/Kidney scRNAseq Project/Results/model_results.RData"
+)
