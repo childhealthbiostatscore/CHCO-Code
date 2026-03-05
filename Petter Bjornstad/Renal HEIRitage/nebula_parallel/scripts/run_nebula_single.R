@@ -59,6 +59,22 @@ analysis_config <- list(
     pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
     s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N", file_suffix = "t2d_glpyn"
   ),
+  # T2D GLP+ vs T2D GLP- (adjusted for age, sex)
+  T2D_GLP_Y_vs_T2D_GLP_N_adj_age_sex = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj_age_sex", file_suffix = "t2d_glpyn_adj_age_sex",
+    adjust_covariates = c("age", "sex.x")
+  ),
+  # T2D GLP- vs. HC (adjusted for age, sex)
+  T2D_GLP_N_vs_HC_adj_age_sex = list(
+    subset_cond = "group %in% c('Type_2_Diabetes', 'Lean_Control') & !is.na(glp_t2dob) & glp_t2dob != 'GLP_Y'",
+    group_var = "glp_t2dob", ref_level = "HC",
+    pval_col = "p_glp_t2dobGLP_N", logfc_col = "logFC_glp_t2dobGLP_N",
+    s3_subdir = "T2D_GLP_N_vs_HC_adj_age_sex", file_suffix = "t2d_glpn_hc_adj_age_sex",
+    adjust_covariates = c("age", "sex.x")
+  ),
   # T2D GLP- vs. HC (adjusted for age, sex, bmi)
   T2D_GLP_N_vs_HC_adj = list(
     subset_cond = "group %in% c('Type_2_Diabetes', 'Lean_Control') & !is.na(glp_t2dob) & glp_t2dob != 'GLP_Y'",
