@@ -2,7 +2,7 @@
 title: "Overall Data Summary"
 author: "Ye Ji Choi"
 date: "`r lubridate::today()`"
-format: 
+format:
   html:
     toc: true
     toc-depth: 5
@@ -12,6 +12,7 @@ format:
 ---
 
 ```{r include = F}
+# ── Libraries ─────────────────────────────────────────────────────────────────
 library(jsonlite)
 library(dplyr)
 library(kableExtra)
@@ -22,446 +23,662 @@ library(ggplot2)
 library(GGally)
 library(gtExtras)
 library(gt)
-library(purrr)
+library(patchwork)
 library(Hmisc)
+
+# ── User-specific paths ───────────────────────────────────────────────────────
 user <- Sys.info()[["user"]]
 
-if (user == "choiyej") { # local version
+if (user == "choiyej") {
   root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-} else if (user == "rameshsh") { # hyak version
+  git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") {
   root_path <- ""
-  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
-} else if (user == "yejichoi") { # hyak version
+  git_path  <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") {
   root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+  git_path  <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/mmfs1/home/yejichoi/keys.json")
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+  git_path  <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/mmfs1/home/pylell/keys.json")
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
-harm_dat_raw <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na = "")
+
+# ── Load raw harmonized dataset ───────────────────────────────────────────────
+harm_dat_raw <- read.csv(
+  file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"),
+  na = ""
+)
+```
+
+
+```{r}
+# ── TODAY study data ─────────────────────────────────────────────────────────
+
+# Load TODAY clinical data (long format; object name is "long")
+load(file.path(root_path, "TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata"))
+
+# TODAY ECHO
+today_echo <- read.csv(file.path(root_path, "TODAY subaward/Clinical data/TODAY/echo.csv"))
+today_echo$TIMEPOINT <- "1"
+# TODAY2 ECHO
+today2_echo <- read.csv(file.path(root_path, "TODAY subaward/Clinical data/TODAY2/echo.csv"))
+today2_echo$TIMEPOINT <- "2"
+drop_cols <- c("dopplerqc","mmodeqc","overallqc","plaxqc","saxqc","apicalqc","mmodeqc")
+today2_echo <- today2_echo %>% dplyr::select(-dplyr::one_of(drop_cols))
+# combine echo datasets
+echo <- dplyr::bind_rows(today2_echo, today_echo)
+echo$TIMEPOINT <- as.factor(echo$TIMEPOINT)
+echo$RELEASEID <- echo$releaseid
+echo$releaseid <- NULL
+
+# TODAY2 PWV
+pwv <- read.csv(file.path(root_path, "TODAY subaward//Clinical data/TODAY2/pwv.csv"))
+pwv_keep <- pwv %>% dplyr::select(RELEASEID, TIMEPOINT, PWVF)
+pwv_keep$pwv_cf_gt10 <- ifelse(is.na(pwv_keep$PWVF), NA,
+                               ifelse(pwv_keep$PWVF >10, 1, 0))
+pwv_keep <- pwv_keep %>% dplyr::arrange(RELEASEID, dplyr::desc(pwv_cf_gt10)) %>%
+  dplyr::group_by(RELEASEID) %>% dplyr::filter(dplyr::row_number()==1)
+
+# TODAY DEXA
+today_dexa <- read.csv(file.path(root_path, "TODAY subaward/Clinical data/TODAY/DEXA.csv"))
+
+# ── Compute TODAY baseline Ns ────────────────────────────────────────────────
+# Baseline = M00 (or visit_num == 0) from the clinical long data
+today_baseline <- long %>% dplyr::filter(visit == "M00")
+today_n_total     <- length(unique(today_baseline$releaseid))
+
+# Blood labs: hba1c, trig, ins0min, alt, ast
+today_lab_cols    <- intersect(c("hba1c", "trig", "ins0min", "alt", "ast"), names(today_baseline))
+today_n_blood     <- sum(rowSums(!is.na(today_baseline[, today_lab_cols, drop = FALSE])) > 0)
+
+# Urine labs: check for urine-related columns
+today_urine_cols  <- intersect(c("codi"), names(today_baseline))
+today_n_urine     <- if (length(today_urine_cols) > 0) {
+  sum(rowSums(!is.na(today_baseline[, today_urine_cols, drop = FALSE])) > 0)
+} else 0L
+
+# Vitals: bmi, height, weight, wastcirc
+today_vitals_cols <- intersect(c("bmi", "height", "weight", "wastcirc"), names(today_baseline))
+today_n_vitals    <- sum(rowSums(!is.na(today_baseline[, today_vitals_cols, drop = FALSE])) > 0)
+
+# DEXA at M00
+today_n_dxa       <- nrow(today_dexa %>% dplyr::filter(mvisit == "M00") %>%
+                            dplyr::filter(dplyr::if_any(tidyselect::starts_with("WB_TOT"), ~ !is.na(.x))))
+
+# ECHO (follow-up only — no baseline ECHO in TODAY)
+today_n_echo      <- length(unique(echo$RELEASEID))
+
+# PWV / sphygmocor (follow-up only — PWV1 timepoint)
+today_n_pwv       <- length(unique(pwv_keep$RELEASEID))
+
+# TODAY metabolomics: plasma and urine
+load(file.path(root_path, "TODAY subaward/Metabolomic data/plasma.Rdata"))
+load(file.path(root_path, "TODAY subaward/Metabolomic data/urine.Rdata"))
+today_plasma_bl    <- plasma %>% dplyr::filter(visnum == 0)
+today_n_blood_met  <- length(unique(today_plasma_bl$releaseid[
+  rowSums(!is.na(today_plasma_bl %>% dplyr::select(-dplyr::any_of(c(
+    "current_label","Freezerworks.ID","Sample.Name","site","releaseid",
+    "material_type","bsi_id","Date.Drawn","visnum","location","MASK.ID","SAMPLE_ID"
+  ))))) > 0]))
+today_urine_met_bl <- urine %>% dplyr::filter(visnum == 0)
+today_n_urine_met  <- length(unique(today_urine_met_bl$releaseid[
+  rowSums(!is.na(today_urine_met_bl %>% dplyr::select(-dplyr::any_of(c(
+    "current_label","Freezerworks.ID","Sample.Name","site","releaseid",
+    "material_type","bsi_id","Date.Drawn","visnum","location","MASK.ID","SAMPLE_ID"
+  ))))) > 0]))
+
+# TODAY blood proteomics: SomaLogic
+load(file.path(root_path, "TODAY subaward/Somalogic data raw/soma.Rdata"))
+today_soma_bl      <- soma %>% dplyr::filter(visnum == 0)
+today_n_blood_prot <- length(unique(today_soma_bl$releaseid[
+  rowSums(!is.na(today_soma_bl %>% dplyr::select(tidyselect::starts_with("seq.")))) > 0]))
+```
+
+```{r}
+# ── TEEN-LABS study data ──────────────────────────────────────────────────────
+
+# Load TEEN-LABS cleaned data frame (longitudinal: 64 subjects, 7 visits)
+teenlabs_df <- readRDS(file.path(root_path, "Teen Labs/Data_Cleaned/df.rds"))
+
+# Baseline = "Month 1" (first post-surgery assessment)
+teenlabs_bl <- teenlabs_df %>% dplyr::filter(visit == "Month 1")
+
+# ── Compute TEEN-LABS baseline Ns ─────────────────────────────────────────────
+teenlabs_n_total <- length(unique(teenlabs_bl$ID))
+
+# Blood labs
+teenlabs_lab_cols <- intersect(
+  c("HBA1C","GLU","CHOL","HDL","LDL","TGNET","CREAS","CYSC","ALBS",
+    "CRPM","FER","FOLAT","INSTOSOH","PTH","VB12","VD","VITA","VITB1G"),
+  toupper(names(teenlabs_bl))
+)
+teenlabs_n_blood <- sum(rowSums(!is.na(
+  teenlabs_bl[, names(teenlabs_bl)[toupper(names(teenlabs_bl)) %in% teenlabs_lab_cols], drop = FALSE]
+)) > 0)
+
+# Urine labs
+teenlabs_urine_cols <- intersect(
+  c("ALBU","CREAU","UACRATIO"),
+  toupper(names(teenlabs_bl))
+)
+teenlabs_n_urine <- sum(rowSums(!is.na(
+  teenlabs_bl[, names(teenlabs_bl)[toupper(names(teenlabs_bl)) %in% teenlabs_urine_cols], drop = FALSE]
+)) > 0)
+
+# Vitals
+teenlabs_vitals_cols <- intersect(
+  c("bmi","weight","height","sbp","dbp","iwaist","uwaist","neck","sad","bfat"),
+  names(teenlabs_bl)
+)
+teenlabs_n_vitals <- sum(rowSums(!is.na(
+  teenlabs_bl[, teenlabs_vitals_cols, drop = FALSE]
+)) > 0)
+
+# SomaLogic blood proteomics (seq.* columns)
+teenlabs_soma_cols <- grep("^seq\\.", names(teenlabs_bl), value = TRUE)
+teenlabs_n_soma <- sum(rowSums(!is.na(
+  teenlabs_bl[, teenlabs_soma_cols, drop = FALSE]
+)) > 0)
+
+# Olink blood proteomics (columns after seq.* that are protein symbols)
+# Identify: everything after the last seq.* column, excluding derived clinical vars
+teenlabs_derived <- c("albuminuria","eGFR_FAS_cr","eGFR_FAS_cr_cysc",
+  "eGFR_FAS_cysc","eGFR_Schwartz","eGFR_CKD_EPI_cr","eGFR_CKD_EPI_cr_cysc",
+  "eGFR_CKD_EPI_cysc","nafld_fs","fli","hsi","usfli","diab","diab_resolved",
+  "diab_baseline","diabetes_duration","SURG","anthdat","surgdat","potentialpreg",
+  "ethn","race","sex","age","labid","fasting","date_drawn","volume_unit",
+  "sample_id","hrate","neck","sad","uwaist","iwaist","bfat","dbp_percentile",
+  "sbp_percentile","lmcbcplt","lmcbcwbc")
+last_seq_idx <- max(grep("^seq\\.", names(teenlabs_bl)))
+olink_candidates <- names(teenlabs_bl)[(last_seq_idx + 1):ncol(teenlabs_bl)]
+teenlabs_olink_cols <- setdiff(olink_candidates, c(teenlabs_derived, "ID", "visit"))
+teenlabs_n_olink <- sum(rowSums(!is.na(
+  teenlabs_bl[, teenlabs_olink_cols, drop = FALSE]
+)) > 0)
+
+# DXA: TEEN-LABS has bfat (body fat %) — count as DXA equivalent
+teenlabs_n_dxa <- sum(!is.na(teenlabs_bl$bfat))
 ```
 
 ```{r, include = F}
+# ── Data cleaning & variable engineering ──────────────────────────────────────
+
+# Drop SomaScan seq columns (keep only the two legacy seq variables)
 harm_dat <- harm_dat_raw %>%
-  dplyr::mutate(sex = case_when(study == "ULTRA" ~ "Male", T ~ sex)) %>%
-  dplyr::select(-starts_with("seq"), seq.10000.28, seq.10000.28_urine)
+  dplyr::mutate(sex = dplyr::case_when(study == "ULTRA" ~ "Male", T ~ sex)) %>%
+  dplyr::select(-tidyselect::starts_with("seq"), seq.10000.28, seq.10000.28_urine)
 
+# Collapse duplicate record_id × visit rows:
+#   - character columns: last non-NA value
+#   - numeric columns:   mean of non-NA values
+# Then filter out treatment-period and unscheduled visits.
 harm_dat_recid <- harm_dat %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
-  dplyr::select(-mrn, -dob)  %>%
-  filter(visit %nin% c("treatment_period_1", "treatment_period_2",
-                       "treatment_period_3", "treatment_period_4", 
-                       "Early Withdrawal", "Unscheduled 1", "Unscheduled 2")) %>%
-  bind_rows(data.frame(study = c(rep("ADAPT-CKD", 2),
-                                 rep("MANATEE", 1),
-                                 rep("INSPIRE", 1),
-                                 rep("SUGAR-N-SALT", 1),
-                                 rep("T1-DISCO", 1),
-                                 rep("MetMod", 1),
-                                 rep("OTTER", 1)),
-                       visit = c("MO6", "YR1", 
-                                 "MO4",
-                                 "MO3", 
-                                 "YR3",
-                                 "MO6",
-                                 "MO6",
-                                 "MO6"),
-                       group = c("Type 2 Diabetes", "Obese Control",
-                                 "Type 1 Diabetes",
-                                 "Type 2 Diabetes",
-                                 "Type 1 Diabetes",
-                                 "Type 1 Diabetes",
-                                 "Type 1 Diabetes",
-                                 "Type 1 Diabetes"))) %>%
-  dplyr::mutate(study_design = case_when(study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "PENGUIN",
-                                                      "CROCODILE", "SWEETHEART", "CASPER") ~ "Observational: Cross-sectional",
-                                         study %in% c("ULTRA", "COFFEE") ~ "Interventional: Longitudinal",
-                                         study %in% c("PANTHER") ~ "Observational: Accelerated Longitudinal",
-                                         study %in% c("ADAPT-CKD", "PANDA", "IMPROVE") ~ "Observational: Longitudinal",
-                                         study %in% c("ATTEMPT", "RPC2", "MANATEE", "T1-DISCO", "MetMod", 
-                                                      "OTTER", "SUGAR-N-SALT", "INSPIRE") ~ "Interventional: RCT"),
-                exposure_design = case_when(study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE", "MetMod",
-                                                         "OTTER", "RPC2", "SUGAR-N-SALT", "T1-DISCO") ~ "Interventional",
-                                            T ~ "Observational"),
-                design_struc = case_when(study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE", "MetMod",
-                                                      "OTTER", "RPC2", "SUGAR-N-SALT", "T1-DISCO", "ADAPT-CKD",
-                                                      "IMPROVE", "PANDA") ~ "Longitudinal",
-                                         study == "PANTHER" ~ "Longitudinal (Accelerated)",
-                                         T ~ "Cross-Sectional"),
-                study_design_sub = case_when(study %in% c("ATTEMPT", "INSPIRE", "MANATEE", "MetMod", "OTTER", "RPC2", 
-                                                          "SUGAR-N-SALT", "T1-DISCO") ~ "RCT",
-                                             study %in% c("COFFEE", "ULTRA") ~ "Single-arm trial",
-                                             study %in% c("IMPROVE", "ADAPT-CKD") ~ "Registry cohort",
-                                             study %in% c("PANTHER", "PANDA") ~ "Prospective cohort", 
-                                             T ~ "Cohort study"),
-                visit = case_when(visit == "screening" ~ "baseline",
-                                  study == "ATTEMPT" & visit == "follow_up" ~ "4_months_post",
-                                  is.na(visit) & study_design == "Cross-sectional" ~ "baseline",
-                                  is.na(visit) ~ "follow up",
-                                  T ~ visit),
-                intervention = case_when(study == "COFFEE" ~ "Caffeine (205mg/day)",
-                                         study == "IMPROVE" ~ "Bariatric Surgery (VSG)",
-                                         study == "ULTRA" ~ "Pegloticase (Krystexxa 8mg/once)",
-                                         study == "ATTEMPT" ~ "SGLT2i (Dapagliflozin 5mg/day)",
-                                         study == "RPC2" ~ "SGLT2i (Canagliflozin 10mg/day)",
-                                         study == "MANATEE" ~ "AID System + Metformin (2000mg/day)",
-                                         study == "INSPIRE" ~ "IMST (75% PImax, 30 breaths/day, 6 days/wk)",
-                                         study == "SUGAR-N-SALT" ~ "SGLT2i (Sotagliflozin 200mg/day)",
-                                         study == "T1-DISCO" ~ "GLP-1RA (Semaglutide 1mg/week)",
-                                         study == "MetMod" ~ "AMX0035 (Phenylbutyrate + TUDCA)",
-                                         study == "ADAPT-CKD" ~ "SGLT2i, GLP-1RA, OR ns-MRA",
-                                         study == "OTTER" ~ "ns-MRA (Finerenone 20mg/day)")) %>%
-  filter(!is.na(study_design)) %>%
-  filter(study != "RPC2" | visit != "follow up") 
+  dplyr::summarise(
+    dplyr::across(tidyselect::where(purrr::negate(is.numeric)),
+           ~ ifelse(all(is.na(.x)), NA_character_, dplyr::last(na.omit(.x)))),
+    dplyr::across(tidyselect::where(is.numeric),
+           ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+    .by = c(record_id, visit)
+  ) %>%
+  dplyr::select(-mrn, -dob) %>%
+  dplyr::filter(visit %nin% c(
+    "treatment_period_1", "treatment_period_2",
+    "treatment_period_3", "treatment_period_4",
+    "Early Withdrawal", "Unscheduled 1", "Unscheduled 2"
+  )) %>%
 
+  # ── Hard-coded placeholder rows for studies still enrolling / not yet in data ──
+  # These studies are either still collecting data or have not yet been entered;
+  # N values below are upper-bound estimates (≤).
+  dplyr::bind_rows(data.frame(
+    study = c(
+      rep("ADAPT-CKD",    2),
+      rep("MANATEE",      1),
+      rep("INSPIRE",      1),
+      rep("T1-DISCO",     1),
+      rep("MetMod",       1),
+      rep("OTTER",        1),
+      rep("TODAY",         1),
+      rep("TEEN-LABS",     2)
+    ),
+    visit = c("MO6", "YR1",
+              "MO4",
+              "MO3",
+              "MO6",
+              "MO6",
+              "MO6",
+              "baseline",
+              "baseline", "baseline"),
+    group = c(
+      "Type 2 Diabetes", "Obese Control",
+      "Type 1 Diabetes",
+      "Type 2 Diabetes",
+      "Type 1 Diabetes",
+      "Type 1 Diabetes",
+      "Type 1 Diabetes",
+      "Type 2 Diabetes",
+      "Type 2 Diabetes", "Obese Control"
+    )
+  )) %>%
 
-# Deidentify data for LLM
+  # ── Study-level metadata ───────────────────────────────────────────────────
+  dplyr::mutate(
+    study_design = dplyr::case_when(
+      study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "PENGUIN",
+                   "CROCODILE", "SWEETHEART", "CASPER")            ~ "Observational: Cross-sectional",
+      study %in% c("ULTRA", "COFFEE")                              ~ "Interventional: Longitudinal",
+      study %in% c("PANTHER")                                      ~ "Observational: Accelerated Longitudinal",
+      study %in% c("ADAPT-CKD", "PANDA", "IMPROVE", "TEEN-LABS")    ~ "Observational: Longitudinal",
+      study %in% c("ATTEMPT", "RPC2", "MANATEE", "T1-DISCO",
+                   "MetMod", "OTTER", "INSPIRE", "TODAY")          ~ "Interventional: RCT"
+    ),
+    exposure_design = dplyr::case_when(
+      study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE",
+                   "MetMod", "OTTER", "RPC2", "T1-DISCO", "TODAY") ~ "Interventional",
+      T                                                                     ~ "Observational"
+    ),
+    design_struc = dplyr::case_when(
+      study %in% c("COFFEE", "ULTRA", "ATTEMPT", "INSPIRE", "MANATEE",
+                   "MetMod", "OTTER", "RPC2", "T1-DISCO", "TODAY",
+                   "ADAPT-CKD", "IMPROVE", "PANDA", "TEEN-LABS")   ~ "Longitudinal",
+      study == "PANTHER"                                            ~ "Longitudinal (Accelerated)",
+      T                                                             ~ "Cross-Sectional"
+    ),
+    study_design_sub = dplyr::case_when(
+      study %in% c("ATTEMPT", "INSPIRE", "MANATEE", "MetMod",
+                   "OTTER", "RPC2", "T1-DISCO", "TODAY")          ~ "RCT",
+      study %in% c("COFFEE", "ULTRA")                              ~ "Single-arm trial",
+      study %in% c("IMPROVE", "ADAPT-CKD", "TEEN-LABS")              ~ "Registry cohort",
+      study %in% c("PANTHER", "PANDA")                             ~ "Prospective cohort",
+      T                                                             ~ "Cohort study"
+    ),
+    # Standardise visit labels
+    visit = dplyr::case_when(
+      visit == "screening"                                         ~ "baseline",
+      study == "ATTEMPT" & visit == "follow_up"                   ~ "4_months_post",
+      is.na(visit) & study_design == "Cross-sectional"            ~ "baseline",
+      is.na(visit)                                                ~ "follow up",
+      T                                                           ~ visit
+    ),
+    intervention = dplyr::case_when(
+      study == "COFFEE"       ~ "Caffeine (205mg/day)",
+      study == "IMPROVE"      ~ "Bariatric Surgery (VSG)",
+      study == "ULTRA"        ~ "Pegloticase (Krystexxa 8mg/once)",
+      study == "ATTEMPT"      ~ "SGLT2i (Dapagliflozin 5mg/day)",
+      study == "RPC2"         ~ "SGLT2i (Canagliflozin 10mg/day)",
+      study == "MANATEE"      ~ "AID System + Metformin (2000mg/day)",
+      study == "INSPIRE"      ~ "IMST (75% PImax, 30 breaths/day, 6 days/wk)",
+      study == "T1-DISCO"     ~ "GLP-1RA (Semaglutide 1mg/week)",
+      study == "MetMod"       ~ "AMX0035 (Phenylbutyrate + TUDCA)",
+      study == "ADAPT-CKD"    ~ "SGLT2i, GLP-1RA, OR ns-MRA",
+      study == "OTTER"        ~ "ns-MRA (Finerenone 20mg/day)",
+      study == "TODAY"        ~ "Metformin vs Rosiglitazone vs Lifestyle",
+      study == "TEEN-LABS"    ~ "Bariatric Surgery (RYGB, SG, LAGB)"
+    )
+  ) %>%
+  dplyr::filter(!is.na(study_design)) %>%
+  # Drop spurious RPC2 "follow up" rows introduced by the bind_rows
+  dplyr::filter(study != "RPC2" | visit != "follow up")
+
+# ── (Optional) De-identify for sharing with LLM ───────────────────────────────
 # harm_dat_recid <- harm_dat_recid[, !grepl("date", names(harm_dat_recid), ignore.case = TRUE)]
-# write.csv(harm_dat_recid, file.path(root_path, "Ye Ji Choi/harm_data_deidentified_022326.csv"), row.names = F, na = "")
+# write.csv(harm_dat_recid,
+#           file.path(root_path, "Ye Ji Choi/harm_data_deidentified_022326.csv"),
+#           row.names = FALSE, na = "")
 ```
 
 # Data availability by study
 
 ```{r}
-# ── 1. Variable lists per procedure domain ────────────────────────────────────
+# ── 1. Variable lists per procedure domain ─────────────────────────────────────
+# Each vector defines the outcome/measurement variables that constitute "having"
+# that procedure. intersect() restricts to columns actually present in the data.
 cols <- names(harm_dat_recid)
 
-# ── IVGTT (Intravenous Glucose Tolerance Test — MinMod) ─────────────────────
+# IVGTT — MinMod-derived insulin kinetics + endocrine labs
 ivgtt <- c(
-  # MinMod-derived outcomes
-  "mm_si",       # Insulin Sensitivity (Si)
-  "mm_airg",     # AIRg (Acute Insulin Response to Glucose)
-  "mm_di",       # Disposition Index
-  "mm_ir",       # Insulin Resistance
-  "mm_bcell",    # Beta Cell Function
-  "mm_sg",       # Glucose Effectiveness (Sg, min⁻¹)
-  "mm_gb",       # Basal Glucose (mg/dL)
-  "mm_ib",       # Basal Insulin (µU/mL)
-  "mm_r2",       # MinMod R-squared (goodness of fit)
-  # Endocrine labs drawn during IVGTT
-  "lh",          # LH (mIU/mL)
-  "fsh",         # FSH (mIU/mL)
-  "igf1_z_score",# IGF-1 Z-score
-  "bl_androst",  # Androstenedione (ng/dL)
-  "bl_dheas"     # DHEA-S (ng/dL)
+  "mm_si",        # Insulin Sensitivity (Si)
+  "mm_airg",      # AIRg (Acute Insulin Response to Glucose)
+  "mm_di",        # Disposition Index
+  "mm_ir",        # Insulin Resistance
+  "mm_bcell",     # Beta Cell Function
+  "mm_sg",        # Glucose Effectiveness (Sg, min⁻¹)
+  "mm_gb",        # Basal Glucose (mg/dL)
+  "mm_ib",        # Basal Insulin (µU/mL)
+  "mm_r2"        # MinMod R-squared (goodness of fit)
 )
 
+# Kidney PET — perfusion kinetics
 kidney_pet <- c(
-  "avg_c_k1",
-  "avg_k_k1",
-  "avg_c_k2",
-  "avg_k_k2",
-  "avg_c_f",
-  "avg_k_f"
+  "avg_c_k1", "avg_k_k1",
+  "avg_c_k2", "avg_k_k2",
+  "avg_c_f",  "avg_k_f"
 )
 
+# Blood labs (standard clinical + research panel)
 blood_labs <- intersect(c(
-  "glucose","hba1c","fasting_insulin","cpeptide","homa_ir","creatinine_s",
-  "cystatin_c_s","bun_s","na_s","cholesterol","hdl","ldl","triglycerides",
-  "hemoglobin","hematocrit","gotast_base","gptalt_base","alkphos_base",
-  "bili_base","alb_base","tot_protein","bicarb_base","ca_base","cl_base",
-  "k_base","sodium_base","lh","fsh","bl_androst","bl_dheas","copeptin",
-  "igf1_z_score","alb","alk_phos","bili","bun","bg"
+  "glucose", "hba1c", "fasting_insulin", "cpeptide", "homa_ir",
+  "creatinine_s", "cystatin_c_s", "bun_s", "na_s",
+  "cholesterol", "hdl", "ldl", "triglycerides",
+  "hemoglobin", "hematocrit",
+  "gotast_base", "gptalt_base", "alkphos_base",
+  "bili_base", "alb_base", "tot_protein",
+  "bicarb_base", "ca_base", "cl_base", "k_base", "sodium_base",
+  "lh", "fsh", "bl_androst", "bl_dheas",
+  "copeptin", "igf1_z_score",
+  "alb", "alk_phos", "bili", "bun", "bg"
 ), cols)
 
+# Urine labs (spot + 24hr collections)
 urine_labs <- intersect(c(
-  "creatinine_u","microalbumin_u","acr_u","elevated_albuminuria",
-  "albuminuria_cat","na_u","urine_osm","u24_vl","u24_mab","u24_na",
-  "u24_gluc","acr"
+  "creatinine_u", "microalbumin_u", "acr_u",
+  "elevated_albuminuria", "albuminuria_cat",
+  "na_u", "urine_osm",
+  "u24_vl", "u24_mab", "u24_na", "u24_gluc", "acr"
 ), cols)
 
+# Hyperinsulinemic-euglycemic clamp — steady-state outcomes + time-series
 clamp_outcomes <- intersect(c(
-  "m_value","gir","m_ffm","hepatic_glucose_output","steady_state_glucose",
-  "steady_state_insulin","glucose_infusion_rate_ss","endogenous_glucose_production",
-  "hgc_bg_ss","hgc_insulin_ss","hgc_gir_ss","hgc_cpeptide_ss"
+  "m_value", "gir", "m_ffm",
+  "hepatic_glucose_output", "steady_state_glucose", "steady_state_insulin",
+  "glucose_infusion_rate_ss", "endogenous_glucose_production",
+  "hgc_bg_ss", "hgc_insulin_ss", "hgc_gir_ss", "hgc_cpeptide_ss"
 ), cols)
-clamp_ts_vars <- grep("^(glucose|insulin|cpeptide|ffa|d20_infusion_rate)_\\d",
-                      cols, value = TRUE)
-clamp_all <- unique(c(clamp_outcomes, clamp_ts_vars))
+clamp_ts_vars <- grep("^(glucose|insulin|cpeptide|ffa|d20_infusion_rate)_\\d", cols, value = TRUE)
+clamp_all     <- unique(c(clamp_outcomes, clamp_ts_vars))
 
+# Renal clearance test — iohexol/PAH-based GFR & ERPF
 renal_clearance <- intersect(c(
-  "gfr_bsa_plasma","gfr_bsa_plasma_urine","gfr_raw_plasma","gfr_raw_plasma_urine",
-  "gfr_ecv_std","erpf_bsa_plasma","erpf_bsa_plasma_urine","erpf_raw_plasma",
-  "erpf_raw_plasma_urine","rbf","ff","ra","re","rvr","pg","deltapf",
-  "glomerular_pressure","kfg","gfr_p1","gfr_p2","pah_bsa","pah_raw",
-  "plasma_ioh_1","plasma_ioh_2"
+  "gfr_bsa_plasma", "gfr_bsa_plasma_urine", "gfr_raw_plasma", "gfr_raw_plasma_urine",
+  "gfr_ecv_std",
+  "erpf_bsa_plasma", "erpf_bsa_plasma_urine", "erpf_raw_plasma", "erpf_raw_plasma_urine",
+  "rbf", "ff", "ra", "re", "rvr", "pg", "deltapf",
+  "glomerular_pressure", "kfg",
+  "gfr_p1", "gfr_p2", "pah_bsa", "pah_raw",
+  "plasma_ioh_1", "plasma_ioh_2"
 ), cols)
 
+# BOLD MRI — R2* cortex/medulla + fat signal fraction / FSOC
 bold_mri <- intersect(c(
-  "bold_l_bl_cortex","bold_l_bl_medulla","bold_r_bl_cortex","bold_r_bl_medulla",
-  "bold_l_pf_cortex","bold_l_pf_medulla","bold_r_pf_cortex","bold_r_pf_medulla",
-  "avg_k_r2","avg_c_r2","avg_m_r2","fsoc_l_cortex","fsoc_r_cortex",
-  "left_cortex_ox_metab_mean","right_cortex_ox_metab_mean"
+  "bold_l_bl_cortex", "bold_l_bl_medulla", "bold_r_bl_cortex", "bold_r_bl_medulla",
+  "bold_l_pf_cortex", "bold_l_pf_medulla", "bold_r_pf_cortex", "bold_r_pf_medulla",
+  "avg_k_r2", "avg_c_r2", "avg_m_r2",
+  "fsoc_l_cortex", "fsoc_r_cortex",
+  "left_cortex_ox_metab_mean", "right_cortex_ox_metab_mean"
 ), cols)
 
+# DXA — body composition
 dxa <- intersect(c(
-  "dexa_body_fat","dexa_lean_mass","dexa_lean_kg","dexa_fat_kg","dexa_trunk_mass",
-  "dexa_trunk_kg","dexa_ag_ratio","dexa_est_vat","dexa_bone_mineral_density"
+  "dexa_body_fat", "dexa_lean_mass", "dexa_lean_kg", "dexa_fat_kg",
+  "dexa_trunk_mass", "dexa_trunk_kg", "dexa_ag_ratio",
+  "dexa_est_vat", "dexa_bone_mineral_density"
 ), cols)
 
+# Kidney biopsy — morphometric outcomes
 kidney_bx <- intersect(c(
-  "gloms","gloms_gs","glom_volume_con","glom_volume_weibel","glom_volume_wiggins",
-  "glom_tuft_area","glom_nuc_count","fia","acan"
+  "gloms", "gloms_gs",
+  "glom_volume_con", "glom_volume_weibel", "glom_volume_wiggins",
+  "glom_tuft_area", "glom_nuc_count", "fia", "acan"
 ), cols)
 
+# Cardiac MRI — ventricular volumes, EF, output
 cardiac_mri <- intersect(c(
-  "lvedv","lvedvi","lvesv","lvesvi","lvef","lvsv","lv_myo_mass_dias",
-  "lv_myo_mass_syst","lv_cardiac_output","lv_cardiac_index","lv_stroke_volume",
-  "rvedv","rvef","rvsv","cardiac_output","ef_percent","edv_ml","esv_ml",
-  "sv_ml","lved_mass","lved_massi"
+  "lvedv", "lvedvi", "lvesv", "lvesvi", "lvef",
+  "lvsv", "lv_myo_mass_dias", "lv_myo_mass_syst",
+  "lv_cardiac_output", "lv_cardiac_index", "lv_stroke_volume",
+  "rvedv", "rvef", "rvsv",
+  "cardiac_output", "ef_percent", "edv_ml", "esv_ml", "sv_ml",
+  "lved_mass", "lved_massi"
 ), cols)
 
+# Kidney MRI — size (volume/length), perfusion (ASL/pCASL), BOLD
 kidney_size_vars <- intersect(c(
-  "left_kidney_volume_ml","right_kidney_volume_ml","volume_left_manual",
-  "volume_right_manual","length_left","length_right","httkv",
-  "left_kidney_length","right_kidney_length","total_kidney_volume"
+  "left_kidney_volume_ml", "right_kidney_volume_ml",
+  "volume_left_manual", "volume_right_manual",
+  "length_left", "length_right", "httkv",
+  "left_kidney_length", "right_kidney_length", "total_kidney_volume"
 ), cols)
 kidney_perf_vars <- grep("^(pcasl|pasl|asl).*_(left|right)", cols, value = TRUE)
 kidney_mri_all   <- unique(c(kidney_size_vars, kidney_perf_vars, bold_mri))
 
-# lipidomics: lipid species columns
-lipid_vars <- grep("^(lpc|pc|pe|sm|cer|dg|tg_|mg|lpe|fa_|hex|lac)_",
-                   cols, value = TRUE)
+# CGM — time-in-range categories (from Dexcom/CGM download)
+cgm_vars <- intersect(c("cgm_v_high", "cgm_high", "cgm_low", "cgm_v_low"), cols)
 
-# proteomics (not in current extract — patterns retained for completeness)
-prot_blood_vars <- intersect(c("seq.10000.28"), cols)
-prot_urine_vars <-intersect(c("seq.10000.28_urine"), cols)
+# J-Wire — renal vein catheter hemodynamics
+jwire_vars <- intersect(c("jwire_side", "jwire_num"), cols)
+
+# Lipidomics — lipid species
+lipid_vars <- grep("^(lpc|pc|pe|sm|cer|dg|tg_|mg|lpe|fa_|hex|lac)_", cols, value = TRUE)
+
+# Proteomics (SomaScan; retained for completeness even if dropped from main extract)
+prot_blood_vars <- intersect(c("seq.10000.28"),        cols)
+prot_urine_vars <- intersect(c("seq.10000.28_urine"),  cols)
 ```
 
 ```{r}
-# ── 2. Helper: does a study have ≥1 non-missing value in a domain? ─────────
+# ── 2. Helper: does a study have ≥1 non-missing value across a variable set? ──
 has_any <- function(study_name, varlist) {
   present <- intersect(varlist, cols)
   if (length(present) == 0) return(FALSE)
-  sub <- harm_dat_recid[!is.na(harm_dat_recid$study) & harm_dat_recid$study == study_name, present, drop = FALSE]
+  sub <- harm_dat_recid[
+    !is.na(harm_dat_recid$study) & harm_dat_recid$study == study_name,
+    present, drop = FALSE
+  ]
   any(rowSums(!is.na(sub)) > 0)
 }
 
-# ── 3. Build procedure matrix for studies present in the data ─────────────
+# ── 3. Build per-study procedure matrix from studies present in the data ───────
 studies_in_data <- sort(unique(na.omit(harm_dat_recid$study)))
 
 proc_matrix <- lapply(studies_in_data, function(s) {
-  sub   <- harm_dat_recid[!is.na(harm_dat_recid$study) & harm_dat_recid$study == s, ]
-  n_pts <- length(unique(subset(sub, visit == "baseline")$record_id))
+  sub    <- harm_dat_recid[!is.na(harm_dat_recid$study) & harm_dat_recid$study == s, ]
+  n_pts  <- length(unique(subset(sub, visit == "baseline")$record_id))
   groups <- sort(unique(na.omit(sub$group)))
-  
+
   list(
-    study           = s,
-    n               = n_pts,
-    groups          = groups,
-    exposure_design    = unique(sub$exposure_design),
-    design_struc = unique(sub$design_struc),
+    study            = s,
+    n                = n_pts,
+    groups           = groups,
+    exposure_design  = unique(sub$exposure_design),
+    design_struc     = unique(sub$design_struc),
     study_design_sub = unique(sub$study_design_sub),
-    intervention    = unique(sub$intervention),
-    visits          = unique(subset(sub, visit != "baseline")$visit),
-    blood_labs      = has_any(s, blood_labs),
-    urine_labs      = has_any(s, urine_labs),
-    clamp           = has_any(s, clamp_all),
-    renal_clear     = has_any(s, renal_clearance),
-    dxa             = has_any(s, dxa),
-    kidney_bx       = has_any(s, kidney_bx),
-    cardiac_mri     = has_any(s, cardiac_mri),
-    kidney_mri      = has_any(s, kidney_mri_all),
-    lipidomics      = has_any(s, lipid_vars),
-    blood_proteomics      = has_any(s, prot_blood_vars),
-    urine_proteomics      = has_any(s, prot_urine_vars),
-    kidney_pet = has_any(s, kidney_pet),
-    ivgtt = has_any(s, ivgtt)
+    intervention     = unique(sub$intervention),
+    visits           = unique(subset(sub, visit != "baseline")$visit),
+    blood_labs       = has_any(s, blood_labs),
+    urine_labs       = has_any(s, urine_labs),
+    clamp            = has_any(s, clamp_all),
+    renal_clear      = has_any(s, renal_clearance),
+    dxa              = has_any(s, dxa),
+    kidney_bx        = has_any(s, kidney_bx),
+    cardiac_mri      = has_any(s, cardiac_mri),
+    kidney_mri       = has_any(s, kidney_mri_all),
+    lipidomics       = has_any(s, lipid_vars),
+    blood_proteomics = has_any(s, prot_blood_vars),
+    urine_proteomics = has_any(s, prot_urine_vars),
+    kidney_pet       = has_any(s, kidney_pet),
+    ivgtt            = has_any(s, ivgtt),
+    cgm              = has_any(s, cgm_vars),
+    jwire            = has_any(s, jwire_vars)
   )
 })
 
-proc_harm_dat_recid <- bind_rows(lapply(proc_matrix, function(x) {
+# ── 4. Convert to data frame and apply hard-coded overrides ───────────────────
+# Studies still enrolling or actively collecting data are not fully represented
+# in the dataset. Procedure flags and N values for those studies are manually
+# overridden below. N values represent enrollment targets / upper-bound estimates.
+proc_harm_dat_recid <- dplyr::bind_rows(lapply(proc_matrix, function(x) {
   as.data.frame(x[names(x) %nin% c("groups", "visits")], stringsAsFactors = FALSE)
 })) %>%
-  mutate(kidney_bx = case_when(study %in% c("ATTEMPT", "RPC2") ~ T, T ~ kidney_bx),
-         intervention = case_when(is.na(intervention) ~ "", T ~ intervention),
-         n = as.character(n),
-         n = case_when(study == "ADAPT-CKD" ~ "≤100",
-                       study == "INSPIRE" ~ "≤90",
-                       study == "MANATEE" ~ "≤60",
-                       study == "MetMod" ~ "≤60",
-                       study == "OTTER" ~ "≤60",
-                       study == "SUGAR-N-SALT" ~ "≤150",
-                       study == "SWEETHEART" ~ "≤30",
-                       study == "T1-DISCO" ~ "≤60",
-                       T ~ n),
-         vitals = T,
-         blood_labs = T,
-         urine_labs = T,
-         sphyg = case_when(study %in% c("INSPIRE", "MANATEE", "OTTER", 
-                                        "T1-DISCO", "RENAL-HEIRitage") ~ T,
-                           T ~ F),
-         cgm = case_when(study %in% c("MANATEE", "MetMod", "PANDA", 
-                                      "PANTHER", "T1-DISCO") ~ T,
-                         T ~ F),
-         jwire = case_when(study %in% c("INSPIRE", "MANATEE", "OTTER", 
-                                        "T1-DISCO", "RENAL-HEIRitage") ~ T,
-                           T ~ F),
-         muscle_bx = case_when(study %in% c("MetMod") ~ T,
-                               T ~ F),
-         liver_bx = case_when(study %in% c("IMPROVE") ~ T,
-                              T ~ F),
-         oroboros = case_when(study %in% c("IMPROVE", "MetMod") ~ T,
-                              T ~ F),
-         blood_metabolomics = case_when(study %in% c("RENAL-HEIR", "IMPROVE", 
-                                                     "RENAL-HEIRitage") ~ T,
-                                        T ~ F),
-         urine_metabolomics = case_when(study %in% c("RENAL-HEIR", "IMPROVE", 
-                                                     "PANDA", "RENAL-HEIRitage") ~ T,
-                                        T ~ F),
-         clamp = case_when(study == "ADAPT-CKD" ~ F,
-                           study == "INSPIRE" ~ F,
-                           study == "MANATEE" ~ T,
-                           study == "MetMod" ~ T,
-                           study == "OTTER" ~ F,
-                           study == "SUGAR-N-SALT" ~ F,
-                           study == "SWEETHEART" ~ F,
-                           study == "T1-DISCO" ~ T,
-                           study == "PANTHER" ~ F,
-                           T ~ clamp),
-         renal_clear = case_when(study == "ATTEMPT" ~ T,
-                                 study == "ADAPT-CKD" ~ F,
-                                 study == "INSPIRE" ~ F,
-                                 study == "MANATEE" ~ T,
-                                 study == "MetMod" ~ F,
-                                 study == "OTTER" ~ T,
-                                 study == "SUGAR-N-SALT" ~ F,
-                                 study == "SWEETHEART" ~ F,
-                                 study == "T1-DISCO" ~ F,
-                                 T ~ renal_clear),
-         dxa = case_when(study == "ADAPT-CKD" ~ F,
-                         study == "INSPIRE" ~ F,
-                         study == "MANATEE" ~ T, # BIS
-                         study == "MetMod" ~ T,
-                         study == "OTTER" ~ T,
-                         study == "SUGAR-N-SALT" ~ F,
-                         study == "SWEETHEART" ~ T,
-                         study == "T1-DISCO" ~ T,
-                         T ~ dxa),
-         kidney_bx = case_when(study == "ADAPT-CKD" ~ T,
-                               study == "INSPIRE" ~ F,
-                               study == "MANATEE" ~ F,
-                               study == "MetMod" ~ F,
-                               study == "OTTER" ~ F,
-                               study == "SUGAR-N-SALT" ~ F,
-                               study == "SWEETHEART" ~ F,
-                               study == "T1-DISCO" ~ F,
-                               T ~ kidney_bx),
-         cardiac_mri = case_when(study == "ADAPT-CKD" ~ F,
-                                 study == "INSPIRE" ~ F,
-                                 study == "MANATEE" ~ F,
-                                 study == "MetMod" ~ F,
-                                 study == "OTTER" ~ T,
-                                 study == "SUGAR-N-SALT" ~ F,
-                                 study == "SWEETHEART" ~ T,
-                                 study == "T1-DISCO" ~ F,
-                                 T ~ cardiac_mri),
-         kidney_mri = case_when(study == "ADAPT-CKD" ~ F,
-                                study == "INSPIRE" ~ F,
-                                study == "MANATEE" ~ F,
-                                study == "MetMod" ~ T,
-                                study == "OTTER" ~ T,
-                                study == "SUGAR-N-SALT" ~ F,
-                                study == "SWEETHEART" ~ F,
-                                study == "T1-DISCO" ~ F,
-                                T ~ kidney_mri),
-         lipidomics = case_when(study == "ADAPT-CKD" ~ F,
-                                study == "INSPIRE" ~ F,
-                                study == "MANATEE" ~ F,
-                                study == "MetMod" ~ F,
-                                study == "OTTER" ~ F,
-                                study == "SUGAR-N-SALT" ~ F,
-                                study == "SWEETHEART" ~ F,
-                                study == "T1-DISCO" ~ F,
-                                T ~ lipidomics),
-         blood_proteomics = case_when(study == "ADAPT-CKD" ~ T,
-                                      study == "INSPIRE" ~ F,
-                                      study == "MANATEE" ~ F,
-                                      study == "MetMod" ~ F,
-                                      study == "OTTER" ~ T,
-                                      study == "SUGAR-N-SALT" ~ F,
-                                      study == "SWEETHEART" ~ F,
-                                      study == "T1-DISCO" ~ F,
-                                      T ~ blood_proteomics),
-         urine_proteomics = case_when(study == "ADAPT-CKD" ~ T,
-                                      study == "INSPIRE" ~ F,
-                                      study == "MANATEE" ~ F,
-                                      study == "MetMod" ~ F,
-                                      study == "OTTER" ~ F,
-                                      study == "SUGAR-N-SALT" ~ F,
-                                      study == "SWEETHEART" ~ F,
-                                      study == "T1-DISCO" ~ F,
-                                      T ~ urine_proteomics),
-         decode = case_when(study %in% c("CROCODILE", "RENAL-HEIR", 
-                                         "RENAL-HEIRitage", "RPC2",
-                                         "PANDA", "CASPER", "COFFEE",
-                                         "PENGUIN", "T1-DISCO", "REMODEL-T1D",
-                                         "ATTEMPT", "PANTHER") ~ "DECODE",
-                            T ~ "NOT PART OF DECODE")
+  # ── Procedure flag overrides (hard-coded / still enrolling) ─────────────────
+  dplyr::mutate(
+    kidney_bx = dplyr::case_when(
+      study %in% c("ATTEMPT", "RPC2") ~ TRUE,
+      study == "ADAPT-CKD"            ~ TRUE,
+      study %in% c("INSPIRE", "MANATEE", "MetMod", "OTTER",
+                   "SWEETHEART", "T1-DISCO", "TODAY", "TEEN-LABS") ~ FALSE,
+      T ~ kidney_bx
+    ),
+    vitals = TRUE,
+    blood_labs = TRUE,
+    urine_labs = TRUE,
+    sphyg = study %in% c("INSPIRE", "MANATEE", "OTTER", "T1-DISCO", "RENAL-HEIRitage", "TODAY"),
+    # CGM: detected from dataset for PANTHER; hard-coded for others
+    cgm = dplyr::case_when(
+      study %in% c("MANATEE", "MetMod", "T1-DISCO")  ~ TRUE,  # hard-coded (≤N)
+      study == "PANDA"                                ~ TRUE,  # hard-coded (≤N) — PANDA CGM being added
+      T ~ cgm                                                  # from data
+    ),
+    # J-Wire: no vars in dataset yet; hard-coded
+    jwire = study %in% c("INSPIRE", "MANATEE", "OTTER", "T1-DISCO", "RENAL-HEIRitage"),
+    muscle_bx = study %in% c("MetMod"),
+    liver_bx  = study %in% c("IMPROVE"),
+    oroboros  = study %in% c("IMPROVE", "MetMod"),
+    blood_metabolomics = study %in% c("RENAL-HEIR", "IMPROVE", "RENAL-HEIRitage", "TODAY", "TEEN-LABS"),
+    urine_metabolomics = study %in% c("RENAL-HEIR", "IMPROVE", "PANDA", "RENAL-HEIRitage", "TODAY", "TEEN-LABS"),
+    clamp = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "INSPIRE", "OTTER",
+                   "SWEETHEART", "PANTHER", "TODAY", "TEEN-LABS") ~ FALSE,
+      study %in% c("MANATEE", "MetMod", "T1-DISCO")         ~ TRUE,
+      T ~ clamp
+    ),
+    renal_clear = dplyr::case_when(
+      study %in% c("ATTEMPT", "MANATEE", "OTTER")                         ~ TRUE,
+      study %in% c("ADAPT-CKD", "INSPIRE", "MetMod",
+                   "SWEETHEART", "T1-DISCO", "TODAY", "TEEN-LABS") ~ FALSE,
+      T ~ renal_clear
+    ),
+    dxa = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "INSPIRE") ~ FALSE,
+      study %in% c("MANATEE", "MetMod", "OTTER", "SWEETHEART", "T1-DISCO",
+                   "TODAY", "TEEN-LABS") ~ TRUE,
+      T ~ dxa
+    ),
+    cardiac_mri = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "INSPIRE", "MANATEE",
+                   "MetMod", "TODAY", "TEEN-LABS") ~ FALSE,
+      study %in% c("OTTER", "SWEETHEART", "T1-DISCO")    ~ TRUE,
+      T ~ cardiac_mri
+    ),
+    echo = study %in% c("T1-DISCO", "OTTER", "TODAY"),
+    fmd  = study %in% c("T1-DISCO", "OTTER"),
+    kidney_mri = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "INSPIRE", "MANATEE",
+                   "SWEETHEART", "T1-DISCO", "TODAY", "TEEN-LABS") ~ FALSE,
+      study %in% c("MetMod", "OTTER")                        ~ TRUE,
+      T ~ kidney_mri
+    ),
+    lipidomics = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "INSPIRE", "MANATEE", "MetMod",
+                   "OTTER", "SWEETHEART", "T1-DISCO", "TODAY", "TEEN-LABS") ~ FALSE,
+      T ~ lipidomics
+    ),
+    blood_proteomics = dplyr::case_when(
+      study %in% c("ADAPT-CKD", "OTTER", "TEEN-LABS", "TODAY") ~ TRUE,
+      study %in% c("INSPIRE", "MANATEE", "MetMod",
+                   "SWEETHEART", "T1-DISCO") ~ FALSE,
+      T ~ blood_proteomics
+    ),
+    urine_proteomics = dplyr::case_when(
+      study == "ADAPT-CKD"                             ~ TRUE,
+      study %in% c("INSPIRE", "MANATEE", "MetMod",
+                   "OTTER", "SWEETHEART", "T1-DISCO", "TODAY", "TEEN-LABS") ~ FALSE,
+      T ~ urine_proteomics
+    ),
+    # DECODE membership
+    decode = dplyr::case_when(
+      study %in% c("CROCODILE", "RENAL-HEIR", "RENAL-HEIRitage", "RPC2",
+                   "PANDA", "CASPER", "COFFEE", "PENGUIN", "T1-DISCO",
+                   "REMODEL-T1D", "ATTEMPT", "PANTHER", "IMPROVE",
+                   "TODAY", "TEEN-LABS")  ~ "DECODE",
+      T                                                  ~ "NOT PART OF DECODE"
+    ),
+    # Intervention label: blank for observational
+    intervention = dplyr::case_when(is.na(intervention) ~ "", T ~ intervention),
+    # N: replace with upper-bound estimates for studies still enrolling
+    n = as.character(n),
+    n = dplyr::case_when(
+      study == "ADAPT-CKD"    ~ "≤100",
+      study == "INSPIRE"      ~ "≤90",
+      study == "MANATEE"      ~ "≤60",
+      study == "MetMod"       ~ "≤60",
+      study == "OTTER"        ~ "≤60",
+      study == "SWEETHEART"   ~ "≤30",
+      study == "T1-DISCO"     ~ "≤60",
+      study == "TODAY"        ~ as.character(today_n_total),
+      study == "TEEN-LABS"    ~ "≤242",
+      T ~ n
+    )
   )
 
-# Define all procedures
-flagged_procs <- c("vitals", "blood_labs", "urine_labs", "dxa",
-                   "clamp", "ivgtt", "oroboros", 
-                   "renal_clear", "kidney_mri", "kidney_pet", 
-                   "sphyg",  "cardiac_mri", 
-                   "kidney_bx", "muscle_bx", "liver_bx", "jwire",    
-                   "lipidomics", "blood_proteomics", 
-                   "urine_proteomics", "blood_metabolomics", "urine_metabolomics",
-                   "cgm")
-# Add cohort string
+# ── 5. Define ordered procedure columns ───────────────────────────────────────
+flagged_procs <- c(
+  "vitals", "blood_labs", "urine_labs", "dxa",
+  "clamp", "ivgtt", "oroboros",
+  "renal_clear", "kidney_mri", "kidney_pet",
+  "sphyg", "cardiac_mri", "echo", "fmd",
+  "kidney_bx", "muscle_bx", "liver_bx", "jwire",
+  "lipidomics", "blood_proteomics", "urine_proteomics",
+  "blood_metabolomics", "urine_metabolomics",
+  "cgm"
+)
+
+# ── 6. Build lookup lists (groups, visits, decode) for HTML badge helpers ──────
 groups_list <- lapply(proc_matrix, `[[`, "groups")
 names(groups_list) <- proc_harm_dat_recid$study
 
 visits_list <- lapply(proc_matrix, `[[`, "visits")
 names(visits_list) <- proc_harm_dat_recid$study
-visits_list$COFFEE <- "WK1"
+visits_list$COFFEE    <- "WK1"               # override: COFFEE follow-up is week 1
+visits_list$TODAY     <- "ANNUAL UP TO 15 YRS"  # single special label
+visits_list$`TEEN-LABS` <- c("MO6", "YR1", "YR2", "YR3", "YR5")
 
 decode_list <- as.list(proc_harm_dat_recid$decode)
 names(decode_list) <- proc_harm_dat_recid$study
+```
 
+```{r}
+# ── 7. Abbreviation helpers ────────────────────────────────────────────────────
 
-# Map group labels to abbreviations
+# Map group labels to display abbreviations
 abbrev_group <- function(g) {
   dplyr::case_when(
-    grepl("Type 1",  g, ignore.case = TRUE) ~ "T1D",
-    grepl("Type 2",  g, ignore.case = TRUE) ~ "T2D",
-    grepl("^Lean",   g, ignore.case = TRUE) ~ "HC",
-    grepl("^Obese",  g, ignore.case = TRUE) ~ "OB",
-    grepl("PKD|ADPKD", g, ignore.case = TRUE) ~ "ADPKD",
+    grepl("Type 1",       g, ignore.case = TRUE)  ~ "T1D",
+    grepl("Type 2",       g, ignore.case = TRUE)  ~ "T2D",
+    grepl("^Lean",        g, ignore.case = TRUE)  ~ "HC",
+    grepl("^Obese",       g, ignore.case = TRUE)  ~ "OB",
+    grepl("PKD|ADPKD",    g, ignore.case = TRUE)  ~ "ADPKD",
     TRUE ~ g
   )
 }
 
-# Map visit labels to abbreviations
+# Map visit labels to short codes
 abbrev_visit <- function(v) {
   dplyr::case_when(
-    grepl("baseline",   v, ignore.case = TRUE) ~ "0",
-    grepl("4_weeks_post",  v, ignore.case = TRUE) ~ "MO1",
-    grepl("3_months_post_surgery",  v, ignore.case = TRUE) ~ "MO3",
-    grepl("4_months_post",  v, ignore.case = TRUE) ~ "MO4",
-    grepl("12_months_post_surgery", v, ignore.case = TRUE) ~ "YR1",
-    grepl("year_1",  v, ignore.case = TRUE) ~ "YR1",
-    grepl("year_2", v, ignore.case = TRUE) ~ "YR2",
-    grepl("year_3",  v, ignore.case = TRUE) ~ "YR3",
-    grepl("year_4", v, ignore.case = TRUE) ~ "YR4",
-    grepl("follow up", v, ignore.case = TRUE) ~ "WK1",
-    grepl("post_treatment", v, ignore.case = TRUE) ~ "MO6",
+    grepl("baseline",                v, ignore.case = TRUE)  ~ "0",
+    grepl("4_weeks_post",            v, ignore.case = TRUE)  ~ "MO1",
+    grepl("3_months_post_surgery",   v, ignore.case = TRUE)  ~ "MO3",
+    grepl("4_months_post",           v, ignore.case = TRUE)  ~ "MO4",
+    grepl("12_months_post_surgery",  v, ignore.case = TRUE)  ~ "YR1",
+    grepl("year_1",                  v, ignore.case = TRUE)  ~ "YR1",
+    grepl("year_2",                  v, ignore.case = TRUE)  ~ "YR2",
+    grepl("year_3",                  v, ignore.case = TRUE)  ~ "YR3",
+    grepl("year_4",                  v, ignore.case = TRUE)  ~ "YR4",
+    grepl("follow up",               v, ignore.case = TRUE)  ~ "WK1",
+    grepl("post_treatment",          v, ignore.case = TRUE)  ~ "MO6",
     TRUE ~ v
   )
 }
 ```
 
 ```{r}
-# ── 4. HTML helpers ───────────────────────────────────────────────────────────
+# ── 8. HTML badge / dot helpers ────────────────────────────────────────────────
+
+# Color palettes
 cohort_colors <- c(
   T1D   = "#e77c76",
   T2D   = "#e37902",
@@ -472,22 +689,25 @@ cohort_colors <- c(
 
 visit_colors <- c(
   `0`   = "#d6ccc2",
-  `WK1` = "#f8ad9d", 
-  `MO1`   = "#ff9e00",
-  `MO3`    = "#ff9100",
-  `MO4`    = "#ff8500",
+  `WK1` = "#f8ad9d",
+  `MO1` = "#ff9e00",
+  `MO3` = "#ff9100",
+  `MO4` = "#ff8500",
   `MO6` = "#ff6d00",
-  `YR1`   = "#64a4ce",
-  `YR2`    = "#4893c6",
-  `YR3`    = "#2d82bd",
-  `YR4` = "#2476b1"
+  `YR1` = "#64a4ce",
+  `YR2` = "#4893c6",
+  `YR3` = "#2d82bd",
+  `YR4` = "#2476b1",
+  `YR5` = "#1a6aa5",
+  `ANNUAL UP TO 15 YRS` = "#00314D"
 )
 
 decode_colors <- c(
-  "DECODE"   = "#00314D",
+  "DECODE"            = "#00314D",
   "NOT PART OF DECODE" = "#c1121f"
 )
 
+# Solid pill badge (cohort)
 badge_html <- function(label) {
   bg <- cohort_colors[label]
   if (is.na(bg)) bg <- "#9ca3af"
@@ -499,6 +719,7 @@ badge_html <- function(label) {
   )
 }
 
+# Solid pill badge (visit)
 badge_visit_html <- function(label) {
   bg <- visit_colors[label]
   if (is.na(bg)) bg <- "#9ca3af"
@@ -510,6 +731,7 @@ badge_visit_html <- function(label) {
   )
 }
 
+# Small pill badge (DECODE membership)
 badge_decode_html <- function(label) {
   bg <- decode_colors[label]
   if (is.na(bg)) bg <- "#9ca3af"
@@ -521,336 +743,298 @@ badge_decode_html <- function(label) {
   )
 }
 
+# Compose cohort, visit, and DECODE badge strings per study
 make_cohort_html <- function(study_name) {
-  gs   <- groups_list[[study_name]]
-  abbr <- unique(abbrev_group(gs))
+  abbr <- unique(abbrev_group(groups_list[[study_name]]))
   paste(vapply(abbr, badge_html, character(1)), collapse = "")
 }
 
 make_visit_html <- function(study_name) {
-  vs   <- visits_list[[study_name]]
-  abbr <- sort(unique(abbrev_visit(vs)))
+  abbr <- sort(unique(abbrev_visit(visits_list[[study_name]])))
   paste(vapply(abbr, badge_visit_html, character(1)), collapse = "")
 }
 
 make_decode_html <- function(study_name) {
-  dc   <- decode_list[[study_name]]
-  paste(vapply(sort(unique(dc)), badge_decode_html, character(1)), collapse = "")
+  paste(vapply(sort(unique(decode_list[[study_name]])),
+               badge_decode_html, character(1)), collapse = "")
 }
 
+# Red filled dot = procedure present; grey hollow dot = absent
 dot_yes <- '<span style="color:#cb1b16;font-size:1.5em;">&#9679;</span>'
 dot_no  <- '<span style="color:#d1d5db;font-size:1.5em;">&#9675;</span>'
 dot     <- function(x) ifelse(x, dot_yes, dot_no)
-
-# ── 5. Assemble display data frame ────────────────────────────────────────────
-display_harm_dat_recid <- proc_harm_dat_recid %>%
-  mutate(
-    cohorts_html = sapply(study, make_cohort_html),
-    visits_html = sapply(study, make_visit_html),
-    decode_html = sapply(study, make_decode_html),
-    across(flagged_procs,
-           ~ sapply(.x, dot))
-  ) %>%
-  select(decode_html, study, exposure_design, design_struc, study_design_sub, 
-         intervention, cohorts_html, visits_html, n,
-         flagged_procs) %>%
-  arrange(decode_html, exposure_design, desc(design_struc), study_design_sub)
 ```
 
 ```{r}
-# ── 6. Build gt table ─────────────────────────────────────────────────────────
+# ── 9. Assemble display data frame ─────────────────────────────────────────────
+display_harm_dat_recid <- proc_harm_dat_recid %>%
+  dplyr::mutate(
+    cohorts_html = sapply(study, make_cohort_html),
+    visits_html  = sapply(study, make_visit_html),
+    decode_html  = sapply(study, make_decode_html),
+    dplyr::across(dplyr::all_of(flagged_procs), ~ sapply(.x, dot))
+  ) %>%
+  dplyr::select(
+    decode_html, study, exposure_design, design_struc, study_design_sub,
+    intervention, cohorts_html, visits_html, n,
+    dplyr::all_of(flagged_procs)
+  ) %>%
+  dplyr::arrange(decode_html, exposure_design, dplyr::desc(design_struc), study_design_sub)
+```
+
+```{r}
+# ── 10. Shared gt styling helper ──────────────────────────────────────────────
+# Applies consistent column labels, spanners, and styles to any procedure matrix
+# gt table. Used by both the dot version and the N version.
+apply_proc_gt_style <- function(tbl) {
+  tbl %>%
+    cols_label(
+      decode_html      = "PART OF DECODE",
+      study            = "STUDY",
+      exposure_design  = "STUDY DESIGN",
+      design_struc     = "TEMPORAL DESIGN",
+      study_design_sub = "STUDY SUB-DESIGN",
+      intervention     = "EXPOSURE",
+      visits_html      = "FOLLOW-UP VISITS",
+      cohorts_html     = "COHORTS",
+      n                = "N AT BASELINE",
+      vitals           = "VITALS",
+      blood_labs       = "BLOOD",
+      urine_labs       = "URINE",
+      clamp            = "CLAMP",
+      renal_clear      = "RENAL CLEARANCE TEST",
+      dxa              = "DXA",
+      kidney_bx        = "KIDNEY BX",
+      cardiac_mri      = "CARDIAC MRI",
+      echo             = "ECHO",
+      fmd              = "FMD",
+      kidney_mri       = "KIDNEY MRI",
+      lipidomics       = "LIPID",
+      blood_proteomics = "PROTEOMICS (PLASMA)",
+      urine_proteomics = "PROTEOMICS (URINE)",
+      blood_metabolomics = "METABO (PLASMA)",
+      urine_metabolomics = "METABO (URINE)",
+      muscle_bx        = "MUSCLE BX",
+      liver_bx         = "LIVER BX",
+      jwire            = "J-WIRE",
+      sphyg            = "SPHYGMOCOR",
+      kidney_pet       = "KIDNEY PET",
+      cgm              = "CGM"
+    ) %>%
+    fmt_markdown(columns = everything()) %>%
+    tab_spanner(label = "Labs",             columns = c(blood_labs, urine_labs)) %>%
+    tab_spanner(label = "Metabolic Testing",columns = c(clamp, ivgtt, oroboros)) %>%
+    tab_spanner(label = "Kidney Function",  columns = c(renal_clear, kidney_mri, kidney_pet)) %>%
+    tab_spanner(label = "Cardiac",          columns = c(sphyg, cardiac_mri, echo, fmd)) %>%
+    tab_spanner(label = "Biopsies/Procedures",
+                columns = c(kidney_bx, muscle_bx, liver_bx, jwire)) %>%
+    tab_spanner(label = "Omics",
+                columns = c(lipidomics, blood_proteomics, urine_proteomics,
+                            blood_metabolomics, urine_metabolomics)) %>%
+    tab_style(
+      style     = cell_text(weight = "bold", size = "12px",
+                            transform = "uppercase", color = "#374151"),
+      locations = cells_column_spanners()
+    ) %>%
+    tab_style(
+      style     = cell_text(weight = "bold", size = "15px"),
+      locations = cells_body(columns = study)
+    ) %>%
+    tab_style(
+      style     = cell_text(weight = "bold", size = "12px",
+                            transform = "uppercase", color = "#374151"),
+      locations = cells_column_labels()
+    ) %>%
+    tab_style(
+      style     = cell_text(size = "15px"),
+      locations = cells_body()
+    ) %>%
+    cols_align(
+      align   = "center",
+      columns = c(decode_html, study, exposure_design, design_struc, study_design_sub,
+                  visits_html, intervention, cohorts_html, n, all_of(flagged_procs))
+    ) %>%
+    cols_width(
+      study            ~ px(145),
+      exposure_design  ~ px(150),
+      design_struc     ~ px(150),
+      study_design_sub ~ px(150),
+      visits_html      ~ px(120),
+      intervention     ~ px(150),
+      cohorts_html     ~ px(120),
+      n                ~ px(70),
+      all_of(flagged_procs) ~ px(70)
+    ) %>%
+    opt_row_striping(row_striping = TRUE)
+}
+```
+
+## Dot version (presence / absence)
+
+```{r}
+# ── 11. Build and render the dot-style procedure table ─────────────────────────
 study_gt_table <- display_harm_dat_recid %>%
   gt(id = "harm-study-table") %>%
-  
-  cols_label(
-    decode_html = "PART OF DECODE",
-    study        = "STUDY",
-    exposure_design = "STUDY DESIGN",
-    design_struc = "TEMPORAL DESIGN",
-    study_design_sub = "STUDY SUB-DESIGN",
-    intervention = "EXPOSURE",
-    visits_html = "FOLLOW-UP VISITS",
-    cohorts_html = "COHORTS",
-    n            = "N AT BASELINE",
-    vitals = "VITALS",
-    blood_labs   = "BLOOD",
-    urine_labs   = "URINE",
-    clamp        = "CLAMP",
-    renal_clear  = "RENAL CLEARANCE TEST",
-    dxa          = "DXA",
-    kidney_bx    = "KIDNEY BX",
-    cardiac_mri  = "CARDIAC MRI",
-    kidney_mri   = "KIDNEY MRI",
-    lipidomics   = "LIPID",
-    blood_proteomics   = "PROTEOMICS (PLASMA)",
-    urine_proteomics = "PROTEOMICS (URINE)",
-    blood_metabolomics = "METABO (PLASMA)",
-    urine_metabolomics = "METABO (URINE)",
-    muscle_bx = "MUSLCE BX",
-    liver_bx = "LIVER BX",
-    jwire = "J-WIRE",
-    sphyg = "SPHYGMOCOR",
-    kidney_pet = "KIDNEY PET"
-  ) %>%
-  
-  fmt_markdown(columns = everything()) %>%
-  
-  # Spanners
-  tab_spanner(
-    label = "Labs",
-    columns = c(blood_labs, urine_labs)
-  ) %>%
-  tab_spanner(
-    label = "Metabolic Testing",
-    columns = c(clamp, ivgtt, oroboros)
-  ) %>%
-  tab_spanner(
-    label = "Kidney Function",
-    columns = c(renal_clear, kidney_mri, kidney_pet)
-  ) %>%
-  tab_spanner(
-    label = "Cardiac",
-    columns = c(sphyg, cardiac_mri)
-  ) %>%
-  tab_spanner(
-    label = "Biopsies/Procedures",
-    columns = c(kidney_bx, muscle_bx, liver_bx, jwire)
-  ) %>%
-  tab_spanner(
-    label = "Omics",
-    columns = c(lipidomics, blood_proteomics, urine_proteomics,
-                blood_metabolomics, urine_metabolomics)
-  ) %>%
-  # Column headers: uppercase, small, bold
-  tab_style(
-    style = cell_text(
-      weight = "bold", size = "12px",
-      transform = "uppercase", color = "#374151"
-    ),
-    locations = cells_column_spanners()
-  ) %>%
-  
-  # Study name: bold
-  tab_style(
-    style = cell_text(weight = "bold", size = "15px"),
-    locations = cells_body(columns = study)
-  ) %>%
-  
-  # Column headers: uppercase, small, bold
-  tab_style(
-    style = cell_text(
-      weight = "bold", size = "12px",
-      transform = "uppercase", color = "#374151"
-    ),
-    locations = cells_column_labels()
-  ) %>%
-  
-  # Body text style
-  tab_style(
-    style = cell_text(
-      size = "15px"
-    ),
-    locations = cells_body()
-  ) %>%
-  
-  
-  # Procedure columns: center
-  cols_align(align = "center",
-             columns = c(
-               decode_html, study, exposure_design, design_struc, study_design_sub,
-               visits_html, intervention, cohorts_html, n,
-               flagged_procs)) %>%
-  
-  # Column widths
-  cols_width(
-    study        ~ px(145),
-    exposure_design ~ px(150),
-    design_struc ~ px(150),
-    study_design_sub ~ px(150),
-    visits_html ~ px(120),
-    intervention ~ px(150),
-    cohorts_html ~ px(120),
-    n            ~ px(70),
-    flagged_procs   ~ px(70)) %>%
-  opt_row_striping(row_striping = TRUE)
+  apply_proc_gt_style()
 
-# ── 7. View / save ────────────────────────────────────────────────────────────
 study_gt_table
 
-study_gt_table %>% 
-  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table.png"),
-         vwidth = 3000, vheight = 1000)
-
 study_gt_table %>%
-  gt::opt_interactive()
+  gtsave(
+    file.path(root_path,
+              "Data Harmonization/Report_files/Summary Report/summary_table.png"),
+    vwidth = 3000, vheight = 1000
+  )
+
+study_gt_table %>% gt::opt_interactive()
 ```
 
-## Version with N's
+## N version (per-procedure sample sizes)
 
 ```{r}
-# ── N-version table: replace dots with per-procedure observed N ───────────────
-# For studies present in the dataset: count unique baseline participants with
-# ≥1 non-NA value in each procedure's variable set.
+# ── 12. Per-procedure N computation ───────────────────────────────────────────
+# For studies present in the dataset: count unique participants with ≥1 non-NA
+# value in the relevant variable set (at baseline visit).
 # For hard-coded / still-enrolling studies: show ≤[hard-coded N].
 
-hardcoded_studies_n <- c("ADAPT-CKD", "INSPIRE", "MANATEE", "MetMod",
-                         "OTTER", "SUGAR-N-SALT", "SWEETHEART", "T1-DISCO")
-
-# Variable sets per procedure flag (for N-counting)
-proc_n_varlist <- list(
-  vitals           = c("height", "weight", "bmi", "sbp", "dbp"),
+# Map each procedure flag to its variable set
+proc_varlist <- list(
+  vitals           = c("height", "weight", "bmi", "sbp", "dbp"),   # common vitals
   blood_labs       = blood_labs,
   urine_labs       = urine_labs,
   clamp            = clamp_all,
   ivgtt            = ivgtt,
-  oroboros         = character(0),
+  oroboros         = character(0),   # no harmonized vars yet
   renal_clear      = renal_clearance,
   kidney_mri       = kidney_mri_all,
   kidney_pet       = kidney_pet,
-  sphyg            = character(0),
+  sphyg            = character(0),   # no harmonized vars yet
   cardiac_mri      = cardiac_mri,
+  echo             = character(0),   # no harmonized vars yet
+  fmd              = character(0),   # no harmonized vars yet
   kidney_bx        = kidney_bx,
-  muscle_bx        = character(0),
-  liver_bx         = character(0),
-  jwire            = intersect(c("jwire_side", "jwire_num"), cols),
+  muscle_bx        = character(0),   # no harmonized vars yet
+  liver_bx         = character(0),   # no harmonized vars yet
+  jwire            = jwire_vars,
   lipidomics       = lipid_vars,
   blood_proteomics = prot_blood_vars,
   urine_proteomics = prot_urine_vars,
-  blood_metabolomics = character(0),
-  urine_metabolomics = character(0),
-  cgm              = intersect(c("cgm_v_high", "cgm_high", "cgm_low", "cgm_v_low"), cols)
+  blood_metabolomics = character(0), # no harmonized vars yet
+  urine_metabolomics = character(0), # no harmonized vars yet
+  cgm              = cgm_vars
 )
 
+# Studies that are hard-coded (not yet in dataset) — show ≤N
+hardcoded_studies <- c("ADAPT-CKD", "INSPIRE", "MANATEE", "MetMod",
+                       "OTTER", "SWEETHEART", "T1-DISCO")
+
+# Count baseline non-missing participants per study × procedure
 count_proc_n <- function(study_name, proc_name) {
+  vlist   <- intersect(proc_varlist[[proc_name]], cols)
   proc_on <- proc_harm_dat_recid[proc_harm_dat_recid$study == study_name,
                                  proc_name, drop = TRUE]
-  if (!isTRUE(proc_on)) return("")                       # procedure not done
+  # Procedure not done for this study
+  if (!isTRUE(proc_on)) return("")
 
+  # Hard-coded study: return ≤N
   hard_n <- proc_harm_dat_recid$n[proc_harm_dat_recid$study == study_name]
+  if (study_name %in% hardcoded_studies) return(paste0(hard_n))
 
-  if (study_name %in% hardcoded_studies_n) return(hard_n) # show ≤N for hard-coded
+  # TODAY: Ns computed from separate data files (not in harm_dat_recid)
+  if (study_name == "TODAY") {
+    today_proc_ns <- c(
+      vitals = today_n_vitals, blood_labs = today_n_blood,
+      urine_labs = today_n_urine, dxa = today_n_dxa,
+      echo = today_n_echo, sphyg = today_n_pwv,
+      blood_proteomics = today_n_blood_prot,
+      blood_metabolomics = today_n_blood_met,
+      urine_metabolomics = today_n_urine_met
+    )
+    if (proc_name %in% names(today_proc_ns)) return(as.character(today_proc_ns[[proc_name]]))
+    return(as.character(hard_n))
+  }
 
-  vlist <- intersect(proc_n_varlist[[proc_name]], cols)
-  if (length(vlist) == 0) return(hard_n)                 # no vars mapped → ≤N
+  # TEEN-LABS: hardcoded ≤242 for most procedures; proteomics uses exact count
+  if (study_name == "TEEN-LABS") {
+    teenlabs_hardcoded_ns <- c(
+      vitals = 242L, blood_labs = 242L,
+      urine_labs = 242L, dxa = 242L,
+      blood_metabolomics = 242L, urine_metabolomics = 242L
+    )
+    if (proc_name %in% names(teenlabs_hardcoded_ns)) return(paste0("≤", teenlabs_hardcoded_ns[[proc_name]]))
+    if (proc_name == "blood_proteomics") return(as.character(teenlabs_n_soma))
+    return(paste0("≤", hard_n))
+  }
 
+  # No vars mapped: return ≤N as fallback
+  if (length(vlist) == 0) return(paste0(hard_n))
+
+  # Compute from data (baseline rows only)
   sub <- harm_dat_recid[
     !is.na(harm_dat_recid$study) &
-    harm_dat_recid$study == study_name &
-    harm_dat_recid$visit == "baseline",
+      harm_dat_recid$study == study_name &
+      harm_dat_recid$visit == "baseline",
     vlist, drop = FALSE
   ]
-  n_obs <- sum(rowSums(!is.na(sub)) > 0)
-  if (n_obs == 0) hard_n else as.character(n_obs)
+  n <- sum(rowSums(!is.na(sub)) > 0)
+  if (n == 0) as.character(hard_n) else as.character(n)
 }
 
-# Build N display data frame (same structure as the dot table)
-display_n <- proc_harm_dat_recid %>%
-  mutate(
+# Build N display data frame — same structure as display_harm_dat_recid
+display_n_table <- proc_harm_dat_recid %>%
+  dplyr::mutate(
     cohorts_html = sapply(study, make_cohort_html),
     visits_html  = sapply(study, make_visit_html),
     decode_html  = sapply(study, make_decode_html)
   )
 
+# Replace dot columns with N strings
 for (proc in flagged_procs) {
-  display_n[[proc]] <- vapply(display_n$study,
-                              function(s) count_proc_n(s, proc),
-                              character(1))
+  display_n_table[[proc]] <- vapply(
+    display_n_table$study,
+    function(s) count_proc_n(s, proc),
+    character(1)
+  )
 }
 
-display_n <- display_n %>%
-  select(decode_html, study, exposure_design, design_struc, study_design_sub,
-         intervention, cohorts_html, visits_html, n, all_of(flagged_procs)) %>%
-  arrange(decode_html, exposure_design, desc(design_struc), study_design_sub)
-
-study_gt_n_table <- display_n %>%
-  gt(id = "harm-study-table-n") %>%
-  cols_label(
-    decode_html = "PART OF DECODE",
-    study        = "STUDY",
-    exposure_design = "STUDY DESIGN",
-    design_struc = "TEMPORAL DESIGN",
-    study_design_sub = "STUDY SUB-DESIGN",
-    intervention = "EXPOSURE",
-    visits_html = "FOLLOW-UP VISITS",
-    cohorts_html = "COHORTS",
-    n            = "N AT BASELINE",
-    vitals = "VITALS",
-    blood_labs   = "BLOOD",
-    urine_labs   = "URINE",
-    clamp        = "CLAMP",
-    renal_clear  = "RENAL CLEARANCE TEST",
-    dxa          = "DXA",
-    kidney_bx    = "KIDNEY BX",
-    cardiac_mri  = "CARDIAC MRI",
-    kidney_mri   = "KIDNEY MRI",
-    lipidomics   = "LIPID",
-    blood_proteomics   = "PROTEOMICS (PLASMA)",
-    urine_proteomics = "PROTEOMICS (URINE)",
-    blood_metabolomics = "METABO (PLASMA)",
-    urine_metabolomics = "METABO (URINE)",
-    muscle_bx = "MUSCLE BX",
-    liver_bx = "LIVER BX",
-    jwire = "J-WIRE",
-    sphyg = "SPHYGMOCOR",
-    kidney_pet = "KIDNEY PET",
-    cgm = "CGM"
+display_n_table <- display_n_table %>%
+  dplyr::select(
+    decode_html, study, exposure_design, design_struc, study_design_sub,
+    intervention, cohorts_html, visits_html, n,
+    dplyr::all_of(flagged_procs)
   ) %>%
-  fmt_markdown(columns = everything()) %>%
-  tab_spanner(label = "Labs",              columns = c(blood_labs, urine_labs)) %>%
-  tab_spanner(label = "Metabolic Testing", columns = c(clamp, ivgtt, oroboros)) %>%
-  tab_spanner(label = "Kidney Function",   columns = c(renal_clear, kidney_mri, kidney_pet)) %>%
-  tab_spanner(label = "Cardiac",           columns = c(sphyg, cardiac_mri)) %>%
-  tab_spanner(label = "Biopsies/Procedures",
-              columns = c(kidney_bx, muscle_bx, liver_bx, jwire)) %>%
-  tab_spanner(label = "Omics",
-              columns = c(lipidomics, blood_proteomics, urine_proteomics,
-                          blood_metabolomics, urine_metabolomics)) %>%
-  tab_style(style = cell_text(weight = "bold", size = "12px",
-                              transform = "uppercase", color = "#374151"),
-            locations = cells_column_spanners()) %>%
-  tab_style(style = cell_text(weight = "bold", size = "15px"),
-            locations = cells_body(columns = study)) %>%
-  tab_style(style = cell_text(weight = "bold", size = "12px",
-                              transform = "uppercase", color = "#374151"),
-            locations = cells_column_labels()) %>%
-  tab_style(style = cell_text(size = "15px"),
-            locations = cells_body()) %>%
-  cols_align(align = "center",
-             columns = c(decode_html, study, exposure_design, design_struc,
-                         study_design_sub, visits_html, intervention,
-                         cohorts_html, n, all_of(flagged_procs))) %>%
-  cols_width(study        ~ px(145),
-             exposure_design ~ px(150),
-             design_struc ~ px(150),
-             study_design_sub ~ px(150),
-             visits_html ~ px(120),
-             intervention ~ px(150),
-             cohorts_html ~ px(120),
-             n            ~ px(70),
-             flagged_procs   ~ px(70)) %>%
-  opt_row_striping(row_striping = TRUE)
+  dplyr::arrange(decode_html, exposure_design, dplyr::desc(design_struc), study_design_sub)
+```
+
+```{r}
+# ── 13. Render N-version table ─────────────────────────────────────────────────
+study_gt_n_table <- display_n_table %>%
+  gt(id = "harm-study-table-n") %>%
+  apply_proc_gt_style()
 
 study_gt_n_table
 
 study_gt_n_table %>%
-  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table_n.png"),
-         vwidth = 3000, vheight = 1000)
+  gtsave(
+    file.path(root_path,
+              "Data Harmonization/Report_files/Summary Report/summary_table_n.png"),
+    vwidth = 3000, vheight = 1000
+  )
 
 study_gt_n_table %>% gt::opt_interactive()
 ```
 
+---
 
 # Data availability by cohort
 
 ```{r}
-# ── Cohort table: new helpers (study_palette, design_colors, tag_html,
-#    study_badge_html, cohort_label_html, visit_badge_cohort_html) ─────────────
+# ── 14. Cohort-table HTML helpers ──────────────────────────────────────────────
 # NOTE: cohort_colors, visit_colors, badge_html, badge_visit_html,
-#       abbrev_group, abbrev_visit, dot_yes, dot_no, dot, groups_list,
-#       visits_list, proc_harm_dat_recid, and flagged_procs are already
-#       defined above and remain in scope here.
+# abbrev_group, abbrev_visit, dot_yes/dot_no/dot, groups_list, visits_list,
+# proc_harm_dat_recid, and flagged_procs are all defined in Section 1 above.
 
-# Neutral colored bubble per study name (QMD study names: "IMPROVE", "ULTRA")
+# Color map: study name → design-type color (for solid study bubbles)
 study_palette <- c(
   # RCT
   "ATTEMPT"         = "#606c38",
@@ -859,14 +1043,15 @@ study_palette <- c(
   "MetMod"          = "#606c38",
   "OTTER"           = "#606c38",
   "RPC2"            = "#606c38",
-  "SUGAR-N-SALT"    = "#606c38",
   "T1-DISCO"        = "#606c38",
+  "TODAY"           = "#606c38",
   # Single-arm trial
   "COFFEE"          = "#f48c06",
   "ULTRA"           = "#f48c06",
   # Registry cohort
   "IMPROVE"         = "#f28482",
   "ADAPT-CKD"       = "#f28482",
+  "TEEN-LABS"       = "#f28482",
   # Prospective cohort
   "PANTHER"         = "#0891b2",
   "PANDA"           = "#0891b2",
@@ -879,16 +1064,16 @@ study_palette <- c(
   "SWEETHEART"      = "#14213d"
 )
 
-# Colors for pooled design-type tags
+# Colors for pooled design-type outline tags
 design_colors <- c(
-  "RCT"                        = "#606c38",
-  "Single-arm trial"           = "#f48c06",
-  "Registry cohort"            = "#f28482",
-  "Prospective cohort"         = "#0891b2",
-  "Cohort study"               = "#14213d"
+  "RCT"              = "#606c38",
+  "Single-arm trial" = "#f48c06",
+  "Registry cohort"  = "#f28482",
+  "Prospective cohort" = "#0891b2",
+  "Cohort study"     = "#14213d"
 )
 
-# Outlined design tag badge
+# Outlined design-type tag (used in cohort table)
 tag_html <- function(label, color) {
   sprintf(
     paste0('<span style="background:%s20;color:%s;border:1px solid %s40;',
@@ -898,7 +1083,7 @@ tag_html <- function(label, color) {
   )
 }
 
-# Colored solid bubble for a study name
+# Solid study-name bubble
 study_badge_html <- function(study_name) {
   bg <- study_palette[study_name]
   if (is.na(bg)) bg <- "#6b7280"
@@ -910,7 +1095,7 @@ study_badge_html <- function(study_name) {
   )
 }
 
-# Larger cohort-type pill (row label)
+# Large cohort-type row-label pill
 cohort_label_html <- function(cohort) {
   bg <- cohort_colors[cohort]
   if (is.na(bg)) bg <- "#9ca3af"
@@ -922,7 +1107,7 @@ cohort_label_html <- function(cohort) {
   )
 }
 
-# Smaller visit badge for cohort table (reuses visit_colors already in scope)
+# Outlined visit badge (cohort table uses outlined style)
 visit_badge_cohort_html <- function(v) {
   col <- visit_colors[v]
   if (is.na(col)) col <- "#9ca3af"
@@ -936,17 +1121,15 @@ visit_badge_cohort_html <- function(v) {
 ```
 
 ```{r}
-# ── Cohort table: data preparation ────────────────────────────────────────────
+# ── 15. Cohort table: data preparation ────────────────────────────────────────
 
-# 1. Derive per-study cohort abbreviations from groups_list (already in scope)
+# Derive per-study cohort abbreviations
 cohort_abbrev_per_study <- lapply(names(groups_list), function(s) {
-  gs <- groups_list[[s]]
-  sort(unique(abbrev_group(gs)))
+  sort(unique(abbrev_group(groups_list[[s]])))
 })
 names(cohort_abbrev_per_study) <- names(groups_list)
 
-# 2. Derive per-study follow-up visit string from visits_list (already in scope)
-#    Exclude baseline (abbrev "0")
+# Derive per-study follow-up visit string (exclude baseline)
 followup_str_per_study <- lapply(names(visits_list), function(s) {
   vs   <- visits_list[[s]]
   vs   <- vs[!is.na(vs)]
@@ -957,11 +1140,10 @@ followup_str_per_study <- lapply(names(visits_list), function(s) {
 })
 names(followup_str_per_study) <- names(visits_list)
 
-# 3. Build a slim metadata frame: study | cohorts_str | followup_visits | n_str
-#    n_str comes from proc_harm_dat_recid$n (already character with <= overrides)
+# Slim metadata frame: study | cohorts_str | followup_visits | n_str
 study_meta_cohort <- data.frame(
-  study           = proc_harm_dat_recid$study,
-  cohorts_str     = sapply(proc_harm_dat_recid$study, function(s) {
+  study = proc_harm_dat_recid$study,
+  cohorts_str = sapply(proc_harm_dat_recid$study, function(s) {
     v <- cohort_abbrev_per_study[[s]]
     if (is.null(v) || length(v) == 0) NA_character_ else paste(v, collapse = ",")
   }),
@@ -969,50 +1151,47 @@ study_meta_cohort <- data.frame(
     v <- followup_str_per_study[[s]]
     if (is.null(v) || length(v) == 0) NA_character_ else v
   }),
-  n_str           = proc_harm_dat_recid$n,
+  n_str = proc_harm_dat_recid$n,
   stringsAsFactors = FALSE
 )
 
-# 4. Procedure columns for cohort table
-
-
-# 5. Join metadata with procedure flags from proc_harm_dat_recid
+# Join with procedure flags
 study_full_cohort <- study_meta_cohort %>%
-  left_join(
+  dplyr::left_join(
     proc_harm_dat_recid %>%
-      select(study, decode, exposure_design, design_struc, study_design_sub,
-             all_of( flagged_procs)),
+      dplyr::select(study, decode, exposure_design, design_struc, study_design_sub,
+             dplyr::all_of(flagged_procs)),
     by = "study"
   )
 
-# 6. Expand to one row per study x cohort
+# Expand to one row per study × cohort
 study_cohort_long <- study_full_cohort %>%
-  mutate(cohort_list = strsplit(cohorts_str, ",")) %>%
+  dplyr::mutate(cohort_list = strsplit(cohorts_str, ",")) %>%
   tidyr::unnest(cohort_list) %>%
-  mutate(cohort = trimws(cohort_list))
+  dplyr::mutate(cohort = trimws(cohort_list))
 
 cohort_order <- c("HC", "OB", "T1D", "T2D", "ADPKD")
 
-# ── build_cohort_display(): aggregate to one gt-ready row per cohort ──────────
+# ── build_cohort_display(): aggregate to one gt-ready row per cohort ───────────
 build_cohort_display <- function(subset_decode = c("ALL", "DECODE", "NOT PART OF DECODE")) {
   subset_decode <- match.arg(subset_decode)
 
   dat <- if (subset_decode == "ALL") {
     study_cohort_long
   } else {
-    study_cohort_long %>% filter(decode == subset_decode)
+    study_cohort_long %>% dplyr::filter(decode == subset_decode)
   }
 
   cohort_rows <- lapply(cohort_order, function(ch) {
-    ch_dat <- dat %>% filter(cohort == ch)
+    ch_dat <- dat %>% dplyr::filter(cohort == ch)
     if (nrow(ch_dat) == 0) return(NULL)
 
     studies_in_ch <- ch_dat$study
 
-    # Cohort label pill
+    # Cohort row label
     cohort_html <- cohort_label_html(ch)
 
-    # N: sum numeric Ns; mark capped (<=xx) studies with +
+    # Aggregate N: sum numeric Ns, keep ≤ prefix if any study is capped
     ns         <- ch_dat$n_str
     numeric_ns <- suppressWarnings(as.numeric(ns))
     capped_ns  <- as.numeric(gsub("≤", "", ns))
@@ -1040,139 +1219,101 @@ build_cohort_display <- function(subset_decode = c("ALL", "DECODE", "NOT PART OF
     }, character(1))
     studies_html <- paste(study_visit_parts, collapse = "<br>")
 
-    # Pooled design tags — unique values across all three design columns
-    designs     <- unique(c(ch_dat$study_design_sub))
+    # Design-type tags (unique across studies in this cohort)
+    designs     <- unique(ch_dat$study_design_sub)
     designs     <- designs[!is.na(designs) & nchar(trimws(designs)) > 0]
     design_html <- paste(vapply(designs, function(d) {
-      col <- design_colors[d]
-      if (is.na(col)) col <- "#6b7280"
+      col <- design_colors[d]; if (is.na(col)) col <- "#6b7280"
       tag_html(d, col)
     }, character(1)), collapse = " ")
 
-    # Procedure dots: ANY study in this cohort = filled
-    proc_vals <- vapply( flagged_procs, function(p) {
+    # Procedure dots: TRUE if ANY study in this cohort has the procedure
+    proc_vals <- vapply(flagged_procs, function(p) {
       vals <- ch_dat[[p]]
       if (is.logical(vals)) any(vals, na.rm = TRUE)
       else any(as.logical(vals), na.rm = TRUE)
     }, logical(1))
 
     row_data <- c(
-      list(
-        cohort_html  = cohort_html,
-        studies_html = studies_html,
-        design_html  = design_html,
-        n            = n_display
-      ),
+      list(cohort_html  = cohort_html,
+           studies_html = studies_html,
+           design_html  = design_html,
+           n            = n_display),
       as.list(proc_vals)
     )
     as.data.frame(row_data, stringsAsFactors = FALSE, check.names = FALSE)
   })
 
-  cohort_df <- bind_rows(Filter(Negate(is.null), cohort_rows))
-
-  # Convert logical procedure values to HTML dots
-  cohort_df <- cohort_df %>%
-    mutate(across(all_of( flagged_procs),
+  cohort_df <- dplyr::bind_rows(Filter(Negate(is.null), cohort_rows)) %>%
+    dplyr::mutate(dplyr::across(dplyr::all_of(flagged_procs),
                   ~ sapply(.x, function(v) dot(as.logical(v)))))
   cohort_df
 }
 
-# Build the three display data frames
+# Build display data frames for all / DECODE-only / non-DECODE subsets
 df_cohort_all    <- build_cohort_display("ALL")
 df_cohort_decode <- build_cohort_display("DECODE")
 df_cohort_nondec <- build_cohort_display("NOT PART OF DECODE")
+```
 
-# ── make_cohort_gt(): build a gt table from a cohort display data frame ────────
+```{r}
+# ── 16. Cohort gt table builder ────────────────────────────────────────────────
 make_cohort_gt <- function(display_df, title_suffix = "") {
   display_df %>%
     gt(id = paste0("harm-cohort-table", gsub("[^A-Za-z0-9]", "_", title_suffix))) %>%
-
     cols_label(
       cohort_html      = "COHORT",
       studies_html     = "STUDIES & FOLLOW-UP",
       design_html      = "STUDY DESIGNS",
       n                = "N",
-      vitals = "VITALS",
-      blood_labs   = "BLOOD",
-      urine_labs   = "URINE",
-      clamp        = "CLAMP",
-      renal_clear  = "RENAL CLEARANCE TEST",
-      dxa          = "DXA",
-      kidney_bx    = "KIDNEY BX",
-      cardiac_mri  = "CARDIAC MRI",
-      kidney_mri   = "KIDNEY MRI",
-      lipidomics   = "LIPID",
-      blood_proteomics   = "PROTEOMICS (PLASMA)",
+      vitals           = "VITALS",
+      blood_labs       = "BLOOD",
+      urine_labs       = "URINE",
+      clamp            = "CLAMP",
+      renal_clear      = "RENAL CLEARANCE TEST",
+      dxa              = "DXA",
+      kidney_bx        = "KIDNEY BX",
+      cardiac_mri      = "CARDIAC MRI",
+      echo             = "ECHO",
+      fmd              = "FMD",
+      kidney_mri       = "KIDNEY MRI",
+      lipidomics       = "LIPID",
+      blood_proteomics = "PROTEOMICS (PLASMA)",
       urine_proteomics = "PROTEOMICS (URINE)",
-    blood_metabolomics = "METABO (PLASMA)",
-    urine_metabolomics = "METABO (URINE)",
-      muscle_bx = "MUSLCE BX",
-      liver_bx = "LIVER BX",
-      jwire = "J-WIRE",
-      sphyg = "SPHYG MOCOR",
-      kidney_pet = "KIDNEY PET"
+      blood_metabolomics = "METABO (PLASMA)",
+      urine_metabolomics = "METABO (URINE)",
+      muscle_bx        = "MUSCLE BX",
+      liver_bx         = "LIVER BX",
+      jwire            = "J-WIRE",
+      sphyg            = "SPHYGMOCOR",
+      kidney_pet       = "KIDNEY PET",
+      cgm              = "CGM"
     ) %>%
-    
-    # Spanners
-    tab_spanner(
-      label = "Labs",
-      columns = c(blood_labs, urine_labs)
-    ) %>%
-    tab_spanner(
-      label = "Metabolic Testing",
-      columns = c(clamp, ivgtt, oroboros)
-    ) %>%
-    tab_spanner(
-      label = "Kidney Function",
-      columns = c(renal_clear, kidney_mri, kidney_pet)
-    ) %>%
-    tab_spanner(
-      label = "Cardiac",
-      columns = c(sphyg, cardiac_mri)
-    ) %>%
-    tab_spanner(
-      label = "Biopsies/Procedures",
-      columns = c(kidney_bx, muscle_bx, liver_bx, jwire)
-    ) %>%
-    tab_spanner(
-      label = "Omics",
-      columns = c(lipidomics, blood_proteomics, urine_proteomics,
-                  blood_metabolomics, urine_metabolomics)
-    ) %>%
-    
-    
     fmt_markdown(columns = everything()) %>%
-
-    # Styling
-    # Column headers: uppercase, small, bold
+    tab_spanner(label = "Labs",              columns = c(blood_labs, urine_labs)) %>%
+    tab_spanner(label = "Metabolic Testing", columns = c(clamp, ivgtt, oroboros)) %>%
+    tab_spanner(label = "Kidney Function",   columns = c(renal_clear, kidney_mri, kidney_pet)) %>%
+    tab_spanner(label = "Cardiac",           columns = c(sphyg, cardiac_mri, echo, fmd)) %>%
+    tab_spanner(label = "Biopsies/Procedures",
+                columns = c(kidney_bx, muscle_bx, liver_bx, jwire)) %>%
+    tab_spanner(label = "Omics",
+                columns = c(lipidomics, blood_proteomics, urine_proteomics,
+                            blood_metabolomics, urine_metabolomics)) %>%
     tab_style(
-      style = cell_text(
-        weight = "bold", size = "12px",
-        transform = "uppercase", color = "#374151"
-      ),
+      style     = cell_text(weight = "bold", size = "12px",
+                            transform = "uppercase", color = "#374151"),
       locations = cells_column_spanners()
     ) %>%
-    
-    # Column headers: uppercase, small, bold
     tab_style(
-      style = cell_text(
-        weight = "bold", size = "12px",
-        transform = "uppercase", color = "#374151"
-      ),
+      style     = cell_text(weight = "bold", size = "12px",
+                            transform = "uppercase", color = "#374151"),
       locations = cells_column_labels()
     ) %>%
-    
-    # Body text style
     tab_style(
-      style = cell_text(
-        size = "15px"
-      ),
+      style     = cell_text(size = "15px"),
       locations = cells_body()
     ) %>%
-    # Alignment
     cols_align(align = "center") %>%
-
-    # Column widths
     cols_width(
       cohort_html      ~ px(80),
       studies_html     ~ px(200),
@@ -1180,12 +1321,9 @@ make_cohort_gt <- function(display_df, title_suffix = "") {
       n                ~ px(50),
       blood_proteomics ~ px(90),
       urine_proteomics ~ px(90),
-       flagged_procs ~ px(80)
-
+      all_of(flagged_procs) ~ px(80)
     ) %>%
-
     opt_row_striping(row_striping = TRUE)
-
 }
 ```
 
@@ -1195,12 +1333,14 @@ make_cohort_gt <- function(display_df, title_suffix = "") {
 all_cohort_table <- make_cohort_gt(df_cohort_all, "")
 all_cohort_table
 
-all_cohort_table %>% 
-  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort.png"),
-         vwidth = 4500, vheight = 1000)
-
 all_cohort_table %>%
-  gt::opt_interactive()
+  gtsave(
+    file.path(root_path,
+              "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort.png"),
+    vwidth = 4500, vheight = 1000
+  )
+
+all_cohort_table %>% gt::opt_interactive()
 ```
 
 ## DECODE studies only
@@ -1208,12 +1348,15 @@ all_cohort_table %>%
 ```{r}
 decode_cohort_table <- make_cohort_gt(df_cohort_decode, " · DECODE Studies")
 decode_cohort_table
-decode_cohort_table %>% 
-  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort_decode_only.png"),
-         vwidth = 4500, vheight = 1000)
 
 decode_cohort_table %>%
-  gt::opt_interactive()
+  gtsave(
+    file.path(root_path,
+              "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort_decode_only.png"),
+    vwidth = 4500, vheight = 1000
+  )
+
+decode_cohort_table %>% gt::opt_interactive()
 ```
 
 ## Non-DECODE studies only
@@ -1221,19 +1364,23 @@ decode_cohort_table %>%
 ```{r}
 non_decode_cohort_table <- make_cohort_gt(df_cohort_nondec, " · Non-DECODE Studies")
 non_decode_cohort_table
-non_decode_cohort_table %>% 
-  gtsave(file.path(root_path, "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort_nondecode_only.png"),
-         vwidth = 4500, vheight = 1000)
 
 non_decode_cohort_table %>%
-  gt::opt_interactive()
+  gtsave(
+    file.path(root_path,
+              "Data Harmonization/Report_files/Summary Report/summary_table_by_cohort_nondecode_only.png"),
+    vwidth = 4500, vheight = 1000
+  )
+
+non_decode_cohort_table %>% gt::opt_interactive()
 ```
+
 ---
 
 # Summary visualizations
 
 ```{r}
-# ── Shared theme and palette ──────────────────────────────────────────────────
+# ── 17. Shared ggplot theme and palette ───────────────────────────────────────
 theme_harm <- theme_minimal(base_size = 12) +
   theme(
     panel.grid.minor  = element_blank(),
@@ -1242,57 +1389,67 @@ theme_harm <- theme_minimal(base_size = 12) +
     axis.text.x       = element_text(angle = 45, hjust = 1)
   )
 
+# Cohort fill colors matching badge palette
 cohort_fill <- c(T1D = "#e77c76", T2D = "#e37902",
                  HC  = "#8cb369", OB  = "#5b8e7d", ADPKD = "#bc4b51")
 
-# Output dir for saved PNGs
-fig_dir <- file.path(root_path,
-  "Data Harmonization/Report_files/Summary Report/figures")
-dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+# Procedure order matches flagged_procs / main summary table column order.
+# Only procedures that have a variable set (can be counted from data or estimated)
+# are included here; vitals, oroboros, sphyg, jwire, muscle_bx, liver_bx,
+# metabolomics are excluded because they have no mapped variable sets for counting.
+proc_varlist_plot <- list(
+  "Blood Labs"        = blood_labs,
+  "Urine Labs"        = urine_labs,
+  "DXA"               = dxa,
+  "Clamp"             = clamp_all,
+  "IVGTT"             = ivgtt,
+  "Renal Clearance"   = renal_clearance,
+  "Kidney MRI"        = kidney_mri_all,
+  "Kidney PET"        = kidney_pet,
+  "Cardiac MRI"       = cardiac_mri,
+  "ECHO"              = character(0),
+  "FMD"               = character(0),
+  "Kidney Biopsy"     = kidney_bx,
+  "Lipidomics"        = lipid_vars,
+  "Blood Proteomics"  = prot_blood_vars,
+  "Urine Proteomics"  = prot_urine_vars,
+  "Blood Metabolomics" = character(0),  # no harmonized vars; Ns from separate data
+  "Urine Metabolomics" = character(0),  # no harmonized vars; Ns from separate data
+  "CGM"               = cgm_vars
+)
 
-save_fig <- function(p, filename, width = 10, height = 5) {
-  ggsave(file.path(fig_dir, filename), plot = p,
-         width = width, height = height, dpi = 300, bg = "white")
-  p
-}
+# Ordered factor levels for the x-axis (used in bar plots)
+proc_order <- names(proc_varlist_plot)
 ```
 
 ```{r}
-# ── Hard-coded study metadata (group composition + ≤N) ───────────────────────
-# Used to supplement observed data with upper-bound estimates for studies that
-# are still enrolling / not yet fully entered in the dataset.
+# ── 18. Hard-coded study metadata for "full" visualizations ───────────────────
+# Studies still enrolling / data not yet entered — procedure flags and
+# estimated N by group from proc_harm_dat_recid (≤ upper-bound values).
+# Group compositions are known from study protocols.
+
+# Map each hard-coded study to: group abbreviation, and estimated ≤N per group.
+# These Ns are the hard-coded totals; per-procedure N ≤ total N.
 hardcoded_meta <- list(
-  "ADAPT-CKD"    = list(groups = c("T2D"), n_total = 100),
-  "INSPIRE"      = list(groups = c("T1D"), n_total = 90),
-  "MANATEE"      = list(groups = c("T1D"), n_total = 60),
-  "MetMod"       = list(groups = c("T1D"), n_total = 60),
-  "OTTER"        = list(groups = c("T2D"), n_total = 60),
-  "SUGAR-N-SALT" = list(groups = c("T2D"), n_total = 150),
-  "SWEETHEART"   = list(groups = c("T1D"), n_total = 30),
-  "T1-DISCO"     = list(groups = c("T1D"), n_total = 60)
+  # group_n: named vector of group_abbr → estimated N (≤N upper bound)
+  "ADAPT-CKD"    = list(group_n = c(OB = 50, T2D = 50)),
+  "INSPIRE"      = list(group_n = c(T2D = 90)),
+  "MANATEE"      = list(group_n = c(T1D = 60)),
+  "MetMod"       = list(group_n = c(T1D = 60)),
+  "OTTER"        = list(group_n = c(T1D = 60)),
+  "SWEETHEART"   = list(group_n = c(T2D = 18, OB = 9, HC = 4)),
+  "T1-DISCO"     = list(group_n = c(T1D = 60)),
+  "TODAY"        = list(group_n = c(T2D = today_n_total)),
+  "TEEN-LABS"    = list(group_n = c(T2D = 34, OB = 208))
 )
 
-# Procedure order matches flagged_procs / main summary table column order.
-# Only procedures with a mappable variable set are included for N-counting.
-proc_varlist_plot <- list(
-  "Blood Labs"       = blood_labs,
-  "Urine Labs"       = urine_labs,
-  "DXA"              = dxa,
-  "Clamp"            = clamp_all,
-  "IVGTT"            = ivgtt,
-  "Renal Clearance"  = renal_clearance,
-  "Kidney MRI"       = kidney_mri_all,
-  "Kidney PET"       = kidney_pet,
-  "Cardiac MRI"      = cardiac_mri,
-  "Kidney Biopsy"    = kidney_bx,
-  "Lipidomics"       = lipid_vars,
-  "Blood Proteomics" = prot_blood_vars,
-  "Urine Proteomics" = prot_urine_vars,
-  "CGM"              = intersect(c("cgm_v_high","cgm_high","cgm_low","cgm_v_low"), cols)
-)
-proc_order <- names(proc_varlist_plot)
+# Set of hard-coded study names (used for ≤ labelling logic)
+# TODAY is in hardcoded_meta but uses exact (not estimated) Ns,
+# so it is excluded from this vector to avoid the ≤ prefix in labels.
+# TEEN-LABS uses hardcoded ≤242 until the full dataset is available.
+hardcoded_studies <- setdiff(names(hardcoded_meta), c("TODAY"))
 
-# proc_flag_to_label: maps proc_harm_dat_recid column name → plot label
+# Map proc flag column name → plot label (must match proc_varlist_plot keys)
 proc_flag_to_label <- c(
   blood_labs       = "Blood Labs",
   urine_labs       = "Urine Labs",
@@ -1303,139 +1460,206 @@ proc_flag_to_label <- c(
   kidney_mri       = "Kidney MRI",
   kidney_pet       = "Kidney PET",
   cardiac_mri      = "Cardiac MRI",
+  echo             = "ECHO",
+  fmd              = "FMD",
   kidney_bx        = "Kidney Biopsy",
   lipidomics       = "Lipidomics",
   blood_proteomics = "Blood Proteomics",
   urine_proteomics = "Urine Proteomics",
+  blood_metabolomics = "Blood Metabolomics",
+  urine_metabolomics = "Urine Metabolomics",
   cgm              = "CGM"
 )
 ```
 
+
 ```{r}
-# ── Data-building helpers ─────────────────────────────────────────────────────
-# decode_map: study → DECODE / NOT PART OF DECODE
-decode_map <- setNames(proc_harm_dat_recid$decode, proc_harm_dat_recid$study)
+# ── 18b. Pre-compute deduplicated baseline frame ────────────────────────────
+# This expensive summarise (collapse duplicate record_id rows) is needed by
+# make_pie_dat, make_bar_dat, and bp_base.  Computing it once here avoids
+# re-running it inside every function call / lapply iteration.
+# Deduplicate baseline rows — collapse duplicate record_id rows by taking
+# last non-NA for character columns and mean for numeric columns.
+# Uses a single across() with a type-aware lambda to avoid double-across issues.
+baseline_dedup <- harm_dat_recid %>%
+  dplyr::filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
+  dplyr::group_by(record_id) %>%
+  dplyr::summarise(
+    dplyr::across(dplyr::everything(), function(.x) {
+      if (is.numeric(.x)) {
+        if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+      } else {
+        .x <- as.character(.x)
+        if (all(is.na(.x))) NA_character_ else dplyr::last(na.omit(.x))
+      }
+    }),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    group_abbr   = abbrev_group(group),
+    study_decode = setNames(proc_harm_dat_recid$decode,
+                            proc_harm_dat_recid$study)[study]
+  )
+```
 
-# ── make_pie_dat() ─────────────────────────────────────────────────────────────
-# Builds cohort composition counts.
-# include_hardcoded = TRUE adds ≤N estimates from hard-coded studies.
-# ≤ prefix only applied to groups that receive an estimated contribution.
+```{r}
+# ── 19. Data-building helpers ─────────────────────────────────────────────────
+
+# Build pie data — cohort composition by participant counts.
+#   include_hardcoded : if TRUE adds ≤N estimates from hard-coded studies
+#   decode_filter     : "ALL", "DECODE", or "NOT PART OF DECODE"
+#
+# ≤ prefix logic: a cohort group only gets a ≤ prefix if at least one of the
+# studies contributing to its count is a hard-coded (estimated) study.
 make_pie_dat <- function(include_hardcoded = FALSE,
-                         decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
-  decode_filter <- match.arg(decode_filter)
+                         decode_filter     = "ALL") {
 
-  real_dat <- harm_dat_recid %>%
-    filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
-    distinct(record_id, .keep_all = TRUE) %>%
-    mutate(group_abbr   = abbrev_group(group),
-           study_decode = decode_map[study]) %>%
-    { if (decode_filter == "DECODE")
-        filter(., study_decode == "DECODE")
-      else if (decode_filter == "NOT PART OF DECODE")
-        filter(., study_decode == "NOT PART OF DECODE")
-      else . } %>%
-    count(group_abbr) %>%
-    mutate(has_estimated = FALSE)
+  decode_map <- setNames(proc_harm_dat_recid$decode, proc_harm_dat_recid$study)
+
+  # Observed participants — use precomputed baseline_dedup
+  bd <- if (decode_filter == "DECODE") {
+    baseline_dedup %>% dplyr::filter(study_decode == "DECODE")
+  } else if (decode_filter == "NOT PART OF DECODE") {
+    baseline_dedup %>% dplyr::filter(study_decode == "NOT PART OF DECODE")
+  } else {
+    baseline_dedup
+  }
+  real_dat <- bd %>%
+    dplyr::count(group_abbr) %>%
+    dplyr::mutate(has_estimated = FALSE)  # all observed rows are real
 
   if (!include_hardcoded) {
-    return(real_dat %>%
-      mutate(pct   = n / sum(n),
-             label = paste0(group_abbr, "\n(n=", n, ")")) %>%
-      select(-has_estimated))
+    real_dat %>%
+      dplyr::mutate(pct   = n / sum(n),
+                    label = paste0(group_abbr, "\n(n=", n, ")")) %>%
+      dplyr::select(-has_estimated)
+  } else {
+    # Hard-coded rows: track which groups receive an estimate contribution
+    hc_rows <- dplyr::bind_rows(lapply(names(hardcoded_meta), function(s) {
+      meta         <- hardcoded_meta[[s]]
+      study_decode <- decode_map[s]
+      if (decode_filter == "DECODE"             && study_decode != "DECODE")             return(NULL)
+      if (decode_filter == "NOT PART OF DECODE" && study_decode != "NOT PART OF DECODE") return(NULL)
+      data.frame(group_abbr    = names(meta$group_n),
+                 n             = unname(meta$group_n),
+                 has_estimated = s %in% hardcoded_studies,
+                 stringsAsFactors = FALSE)
+    }))
+
+    combined <- dplyr::bind_rows(real_dat, hc_rows) %>%
+      dplyr::group_by(group_abbr) %>%
+      dplyr::summarise(n             = sum(n),
+                       has_estimated = any(has_estimated),
+                       .groups = "drop") %>%
+      dplyr::mutate(pct   = n / sum(n),
+                    label = ifelse(has_estimated,
+                                   paste0(group_abbr, "\n(≤", n, ")"),
+                                   paste0(group_abbr, "\n(n=", n, ")")))
+    combined
   }
-
-  hc_rows <- bind_rows(lapply(names(hardcoded_meta), function(s) {
-    meta <- hardcoded_meta[[s]]
-    if (decode_filter == "DECODE"             && decode_map[s] != "DECODE")             return(NULL)
-    if (decode_filter == "NOT PART OF DECODE" && decode_map[s] != "NOT PART OF DECODE") return(NULL)
-    data.frame(group_abbr    = meta$groups,
-               n             = floor(meta$n_total / length(meta$groups)),
-               has_estimated = TRUE, stringsAsFactors = FALSE)
-  }))
-
-  bind_rows(real_dat, hc_rows) %>%
-    group_by(group_abbr) %>%
-    summarise(n = sum(n), has_estimated = any(has_estimated), .groups = "drop") %>%
-    mutate(pct   = n / sum(n),
-           label = ifelse(has_estimated,
-                          paste0(group_abbr, "\n(≤", n, ")"),
-                          paste0(group_abbr, "\n(n=",  n, ")")))
 }
 
-# ── make_bar_dat() ─────────────────────────────────────────────────────────────
-# Builds per-procedure N by cohort group.
-# ≤ prefix only applied to group×procedure cells that include an estimated study.
+# Build bar data — per-procedure N by cohort group.
+#   include_hardcoded : if TRUE adds ≤N estimates from hard-coded studies
+#   decode_filter     : "ALL", "DECODE", or "NOT PART OF DECODE"
+#
+# Returns a data frame with columns: procedure (ordered factor), group_abbr, n,
+# has_estimated (TRUE if any hard-coded study contributed to that cell).
 make_bar_dat <- function(include_hardcoded = FALSE,
-                         decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
-  decode_filter <- match.arg(decode_filter)
+                         decode_filter     = "ALL") {
 
-  real_rows <- bind_rows(lapply(names(proc_varlist_plot), function(proc_name) {
+  decode_map <- setNames(proc_harm_dat_recid$decode, proc_harm_dat_recid$study)
+
+  # Pre-filter baseline_dedup by decode once (instead of inside each iteration)
+  bd <- if (decode_filter == "DECODE") {
+    baseline_dedup %>% dplyr::filter(study_decode == "DECODE")
+  } else if (decode_filter == "NOT PART OF DECODE") {
+    baseline_dedup %>% dplyr::filter(study_decode == "NOT PART OF DECODE")
+  } else {
+    baseline_dedup
+  }
+
+  # Observed rows — use precomputed baseline_dedup
+  real_rows <- dplyr::bind_rows(lapply(names(proc_varlist_plot), function(proc_name) {
     vlist <- intersect(proc_varlist_plot[[proc_name]], cols)
     if (length(vlist) == 0) return(NULL)
-    harm_dat_recid %>%
-      filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
-      distinct(record_id, .keep_all = TRUE) %>%
-      mutate(has_proc     = rowSums(!is.na(select(., all_of(vlist)))) > 0,
-             study_decode = decode_map[study]) %>%
-      { if (decode_filter == "DECODE")
-          filter(., study_decode == "DECODE")
-        else if (decode_filter == "NOT PART OF DECODE")
-          filter(., study_decode == "NOT PART OF DECODE")
-        else . } %>%
-      filter(has_proc) %>%
-      mutate(group_abbr = abbrev_group(group)) %>%
-      count(group_abbr) %>%
-      mutate(procedure = proc_name, has_estimated = FALSE)
+
+    bd %>%
+      dplyr::filter(rowSums(!is.na(dplyr::select(., dplyr::all_of(vlist)))) > 0) %>%
+      dplyr::count(group_abbr) %>%
+      dplyr::mutate(procedure     = proc_name,
+                    has_estimated = FALSE)
   }))
 
   if (!include_hardcoded) {
-    return(real_rows %>%
-      mutate(procedure = factor(procedure, levels = proc_order)))
-  }
+    real_rows %>%
+      dplyr::mutate(procedure = factor(procedure, levels = proc_order))
+  } else {
+    # Hard-coded rows
+    hc_rows <- dplyr::bind_rows(lapply(names(hardcoded_meta), function(s) {
+      meta         <- hardcoded_meta[[s]]
+      study_decode <- decode_map[s]
+      if (decode_filter == "DECODE"             && study_decode != "DECODE")             return(NULL)
+      if (decode_filter == "NOT PART OF DECODE" && study_decode != "NOT PART OF DECODE") return(NULL)
 
-  hc_rows <- bind_rows(lapply(names(hardcoded_meta), function(s) {
-    meta <- hardcoded_meta[[s]]
-    if (decode_filter == "DECODE"             && decode_map[s] != "DECODE")             return(NULL)
-    if (decode_filter == "NOT PART OF DECODE" && decode_map[s] != "NOT PART OF DECODE") return(NULL)
-    study_flags <- proc_harm_dat_recid[proc_harm_dat_recid$study == s, ]
-    if (nrow(study_flags) == 0) return(NULL)
-    bind_rows(lapply(names(proc_flag_to_label), function(flag) {
-      if (!isTRUE(study_flags[[flag]])) return(NULL)
-      data.frame(group_abbr    = meta$groups,
-                 n             = floor(meta$n_total / length(meta$groups)),
-                 procedure     = proc_flag_to_label[[flag]],
-                 has_estimated = TRUE, stringsAsFactors = FALSE)
+      study_flags <- proc_harm_dat_recid[proc_harm_dat_recid$study == s, ]
+      if (nrow(study_flags) == 0) return(NULL)
+
+      dplyr::bind_rows(lapply(names(proc_flag_to_label), function(flag) {
+        proc_label <- proc_flag_to_label[[flag]]
+        if (!isTRUE(study_flags[[flag]])) return(NULL)
+        data.frame(group_abbr    = names(meta$group_n),
+                   n             = unname(meta$group_n),
+                   procedure     = proc_label,
+                   has_estimated = s %in% hardcoded_studies,
+                   stringsAsFactors = FALSE)
+      }))
     }))
-  }))
 
-  bind_rows(real_rows, hc_rows) %>%
-    group_by(procedure, group_abbr) %>%
-    summarise(n = sum(n), has_estimated = any(has_estimated), .groups = "drop") %>%
-    mutate(procedure = factor(procedure, levels = proc_order))
-}
-
-# ── make_proc_summary_tbl() ────────────────────────────────────────────────────
-# Builds a numeric summary table: rows = procedures, cols = cohort groups,
-# cells = N (observed) or ≤N (estimated). Used for the compiled N table.
-make_proc_summary_tbl <- function(include_hardcoded = TRUE,
-                                  decode_filter     = c("ALL","DECODE","NOT PART OF DECODE")) {
-  decode_filter <- match.arg(decode_filter)
-
-  bar_dat <- make_bar_dat(include_hardcoded = include_hardcoded,
-                          decode_filter     = decode_filter)
-
-  bar_dat %>%
-    mutate(n_label = ifelse(has_estimated, paste0("≤", n), as.character(n))) %>%
-    select(procedure, group_abbr, n_label) %>%
-    pivot_wider(names_from = group_abbr, values_from = n_label, values_fill = "—") %>%
-    arrange(factor(procedure, levels = proc_order)) %>%
-    rename(Procedure = procedure)
+    dplyr::bind_rows(real_rows, hc_rows) %>%
+      dplyr::group_by(procedure, group_abbr) %>%
+      dplyr::summarise(n             = sum(n),
+                       has_estimated = any(has_estimated),
+                       .groups = "drop") %>%
+      dplyr::mutate(procedure = factor(procedure, levels = proc_order))
+  }
 }
 ```
 
 ```{r}
-# ── Plot helpers ──────────────────────────────────────────────────────────────
+# ── 20a. Compiled procedure N table helper ────────────────────────────────────
+# Pivots bar_dat wide: rows = procedures, columns = cohort groups, cells = n / ≤n
+make_proc_summary_tbl <- function(include_hardcoded = TRUE,
+                                  decode_filter = c("ALL", "DECODE", "NOT PART OF DECODE")) {
+  decode_filter <- match.arg(decode_filter)
+  bar_dat <- make_bar_dat(include_hardcoded = include_hardcoded,
+                          decode_filter     = decode_filter)
+  bar_dat %>%
+    dplyr::mutate(n_label = ifelse(has_estimated, paste0("≤", n), as.character(n))) %>%
+    dplyr::select(procedure, group_abbr, n_label) %>%
+    tidyr::pivot_wider(names_from = group_abbr, values_from = n_label,
+                       values_fill = "—") %>%
+    dplyr::arrange(factor(procedure, levels = proc_order)) %>%
+    dplyr::rename(Procedure = procedure)
+}
+```
 
+```{r}
+# ── 20. Plot helper functions ─────────────────────────────────────────────────
+
+# Output path for saved PNGs
+fig_dir <- file.path(root_path, "Data Harmonization/Report_files/Summary Report/figures")
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Utility: save a ggplot as PNG then return it (so it also renders inline)
+save_fig <- function(p, filename, width = 10, height = 5) {
+  ggsave(file.path(fig_dir, filename), plot = p,
+         width = width, height = height, dpi = 300, bg = "transparent")
+  p
+}
+
+# ── Pie chart ─────────────────────────────────────────────────────────────────
+# No title; slice labels carry group name + n.
 make_pie_plot <- function(pie_dat, filename = NULL) {
   p <- ggplot(pie_dat, aes(x = "", y = pct, fill = group_abbr)) +
     geom_col(width = 1, color = "white") +
@@ -1450,23 +1674,29 @@ make_pie_plot <- function(pie_dat, filename = NULL) {
   if (!is.null(filename)) save_fig(p, filename, width = 6, height = 6) else p
 }
 
+# ── Bar chart ─────────────────────────────────────────────────────────────────
+# No title; no x-axis label. ≤ annotation on bars that include estimated data.
 make_bar_plot <- function(bar_dat, filename = NULL) {
   p <- ggplot(bar_dat, aes(x = procedure, y = n, fill = group_abbr)) +
     geom_col(position = "dodge", width = 0.7) +
     scale_fill_manual(values = cohort_fill, name = "Cohort") +
     labs(x = NULL, y = "N") +
-    theme_harm
+    theme_harm +
+    theme(text = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          axis.title = element_text(color = "white"))
   if (!is.null(filename)) save_fig(p, filename) else p
 }
 
-bp_base <- harm_dat_recid %>%
-  filter(visit == "baseline", !is.na(group), !is.na(record_id)) %>%
-  distinct(record_id, .keep_all = TRUE) %>%
-  mutate(group_abbr = factor(abbrev_group(group),
-                             levels = c("HC", "OB", "T1D", "T2D", "ADPKD")))
+# ── Box plot ──────────────────────────────────────────────────────────────────
+# Baseline observed data only (hard-coded studies have no measured values).
+# Reuses precomputed baseline_dedup; just coerce group_abbr to ordered factor.
+bp_base <- baseline_dedup %>%
+  dplyr::mutate(group_abbr = factor(group_abbr,
+                                    levels = c("HC", "OB", "T1D", "T2D", "ADPKD")))
 
 make_boxplot <- function(data, var, ylabel, filename = NULL, log_transform = FALSE) {
-  d <- data %>% filter(!is.na(.data[[var]]))
+  d <- data %>% dplyr::filter(!is.na(.data[[var]]))
   p <- ggplot(d, aes(x = group_abbr, y = !!sym(var), fill = group_abbr)) +
     { if (log_transform) scale_y_log10() } +
     geom_boxplot(outlier.shape = 21, outlier.size = 1.5, alpha = 0.85) +
@@ -1477,25 +1707,79 @@ make_boxplot <- function(data, var, ylabel, filename = NULL, log_transform = FAL
     theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
   if (!is.null(filename)) save_fig(p, filename, width = 6, height = 5) else p
 }
+
+# make_proc_pie_plot: one pie per procedure, each saved as its own PNG.
+# bar_dat    → output of make_bar_dat()
+# file_prefix → string prepended to each file, e.g. "pie_proc_full_all"
+#               produces "pie_proc_full_all_Blood_Labs.png" etc.
+# Returns a named list of ggplot objects (one per procedure) invisibly,
+# and prints them inline via patchwork::wrap_plots for the rendered doc.
+make_proc_pie_plot <- function(bar_dat, file_prefix = NULL) {
+  procs <- intersect(proc_order, unique(bar_dat$procedure))
+
+  plots <- lapply(procs, function(proc) {
+    d <- bar_dat %>%
+      dplyr::filter(procedure == proc) %>%
+      dplyr::mutate(
+        pct   = n / sum(n),
+        label = ifelse(has_estimated,
+                       paste0(group_abbr, "\n(≤", n, ")"),
+                       paste0(group_abbr, "\n(n=",  n, ")"))
+      )
+
+    p <- ggplot(d, aes(x = "", y = pct, fill = group_abbr)) +
+      geom_col(width = 1, color = "white") +
+      coord_polar(theta = "y") +
+      scale_fill_manual(values = cohort_fill, name = "Cohort") +
+      geom_text(aes(label = label),
+                position = position_stack(vjust = 0.5),
+                size = 3, color = "white", fontface = "bold") +
+      labs(x = NULL, y = NULL,
+           title = proc) +
+      theme_void(base_size = 11) +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(face = "bold", size = 18,
+                                  color = "white",
+                                  hjust = 0.5, vjust = -4)
+      )
+
+    if (!is.null(file_prefix)) {
+      safe_name <- gsub("[^A-Za-z0-9]+", "_", proc)
+      save_fig(p, paste0(file_prefix, "_", safe_name, ".png"),
+               width = 5, height = 5)
+    }
+    p
+  })
+
+  names(plots) <- procs
+  # Display as a wrapped grid in the rendered document
+  patchwork::wrap_plots(plots, ncol = 4) +
+    patchwork::plot_layout(guides = "collect") &
+    theme(legend.position = "bottom")
+}
 ```
 
 ---
 
 ## Data-only (observed data in dataset)
+## Data-only (observed data in dataset)
 
-> Baseline participants with ≥1 non-missing value per procedure variable set.
-> Hard-coded / still-enrolling studies are **excluded**.
+> Counts participants with ≥1 non-missing value in each procedure's variable set,
+> at baseline. Hard-coded / still-enrolling studies are **excluded**.
 
 ### Cohort composition
 
 ```{r}
-make_pie_plot(make_pie_dat(FALSE, "ALL"), "pie_data_only_all.png")
+make_pie_plot(make_pie_dat(include_hardcoded = FALSE, decode_filter = "ALL"),
+              filename = "pie_data_only_all.png")
 ```
 
 ### N per procedure × cohort
 
 ```{r}
-make_bar_plot(make_bar_dat(FALSE, "ALL"), "bar_data_only_all.png")
+make_bar_plot(make_bar_dat(include_hardcoded = FALSE, decode_filter = "ALL"),
+              filename = "bar_data_only_all.png")
 ```
 
 ### Compiled procedure N table
@@ -1505,42 +1789,71 @@ make_proc_summary_tbl(include_hardcoded = FALSE, decode_filter = "ALL") %>%
   knitr::kable(caption = "N per procedure × cohort — data only")
 ```
 
+### Per-procedure cohort breakdown (pie charts)
+
+```{r fig.width=14, fig.height=10}
+make_proc_pie_plot(make_bar_dat(FALSE, "ALL"), "pie_proc_data_only_all")
+```
+
+### Compiled procedure N table
+
+```{r}
+make_proc_summary_tbl(include_hardcoded = FALSE, decode_filter = "ALL") %>%
+  knitr::kable(caption = "N per procedure x cohort --- data only")
+```
+
+### Per-procedure cohort breakdown (pie charts)
+
+```{r fig.width=14, fig.height=10}
+make_proc_pie_plot(make_bar_dat(FALSE, "ALL"), "pie_proc_data_only_all")
+```
+
 ### Key outcome box plots
 
 ```{r}
-make_boxplot(subset(bp_base, is.na(acr_u) | acr_u > 0), "acr_u",
-             "UACR (mg/g) [log scale]", "box_data_only_uacr.png", log_transform = TRUE)
+# log(UACR)
+make_boxplot(bp_base, "acr_u", "UACR (mg/g) [log scale]",
+             filename = "box_data_only_uacr.png", log_transform = TRUE)
 ```
 
 ```{r}
-make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)", "box_data_only_mvalue.png")
+# Clamp M-value
+make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)",
+             filename = "box_data_only_mvalue.png")
 ```
 
 ```{r}
-make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)", "box_data_only_gfr.png")
+# GFR (BSA-corrected plasma)
+make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)",
+             filename = "box_data_only_gfr.png")
 ```
 
 ```{r}
-make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)", "box_data_only_r2star.png")
+# Avg cortical R2*
+make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)",
+             filename = "box_data_only_r2star.png")
 ```
 
 ---
 
 ## Full (observed + hard-coded estimates, all studies)
 
-> Combines observed N with ≤N estimates for hard-coded / still-enrolling studies.
-> ≤ appears only on cohort groups that include at least one estimated study.
+> Combines observed N from the dataset with ≤N estimates for hard-coded /
+> still-enrolling studies. ≤ prefix appears only for cohort groups that include
+> at least one hard-coded study contribution.
 
 ### Cohort composition
 
 ```{r}
-make_pie_plot(make_pie_dat(TRUE, "ALL"), "pie_full_all.png")
+make_pie_plot(make_pie_dat(include_hardcoded = TRUE, decode_filter = "ALL"),
+              filename = "pie_full_all.png")
 ```
 
 ### N per procedure × cohort
 
 ```{r}
-make_bar_plot(make_bar_dat(TRUE, "ALL"), "bar_full_all.png")
+make_bar_plot(make_bar_dat(include_hardcoded = TRUE, decode_filter = "ALL"),
+              filename = "bar_full_all.png")
 ```
 
 ### Compiled procedure N table
@@ -1550,6 +1863,12 @@ make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "ALL") %>%
   knitr::kable(caption = "N per procedure × cohort — full (observed + ≤ estimated)")
 ```
 
+### Per-procedure cohort breakdown (pie charts)
+
+```{r fig.width=14, fig.height=10}
+make_proc_pie_plot(make_bar_dat(TRUE, "ALL"), "pie_proc_full_all")
+```
+
 ---
 
 ## DECODE studies only (observed + hard-coded estimates)
@@ -1557,13 +1876,15 @@ make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "ALL") %>%
 ### Cohort composition
 
 ```{r}
-make_pie_plot(make_pie_dat(TRUE, "DECODE"), "pie_full_decode.png")
+make_pie_plot(make_pie_dat(include_hardcoded = TRUE, decode_filter = "DECODE"),
+              filename = "pie_full_decode.png")
 ```
 
 ### N per procedure × cohort
 
 ```{r}
-make_bar_plot(make_bar_dat(TRUE, "DECODE"), "bar_full_decode.png")
+make_bar_plot(make_bar_dat(include_hardcoded = TRUE, decode_filter = "DECODE"),
+              filename = "bar_full_decode.png")
 ```
 
 ### Compiled procedure N table
@@ -1573,6 +1894,12 @@ make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "DECODE") %>%
   knitr::kable(caption = "N per procedure × cohort — DECODE studies (observed + ≤ estimated)")
 ```
 
+### Per-procedure cohort breakdown (pie charts)
+
+```{r fig.width=14, fig.height=10}
+make_proc_pie_plot(make_bar_dat(TRUE, "DECODE"), "pie_proc_full_decode")
+```
+
 ---
 
 ## Non-DECODE studies only (observed + hard-coded estimates)
@@ -1580,13 +1907,15 @@ make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "DECODE") %>%
 ### Cohort composition
 
 ```{r}
-make_pie_plot(make_pie_dat(TRUE, "NOT PART OF DECODE"), "pie_full_nondecode.png")
+make_pie_plot(make_pie_dat(include_hardcoded = TRUE, decode_filter = "NOT PART OF DECODE"),
+              filename = "pie_full_nondecode.png")
 ```
 
 ### N per procedure × cohort
 
 ```{r}
-make_bar_plot(make_bar_dat(TRUE, "NOT PART OF DECODE"), "bar_full_nondecode.png")
+make_bar_plot(make_bar_dat(include_hardcoded = TRUE, decode_filter = "NOT PART OF DECODE"),
+              filename = "bar_full_nondecode.png")
 ```
 
 ### Compiled procedure N table
@@ -1596,25 +1925,38 @@ make_proc_summary_tbl(include_hardcoded = TRUE, decode_filter = "NOT PART OF DEC
   knitr::kable(caption = "N per procedure × cohort — non-DECODE studies (observed + ≤ estimated)")
 ```
 
+### Per-procedure cohort breakdown (pie charts)
+
+```{r fig.width=14, fig.height=10}
+make_proc_pie_plot(make_bar_dat(TRUE, "NOT PART OF DECODE"), "pie_proc_full_nondecode")
+```
+
 ---
 
 ## Box plots — key outcomes by cohort
 
-> Observed data only; hard-coded studies have no measured values.
+> Box plots reflect observed data only (hard-coded studies have no measured values).
 
 ```{r}
-make_boxplot(subset(bp_base, is.na(acr_u) | acr_u > 0), "acr_u",
-             "UACR (mg/g) [log scale]", "box_uacr.png", log_transform = TRUE)
+# log(UACR)
+make_boxplot(bp_base, "acr_u", "UACR (mg/g) [log scale]",
+             filename = "box_uacr.png", log_transform = TRUE)
 ```
 
 ```{r}
-make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)", "box_mvalue.png")
+# Clamp M-value
+make_boxplot(bp_base, "p2_raw_m", "M-value (mg/kg/min)",
+             filename = "box_mvalue.png")
 ```
 
 ```{r}
-make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)", "box_gfr.png")
+# GFR (BSA-corrected plasma)
+make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)",
+             filename = "box_gfr.png")
 ```
 
 ```{r}
-make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)", "box_r2star.png")
+# Avg cortical R2*
+make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)",
+             filename = "box_r2star.png")
 ```
