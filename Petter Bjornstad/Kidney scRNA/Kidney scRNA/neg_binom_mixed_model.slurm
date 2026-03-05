@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=Kidney scRNA
+#SBATCH --job-name=Kidney_scRNA
 #SBATCH --mail-type=END
 #SBATCH --mail-user=tvigers@uw.edu
 #SBATCH --account=togo
