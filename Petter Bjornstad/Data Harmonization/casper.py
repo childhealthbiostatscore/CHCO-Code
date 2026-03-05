@@ -16,8 +16,6 @@ def clean_casper():
     # Libraries
     import os
     import sys
-    sys.path.insert(0, os.path.expanduser('~') +
-                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import redcap
     import pandas as pd
     import numpy as np
@@ -30,12 +28,16 @@ def clean_casper():
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "shivaniramesh":
         base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        git_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/CHCO-Code/Petter Bjornstad/Data Harmonization")
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 

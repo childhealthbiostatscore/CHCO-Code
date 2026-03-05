@@ -116,7 +116,10 @@ def clean_renal_heiritage():
     # Replace 1 with yes 0 and 2 with no
     meds = ["sglti_timepoint", "glp1_agonist_timepoint", "diuretic", "ca_channel_blocker",\
     "beta_blocker", "statin", "fibrates", "topiramate", "phentermine", "uric_acid_med", "insulin_med_timepoint", "raasi_timepoint", "mra_med"]
-    med[meds] = med[meds].applymap(lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x))
+    #med[meds] = med[meds].applymap(lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x))
+    med[meds] = med[meds].apply(lambda col: col.map(
+        lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+        ))
     med["procedure"] = "screening"
     med["visit"] = "baseline"
 
