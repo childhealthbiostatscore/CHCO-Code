@@ -516,42 +516,41 @@ fig1i <- ggplot() +
   theme(plot.tag    = element_text(size = 14, face = "bold"),
         plot.margin = margin(5, 5, 5, 5))
 
-# =====================================================================
-# PANEL J  Delta-delta correlation heatmap  (new)
-#
-# Rows (PET deltas):
-#   k2 Cortex, k2 Medulla, k2/F Cortex, k2/F Medulla
-#
-# Columns (clinical deltas):
-#   HbA1c, HOMA-IR, Fasting Glucose, Sodium Load
-#
-# Mapping of requested correlations:
-#   k2 Cortex   × HbA1c, HOMA-IR
-#   k2 Medulla  × HbA1c, HOMA-IR
-#   k2/F Cortex × Glucose, HOMA-IR, Sodium Load
-#   k2/F Medulla× HOMA-IR, Sodium Load
-#
-# Cells not requested are left NA (shown in grey).
+  # PANEL J  Delta-delta correlation heatmap — FIXED
+  #
+  # Key fixes vs. the broken version:
+  #  1. Uses pre-computed delta columns directly from rockies_crossover
+  #     (same columns SPSS used — avoids on-the-fly subtraction errors)
+  #  2. All k2 rows use global columns (K2_cortex_mean_Sherbrook_delta,
+  #     K2_medulla_mean_Sherbrook_delta) — NOT voxel-wise
+  #  3. Method = "pearson" to match SPSS
+  #  4. Only requested cells are computed; others stay NA → grey
+  #
+  # Requested correlations:
+#   k2 Cortex    × ΔHbA1c, ΔHOMA-IR
+#   k2 Medulla   × ΔHbA1c, ΔHOMA-IR
+#   k2/F Cortex  × ΔGlucose, ΔHOMA-IR, ΔSodium Load
+#   k2/F Medulla × ΔHOMA-IR, ΔSodium Load
 # =====================================================================
 
-# Build deltas (Ertugliflozin − Placebo) for each participant
-delta_df <- rockies_crossover %>%
-  transmute(
-    id              = Participant,
-    # PET
-    d_k2_cortex     = K2_cortex_mean_Sherbrook_SGLT2  - K2_cortex_mean_Sherbrook_PLB,
-    d_k2_medulla    = K2_medulla_mean_Sherbrook_SGLT2i - K2_medulla_mean_Sherbrook_PLB,
-    d_k2f_cortex    = K2_F_cortex_mean_Sherbrook_SGLT2 - K2_F_cortex_mean_Sherbrook_PLB,
-    d_k2f_medulla   = K2_F_medulla_mean_Sherbrook_SGLT2 - K2_F_medulla_mean_Sherbrook_PLB,
-    # Clinical
-    d_hba1c         = HbA1c_Mmol_Verum      - HbA1c_Mmol_Placebo,
-    d_homa          = HOMAIR_SGLT2i         - HOMAIR_Placebo,
-    d_glucose       = Fasting_Gluc_SGLT2i   - Fasting_Gluc_Placebo,
-    d_sodium_load   = TNA_sodium_SLGT2i_mmolpermin - TNA_sodium_plb_mmolpermin
+library(pheatmap)
+
+# --- Pull pre-computed delta columns directly (as SPSS did) ----------
+delta_df_j <- rockies_crossover %>%
+  dplyr::select(
+    Participant,
+    d_k2_cortex   = K2_cortex_mean_Sherbrook_delta,
+    d_k2_medulla  = K2_medulla_mean_Sherbrook_delta,
+    d_k2f_cortex  = K2_F_cortex_mean_Sherbrook_delta,
+    d_k2f_medulla = K2_F_medulla_mean_Sherbrook_delta,
+    d_hba1c       = HbA1c_mM_delta,
+    d_homa        = HOMA_Delta,
+    d_glucose     = Gluc_Delta,
+    d_sodium      = TNA_sodium_delta_mmolpermin
   )
 
 dd_pet_vars  <- c("d_k2_cortex", "d_k2_medulla", "d_k2f_cortex", "d_k2f_medulla")
-dd_clin_vars <- c("d_hba1c", "d_homa", "d_glucose", "d_sodium_load")
+dd_clin_vars <- c("d_hba1c", "d_homa", "d_glucose", "d_sodium")
 
 dd_pet_labels  <- c("k\u2082 Cortex", "k\u2082 Medulla",
                     "k\u2082/F Cortex", "k\u2082/F Medulla")
@@ -561,8 +560,8 @@ dd_clin_labels <- c("\u0394 HbA1c", "\u0394 HOMA-IR",
 # Which cells to compute (TRUE = requested)
 requested <- matrix(FALSE, 4, 4,
                     dimnames = list(dd_pet_labels, dd_clin_labels))
-requested["k\u2082 Cortex",    c("\u0394 HbA1c", "\u0394 HOMA-IR")]                        <- TRUE
-requested["k\u2082 Medulla",   c("\u0394 HbA1c", "\u0394 HOMA-IR")]                        <- TRUE
+requested["k\u2082 Cortex",    c("\u0394 HbA1c", "\u0394 HOMA-IR")]                         <- TRUE
+requested["k\u2082 Medulla",   c("\u0394 HbA1c", "\u0394 HOMA-IR")]                         <- TRUE
 requested["k\u2082/F Cortex",  c("\u0394 Glucose", "\u0394 HOMA-IR", "\u0394 Sodium Load")] <- TRUE
 requested["k\u2082/F Medulla", c("\u0394 HOMA-IR", "\u0394 Sodium Load")]                   <- TRUE
 
@@ -572,24 +571,38 @@ dd_p   <- matrix(NA_real_, 4, 4, dimnames = list(dd_pet_labels, dd_clin_labels))
 for (i in seq_along(dd_pet_vars)) {
   for (j in seq_along(dd_clin_vars)) {
     if (!requested[i, j]) next
-    d <- delta_df[, c(dd_pet_vars[i], dd_clin_vars[j])]
+    d <- delta_df_j[, c(dd_pet_vars[i], dd_clin_vars[j])]
     d <- d[complete.cases(d), ]
     if (nrow(d) >= 5) {
-      res         <- cor.test(d[[1]], d[[2]], method = "spearman", exact = FALSE)
-      dd_rho[i,j] <- res$estimate
-      dd_p[i,j]   <- res$p.value
+      res          <- cor.test(d[[1]], d[[2]], method = "pearson")
+      dd_rho[i, j] <- res$estimate
+      dd_p[i, j]   <- res$p.value
     }
   }
 }
 
+# Significance stars
 dd_sig <- matrix("", 4, 4, dimnames = dimnames(dd_rho))
-dd_sig[dd_p < 0.05  & !is.na(dd_p)] <- "*"
-dd_sig[dd_p < 0.01  & !is.na(dd_p)] <- "**"
-dd_sig[dd_p < 0.001 & !is.na(dd_p)] <- "***"
+dd_sig[!is.na(dd_p) & dd_p < 0.05]  <- "*"
+dd_sig[!is.na(dd_p) & dd_p < 0.01]  <- "**"
+dd_sig[!is.na(dd_p) & dd_p < 0.001] <- "***"
 
-dd_cell <- matrix(ifelse(is.na(dd_rho), "",
-                         paste0(round(dd_rho, 2), dd_sig)),
-                  4, 4, dimnames = dimnames(dd_rho))
+# Cell labels: rho + stars for requested cells, blank for NA
+dd_cell <- matrix(
+  ifelse(is.na(dd_rho), "", paste0(round(dd_rho, 2), dd_sig)),
+  4, 4, dimnames = dimnames(dd_rho)
+)
+
+# Print r and p for each computed cell (to verify against SPSS)
+cat("=== Panel J: Pearson r and p-values (global k2 columns) ===\n")
+for (i in seq_along(dd_pet_vars)) {
+  for (j in seq_along(dd_clin_vars)) {
+    if (!requested[i, j]) next
+    cat(sprintf("%-20s × %-20s  r = %6.3f  p = %.4f\n",
+                dd_pet_labels[i], dd_clin_labels[j],
+                dd_rho[i, j], dd_p[i, j]))
+  }
+}
 
 fig1j_heatmap <- pheatmap(
   dd_rho,
