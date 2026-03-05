@@ -65,7 +65,7 @@ analysis_config <- list(
     group_var = "glp_t2dob", ref_level = "HC",
     pval_col = "p_glp_t2dobGLP_N", logfc_col = "logFC_glp_t2dobGLP_N",
     s3_subdir = "T2D_GLP_N_vs_HC_adj", file_suffix = "t2d_glpn_hc_adj",
-    adjust_covariates = c("age", "sex", "bmi")
+    adjust_covariates = c("age", "sex.x", "bmi")
   ),
   # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi)
   T2D_GLP_Y_vs_T2D_GLP_N_adj = list(
@@ -73,7 +73,7 @@ analysis_config <- list(
     group_var = "glp_t2dob", ref_level = "GLP_N",
     pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
     s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj", file_suffix = "t2d_glpyn_adj",
-    adjust_covariates = c("age", "sex", "bmi")
+    adjust_covariates = c("age", "sex.x", "bmi")
   ),
   # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi, hba1c)
   T2D_GLP_Y_vs_T2D_GLP_N_adj2 = list(
@@ -81,7 +81,7 @@ analysis_config <- list(
     group_var = "glp_t2dob", ref_level = "GLP_N",
     pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
     s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj2", file_suffix = "t2d_glpyn_adj2",
-    adjust_covariates = c("age", "sex", "bmi", "hba1c")
+    adjust_covariates = c("age", "sex.x", "bmi", "hba1c")
   ),
   # DKD vs nonDKD comparisons (ACR >= 100)
   DKD_vs_nonDKD_100 = list(
