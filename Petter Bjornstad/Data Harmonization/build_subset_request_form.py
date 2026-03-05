@@ -412,6 +412,11 @@ def load_study_metadata(data_file):
     study_col_tracker = collections.defaultdict(set)
     # Per-procedure: which clinical cols have ≥1 non-missing value for each procedure
     proc_col_tracker  = collections.defaultdict(set)  # (study, proc) -> set of col names
+    # Per-variable participant counts: (study, proc, col) -> set of record_ids with non-missing value
+    var_n_tracker     = collections.defaultdict(set)  # (study, proc, col) -> set of record_ids
+    # No-procedure row tracking: cols with data where procedure is blank
+    no_proc_col_tracker  = collections.defaultdict(set)  # study -> set of col names
+    no_proc_var_n_tracker = collections.defaultdict(set) # (study, col) -> set of record_ids
 
     # For Table 1: track first non-missing value per (study, record_id, col)
     t1_cols   = [col for col, _, _ in TABLE1_VARS if col != "group"]
@@ -477,6 +482,17 @@ def load_study_metadata(data_file):
                     val = row.get(c, "").strip().strip('"')
                     if val not in MISSING_VALUES:
                         found_p.add(c)
+                        if rid:
+                            var_n_tracker[(study, proc, c)].add(rid)
+            else:
+                # Track clinical cols with data in rows that have no procedure
+                found_np = no_proc_col_tracker[study]
+                for c in clinical_cols:
+                    val = row.get(c, "").strip().strip('"')
+                    if val not in MISSING_VALUES:
+                        found_np.add(c)
+                        if rid:
+                            no_proc_var_n_tracker[(study, c)].add(rid)
 
             # ── proc_n: participants with ≥1 non-missing clinical value ────
             if proc:
@@ -548,6 +564,20 @@ def load_study_metadata(data_file):
         if "proc_cols" not in study_meta[study]:
             study_meta[study]["proc_cols"] = {}
         study_meta[study]["proc_cols"][proc] = col_set
+
+    # attach var_n: (proc, col) -> participant count
+    for (study, proc, col), rid_set in var_n_tracker.items():
+        if "var_n" not in study_meta[study]:
+            study_meta[study]["var_n"] = {}
+        study_meta[study]["var_n"][(proc, col)] = len(rid_set)
+
+    # attach no_proc_cols and no-proc var_n counts
+    for study, col_set in no_proc_col_tracker.items():
+        study_meta[study]["no_proc_cols"] = col_set
+    for (study, col), rid_set in no_proc_var_n_tracker.items():
+        if "var_n" not in study_meta[study]:
+            study_meta[study]["var_n"] = {}
+        study_meta[study]["var_n"][("", col)] = len(rid_set)
 
     # build Table 1 structures  ->  group -> col -> [values]
     for (study, rid), vals in seen_t1.items():
@@ -767,12 +797,14 @@ def _add_study_sheet(wb, study_name, meta,
     DICT_LABEL_COL   = DICT_VAR_COL + 1
     DICT_UNITS_COL   = DICT_LABEL_COL + 1
     DICT_FORM_COL    = DICT_UNITS_COL + 1
+    DICT_N_COL       = DICT_FORM_COL + 1
 
     ws.column_dimensions[get_column_letter(DICT_GAP_COL)].width   = 3
     ws.column_dimensions[get_column_letter(DICT_VAR_COL)].width   = 30
     ws.column_dimensions[get_column_letter(DICT_LABEL_COL)].width = 55
     ws.column_dimensions[get_column_letter(DICT_UNITS_COL)].width = 14
     ws.column_dimensions[get_column_letter(DICT_FORM_COL)].width  = 22
+    ws.column_dimensions[get_column_letter(DICT_N_COL)].width     = 14
 
     r = 1
 
@@ -786,6 +818,7 @@ def _add_study_sheet(wb, study_name, meta,
     # the "physical_exam" procedure).
     proc_groups    = {}   # proc_name -> [(col_name, info), ...]
     form_dict_rows = {}   # proc_name -> first row number of its section
+    no_proc_vars   = []   # [(col_name, info), ...] for no-procedure rows
 
     if data_dict:
         study_procs     = [p for p in meta["procedures"] if p]
@@ -829,10 +862,26 @@ def _add_study_sheet(wb, study_name, meta,
                 if col_name not in var_to_proc:
                     var_to_proc[col_name] = proc
 
+        # Third pass: data-tracked vars absent from data_dict (bare names).
+        # Only include vars tracked by exactly one procedure in this study —
+        # cross-procedure vars (race___, ethnicity___, uuid, etc.) are filled in
+        # on every row and should not be pulled into a procedure's dictionary.
+        undoc_proc_count = collections.Counter()
+        for proc in study_procs:
+            for col_name in study_proc_cols.get(proc, set()):
+                if col_name not in data_dict and col_name not in var_to_proc:
+                    undoc_proc_count[col_name] += 1
+        for proc in sorted(study_procs):
+            for col_name in sorted(study_proc_cols.get(proc, set())):
+                if (col_name not in data_dict
+                        and col_name not in var_to_proc
+                        and undoc_proc_count[col_name] == 1):
+                    var_to_proc[col_name] = proc
+
         # Build proc_groups from assignment map
         proc_groups = {proc: [] for proc in sorted(study_procs)}
         for col_name, best_proc in var_to_proc.items():
-            proc_groups[best_proc].append((col_name, data_dict[col_name]))
+            proc_groups[best_proc].append((col_name, data_dict.get(col_name, {})))
         for proc in proc_groups:
             proc_groups[proc].sort(key=lambda x: x[0])
 
@@ -857,6 +906,24 @@ def _add_study_sheet(wb, study_name, meta,
         if DEBUG_DICT:
             print(f"  [{study_name}] proc_groups (deduplicated): "
                   + ", ".join(f"{p}({len(v)})" for p, v in proc_groups.items()))
+
+        # ── Build no-procedure variables section ───────────────────────────────
+        # Includes clinical cols with non-missing data in rows where procedure=""
+        # that are NOT in EXCLUDED_DICT_FORMS.  Undocumented cols are shown as
+        # bare names.  Admin/key cols are already absent from no_proc_cols since
+        # they were excluded from clinical_cols at load time.
+        no_proc_cols_set = meta.get("no_proc_cols", set())
+        already_assigned = set(var_to_proc.keys())
+        for col_name in sorted(no_proc_cols_set):
+            info = data_dict.get(col_name)
+            if info is not None:
+                fn_lower = (info.get("form_name", "") or "").lower()
+                if fn_lower in EXCLUDED_DICT_FORMS:
+                    continue
+                no_proc_vars.append((col_name, info))
+            else:
+                # Undocumented variable — include as bare name
+                no_proc_vars.append((col_name, {}))
 
         # Pre-compute dr row positions for hyperlinks.
         # Empty sections: sub-header + note row + spacer = 3 rows.
@@ -1106,22 +1173,24 @@ def _add_study_sheet(wb, study_name, meta,
     # ── Data dictionary (right-side panel, separate row counter dr) ────────
     # Grouped by procedure name. Each section header is the procedure name
     # (as it appears in the 'procedure' column), not the REDCap form_name.
-    if data_dict and proc_groups:
+    if data_dict and (proc_groups or no_proc_vars):
         dr = 1  # independent row counter; starts at the top of the sheet
 
         # Title bar
         ws.merge_cells(start_row=dr, start_column=DICT_VAR_COL,
-                       end_row=dr,   end_column=DICT_FORM_COL)
+                       end_row=dr,   end_column=DICT_N_COL)
         style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                    f"DATA DICTIONARY — {study_name}",
                    bg=DARK_BLUE, fg=WHITE, bold=True, size=13)
         dr += 1
         blank_row(ws, dr, height=8); dr += 1
 
+        var_n = meta.get("var_n", {})
+
         for proc_name, proc_vars in proc_groups.items():
             # Procedure sub-header (uses procedure name, not REDCap form_name)
             ws.merge_cells(start_row=dr, start_column=DICT_VAR_COL,
-                           end_row=dr,   end_column=DICT_FORM_COL)
+                           end_row=dr,   end_column=DICT_N_COL)
             n_label = len(proc_vars) if proc_vars else "no variables identified"
             style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                        f"{proc_name}  ({n_label})",
@@ -1131,7 +1200,7 @@ def _add_study_sheet(wb, study_name, meta,
             if not proc_vars:
                 # Placeholder row for procedures with no matched dict variables
                 ws.merge_cells(start_row=dr, start_column=DICT_VAR_COL,
-                               end_row=dr,   end_column=DICT_FORM_COL)
+                               end_row=dr,   end_column=DICT_N_COL)
                 style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                            "No clinical variables identified in data dictionary for this procedure.",
                            bg=GREY, fg="888888", italic=True, size=9)
@@ -1142,6 +1211,7 @@ def _add_study_sheet(wb, study_name, meta,
                     (DICT_VAR_COL,   "Variable"),
                     (DICT_LABEL_COL, "Label"),
                     (DICT_UNITS_COL, "Units"),
+                    (DICT_N_COL,     "N Participants"),
                 ]:
                     style_cell(ws.cell(row=dr, column=col_idx), lbl,
                                bg=LIGHT_BLUE, fg=DARK_BLUE, size=9,
@@ -1152,6 +1222,7 @@ def _add_study_sheet(wb, study_name, meta,
 
                 for i, (col_name, info) in enumerate(proc_vars):
                     bg = LIGHT_GREEN if i % 2 == 0 else WHITE
+                    n_participants = var_n.get((proc_name, col_name), 0)
                     style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
                                col_name, bg=bg, fg=DARK_BLUE, size=9)
                     style_cell(ws.cell(row=dr, column=DICT_LABEL_COL),
@@ -1160,7 +1231,49 @@ def _add_study_sheet(wb, study_name, meta,
                                info.get("units", ""), bg=bg, size=9, h_align="center")
                     style_cell(ws.cell(row=dr, column=DICT_FORM_COL),
                                "", bg=bg)
+                    style_cell(ws.cell(row=dr, column=DICT_N_COL),
+                               n_participants if n_participants else "",
+                               bg=bg, size=9, h_align="center")
                     dr += 1
+
+            blank_row(ws, dr, height=8); dr += 1
+
+        # ── Non-procedure variables section ────────────────────────────────────
+        if no_proc_vars:
+            ws.merge_cells(start_row=dr, start_column=DICT_VAR_COL,
+                           end_row=dr,   end_column=DICT_N_COL)
+            style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
+                       f"General (No Procedure)  ({len(no_proc_vars)})",
+                       bg=MID_BLUE, fg=WHITE, bold=True, size=11)
+            ws.row_dimensions[dr].height = 20; dr += 1
+
+            # Column headers
+            for col_idx, lbl in [
+                (DICT_VAR_COL,   "Variable"),
+                (DICT_LABEL_COL, "Label"),
+                (DICT_UNITS_COL, "Units"),
+                (DICT_N_COL,     "N Participants"),
+            ]:
+                style_cell(ws.cell(row=dr, column=col_idx), lbl,
+                           bg=LIGHT_BLUE, fg=DARK_BLUE, size=9,
+                           bold=True, h_align="center")
+            style_cell(ws.cell(row=dr, column=DICT_FORM_COL), "", bg=LIGHT_BLUE)
+            ws.row_dimensions[dr].height = 20; dr += 1
+
+            for i, (col_name, info) in enumerate(no_proc_vars):
+                bg = LIGHT_GREEN if i % 2 == 0 else WHITE
+                n_participants = var_n.get(("", col_name), 0)
+                style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
+                           col_name, bg=bg, fg=DARK_BLUE, size=9)
+                style_cell(ws.cell(row=dr, column=DICT_LABEL_COL),
+                           info.get("label", ""), bg=bg, size=9)
+                style_cell(ws.cell(row=dr, column=DICT_UNITS_COL),
+                           info.get("units", ""), bg=bg, size=9, h_align="center")
+                style_cell(ws.cell(row=dr, column=DICT_FORM_COL), "", bg=bg)
+                style_cell(ws.cell(row=dr, column=DICT_N_COL),
+                           n_participants if n_participants else "",
+                           bg=bg, size=9, h_align="center")
+                dr += 1
 
             blank_row(ws, dr, height=8); dr += 1
 

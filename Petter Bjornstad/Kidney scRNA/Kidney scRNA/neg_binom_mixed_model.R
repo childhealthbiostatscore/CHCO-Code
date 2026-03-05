@@ -59,7 +59,7 @@ model_results = parLapply(cl, gene_overlap, function(gene) {
     error = function(e) return(NA),
     warning = function(w) return(NA)
   )
-  return(model)
+  return(summary(model))
 })
 # Stop the cluster
 stopCluster(cl)

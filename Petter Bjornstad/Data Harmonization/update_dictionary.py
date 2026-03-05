@@ -20,7 +20,7 @@ elif user == "pylell":
     git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 elif user == "shivaniramesh":
     base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    git_path = "/Users/shivaniramesh/GitHub/CHCO-Code/Petter Bjornstad/"
 else:
     sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
@@ -76,11 +76,26 @@ attempt_token = tokens.loc[tokens["Study"] == "ATTEMPT", "Token"].iloc[0]
 attempt = redcap.Project(url=uri, token=attempt_token)
 attempt_metadata = pd.DataFrame(attempt.metadata)
 
+ultra_token = tokens.loc[tokens["Study"] == "ULTRA-T2D", "Token"].iloc[0]
+ultra = redcap.Project(url=uri, token=ultra_token)
+ultra_metadata = pd.DataFrame(ultra.metadata)
 
+sweetheart_token = tokens.loc[tokens["Study"] == "SWEETHEART", "Token"].iloc[0]
+sweetheart = redcap.Project(url=uri, token=sweetheart_token)
+sweetheart_metadata = pd.DataFrame(sweetheart.metadata)
+
+rpc2_token = tokens.loc[tokens["Study"] == "RPC2", "Token"].iloc[0]
+rpc2 = redcap.Project(url=uri, token=rpc2_token)
+rpc2_metadata = pd.DataFrame(rpc2.metadata)
+
+t1disco_token = tokens.loc[tokens["Study"] == "T1-DISCO", "Token"].iloc[0]
+t1disco = redcap.Project(url=uri, token=t1disco_token)
+t1disco_metadata = pd.DataFrame(t1disco.metadata)
 
 
 studies = [casper_metadata, coffee_metadata, crocodile_metadata, improve_metadata, penguin_metadata,
-            renal_heir_metadata, renal_heiritage_metadata, panther_metadata, panda_metadata, attempt_metadata]
+            renal_heir_metadata, renal_heiritage_metadata, panther_metadata, panda_metadata, attempt_metadata,
+            ultra_metadata, sweetheart_metadata, rpc2_metadata, t1disco_metadata]
 variables = dictionary['variable_name'].tolist()
 
 for study in studies:
@@ -93,17 +108,30 @@ for study in studies:
             new_row = pd.DataFrame({'variable_name': [variable_name], 'label': [label]})
             dictionary = pd.concat([dictionary, new_row], ignore_index=True)
             variables.append(variable_name)
+        else:
+            # Update label for existing variables when the current label is blank
+            mask = (dictionary['variable_name'] == variable_name) & (
+                dictionary['label'].isna() | (dictionary['label'].astype(str).str.strip() == '')
+            )
+            if mask.any():
+                dictionary.loc[mask, 'label'] = label
 
-        
-dictionary['form_name'] = ''  # Initialize the new column
-dictionary['field_type'] = ''  # Initialize the new column
+
 all_metadata = pd.concat(studies, ignore_index=True)
-for index, row in dictionary.iterrows():
-    matching_row = all_metadata[all_metadata['field_name'] == row['variable_name']]
-    if not matching_row.empty:
-        # Get the form_name for the first match and assign it
-        dictionary.at[index, 'form_name'] = matching_row['form_name'].iloc[0]
-        dictionary.at[index, 'field_type'] = matching_row['field_type'].iloc[0]
+# Build a lookup from REDCap metadata for form_name and field_type
+meta_lookup = (
+    all_metadata.drop_duplicates(subset=['field_name'])
+    .set_index('field_name')[['form_name', 'field_type']]
+)
+# Update form_name and field_type only for variables found in REDCap metadata;
+# preserve existing values for variables not covered by any included study.
+for col in ['form_name', 'field_type']:
+    if col not in dictionary.columns:
+        dictionary[col] = ''
+matched = dictionary['variable_name'].map(meta_lookup['form_name'])
+dictionary.loc[matched.notna(), 'form_name'] = matched[matched.notna()]
+matched_type = dictionary['variable_name'].map(meta_lookup['field_type'])
+dictionary.loc[matched_type.notna(), 'field_type'] = matched_type[matched_type.notna()]
 
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
@@ -115,7 +143,6 @@ dictionary = dictionary.dropna(subset=['label'])
       
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
-harmonized = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/harmonized_dataset.csv")
 tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
 dictionary.to_csv(tocsv_path, index=False)
 

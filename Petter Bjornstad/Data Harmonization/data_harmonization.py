@@ -20,23 +20,27 @@ def harmonize_data():
     # Libraries
     import os
     import sys
+    sys.path.insert(0, os.path.expanduser('~') +
+                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import getpass
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "shivaniramesh":
         base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        git_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/Data Harmonization")
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
         
-    sys.path.insert(0, os.path.expanduser('~') +
-                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import pandas as pd
     import numpy as np
     from natsort import natsorted, ns
@@ -258,6 +262,11 @@ def harmonize_data():
     print(harmonized.groupby('study')['age'].apply(lambda x: x.notna().sum()))
     # set column x to 'a' where column y == 'b'
     dictionary.loc[dictionary['variable_name'] == 'age', 'form_name'] = 'demographics'
+    # Merge ATTEMPT-specific variables before derived computations (bmi, diabetes_duration, eGFR)
+    # so that filled height, diabetes_dx_date, and creatinine_s benefit all three.
+    from attempt_data_merge import merge_attempt_dat
+    harmonized = merge_attempt_dat(harmonized)
+
     # BMI
     harmonized["bmi"] = pd.to_numeric(harmonized["weight"])/((pd.to_numeric(harmonized["height"])/100)**2)
     dictionary.loc[dictionary['variable_name'] == 'bmi', 'form_name'] = 'physical_exam'
