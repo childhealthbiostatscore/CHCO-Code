@@ -59,6 +59,46 @@ analysis_config <- list(
     pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
     s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N", file_suffix = "t2d_glpyn"
   ),
+  # T2D GLP+ vs T2D GLP- (adjusted for age, sex)
+  T2D_GLP_Y_vs_T2D_GLP_N_adj_age_sex = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj_age_sex", file_suffix = "t2d_glpyn_adj_age_sex",
+    adjust_covariates = c("age", "sex.x")
+  ),
+  # T2D GLP- vs. HC (adjusted for age, sex)
+  T2D_GLP_N_vs_HC_adj_age_sex = list(
+    subset_cond = "group %in% c('Type_2_Diabetes', 'Lean_Control') & !is.na(glp_t2dob) & glp_t2dob != 'GLP_Y'",
+    group_var = "glp_t2dob", ref_level = "HC",
+    pval_col = "p_glp_t2dobGLP_N", logfc_col = "logFC_glp_t2dobGLP_N",
+    s3_subdir = "T2D_GLP_N_vs_HC_adj_age_sex", file_suffix = "t2d_glpn_hc_adj_age_sex",
+    adjust_covariates = c("age", "sex.x")
+  ),
+  # T2D GLP- vs. HC (adjusted for age, sex, bmi)
+  T2D_GLP_N_vs_HC_adj = list(
+    subset_cond = "group %in% c('Type_2_Diabetes', 'Lean_Control') & !is.na(glp_t2dob) & glp_t2dob != 'GLP_Y'",
+    group_var = "glp_t2dob", ref_level = "HC",
+    pval_col = "p_glp_t2dobGLP_N", logfc_col = "logFC_glp_t2dobGLP_N",
+    s3_subdir = "T2D_GLP_N_vs_HC_adj", file_suffix = "t2d_glpn_hc_adj",
+    adjust_covariates = c("age", "sex.x", "bmi")
+  ),
+  # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi)
+  T2D_GLP_Y_vs_T2D_GLP_N_adj = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj", file_suffix = "t2d_glpyn_adj",
+    adjust_covariates = c("age", "sex.x", "bmi")
+  ),
+  # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi, hba1c)
+  T2D_GLP_Y_vs_T2D_GLP_N_adj2 = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj2", file_suffix = "t2d_glpyn_adj2",
+    adjust_covariates = c("age", "sex.x", "bmi", "hba1c")
+  ),
   # DKD vs nonDKD comparisons (ACR >= 100)
   DKD_vs_nonDKD_100 = list(
     subset_cond = "group != 'Lean_Control' & !is.na(dkd_group_100)",
@@ -562,6 +602,18 @@ keep_cells <- with(meta, expr = eval(parse(text = full_subset_cond)))
 
 pb90_celltype <- subset(pb90_subset_clean, cells = rownames(meta)[keep_cells])
 
+# Remove cells with NA in covariates (if adjusting for covariates)
+if (!is.null(config$adjust_covariates)) {
+  cov_meta <- pb90_celltype@meta.data
+  cov_complete <- complete.cases(cov_meta[, config$adjust_covariates, drop = FALSE])
+  n_before <- ncol(pb90_celltype)
+  pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[cov_complete])
+  n_after <- ncol(pb90_celltype)
+  cat(sprintf("Removed %d cells with NA in covariates (%s): %d -> %d cells\n",
+              n_before - n_after, paste(config$adjust_covariates, collapse = ", "),
+              n_before, n_after))
+}
+
 # Set factor levels
 group_var <- config$group_var
 pb90_celltype@meta.data[[group_var]] <- factor(pb90_celltype@meta.data[[group_var]])
@@ -605,8 +657,15 @@ s3_key_processed <- sprintf("%s/%s/%s/%s_rh_rh2_imp_nebula_kpmp_%s_processed.rds
                             s3_base, config$s3_subdir, celltype_group_input,
                             celltype_group_input, config$file_suffix)
 
-# Build formula
-formula_obj <- as.formula(paste("~", group_var))
+# Build formula (add covariates if specified)
+if (!is.null(config$adjust_covariates)) {
+  covariates_str <- paste(config$adjust_covariates, collapse = " + ")
+  formula_obj <- as.formula(paste("~", group_var, "+", covariates_str))
+  cat(sprintf("Using adjusted formula: %s\n", deparse(formula_obj)))
+} else {
+  formula_obj <- as.formula(paste("~", group_var))
+  cat(sprintf("Using unadjusted formula: %s\n", deparse(formula_obj)))
+}
 
 # Run nebula
 nebula_res <- run_nebula_parallel(

@@ -281,6 +281,27 @@ def harmonize_data():
     harmonized["cystatin_c_s"] = pd.to_numeric(harmonized["cystatin_c_s"], errors="coerce")
     harmonized["bun"] = pd.to_numeric(harmonized["bun"], errors="coerce")
     harmonized["height"] = pd.to_numeric(harmonized["height"], errors="coerce")
+    
+    # Coalesce creatinine_s and cystatin_c_s between screening and baseline visits
+    # when one is missing at either visit
+    if "visit" in harmonized.columns and "record_id" in harmonized.columns:
+        for analyte in ["creatinine_s", "cystatin_c_s"]:
+          # Build a lookup of screening and baseline values per subject (take first non-null)
+          scr_vals = (harmonized.loc[harmonized["visit"] == "screening", ["record_id", analyte]]
+                      .dropna(subset=[analyte])
+                      .drop_duplicates(subset="record_id", keep="first")
+                      .set_index("record_id")[analyte])
+          bsl_vals = (harmonized.loc[harmonized["visit"] == "baseline", ["record_id", analyte]]
+                      .dropna(subset=[analyte])
+                      .drop_duplicates(subset="record_id", keep="first")
+                      .set_index("record_id")[analyte])
+  
+          mask_scr = (harmonized["visit"] == "screening") & (harmonized[analyte].isna())
+          mask_bsl = (harmonized["visit"] == "baseline") & (harmonized[analyte].isna())
+  
+          harmonized.loc[mask_scr, analyte] = harmonized.loc[mask_scr, "record_id"].map(bsl_vals).values
+          harmonized.loc[mask_bsl, analyte] = harmonized.loc[mask_bsl, "record_id"].map(scr_vals).values
+    
     harmonized = calc_egfr(harmonized, age="age",
                            serum_creatinine="creatinine_s", cystatin_c="cystatin_c_s",
                            bun="bun", height="height", sex="sex", male="Male", female="Female", alpha=0.5)
@@ -288,7 +309,6 @@ def harmonize_data():
          'eGFR_fas_cr_cysc', 'eGFR_CKD_epi',
          'eGFR_CKiD_U25_Creat', 'eGFR_CKiD_U25_CystatinC', 'eGFR_CKiD_U25_avg']
     dictionary.loc[dictionary['variable_name'].isin(egfr), 'form_name'] = 'eGFR'
-
     # Kidney volume
     harmonized["total_kidney_volume_ml"] = \
         harmonized["left_kidney_volume_ml"] + \

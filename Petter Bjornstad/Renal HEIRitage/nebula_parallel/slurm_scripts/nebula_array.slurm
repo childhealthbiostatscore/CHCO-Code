@@ -1,12 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=scD3_fit_ref
-#SBATCH --time=12:00:00
-#SBATCH --mem=128G
-#SBATCH --cpus-per-task=32
+#SBATCH --job-name=nebula_array
+#SBATCH --array=1-122%10             # Run 168 jobs, max 7 concurrent
+#SBATCH --time=03:00:00             # 3 hour per job (30min + buffer)
+#SBATCH --mem=200G                  # Memory per job
+#SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
 #SBATCH --partition=cpu-g2          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
-#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/00_fit_reference__%j.out"
-#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/00_fit_reference__%j.err"
+#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/Renal HEIRitage/nebula_parallel/logs/output/nebula_%A_%a.out"
+#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/Renal HEIRitage/nebula_parallel/logs/error/nebula_%A_%a.err"
 
 # Load Apptainer module (if needed on your system)
 module load apptainer  # or module load singularity
@@ -24,11 +25,10 @@ cd "${BASE_DIR}"
 CONFIG_FILE="${BASE_DIR}/config/job_config.txt"
 JOB_PARAMS=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${CONFIG_FILE}")
 
-# Parse analysis type and cell type
-# Parse run name, cell type, and cell type variable
-RUN_NAME=$(echo $JOB_PARAMS | cut -d' ' -f1)
-CELL_TYPE=$(echo $JOB_PARAMS | cut -d' ' -f2)
-CELL_TYPE_VAR=$(echo $JOB_PARAMS | cut -d' ' -f3)
+# Parse run name, cell type, and cell type variable (tab-delimited)
+RUN_NAME=$(echo "$JOB_PARAMS" | cut -d$'\t' -f1)
+CELL_TYPE=$(echo "$JOB_PARAMS" | cut -d$'\t' -f2)
+CELL_TYPE_VAR=$(echo "$JOB_PARAMS" | cut -d$'\t' -f3)
 
 echo "Working directory: $(pwd)"
 echo "Config file: ${CONFIG_FILE}"
