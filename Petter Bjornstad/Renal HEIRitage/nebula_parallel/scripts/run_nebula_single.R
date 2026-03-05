@@ -75,6 +75,14 @@ analysis_config <- list(
     s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj", file_suffix = "t2d_glpyn_adj",
     adjust_covariates = c("age", "sex", "bmi")
   ),
+  # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi, hba1c)
+  T2D_GLP_Y_vs_T2D_GLP_N_adj2 = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj2", file_suffix = "t2d_glpyn_adj2",
+    adjust_covariates = c("age", "sex", "bmi", "hba1c")
+  ),
   # DKD vs nonDKD comparisons (ACR >= 100)
   DKD_vs_nonDKD_100 = list(
     subset_cond = "group != 'Lean_Control' & !is.na(dkd_group_100)",
@@ -577,6 +585,18 @@ meta <- pb90_subset_clean@meta.data
 keep_cells <- with(meta, expr = eval(parse(text = full_subset_cond)))
 
 pb90_celltype <- subset(pb90_subset_clean, cells = rownames(meta)[keep_cells])
+
+# Remove cells with NA in covariates (if adjusting for covariates)
+if (!is.null(config$adjust_covariates)) {
+  cov_meta <- pb90_celltype@meta.data
+  cov_complete <- complete.cases(cov_meta[, config$adjust_covariates, drop = FALSE])
+  n_before <- ncol(pb90_celltype)
+  pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[cov_complete])
+  n_after <- ncol(pb90_celltype)
+  cat(sprintf("Removed %d cells with NA in covariates (%s): %d -> %d cells\n",
+              n_before - n_after, paste(config$adjust_covariates, collapse = ", "),
+              n_before, n_after))
+}
 
 # Set factor levels
 group_var <- config$group_var
