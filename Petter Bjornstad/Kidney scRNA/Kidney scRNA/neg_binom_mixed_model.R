@@ -43,12 +43,13 @@ counts = rbind(biopsy_counts[, gene_overlap], organoid_counts[, gene_overlap])
 # Out everything together and clear memory a bit
 df = cbind(mod_mat, counts)
 rm(biopsy_meta, organoid_meta, biopsy_counts, organoid_counts, counts, mod_mat)
-# Set up parallel processing
-# Register cluster
-cl <- makeCluster(24, type = "FORK")
 # For each gene measured in both biopsies and organoids, fit a mixed model.
 # Use the same ZI formula for all models (intercept only for now)
 zf = ~1
+# Set up parallel processing
+# Register cluster
+cl <- makeCluster(24, type = "FORK")
+# Cluster lapply
 model_results = parLapply(cl, gene_overlap, function(gene) {
   f1 = as.formula(paste0(
     gene,
