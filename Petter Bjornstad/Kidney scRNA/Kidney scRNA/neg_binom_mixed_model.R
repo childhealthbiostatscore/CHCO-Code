@@ -66,5 +66,5 @@ stopCluster(cl)
 # Save results
 save(
   model_results,
-  "./Data/UWMDI/Hailey Hampson/Kidney scRNAseq Project/Results/model_results.RData"
+  file = "./Data/UWMDI/Hailey Hampson/Kidney scRNAseq Project/Results/model_results.RData"
 )
