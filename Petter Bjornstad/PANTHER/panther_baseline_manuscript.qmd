@@ -37,6 +37,7 @@ library(glue)
 library(purrr)
 library(aws.s3)
 library(jsonlite)
+library(gtsummary)
 ```
 
 ```{r}
@@ -72,6 +73,93 @@ source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
 source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
+```{r}
+# IGF-Z score calculation
+# 1) Reference table from your screenshots (children)
+igf_ref_child <- tribble(
+  ~sex,     ~tanner_stage_comp_panther, ~age_years, ~lower_ref, ~upper_ref, ~mean_ref,
+  "male",   1,           3,          20,         141,        63,
+  "male",   1,           4,          25,         157,        73,
+  "male",   1,           5,          30,         174,        84,
+  "male",   1,           6,          37,         192,        96,
+  "male",   1,           7,          44,         211,        109,
+  "male",   1,           8,          52,         231,        123,
+  "male",   1,           9,          61,         252,        137,
+  "male",   1,           10,         71,         275,        153,
+  "male",   1,           11,         82,         299,        170,
+  "male",   1,           12,         93,         324,        188,
+  "male",   1,           13,         106,        350,        207,
+  "male",   1,           14,         120,        377,        227,
+  "male",   1,           15,         127,        391,        237,
+  
+  "male",   2,           8,          39,         264,        121,
+  "male",   2,           9,          52,         304,        146,
+  "male",   2,           10,         67,         347,        174,
+  "male",   2,           11,         86,         393,        206,
+  "male",   2,           12,         106,        443,        240,
+  "male",   2,           13,         130,        497,        277,
+  "male",   2,           14,         156,        554,        318,
+  "male",   2,           15,         185,        616,        362,
+  "male",   2,           16,         201,        648,        386,
+  
+  "male",   3,           8,          39,         264,        121,
+  "male",   3,           9,          52,         304,        146,
+  "male",   3,           10,         67,         347,        174,
+  "male",   3,           11,         86,         393,        206,
+  "male",   3,           12,         106,        443,        240,
+  "male",   3,           13,         130,        497,        277,
+  "male",   3,           14,         156,        554,        318,
+  "male",   3,           15,         185,        616,        362,
+  "male",   3,           16,         201,        648,        386,
+  
+  "male",   4,           11,         277,        673,        449,
+  "male",   4,           12,         265,        652,        433,
+  "male",   4,           13,         241,        612,        401,
+  "male",   4,           14,         220,        574,        372,
+  "male",   4,           15,         209,        537,        343,
+  "male",   4,           16,         180,        501,        316,
+  "male",   4,           17,         161,        467,        290,
+  "male",   4,           18,         144,        434,        266,
+  
+  "female", 1,           3,          36,         162,        77,
+  "female", 1,           4,          26,         179,        88,
+  "female", 1,           5,          39,         198,        100,
+  "female", 1,           6,          47,         217,        113,
+  "female", 1,           7,          55,         238,        127,
+  "female", 1,           8,          64,         259,        142,
+  "female", 1,           9,          74,         282,        158,
+  "female", 1,           10,         85,         306,        175,
+  "female", 1,           11,         97,         332,        194,
+  "female", 1,           12,         110,        358,        213,
+  
+  "female", 2,           8,          89,         369,        181,
+  "female", 2,           9,          96,         399,        196,
+  "female", 2,           10,         104,        431,        212,
+  "female", 2,           11,         112,        466,        229,
+  "female", 2,           12,         121,        504,        247,
+  "female", 2,           13,         131,        545,        267,
+  "female", 2,           14,         136,        566,        278,
+  
+  "female", 3,           9,          192,        568,        350,
+  "female", 3,           10,         192,        568,        350,
+  "female", 3,           11,         192,        568,        350,
+  "female", 3,           12,         192,        568,        350,
+  "female", 3,           13,         192,        568,        350,
+  "female", 3,           14,         192,        568,        350,
+  "female", 3,           15,         192,        568,        350,
+  
+  "female", 4,           10,         279,        664,        446,
+  "female", 4,           11,         268,        646,        433,
+  "female", 4,           12,         248,        612,        406,
+  "female", 4,           13,         229,        579,        380,
+  "female", 4,           14,         211,        547,        356,
+  "female", 4,           15,         194,        516,        332,
+  "female", 4,           16,         177,        487,        309,
+  "female", 4,           17,         162,        458,        287,
+  "female", 4,           18,         147,        430,        266
+)
+```
+
 ```{r prep-data, echo = F, include = F, eval = F}
 # Load clinical data
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "")
@@ -87,54 +175,69 @@ dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "scree
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(mrn, visit)) %>%
   dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                              race == "Black or African American" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                              T ~ "Not Hispanic or Latino Other"),
-         tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
-         tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
-         tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
-                                      tanner_stage_comp >=3 ~ "III_V"),
-         tanner_stage_cat_2 = case_when(tanner_stage_comp == 1 ~ "I",
-                                        tanner_stage_comp <4 ~ "II_III",
-                                        tanner_stage_comp >=4 ~ "IV_V"),
-         tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
-                                        tanner_stage_comp == 3 ~ "III",
-                                        tanner_stage_comp >= 4 ~ "IV_V"),
-         tanner_stage_comp_panther_cat = 
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" & 
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"),
+                tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
+                tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
+                tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
+                                             tanner_stage_comp >=3 ~ "III_V"),
+                tanner_stage_cat_2 = case_when(tanner_stage_comp == 1 ~ "I",
+                                               tanner_stage_comp <4 ~ "II_III",
+                                               tanner_stage_comp >=4 ~ "IV_V"),
+                tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
+                                               tanner_stage_comp == 3 ~ "III",
+                                               tanner_stage_comp >= 4 ~ "IV_V"),
+                tanner_stage_comp_panther_cat = 
                   case_when(tanner_stage_comp_panther == 4 ~ "4 & 5",
                             T ~ as.character(tanner_stage_comp_panther)),
-         age_mo = (age * 12),
-         sex = case_when(sex == "Male" ~ "male",
-                         sex == "Female" ~ "female"),
-         male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0),
-         combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
-         combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
-         log_tot_test = log(tot_test),
-         log_free_test = log(free_test),
-         log_lh = log(lh),
-         log_estrad = log(estrad),
-         log_acr_u = log(acr_u),
-         avg_c_adc_tkv = avg_c_adc/combined_tkv,
-         avg_c_r2_tkv = avg_c_r2/combined_tkv,
-         avg_pcascl_tkv = avg_pcascl/combined_tkv,
-         avg_c_t1_tkv = avg_c_t1/combined_tkv,
-         mm_airg = case_when(mm_airg > 0 ~ mm_airg),
-         mm_bcell = case_when(mm_bcell > 0 ~ mm_bcell),
-         mm_di = case_when(mm_di > 0 & mm_di < 10000 ~ mm_di),
-         mm_ir = case_when(mm_ir > 0 ~ mm_ir),
-         mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
-         birthweight = gsub(" kg", "", birthweight),
-         birthweight = as.numeric(birthweight),
-         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
-         uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
-                              acr_u <= 20 ~ "UACR (10, 20]",
-                              acr_u <= 30 ~ "UACR (20, 30]",
-                              acr_u > 30 ~ "UACR > 30"),
-         tanner_stage_comp = as.factor(tanner_stage_comp)) %>%
+                age_mo = (age * 12),
+                sex = case_when(sex == "Male" ~ "male",
+                                sex == "Female" ~ "female"),
+                male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0),
+                combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+                combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+                log_tot_test = log(tot_test),
+                log_free_test = log(free_test),
+                log_lh = log(lh),
+                log_estrad = log(estrad),
+                log_acr_u = log(acr_u),
+                avg_c_adc_tkv = avg_c_adc/combined_tkv,
+                avg_c_r2_tkv = avg_c_r2/combined_tkv,
+                avg_pcascl_tkv = avg_pcascl/combined_tkv,
+                avg_c_t1_tkv = avg_c_t1/combined_tkv,
+                mm_airg = case_when(mm_airg > 0 ~ mm_airg),
+                mm_bcell = case_when(mm_bcell > 0 ~ mm_bcell),
+                mm_di = case_when(mm_di > 0 & mm_di < 10000 ~ mm_di),
+                mm_ir = case_when(mm_ir > 0 ~ mm_ir),
+                mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
+                birthweight = gsub(" kg", "", birthweight),
+                birthweight = as.numeric(birthweight),
+                glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
+                uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
+                                     acr_u <= 20 ~ "UACR (10, 20]",
+                                     acr_u <= 30 ~ "UACR (20, 30]",
+                                     acr_u > 30 ~ "UACR > 30"),
+                tanner_stage_comp = as.factor(tanner_stage_comp)) %>%
   arrange(record_id) %>%
-  filter(!is.na(male_ind))
+  filter(!is.na(male_ind)) %>%
+  mutate(
+    age_years = floor(age)
+  ) %>%
+  left_join(igf_ref_child, by = c("sex", "tanner_stage_comp_panther", "age_years")) %>%
+  mutate(sd_ref = case_when(igf_1 < mean_ref ~ (mean_ref - lower_ref) / 2,
+                            igf_1 >= mean_ref ~ (upper_ref - mean_ref) / 2), 
+         igf1_z_score_calc = (igf_1 - mean_ref) / sd_ref
+  ) %>%
+  select(-ends_with("_adult"))
+
+
+dat$uacr_cat <- factor(dat$uacr_cat, levels = c("UACR [0, 10]",
+                                                "UACR (10, 20]",
+                                                "UACR (20, 30]",
+                                                "UACR > 30"))
 
 bp_percentile = p_bp(q_sbp = dat$sbp, q_dbp = dat$dbp, age = dat$age_mo, male = dat$male_ind)
 dat$sbp_p <- bp_percentile$sbp_p
@@ -208,6 +311,7 @@ dict <- label_harmonized_dict(dat, dict) %>%
                 free_test = "Free testosterone",
                 igf_1 = "IGF-1",
                 igf1_z_score = "IGF-1 Z-score",
+                igf1_z_score_calc = "IGF-1 Z-score",
                 avg_c_t1 = "Avg cortical T1",
                 avg_pcascl = "Avg pCASCL",
                 avg_c_adc_tkv = "Avg cortical ADC/TKV",
@@ -259,19 +363,19 @@ sens_dat <- label_harmonized(sens_dat, dict)
 save(analytes,
      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_analytes_022326.RData"))
 save(dict,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_022326.RData"))
 save(dat,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_022326.RData"))
 save(panther,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_022326.RData"))
 save(sens_dat,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_022326.RData"))
 save(cleanData_comb,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_022326.RData"))
 save(cleanData_panther,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_022326.RData"))
 save(cleanData_sens,
-        file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_022326.RData"))
+     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_022326.RData"))
 ```
 
 
@@ -301,11 +405,13 @@ table_controls <- tableby.control(
   total = T,
   numeric.stats = c("meansd"),
   cat.stats = c("countpct"),
+  cat.test = "chisq",
   digits = 1, 
   numeric.simplify = TRUE,
   test.always = T,
   cat.droplevels = F
 )
+
 ```
 
 # Descriptive tables
@@ -313,47 +419,86 @@ table_controls <- tableby.control(
 ## By risk
 
 ```{r include = F}
-# identify UACR outliers/high UACRs
-panther_uacr <- subset(panther, 
-                       select = c(record_id, mrn, group_2, aer_24, u24_mab, u24_hrs, 
-                                  acr_u, creatinine_u, microalbumin_u)) %>%
-  arrange(desc(u24_mab))
+# # identify UACR outliers/high UACRs
+# panther_uacr <- subset(panther, 
+#                        select = c(record_id, mrn, group_2, aer_24, u24_mab, u24_hrs, 
+#                                   acr_u, creatinine_u, microalbumin_u)) %>%
+#   arrange(desc(u24_mab))
+# 
+# panther_uacr$flag <- ifelse(panther_uacr$u24_mab > 20 & panther_uacr$acr_u > 30, "flag", "")
+# 
+# panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
+#   mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+#   filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+#                    .by = c(mrn, visit)) %>%
+#   dplyr::select(record_id, visit, group, u24_mab, acr_u, creatinine_u, microalbumin_u, creatinine_s)
+# 
+# panther_uacr_wide <- panther_uacr_2 %>%
+#   pivot_wider(
+#     id_cols = c(record_id, group),  # person ID and group
+#     names_from = 2,     # visit variable (baseline, year_1, year_2)
+#     values_from = 4:8   # the numeric columns
+#   ) %>%
+#   dplyr::select(where(~ !all(is.na(.x))))
 
-panther_uacr$flag <- ifelse(panther_uacr$u24_mab > 20 & panther_uacr$acr_u > 30, "flag", "")
 
-panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
-  mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
-  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(mrn, visit)) %>%
-  dplyr::select(record_id, visit, group, u24_mab, acr_u, creatinine_u, microalbumin_u, creatinine_s)
-
-panther_uacr_wide <- panther_uacr_2 %>%
-  pivot_wider(
-    id_cols = c(record_id, group),  # person ID and group
-    names_from = 2,     # visit variable (baseline, year_1, year_2)
-    values_from = 4:8   # the numeric columns
-  ) %>%
-  dplyr::select(where(~ !all(is.na(.x))))
-
-panther$uacr_cat <- factor(panther$uacr_cat, levels = c("UACR [0, 10]",
-                                                        "UACR (10, 20]",
-                                                        "UACR (20, 30]",
-                                                        "UACR > 30"))
 ```
 
 ```{r desc-risk, results = 'asis', echo = F}
 # Table 1
 kable(summary(tableby(group_risk ~ age + sex + group_2 + race_ethnicity_condensed + height + weight + 
                         bmi +  bmiz + bmip + sbp + dbp +  hba1c + 
-                        eGFR_CKD_epi + eGFR_fas_cr + eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg + 
-                        kwt(acr_u, "Nmiss", "medianq1q3") + uacr_cat + kwt(u24_mab, "Nmiss", "medianq1q3") + 
+                        eGFR_fas_cr + eGFR_fas_cr_cysc + eGFR_CKiD_U25_avg + 
+                        kwt(acr_u, "medianq1q3") + fe(uacr_cat) + kwt(u24_mab, "medianq1q3") + 
                         gotast_base + gptalt_base +  
-                        metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint, 
+                        fe(metformin_timepoint) + fe(insulin_med_timepoint) + fe(glp1_agonist_timepoint) + fe(sglti_timepoint), 
                       data = panther, 
-                      # control = table_controls, 
+                      # control = table_controls,
                       test = T), digits = 1))
+
+# chisq.test(table(panther$group_risk, panther$glp1_agonist_timepoint))
+# chisq.test(table(panther$group_risk))
+# gtsummary::tbl_summary(panther, by = group_risk,
+#                        include = c(metformin_timepoint, insulin_med_timepoint, glp1_agonist_timepoint, sglti_timepoint)) %>%
+#   add_p(test = everything() ~ "chisq.test.no.correct")
+
+# people missing cystatin C and not creatinine
+subset(panther, is.na(panther$cystatin_c) & !is.na(panther$creatinine_s))
+subset(panther, is.na(eGFR_fas_cr_cysc))$cystatin_c
+subset(panther, is.na(eGFR_fas_cr_cysc))$creatinine_s
+subset(panther, is.na(eGFR_fas_cr_cysc))$age
+subset(panther, is.na(eGFR_fas_cr_cysc))$sex
+
+
+test <- panther %>%
+  mutate(qcr = floor(age),
+         qcr = case_when(qcr == 8 ~ 0.46,
+                         qcr == 9 ~ 0.49,
+                         qcr == 10 ~ 0.51,
+                         qcr == 11 ~ 0.53,
+                         qcr == 12 ~ 0.57,
+                         qcr == 13 ~ 0.59,
+                         qcr == 14 ~ 0.61,
+                         sex == "female" & qcr == 15 ~ 0.64,
+                         sex == "female" & qcr == 15 ~ 0.64,
+                         sex == "female" & qcr == 16 ~ 0.67,
+                         sex == "female" & qcr == 17 ~ 0.69,
+                         sex == "female" & qcr == 18 ~ 0.69,
+                         sex == "female" & qcr >= 19 ~ 0.70,
+                         
+                         sex == "male" & qcr == 15 ~ 0.72,
+                         sex == "male" & qcr == 16 ~ 0.78,
+                         sex == "male" & qcr == 17 ~ 0.82,
+                         sex == "male" & qcr == 18 ~ 0.85,
+                         sex == "male" & qcr == 19 ~ 0.88,
+                         sex == "male" & qcr > 19 ~ 0.90),
+         f1 = creatinine_s / qcr,
+         f3 = cystatin_c_s / 0.82,
+         egfr_calc = 107.3 / ((0.5 * f1) + (0.5 * f3))) %>%
+  dplyr::select(record_id, visit, age, sex, qcr, cystatin_c_s, creatinine_s, f1, f3, eGFR_fas_cr_cysc, egfr_calc)
+
 ```
 
 ```{r results = 'asis', echo = F}
@@ -362,17 +507,17 @@ kable(summary(tableby(group_risk ~  total_kidney_volume_ml + ht_adj_tkv + avg_c_
                         mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
                         ra + re + anova(rvr, digits = 3) + glomerular_pressure, 
                       data = panther, 
-                      # control = table_controls, 
+                      control = table_controls,
                       test = T), digits = 1))
 ```
 
 ```{r results = 'asis', echo = F}
 # Table 3
 kable(summary(tableby(group_risk ~  kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + 
-                        kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + cpeptide + 
+                        kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score_calc + cpeptide + 
                         dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass, 
                       data = panther,                      
-                      # control = table_controls, 
+                      control = table_controls,
                       test = T), digits = 1))
 ```
 
@@ -391,16 +536,16 @@ subset(panther, is.na(cpeptide), select = c(mrn, visit, record_id, date, cpep_mi
 ```{r desc-tanner-stage-45, results = 'asis', echo = F}
 # By tanner stage
 summary(tableby(tanner_stage_comp_panther_cat ~ age + sex + group_2 + race_ethnicity_condensed + height + weight + 
-                        bmi +  bmiz + bmip + sbp + dbp +  hba1c + 
-                        eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg + 
-                        kwt(acr_u, "Nmiss", "medianq1q3") + uacr_cat + kwt(u24_mab, "Nmiss", "medianq1q3") + 
-                        gotast_base + gptalt_base + total_kidney_volume_ml + ht_adj_tkv + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + 
-                        mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
-                        ra + re + anova(rvr, digits = 3) + glomerular_pressure + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + 
-                        kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + cpeptide + 
-                        dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass,
+                  bmi +  bmiz + bmip + sbp + dbp +  hba1c + 
+                  eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg + 
+                  kwt(acr_u, "medianq1q3") + uacr_cat + kwt(u24_mab, "medianq1q3") + 
+                  gotast_base + gptalt_base + total_kidney_volume_ml + ht_adj_tkv + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + 
+                  mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                  ra + re + anova(rvr, digits = 3) + glomerular_pressure + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + 
+                  kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score_calc + cpeptide + 
+                  dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass,
                 data = subset(panther, !is.na(group_risk)), 
-                control = table_controls, 
+                # control = table_controls, 
                 total = T, test = F, digits = 1))
 ```
 
@@ -418,10 +563,10 @@ iqr_plot <- function(data, x_var, y_var, x_var_lab, y_var_lab) {
   formula <- as.formula(paste(y_var, "~", x_var))
   anova_res <- aov(formula, data = data)
   p_value <- summary(anova_res)[[1]][["Pr(>F)"]][1]
-
+  
   # Format p-value for display
   p_text <- ifelse(p_value < 0.001, "ANOVA p < 0.001", paste0("ANOVA p = ", round(p_value, 3)))
-
+  
   ggplot(data = data, aes_string(x = x_var, y = y_var)) +
     geom_jitter(width = 0.2, alpha = 0.5) +
     stat_summary(
@@ -452,7 +597,7 @@ iqr_plot <- function(data, x_var, y_var, x_var_lab, y_var_lab) {
 ```
 
 ```{r echo = F, warning = F}
-vars <- c("bmi", "birthweight", "eGFR_CKD_epi", "eGFR_fas_cr", "sbp", "dbp", "hba1c", "gotast_base", "gptalt_base", "log_acr_u", "log_lh", "log_estrad", "log_tot_test", "log_free_test", "bl_dheas", "igf_1", "igf1_z_score", "dexa_lean_mass", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass", "avg_c_r2", "avg_k_r2", "avg_pcascl", "avg_c_adc", "avg_c_adc_tkv", "avg_c_r2_tkv", "avg_pcascl_tkv", "total_kidney_volume_ml", "ht_adj_tkv", "mm_si", "mm_ir", "mm_bcell", "mm_di", "gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma", "ra", "re", "rvr", "glomerular_pressure")
+vars <- c("bmi", "birthweight", "eGFR_CKD_epi", "eGFR_fas_cr", "sbp", "dbp", "hba1c", "gotast_base", "gptalt_base", "log_acr_u", "log_lh", "log_estrad", "log_tot_test", "log_free_test", "bl_dheas", "igf_1", "igf1_z_score_calc", "dexa_lean_mass", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass", "avg_c_r2", "avg_k_r2", "avg_pcascl", "avg_c_adc", "avg_c_adc_tkv", "avg_c_r2_tkv", "avg_pcascl_tkv", "total_kidney_volume_ml", "ht_adj_tkv", "mm_si", "mm_ir", "mm_bcell", "mm_di", "gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma", "ra", "re", "rvr", "glomerular_pressure")
 ```
 
 ```{r echo = F, warning = F, eval = F}
@@ -511,32 +656,32 @@ iqr_plot_grp <- function(data, x_var, y_var, group_var = NULL,
     theme(panel.background = element_blank(),
           text = element_text(size = 18),
           axis.title.y = element_text(size = 18))
-
+  
   # Apply custom colors if provided
   if (!is.null(colors)) {
     p <- p + scale_color_manual(values = colors)
   }
-
+  
   # Compute ANOVA p-values for each group_2
   p_values <- data %>%
     group_by_at(group_var) %>%
     dplyr::summarise(p_value = summary(aov(get(y_var) ~ get(x_var), data = cur_data()))[[1]][["Pr(>F)"]][1]) %>%
     ungroup()
-
+  
   # Format p-values for display
   p_values <- p_values %>%
     mutate(p_text = ifelse(p_value < 0.001, "p < 0.001", paste0("p = ", round(p_value, 3))))
-
+  
   # Add p-value annotations with matching colors
   for (i in seq_len(nrow(p_values))) {
     grp <- p_values[[group_var]][i]
     p_val <- p_values$p_text[i]
     color <- if (!is.null(colors)) colors[grp] else "black"
-
+    
     p <- p + annotate("text", x = 1, y = max(data[[y_var]], na.rm = TRUE) - i * 0.1 * diff(range(data[[y_var]], na.rm = TRUE)),
                       label = paste0("ANOVA (",grp,")", ": ", p_val), hjust = 0, size = 6, color = color)
   }
-
+  
   return(p)
 }
 ```
@@ -591,50 +736,482 @@ walk2(
 
 ## Heatmap
 
-```{r echo = F}
-xvars <- c("age", "tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test", "log_estrad", "bl_dheas", "igf_1", "mm_si", "mm_di", "mm_bcell")
-# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor1.png"), res = 170)
-corr_plot_modified(panther,
-                   X = xvars,
-                   Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma","eGFR_fas_cr",
-                         "log_acr_u", "glomerular_pressure", "ra", "re", "rvr"),
-                   dict = dict)
-# dev.off()
-
-# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor2.png"), res = 170)
-corr_plot_modified(panther,
-                   X = xvars,
-                   Y = c("total_kidney_volume_ml", "ht_adj_tkv","avg_c_r2",
-                         "avg_k_r2","avg_c_t1", "avg_pcascl", "avg_c_adc"),
-                   dict = dict)
-# dev.off()
-
-# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor3.png"), res = 170)
-# corr_plot_modified(panther,
-#                    X = xvars,
-#                    Y = c("mm_si", "mm_ir", "mm_bcell", "mm_di"),
-#                    dict = dict)
-# dev.off()
-
-# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor4.png"), res = 170)
-corr_plot_modified(panther,
-                   X = xvars,
-                   Y = c("dexa_lean_mass", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass",
-                         "bmi"),
-                   dict = dict)
-# dev.off()
-
-xvars2 <- c("dexa_lean_mass", "dexa_lean_kg", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass", "dexa_trunk_kg",
-                         "bmi")
-
-# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor5.png"), res = 170)
-corr_plot_modified(panther,
-                   X = xvars2,
-                   Y = c("total_kidney_volume_ml", "ht_adj_tkv","glomerular_pressure", "ra", "re", "rvr", "rbf"),
-                   dict = dict)
-# dev.off()
+```{r}
+# corr_plot_modified <- function(
+#     data, X, Y, cor_method = "pearson", adj_var = NULL, dict = dict,
+#     method = "color", insig = "pch", coef_col = NULL,
+#     pch = 4, pch.col = "black",
+#     pch.cex = 0, tl.cex = .8, cl.cex = 0.8, number.cex = 1,
+#     coef_text_cex = 0.9,
+#     star_text_cex = 0.9,
+#     col = colorRampPalette(c("#0096c7", "white", "#d62828"))(200),
+#     x_groups = NULL,        # NEW: named list for column grouping
+#     y_groups = NULL,        # NEW: named list for row grouping
+#     group_line_col = "#495057",
+#     group_label_cex = 0.9,
+#     group_offset = 1.2      # how far outside the plot the bracket sits
+# ) {
+#   n_cols <- length(Y)
+#   M <- cor(y = subset(data, select = Y),
+#            x = subset(data, select = X),
+#            use = "pairwise.complete.obs",
+#            method = cor_method)
+#   
+#   colnames(M) <- as.list(dict[match(colnames(M), names(dict))])
+#   rownames(M) <- as.list(dict[match(rownames(M), names(dict))])
+#   
+#   # --- adjusted-variable block (unchanged) ---
+#   if (!is.null(adj_var)) {
+#     x_vars <- rep(X, times = length(Y))
+#     x_coord <- rep(seq(1, length(Y)), each = length(X))
+#     y_vars <- rep(Y, each = length(X))
+#     y_coord <- rep(seq(length(X), 1), times = length(Y))
+#     lm_extracted <- data.frame(yName = character(0),
+#                                xName = character(0),
+#                                x = numeric(0),
+#                                y = numeric(0),
+#                                adj_var = character(0),
+#                                adj_x_coef = numeric(0),
+#                                adj_x_pval = numeric(0))
+#     for (i in seq_along(x_vars)) {
+#       if (x_vars[i] != y_vars[i]) {
+#         lm_formula <- as.formula(paste0(y_vars[i], "~", x_vars[i], "+", adj_var))
+#         lm_model <- lm(lm_formula, data = data)
+#         lm_summary <- summary(lm_model)
+#         lm_coef <- lm_summary$coefficient[x_vars[i], "Estimate"]
+#         lm_p_val <- lm_summary$coefficient[x_vars[i], "Pr(>|t|)"]
+#         lm_extracted <- rbind(lm_extracted,
+#                               data.frame(
+#                                 yName = y_vars[i],
+#                                 xName = x_vars[i],
+#                                 x = x_coord[i],
+#                                 y = y_coord[i],
+#                                 adj_var = adj_var,
+#                                 adj_x_coef = lm_coef,
+#                                 adj_x_pval = lm_p_val))
+#       }
+#     }
+#   }
+#   
+#   correlation_p_value <- correlation_p_value_matrix(
+#     data, relevant_vars = c(Y, X), n_cols = n_cols, cor_method = cor_method
+#   )
+#   
+#   
+#   corrplot(M,
+#            p.mat = correlation_p_value,
+#            method = method,
+#            tl.col = "black",
+#            tl.srt = 45,
+#            tl.cex = tl.cex,
+#            insig = insig,
+#            addCoef.col = coef_col,
+#            addgrid.col = 'white',
+#            number.digits = 2,
+#            number.cex = number.cex,
+#            pch.col = pch.col,
+#            pch = pch,
+#            pch.cex = pch.cex,
+#            col = col,
+#            cl.cex = cl.cex, 
+#            mar = c(0, group_offset + 1, 0,0) # bottom, left, top, right
+#   )$corrPos -> p1
+#   
+#   p1_sub  <- subset(p1, p.value <= 0.05)
+#   p1_sub2 <- subset(p1, p.value <= 0.05 & abs(corr) >= 0.7)
+#   
+#   if (nrow(p1) > 0) {
+#     graphics::text(p1$x, p1$y, sprintf("%.2f", p1$corr),
+#                    adj = c(0.5, 0), cex = coef_text_cex)
+#   }
+#   if (nrow(p1_sub) > 0) {
+#     graphics::text(p1_sub$x, p1_sub$y, stars.pval(p1_sub$p.value),
+#                    adj = c(0.5, 2), cex = star_text_cex)
+#   }
+#   if (nrow(p1_sub2) > 0) {
+#     graphics::text(p1_sub2$x, p1_sub2$y, sprintf("%.2f", p1_sub2$corr),
+#                    col = "white", adj = c(0.5, 0), cex = coef_text_cex)
+#     graphics::text(p1_sub2$x, p1_sub2$y, stars.pval(p1_sub2$p.value),
+#                    col = "white", adj = c(0.5, 2), cex = star_text_cex)
+#   }
+#   if (!is.null(adj_var)) {
+#     lm_extracted <- subset(lm_extracted, adj_x_pval <= 0.05)
+#     if (nrow(lm_extracted) > 0) {
+#       graphics::rect(xleft = lm_extracted$x - 0.45,
+#                      ybottom = lm_extracted$y - 0.45,
+#                      xright = lm_extracted$x + 0.45,
+#                      ytop = lm_extracted$y + 0.45)
+#     }
+#   }
+#   
+#  # ──────────────────────────────────────────────
+#   #   NEW: draw grouping brackets
+#   # ──────────────────────────────────────────────
+#   
+#   par(xpd = TRUE)
+#   
+#   # Helper: translate original variable names -> dict labels
+#   to_label <- function(v) {
+#     lbl <- dict[match(v, names(dict))]
+#     ifelse(is.na(lbl), v, lbl)
+#   }
+#   
+#   # X-groups: X variables are plotted on the ROW axis (left side of plot)
+#   # Rows of M map to X variables; corrplot y-coord: row 1 (top) = y nrow(M), last row = y 1
+#   if (!is.null(x_groups)) {
+#     row_labels <- rownames(M)
+#     n_rows <- nrow(M)
+#     x_base <- 0.5 - group_offset
+#     
+#     for (grp_name in names(x_groups)) {
+#       grp_labels <- to_label(x_groups[[grp_name]])
+#       idx <- which(row_labels %in% grp_labels)
+#       if (length(idx) == 0) next
+#       
+#       y_positions <- n_rows - idx + 1
+#       y_lo <- min(y_positions) - 0.3
+#       y_hi <- max(y_positions) + 0.3
+#       y_mid <- (y_lo + y_hi) / 2
+#       
+#       # vertical span line
+#       graphics::segments(x_base, y_lo, x_base, y_hi,
+#                          col = group_line_col, xpd = TRUE)
+#       # centered rotated label
+#       graphics::text(x_base - 0.35, y_mid, grp_name,
+#                      col = "#495057",
+#                      cex = group_label_cex, srt = 90, xpd = TRUE)
+#     }
+#   }
+#   
+#   # Y-groups: Y variables are plotted on the COLUMN axis (bottom/top of plot)
+#   # Columns of M map to Y variables; position 1..length(Y) left-to-right
+#   if (!is.null(y_groups)) {
+#     col_labels <- colnames(M)
+#     y_base <- 0.5 - group_offset
+#     
+#     for (grp_name in names(y_groups)) {
+#       grp_labels <- to_label(y_groups[[grp_name]])
+#       idx <- which(col_labels %in% grp_labels)
+#       if (length(idx) == 0) next
+#       
+#       x_lo <- min(idx) - 0.3
+#       x_hi <- max(idx) + 0.3
+#       x_mid <- (x_lo + x_hi) / 2
+#       
+#       # horizontal span line
+#       graphics::segments(x_lo, y_base, x_hi, y_base,
+#                          col = group_line_col, xpd = TRUE)
+#       # centered label
+#       graphics::text(x_mid, y_base - 0.35, grp_name,
+#                      cex = group_label_cex, xpd = TRUE)
+#     }
+#   }
+# }  
 ```
+
+```{r}
+corr_plot_modified_gg <- function(
+    data, X, Y, cor_method = "pearson", adj_var = NULL, dict = dict,
+    coef_text_size = 5,
+    star_text_size = 6,
+    axis_text_size = 11,
+    legend_text_size = 8,
+    col_low = "#0096c7", col_mid = "white", col_high = "#d62828",
+    x_groups = NULL,
+    y_groups = NULL,
+    group_line_col = "#495057",
+    group_label_size = 3.5,
+    bracket_line_pos = -1.8,    # x-coordinate for the bracket line
+    bracket_label_pos = -2.5    # x-coordinate for the bracket label
+) {
+  
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  
+  # ── 1. Correlation matrix ──────────────────────────────────
+  M <- cor(y = subset(data, select = Y),
+           x = subset(data, select = X),
+           use = "pairwise.complete.obs",
+           method = cor_method)
+  
+  # ── 2. P-value matrix ─────────────────────────────────────
+  p_mat <- matrix(NA, nrow = length(X), ncol = length(Y),
+                  dimnames = list(X, Y))
+  for (xi in X) {
+    for (yi in Y) {
+      complete <- complete.cases(data[[xi]], data[[yi]])
+      if (sum(complete) > 3) {
+        test <- cor.test(data[[xi]][complete], data[[yi]][complete], method = cor_method)
+        p_mat[xi, yi] <- test$p.value
+      }
+    }
+  }
+  
+  # ── 3. Adjusted variable analysis ─────────────────────────
+  adj_df <- NULL
+  if (!is.null(adj_var)) {
+    adj_list <- list()
+    for (xi in X) {
+      for (yi in Y) {
+        if (xi != yi) {
+          lm_formula <- as.formula(paste0(yi, "~", xi, "+", adj_var))
+          lm_model <- lm(lm_formula, data = data)
+          lm_summary <- summary(lm_model)
+          adj_list[[length(adj_list) + 1]] <- data.frame(
+            xvar = xi, yvar = yi,
+            adj_coef = lm_summary$coefficients[xi, "Estimate"],
+            adj_pval = lm_summary$coefficients[xi, "Pr(>|t|)"],
+            stringsAsFactors = FALSE
+          )
+        }
+      }
+    }
+    adj_df <- bind_rows(adj_list) %>% filter(adj_pval <= 0.05)
+  }
+  
+  # ── 4. Build long-form data frame ─────────────────────────
+  to_label <- function(v) {
+    lbl <- dict[match(v, names(dict))]
+    ifelse(is.na(lbl), v, as.character(lbl))
+  }
+  
+  cor_df <- reshape2::melt(M, varnames = c("xvar", "yvar"), value.name = "corr")
+  p_df   <- reshape2::melt(p_mat, varnames = c("xvar", "yvar"), value.name = "pval")
+  plot_df <- left_join(cor_df, p_df, by = c("xvar", "yvar"))
+  
+  plot_df$x_label <- factor(to_label(plot_df$xvar), levels = rev(to_label(X)))
+  plot_df$y_label <- factor(to_label(plot_df$yvar), levels = to_label(Y))
+  
+  plot_df$stars <- ifelse(is.na(plot_df$pval), "",
+                          ifelse(plot_df$pval <= 0.001, "***",
+                                 ifelse(plot_df$pval <= 0.01, "**",
+                                        ifelse(plot_df$pval <= 0.05, "*", ""))))
+  
+  plot_df$text_col <- ifelse(plot_df$pval <= 0.05 & abs(plot_df$corr) >= 0.7, "white", "black")
+  plot_df$star_col <- ifelse(plot_df$pval <= 0.05 & abs(plot_df$corr) >= 0.7, "white", "black")
+  
+  # ── 5. Adjusted variable boxes ────────────────────────────
+  if (!is.null(adj_df) && nrow(adj_df) > 0) {
+    adj_df$x_label <- factor(to_label(adj_df$xvar), levels = rev(to_label(X)))
+    adj_df$y_label <- factor(to_label(adj_df$yvar), levels = to_label(Y))
+  }
+  
+  # ── 6. Build the plot ─────────────────────────────────────
+  sig_df <- filter(plot_df, stars != "")
+  
+  p <- ggplot(plot_df, aes(x = y_label, y = x_label)) +
+    geom_tile(aes(fill = corr), color = "white", linewidth = 1) +
+    scale_fill_gradient2(low = col_low, mid = col_mid, high = col_high,
+                         midpoint = 0, limits = c(-1, 1), name = NULL) +
+    geom_text(aes(label = sprintf("%.2f", corr), color = text_col),
+              size = coef_text_size, vjust = -0.3, show.legend = FALSE) +
+    scale_color_identity() +
+    geom_text(data = sig_df,
+              aes(label = stars),
+              color = sig_df$star_col,
+              size = star_text_size, vjust = 1.8) +
+    {if (!is.null(adj_df) && nrow(adj_df) > 0)
+      geom_tile(data = adj_df, aes(x = y_label, y = x_label),
+                fill = NA, color = "black", linewidth = 0.8)
+    } +
+    scale_x_discrete(position = "top") +
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text.x.top = element_text(angle = 45, hjust = 0, vjust = 0,
+                                     size = axis_text_size, color = "black"),
+      axis.text.y = element_text(size = axis_text_size, color = "black"),
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      legend.text = element_text(size = legend_text_size),
+      plot.margin = margin(
+        t = 10,
+        r = if (!is.null(x_groups)) 60 else 10,
+        b = if (!is.null(y_groups)) 60 else 10,
+        l = 10
+      )
+    ) +
+    coord_fixed(clip = "off")
+  
+# ── 7. Grouping brackets ──────────────────────────────────
+  y_levels <- rev(to_label(X))
+  x_levels <- to_label(Y)
+  
+  n_x <- length(x_levels)  # number of columns
+  n_y <- length(y_levels)  # number of rows
+  
+  # X-groups: bracket on the RIGHT side
+  if (!is.null(x_groups)) {
+    for (grp_name in names(x_groups)) {
+      grp_labels <- to_label(x_groups[[grp_name]])
+      idx <- which(y_levels %in% grp_labels)
+      if (length(idx) == 0) next
+      
+      y_lo <- min(idx) - 0.4
+      y_hi <- max(idx) + 0.4
+      y_mid <- (y_lo + y_hi) / 2
+      line_x <- n_x + bracket_line_pos
+      label_x <- n_x + bracket_label_pos
+      
+      p <- p + annotate("segment",
+                        x = line_x, xend = line_x,
+                        y = y_lo, yend = y_hi,
+                        color = group_line_col, linewidth = 0.6)
+      p <- p + annotate("text",
+                        x = label_x, y = y_mid,
+                        label = grp_name,
+                        color = group_line_col,
+                        size = group_label_size, angle = 270)
+    }
+  }
+  
+  # Y-groups: bracket on the BOTTOM
+  if (!is.null(y_groups)) {
+    for (grp_name in names(y_groups)) {
+      grp_labels <- to_label(y_groups[[grp_name]])
+      idx <- which(x_levels %in% grp_labels)
+      if (length(idx) == 0) next
+      
+      x_lo <- min(idx) - 0.4
+      x_hi <- max(idx) + 0.4
+      x_mid <- (x_lo + x_hi) / 2
+      line_y <- 1 - bracket_line_pos
+      label_y <- 1 - bracket_label_pos
+      
+      p <- p + annotate("segment",
+                        x = x_lo, xend = x_hi,
+                        y = line_y, yend = line_y,
+                        color = group_line_col, linewidth = 0.6)
+      p <- p + annotate("text",
+                        x = x_mid, y = label_y,
+                        label = grp_name,
+                        color = group_line_col,
+                        size = group_label_size)
+    }
+  }
+  
+  return(p)
+}
+```
+
+```{r echo = F}
+xvars <- c("age", "tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test", "log_estrad", "bl_dheas", "igf_1", "mm_si", "mm_bcell")
+
+dict_heat <- dict %>%
+  mutate(
+    # Demographics
+    age = "Age",
+    tanner_stage_comp_panther = "Tanner stage",
+    
+    # Sex hormones
+    log_lh = "ln(LH)",
+    fsh = "FSH",
+    log_tot_test = "ln(Total\ntestosterone)",
+    log_free_test = "ln(Free\ntestosterone)",
+    log_estrad = "ln(Estradiol)",
+    
+    # Metabolic parameters
+    bl_dheas = "DHEA-S",
+    igf_1 = "IGF-1",
+    mm_si = "Insulin\nsensitivity",
+    mm_bcell = "Beta-cell\nfunction",
+    
+    # Y variables (renal outcomes)
+    gfr_raw_plasma = "mGFR",
+    erpf_raw_plasma = "ERPF",
+    erpf_bsa_plasma = "ERPF (BSA)",
+    eGFR_fas_cr = "eGFR (EKFC)",
+    log_acr_u = "ln(UACR)",
+    glomerular_pressure = "Glomerular\npressure",
+    ra = "Afferent\nresistance",
+    re = "Efferent\nresistance",
+    rvr = "Renal vascular\nresistance",
+    
+    total_kidney_volume_ml = "TKV",
+    ht_adj_tkv = "Ht-adjusted\nTKV",
+    avg_c_r2 = "Cortical R2*",
+    avg_k_r2 = "Kidney R2*",
+    avg_pcascl = "pCASL",
+    avg_c_adc = "Cortical ADC",
+    
+    dexa_lean_mass = "Lean mass\npercentage",
+    dexa_lean_kg = "Lean mass",
+    dexa_body_fat = "Body fat mass\npercentage",
+    dexa_fat_kg = "Body fat mass",
+    dexa_trunk_mass = "Trunk mass\npercentage",
+    dexa_trunk_kg = "Trunk mass",
+    bmi = "BMI"
+  )
+
+corr_plot_modified_gg(
+  panther,
+  X = xvars,
+  Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma", "eGFR_fas_cr",
+        "log_acr_u", "glomerular_pressure", "ra", "re", "rvr"),
+  dict = dict_heat,
+  x_groups = list(
+    "Demographics" = c("age", "tanner_stage_comp_panther"),
+    "Sex hormones" = c("log_lh", "fsh", "log_tot_test", "log_free_test", "log_estrad"),
+    "Metabolic parameters" = c("bl_dheas", "igf_1", "mm_si", "mm_bcell")
+  ),
+  bracket_line_pos = 0.7,
+  bracket_label_pos = 1,
+  group_label_size = 3.5
+)
+
+ggsave(file.path(root_path, "PANTHER/Results/Figures/panther_cor1_brackets_gg.png"),
+       width = 10, height = 10, dpi = 170)
+
+
+corr_plot_modified_gg(
+  panther,
+  X = xvars,
+  Y = c("total_kidney_volume_ml", "ht_adj_tkv","avg_c_r2",
+        "avg_k_r2","avg_c_t1", "avg_pcascl", "avg_c_adc"),
+  dict = dict_heat,
+  x_groups = list(
+    "Demographics" = c("age", "tanner_stage_comp_panther"),
+    "Sex hormones" = c("log_lh", "fsh", "log_tot_test", "log_free_test", "log_estrad"),
+    "Metabolic parameters" = c("bl_dheas", "igf_1", "mm_si", "mm_bcell")
+  ),
+  bracket_line_pos = 0.7,
+  bracket_label_pos = 1,
+  group_label_size = 3.5
+)
+
+ggsave(file.path(root_path, "PANTHER/Results/Figures/panther_cor2_brackets_gg.png"),
+       width = 10, height = 10, dpi = 170)
+
+xvars2 <- c("dexa_lean_kg","dexa_lean_mass",  "dexa_fat_kg", "dexa_body_fat", "dexa_trunk_kg", "dexa_trunk_mass", 
+            "bmi")
+
+
+corr_plot_modified_gg(
+  panther,
+  X = xvars2,
+  Y = c("total_kidney_volume_ml", "ht_adj_tkv", "rvr", "rbf", "glomerular_pressure", "ra", "re"),
+  dict = dict_heat,
+  x_groups = list(
+    "Lean" = c("dexa_lean_mass", "dexa_lean_kg"),
+    "Fat" = c("dexa_body_fat", "dexa_fat_kg"),
+    "Trunk" = c("dexa_trunk_mass", "dexa_trunk_kg")
+  ),
+  y_groups = list(
+    "Kidney\nstructure" = c("total_kidney_volume_ml", "ht_adj_tkv"),
+    "Renal\nhemodynamics" = c("rvr", "rbf"),
+    "Glomerular\nhemodynamics" = c("glomerular_pressure", "ra", "re")
+  ),
+  bracket_line_pos = 0.7,
+  bracket_label_pos = 1,
+  group_label_size = 3.5
+)
+
+ggsave(file.path(root_path, "PANTHER/Results/Figures/panther_cor5_brackets_gg.png"),
+       width = 10, height = 10, dpi = 170)
+```
+
 #### Sex hormones adjusting for age
+
 ```{r echo = F}
 summary(lm(log_lh ~ tanner_stage_comp_panther + age, panther))
 summary(lm(fsh ~ tanner_stage_comp_panther + age, panther))
@@ -661,11 +1238,11 @@ corr_plot_modified(panther,
 # correlations, regression adjusting for age
 # png(height = 500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor6.png"), res = 170)
 corr_plot_ver2(panther,
-                   X = c("tanner_stage_comp_panther"),
-                   Y = c("log_lh", "fsh", "log_tot_test", "log_free_test",
-                         "log_estrad"),
-                   dict = dict,
-                   adj_var = "age")
+               X = c("tanner_stage_comp_panther"),
+               Y = c("log_lh", "fsh", "log_tot_test", "log_free_test",
+                     "log_estrad"),
+               dict = dict,
+               adj_var = "age")
 # dev.off()
 ```
 
@@ -673,27 +1250,28 @@ corr_plot_ver2(panther,
 # correlations, regression adjusting for sex and age
 # png(height = 800, width = 1000, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor7.png"), res = 170)
 corr_plot_ver2(panther,
-                   X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
-                         "log_estrad"),
-                   Y = c("total_kidney_volume_ml", "ht_adj_tkv", "avg_c_r2", "avg_k_r2", "avg_c_t1", "avg_pcascl", "avg_c_adc"),
-                   dict = dict,
-                   adj_var = "age+sex+bmi")
+               X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
+                     "log_estrad"),
+               Y = c("total_kidney_volume_ml", "ht_adj_tkv", "avg_c_r2", "avg_k_r2", "avg_c_t1", "avg_pcascl", "avg_c_adc"),
+               dict = dict,
+               adj_var = "age+sex+bmi")
 # dev.off()
 
 # png(height = 800, width = 1400, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor8.png"), res = 170)
 corr_plot_ver2(panther,
-                   X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
-                         "log_estrad"),
-                   Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma","eGFR_fas_cr",
-                         "log_acr_u", "glomerular_pressure", "ra", "re", "rvr"),
-                   dict = dict,
-                   adj_var = "age+sex+bmi")
+               X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
+                     "log_estrad"),
+               Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma","eGFR_fas_cr",
+                     "log_acr_u", "glomerular_pressure", "ra", "re", "rvr"),
+               dict = dict,
+               adj_var = "age+sex+bmi")
 # dev.off()
 ```
 
 
 ## Volcano plots for proteomics
 ### Risk
+
 ```{r echo = F}
 panther <- panther %>% arrange(record_id)
 # Look at differential expressed proteins (DEPs) between low and high risk in PANTHER
@@ -742,8 +1320,8 @@ EnhancedVolcano(res_risk_save,
                 boxedLabels = TRUE,
                 max.overlaps=30,
                 caption = "")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_risk_dep.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_risk_dep.jpeg"),
+#       width = 12, height = 10)
 
 ```
 
@@ -795,11 +1373,12 @@ EnhancedVolcano(res_ts_save,
                 boxedLabels = TRUE,
                 max.overlaps=30,
                 caption = "")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_dep.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_dep.jpeg"),
+#       width = 12, height = 10)
 ```
 
 ### Across Tanner stage 1-2 vs. 3-5 (High risk only)
+
 ```{r echo = F}
 panther_high <- subset(panther, group_risk == "High")
 soma <- panther_high %>%
@@ -847,10 +1426,11 @@ EnhancedVolcano(res_ts_high_save,
                 boxedLabels = TRUE,
                 max.overlaps=30,
                 caption = "")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_high_highrisk_dep.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_high_highrisk_dep.jpeg"),
+#       width = 12, height = 10)
 ```
 ### Across Tanner stage 1-2 vs. 3-5 (Low risk only)
+
 ```{r echo = F}
 panther_low <- subset(panther, group_risk == "Low")
 soma <- panther_low %>%
@@ -898,11 +1478,12 @@ EnhancedVolcano(res_ts_low_save,
                 boxedLabels = TRUE,
                 max.overlaps=30,
                 caption = "")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_low_lowrisk_dep.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_low_lowrisk_dep.jpeg"),
+#       width = 12, height = 10)
 ```
 
 ### Sex
+
 ```{r echo = F}
 soma <- panther %>%
   remove_rownames() %>% column_to_rownames(var = "record_id") %>%
@@ -948,8 +1529,8 @@ EnhancedVolcano(res_sex_save,
                 boxedLabels = TRUE,
                 max.overlaps=30,
                 caption = "")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_sex_dep.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_sex_dep.jpeg"),
+#       width = 12, height = 10)
 ```
 
 ### Correlation w/ key parameters shown to change with puberty above (in heatmaps)
@@ -958,7 +1539,7 @@ EnhancedVolcano(res_sex_save,
 plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
                              identify_manual = NULL,
                              fc.cutoff = 1,
-                             label_apt = F, pt.size = 2.5, text.size = 5,
+                             label_apt = F, pt.size = 8, text.size = 20,
                              cutoff = 0.05/nrow(data),
                              sig_fc_pos_lab = "Significant & Fold-Change (+)",
                              sig_fc_neg_lab = "Significant & Fold-Change (-)",
@@ -975,10 +1556,10 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
   .fc <- enquo(FC)
   .p <- enquo(p.value)
   .label <- enquo(labels)
-
+  
   if (all(pull(data, !!.fc) >= 0)) {
     warning("It appears you are not passing log2-transformed ",
-      "fold-change values. Please check.", call. = FALSE)
+            "fold-change values. Please check.", call. = FALSE)
   }
   if (is.null(main)) {
     main <- "Volcano Plot of Significant Fold Changes"
@@ -989,51 +1570,54 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
   y.lab <- bquote(-italic(log)[10] ~ (p - value))
   plot_df <- dplyr::mutate(data,
                            group_2 = case_when((-log10(!!.p) >= -log10(cutoff)) &
-                                               (abs(!!.fc) >= fc.cutoff & !!.fc > 0) ~
-                                               sig_fc_pos_lab,
-                                             (-log10(!!.p) >= -log10(cutoff)) &
-                                               (abs(!!.fc) >= fc.cutoff & !!.fc < 0) ~
-                                               sig_fc_neg_lab,
-                                             -log10(!!.p) >= -log10(cutoff) ~
-                                               sig_lab, abs(!!.fc) >= fc.cutoff ~
-                                               fc_lab,
-                                             TRUE ~ ns_lab),
-    type = grepl(paste0("^", sig_lab, "|Significant"), group_2))
-
+                                                 (abs(!!.fc) >= fc.cutoff & !!.fc > 0) ~
+                                                 sig_fc_pos_lab,
+                                               (-log10(!!.p) >= -log10(cutoff)) &
+                                                 (abs(!!.fc) >= fc.cutoff & !!.fc < 0) ~
+                                                 sig_fc_neg_lab,
+                                               -log10(!!.p) >= -log10(cutoff) ~
+                                                 sig_lab, abs(!!.fc) >= fc.cutoff ~
+                                                 fc_lab,
+                                               TRUE ~ ns_lab),
+                           type = grepl(paste0("^", sig_lab, "|Significant"), group_2))
+  
   create_col_vector <- function(label_values, colors) {
     cols <- setNames(colors, label_values)
     return(cols)
   }
-
+  
   label_values = c(ns_lab, fc_lab, sig_lab, sig_fc_pos_lab, sig_fc_neg_lab)
   label_colors = c(ns_lab_col, fc_lab_col, sig_lab_col, sig_fc_pos_lab_col, sig_fc_neg_lab_col)
   cols <- create_col_vector(label_values, label_colors)
-
+  
   p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group_2)) +
     geom_point(alpha = 0.5, size = pt.size) +
     scale_color_manual(values = cols, name = "") +
     labs(x = x.lab, y = y.lab, title = main) +
-    geom_vline(xintercept = c(-1, 1) * fc.cutoff, color = "grey",
-               linetype = "longdash", alpha = 0.75) +
     geom_vline(xintercept = 0,
-               color = "grey50", linetype = "solid") +
+               color = "grey50", linetype = "dashed", alpha = 0.75) +
+    geom_hline(yintercept = -log10(0.05),
+               color = "grey50", linetype = "dashed", alpha = 0.75) +
     theme_soma() +
-    theme(text = element_text(size = 15)) +
+    theme(text = element_text(size = text.size),
+          panel.grid = element_blank(),
+          plot.background = element_rect(color = "transparent")) +
     NULL
-
+  
   if (identify) { # Label ALL significant points
     p <- p + geom_text_repel(data = dplyr::filter(plot_df, type),
                              aes(label = !!.label),
                              hjust = "inward",
                              size = text.size,
-                             max.overlaps = 10,
-                             color = "black")
+                             max.overlaps = Inf,
+                             color = "black",
+                             face = "bold")
   }
   if (!is.null(identify_manual) & label_apt) { # Label manually specified points only (with apt)
     plot_df <- plot_df %>%
       dplyr::mutate(label_col = rownames(plot_df))
     p <- p + geom_point(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                        size = 6, alpha = 0.3) +
+                        size = pt.size + 3, alpha = 0.3) +
       geom_text_repel(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
                       aes(label = label_col, color = group_2),
                       hjust = "inward",
@@ -1042,12 +1626,12 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
                       color = "grey20",
                       force_pull = -.002,
                       force = 8)
-
+    
   }
   if (!is.null(identify_manual) & !label_apt) { # Label manually specified points only (without apt)
     p <- p +
       geom_point(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                 size = 6, alpha = 0.3) +
+                 size = pt.size + 3, alpha = 0.3) +
       geom_text_repel(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
                       aes(label = !!.label, color = group_2),
                       hjust = "inward",
@@ -1131,24 +1715,24 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
-                FC = gfr_raw_plasma,
-                p.value = p.value,
-                labels = Target,
-                identify = F,
-                identify_manual = top_10_correlations,
-                fc.cutoff = 0,
-                cutoff = 0.05,
-                x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$gfr_raw_plasma)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/gfr_cor_plot.jpeg"),
- #       width = 12, height = 10)
+mgfr_plot <- plotVolcano_mod(data = pearson_cor_mat,
+                             FC = gfr_raw_plasma,
+                             p.value = p.value,
+                             labels = Target,
+                             identify = F,
+                             identify_manual = top_10_correlations,
+                             fc.cutoff = 0,
+                             cutoff = 0.05,
+                             x.lab = "Correlation",
+                             main = "mGFR",
+                             pt.size = 1.5,
+                             text.size = 5,
+                             fc_lab = "p > 0.05",
+                             fc_lab_col = "#dad7cd",
+                             sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
+                             sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
+ggsave(file.path(root_path, "PANTHER/Results/Figures/gfr_cor_plot.jpeg"), mgfr_plot,
+      width = 12, height = 10, bg = "transparent")
 ```
 
 #### ERPF (raw plasma)
@@ -1161,7 +1745,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("erpf_raw_plasma", analytes$AptName) %>%
   dplyr::select(erpf_raw_plasma, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(erpf_raw_plasma < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   arrange(desc(abs(erpf_raw_plasma)))
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
@@ -1191,8 +1775,8 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- # ggsave(file.path(root_path, "PANTHER/Results/Figures/erpf_cor_plot.jpeg"),
- #       width = 12, height = 10)
+# ggsave(file.path(root_path, "PANTHER/Results/Figures/erpf_cor_plot.jpeg"),
+#       width = 12, height = 10)
 ```
 
 #### eGFR (CKD EPI)
@@ -1205,7 +1789,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("eGFR_CKD_epi", analytes$AptName) %>%
   dplyr::select(eGFR_CKD_epi, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(eGFR_CKD_epi < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(eGFR_CKD_epi)))
 
@@ -1236,7 +1820,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/egfr_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/egfr_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1250,7 +1834,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("glomerular_pressure", analytes$AptName) %>%
   dplyr::select(glomerular_pressure, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(glomerular_pressure < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(glomerular_pressure)))
 
@@ -1281,7 +1865,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/pglo_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/pglo_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1295,7 +1879,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("ra", analytes$AptName) %>%
   dplyr::select(ra, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(ra < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(ra)))
 
@@ -1326,7 +1910,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/ra_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/ra_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1340,7 +1924,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("rvr", analytes$AptName) %>%
   dplyr::select(rvr, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(rvr < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(rvr)))
 
@@ -1371,7 +1955,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/rvr_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/rvr_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1385,7 +1969,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("total_kidney_volume_ml", analytes$AptName) %>%
   dplyr::select(total_kidney_volume_ml, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(total_kidney_volume_ml < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(total_kidney_volume_ml)))
 
@@ -1416,7 +2000,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/tkv_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/tkv_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1430,7 +2014,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("ht_adj_tkv", analytes$AptName) %>%
   dplyr::select(ht_adj_tkv, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(ht_adj_tkv < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(ht_adj_tkv)))
 
@@ -1461,7 +2045,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/httkv_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/httkv_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1475,8 +2059,8 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("avg_pcascl", analytes$AptName) %>%
   dplyr::select(avg_pcascl, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(avg_pcascl < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
- # filter(p.value < 0.05) %>%
+                Target_nodup = row.names(.))  %>%
+  # filter(p.value < 0.05) %>%
   arrange(desc(abs(avg_pcascl)))
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
@@ -1506,7 +2090,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/asl_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/asl_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1520,7 +2104,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("avg_c_adc", analytes$AptName) %>%
   dplyr::select(avg_c_adc, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(avg_c_adc < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(avg_c_adc)))
 
@@ -1551,7 +2135,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/adc_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/adc_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1565,7 +2149,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("mm_si", analytes$AptName) %>%
   dplyr::select(mm_si, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(mm_si < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(mm_si)))
 
@@ -1596,7 +2180,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/si_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/si_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1610,7 +2194,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("dexa_fat_kg", analytes$AptName) %>%
   dplyr::select(dexa_fat_kg, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(dexa_fat_kg < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_fat_kg)))
 
@@ -1641,7 +2225,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/fatkg_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/fatkg_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1655,7 +2239,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("dexa_trunk_mass", analytes$AptName) %>%
   dplyr::select(dexa_trunk_mass, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(dexa_trunk_mass < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_trunk_mass)))
 
@@ -1686,7 +2270,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/trunkmass_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/trunkmass_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1700,7 +2284,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("dexa_bone_mineral_density", analytes$AptName) %>%
   dplyr::select(dexa_bone_mineral_density, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(dexa_bone_mineral_density < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_bone_mineral_density)))
 
@@ -1731,7 +2315,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/bmd_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/bmd_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1745,7 +2329,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("weight", analytes$AptName) %>%
   dplyr::select(weight, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(weight < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(weight)))
 
@@ -1776,7 +2360,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/weight_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/weight_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
@@ -1790,7 +2374,7 @@ plotVolcano_mod(data = pearson_cor_mat,
 pearson_cor_mat <- run_corr("height", analytes$AptName) %>%
   dplyr::select(height, p.value, Target) %>%
   dplyr::mutate(direction = ifelse(height < 0, "Negative", "Positive"),
-         Target_nodup = row.names(.))  %>%
+                Target_nodup = row.names(.))  %>%
   # filter(p.value < 0.05) %>%
   arrange(desc(abs(height)))
 
@@ -1821,7 +2405,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave(file.path(root_path, "PANTHER/Results/Figures/height_cor_plot.jpeg"),
+ggsave(file.path(root_path, "PANTHER/Results/Figures/height_cor_plot.jpeg"),
        width = 12, height = 10)
 ```
 
