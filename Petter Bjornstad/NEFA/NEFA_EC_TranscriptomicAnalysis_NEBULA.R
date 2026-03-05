@@ -9,17 +9,20 @@ library(ggrepel)
 library(pheatmap)
 library(tidyr)
 library(purrr)
-
+library(fgsea)
+library(msigdbr)
+library(stringr)
+library(gtsummary)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 0. LOAD & PREPARE SEURAT OBJECT (T2D only, matching your established setup)
+# 0. LOAD & PREPARE SEURAT OBJECT
 # ══════════════════════════════════════════════════════════════════════════════
 
 load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
 so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
 
-# ── Merge baseline_ffa from harmonized dataset ──────────────────────────────
+# ── Load & collapse harmonized data ─────────────────────────────────────────
 harmonized_data <- read.csv(
   "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
   na = ''
@@ -34,23 +37,29 @@ dat <- harmonized_data %>%
     .by = c(record_id, visit)
   )
 
-# Check how many T2D participants have baseline_ffa
-cat("Participants with baseline_ffa (T2D):",
-    sum(!is.na(dat$baseline_ffa[dat$group == "Type_2_Diabetes"])), "\n")
+# ── Merge clinical variables into Seurat metadata via match() ───────────────
+vars_to_merge <- c("baseline_ffa", "ffa_suppression", "age", "bmi",
+                   "acr_u", "hba1c",
+                   "epic_insulin_1", "epic_sglti2_1", "epic_glp1ra_1",
+                   "epic_tzd_1", "epic_mfm_1", "epic_raasi_1",
+                   "epic_statin_1", "epic_fibrate_1")
 
-# Merge into Seurat metadata by record_id (one value per participant → all cells get same value)
-ffa_merge <- dat %>%
-  dplyr::select(record_id, baseline_ffa) %>%
-  distinct()
+merge_df <- dat %>%
+  dplyr::select(any_of(c("record_id", vars_to_merge))) %>%
+  distinct(record_id, .keep_all = TRUE)
 
-so_subset@meta.data <- so_subset@meta.data %>%
-  dplyr::select(-any_of("baseline_ffa")) %>%   # drop old all-NA column
-  left_join(ffa_merge, by = "record_id")
+for (v in vars_to_merge) {
+  if (v %in% colnames(merge_df)) {
+    so_subset@meta.data[[v]] <- merge_df[[v]][
+      match(so_subset@meta.data$record_id, merge_df$record_id)
+    ]
+  }
+}
 
-cat("Cells with baseline_ffa after merge:",
-    sum(!is.na(so_subset@meta.data$baseline_ffa)), "\n")
-# ────────────────────────────────────────────────────────────────────────────
+cat("baseline_ffa non-NA cells:", sum(!is.na(so_subset@meta.data$baseline_ffa)), "\n")
+cat("ffa_suppression non-NA cells:", sum(!is.na(so_subset@meta.data$ffa_suppression)), "\n")
 
+# ── Cell type annotations ────────────────────────────────────────────────────
 so_subset$celltype1 <- case_when(
   grepl("PT-",  so_subset$celltype_rpca) ~ "PT",
   grepl("TAL-", so_subset$celltype_rpca) ~ "TAL",
@@ -66,20 +75,27 @@ so_subset$celltype1 <- case_when(
   so_subset$celltype_rpca == "B"          ~ "B",
   so_subset$celltype_rpca == "T"          ~ "T"
 )
-so_subset$celltype1       <- as.character(so_subset$celltype1)
-so_subset$KPMP_celltype2  <- as.character(so_subset$KPMP_celltype)
-so_subset$celltype2       <- ifelse(
-  so_subset$KPMP_celltype == "aPT" |
-    so_subset$KPMP_celltype == "PT-S1/S2" |
-    so_subset$KPMP_celltype == "PT-S3", "PT",
+so_subset$celltype1      <- as.character(so_subset$celltype1)
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2      <- ifelse(
+  so_subset$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"), "PT",
   ifelse(grepl("TAL", so_subset$KPMP_celltype), "TAL",
          ifelse(grepl("EC-", so_subset$KPMP_celltype), "EC",
                 so_subset$KPMP_celltype2)))
 so_subset$DCT_celltype <- ifelse(
-  so_subset$KPMP_celltype == "DCT" | so_subset$KPMP_celltype == "dDCT",
-  "DCT", "Non-DCT")
+  so_subset$KPMP_celltype %in% c("DCT", "dDCT"), "DCT", "Non-DCT")
 
-# Remove excluded participant and restrict to T2D
+# ── Derive microalbuminuria from acr_u ───────────────────────────────────────
+# Standard thresholds: ≥30 mg/g = microalbuminuria, ≥300 mg/g = macroalbuminuria
+so_subset@meta.data <- so_subset@meta.data %>%
+  mutate(microalbuminuria = case_when(
+    is.na(acr_u)    ~ NA_character_,
+    acr_u >= 300    ~ "Macroalbuminuria",
+    acr_u >= 30     ~ "Microalbuminuria",
+    TRUE            ~ "Normoalbuminuria"
+  ))
+
+# ── Subset to T2D, exclude CRC-55 ───────────────────────────────────────────
 so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
 so_subset <- subset(so_subset, subset = group == 'Type_2_Diabetes')
 
@@ -87,17 +103,77 @@ dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/NEFA_NEBULA/'
 dir.create(dir.results, showWarnings = FALSE, recursive = TRUE)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. USER SETTINGS
+# 1. DEMOGRAPHICS TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 
-nefa_col   <- "baseline_ffa"          # baseline (fasting) free fatty acids
-covariates <- c("sex", "age", "bmi")  # set to NULL to run unadjusted
+demo_df <- so_subset@meta.data %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  filter(!is.na(baseline_ffa)) %>%
+  mutate(
+    across(c(epic_insulin_1, epic_sglti2_1, epic_glp1ra_1, epic_tzd_1,
+             epic_mfm_1, epic_raasi_1, epic_statin_1, epic_fibrate_1,
+             microalbuminuria), as.factor)
+  )
 
-# Primary focus: EC. Add others if desired e.g. c("EC","PT","TAL","POD")
-cell_types_of_interest <- c("EC")
+demo_table <- demo_df %>%
+  dplyr::select(age, sex, bmi, hba1c,
+                baseline_ffa, ffa_suppression,
+                acr_u, microalbuminuria,
+                epic_insulin_1, epic_sglti2_1, epic_glp1ra_1,
+                epic_tzd_1, epic_mfm_1, epic_raasi_1,
+                epic_statin_1, epic_fibrate_1) %>%
+  tbl_summary(
+    type = list(
+      age              ~ "continuous",
+      bmi              ~ "continuous",
+      hba1c            ~ "continuous",
+      baseline_ffa     ~ "continuous",
+      ffa_suppression  ~ "continuous",
+      acr_u            ~ "continuous",
+      microalbuminuria ~ "categorical",
+      everything()     ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous()  ~ "{mean} ({sd})",
+      acr_u             ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous()  ~ 1,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age              ~ "Age, years",
+      sex              ~ "Sex",
+      bmi              ~ "BMI, kg/m²",
+      hba1c            ~ "HbA1c, %",
+      baseline_ffa     ~ "Baseline FFA, µmol/L",
+      ffa_suppression  ~ "FFA suppression, %",
+      acr_u            ~ "Urine albumin, mg/L (median, IQR)",
+      microalbuminuria ~ "Albuminuria category",
+      epic_insulin_1   ~ "Insulin",
+      epic_sglti2_1    ~ "SGLT2i",
+      epic_glp1ra_1    ~ "GLP-1RA",
+      epic_tzd_1       ~ "PPARγ agonist (TZD)",
+      epic_mfm_1       ~ "Metformin",
+      epic_raasi_1     ~ "ACEi/ARB",
+      epic_statin_1    ~ "Statin",
+      epic_fibrate_1   ~ "Fenofibrate"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) unless otherwise noted")
+
+print(demo_table)
+
+# Save as CSV
+demo_table %>%
+  as_tibble() %>%
+  write.csv(file.path(dir.results, "demographics_table.csv"), row.names = FALSE)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. COMPUTE OFFSET ON FULL T2D OBJECT (before any cell-type subsetting)
+# 2. COMPUTE OFFSET (before any cell-type subsetting)
 # ══════════════════════════════════════════════════════════════════════════════
 
 sce_full <- SingleCellExperiment(
@@ -105,80 +181,72 @@ sce_full <- SingleCellExperiment(
 )
 sce_full <- computeSumFactors(sce_full)
 so_subset@meta.data$pooled_offset <- sizeFactors(sce_full)
-cat("Offset computed on T2D object:", ncol(so_subset), "cells\n")
+cat("Offset computed:", ncol(so_subset), "cells\n")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. HELPER: cell-type column logic (matches your established pattern)
-#    - EC, PT, TAL, POD etc. → celltype2
-#    - DCT subtypes          → DCT_celltype
-#    - Fine-grained KPMP     → KPMP_celltype2
+# 3. HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 get_celltype_column <- function(ct) {
-  dct_types  <- c("DCT", "dDCT")
-  kpmp_types <- c("IC-A", "IC-B", "DCT1", "DCT2", "CNT")
-  if (ct %in% dct_types)  return("DCT_celltype")
-  if (ct %in% kpmp_types) return("KPMP_celltype2")
+  if (ct %in% c("DCT", "dDCT"))              return("DCT_celltype")
+  if (ct %in% c("IC-A", "IC-B", "CNT"))      return("KPMP_celltype2")
   return("celltype2")
 }
 
+cell_types_of_interest <- c("EC")
+covariates <- NULL   # unadjusted; add c("sex","age","bmi") when available
+
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. NEBULA FUNCTION — baseline FFA as continuous predictor
+# 4. NEBULA FUNCTION (generic — works for any continuous FFA variable)
 # ══════════════════════════════════════════════════════════════════════════════
 
-run_nebula_nefa <- function(seurat_obj, cell_type, nefa_col, covariates = NULL) {
+run_nebula_ffa <- function(seurat_obj, cell_type, ffa_col, covariates = NULL,
+                           label = NULL) {
+  if (is.null(label)) label <- ffa_col
   
   cat("\n──────────────────────────────────────────\n")
-  cat("Cell type:", cell_type, "\n")
+  cat("Variable:", label, "| Cell type:", cell_type, "\n")
   
-  # Subset to cell type
   ct_col <- get_celltype_column(cell_type)
   so_ct  <- subset(seurat_obj,
                    cells = which(seurat_obj@meta.data[[ct_col]] == cell_type))
   cat("Cells:", ncol(so_ct), "\n")
   
-  if (ncol(so_ct) < 20) {
-    cat("  Too few cells — skipping.\n")
-    return(NULL)
-  }
+  if (ncol(so_ct) < 20) { cat("  Too few cells — skipping.\n"); return(NULL) }
   
   count_mat <- round(GetAssayData(so_ct, layer = "counts"))
   meta      <- so_ct@meta.data
   
-  # Check baseline_ffa is present
-  if (!nefa_col %in% colnames(meta)) {
-    cat("  Column", nefa_col, "not found in metadata — skipping.\n")
-    return(NULL)
+  if (!ffa_col %in% colnames(meta)) {
+    cat("  Column", ffa_col, "not found — skipping.\n"); return(NULL)
   }
   
-  # Drop rows with NA in FFA or covariates
-  pred_vars <- c(nefa_col, covariates)
+  pred_vars <- c(ffa_col, covariates)
   keep      <- complete.cases(meta[, pred_vars, drop = FALSE])
   cat("  Complete cases:", sum(keep), "/", nrow(meta), "\n")
   
-  if (sum(keep) < 20) {
-    cat("  Too few complete cases — skipping.\n")
-    return(NULL)
-  }
+  if (sum(keep) < 20) { cat("  Too few complete cases — skipping.\n"); return(NULL) }
   
   count_mat <- count_mat[, keep, drop = FALSE]
   meta      <- meta[keep, ]
   
-  # Scale FFA (mean 0, SD 1) for model stability
-  # logFC interpreted as transcriptional change per 1 SD increase in baseline FFA
-  meta$ffa_scaled <- scale(meta[[nefa_col]])[, 1]
+  meta$ffa_scaled <- scale(meta[[ffa_col]])[, 1]
   
   formula_str <- if (!is.null(covariates)) {
     paste("~ffa_scaled +", paste(covariates, collapse = " + "))
-  } else {
-    "~ffa_scaled"
-  }
+  } else "~ffa_scaled"
+  
   pred_mat <- model.matrix(as.formula(formula_str), data = meta)
   cat("  Formula:", formula_str, "\n")
-  cat("  Subjects (record_id):", length(unique(meta$record_id)), "\n")
+  cat("  Subjects:", length(unique(meta$record_id)), "\n")
+  
+  # Filter lowly expressed genes (expressed in ≥10 cells)
+  expr_cells <- rowSums(count_mat > 0)
+  count_mat  <- count_mat[expr_cells >= 10, , drop = FALSE]
+  gene_names <- rownames(count_mat)
+  cat("  Genes after filter:", length(gene_names), "\n")
   
   library_sizes <- meta$pooled_offset
-  gene_names    <- rownames(count_mat)
   results_list  <- vector("list", length(gene_names))
   
   for (i in seq_along(gene_names)) {
@@ -189,147 +257,143 @@ run_nebula_nefa <- function(seurat_obj, cell_type, nefa_col, covariates = NULL) 
                          id     = meta$record_id,
                          pred   = pred_mat,
                          offset = library_sizes)
-    
     if (is.null(data_g)) {
-      data_g <- list(count   = count_gene,
-                     id      = meta$record_id,
-                     pred    = pred_mat,
-                     library = library_sizes)
+      data_g <- list(count   = count_gene, id = meta$record_id,
+                     pred    = pred_mat,   library = library_sizes)
     }
     
     offset_use <- if ("library" %in% names(data_g)) data_g$library else data_g$offset
     
-    tryCatch({
-      res    <- nebula(count      = data_g$count,
-                       id         = data_g$id,
-                       pred       = data_g$pred,
-                       offset     = offset_use,
-                       ncore      = 1,
-                       reml       = TRUE,
-                       model      = "NBLMM",
-                       output_re  = FALSE,
-                       covariance = TRUE)
+    suppressMessages(suppressWarnings(tryCatch({
+      res               <- nebula(count = data_g$count, id = data_g$id,
+                                  pred  = data_g$pred, offset = offset_use,
+                                  ncore = 1, reml = TRUE, model = "NBLMM",
+                                  output_re = FALSE, covariance = TRUE)
       df_res            <- as.data.frame(res$summary)
       df_res$gene       <- g
       df_res$cell_type  <- cell_type
+      df_res$ffa_var    <- label
       results_list[[i]] <- df_res
-    }, error = function(e) { })
+    }, error = function(e) { })))
+    
+    if (i %% 500 == 0) cat("  Processed", i, "/", length(gene_names), "genes\n")
   }
   
   do.call(rbind, results_list)
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. RUN
+# 5. RUN NEBULA — BASELINE FFA
 # ══════════════════════════════════════════════════════════════════════════════
 
-all_results <- lapply(cell_types_of_interest, function(ct) {
-  run_nebula_nefa(seurat_obj = so_subset,
-                  cell_type  = ct,
-                  nefa_col   = nefa_col,
-                  covariates = covariates)
+results_baseline <- lapply(cell_types_of_interest, function(ct) {
+  run_nebula_ffa(so_subset, ct, ffa_col = "baseline_ffa",
+                 covariates = covariates, label = "baseline_ffa")
 })
+results_baseline_df <- do.call(rbind, results_baseline)
 
-all_results_df <- do.call(rbind, all_results)
-
-write.csv(all_results_df,
-          file = file.path(dir.results, "NEFA_NEBULA_all_results.csv"),
-          row.names = FALSE)
-
-# After running, check column names and adjust below:
-# colnames(all_results_df)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. EXTRACT FFA COEFFICIENT & FDR CORRECTION
-#    *** Run colnames(all_results_df) first and adjust column names below ***
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Typical NEBULA output columns look like:
-#   logFC_ffa_scaled   p_ffa_scaled   (confirm with colnames)
-
-nefa_results <- all_results_df %>%
+nefa_results <- results_baseline_df %>%
   group_by(cell_type) %>%
-  mutate(FDR = p.adjust(p_ffa_scaled, method = "BH")) %>%  # adjust if col name differs
+  mutate(FDR = p.adjust(p_ffa_scaled, method = "BH")) %>%
   ungroup() %>%
   arrange(cell_type, FDR)
 
 write.csv(nefa_results,
-          file = file.path(dir.results, "NEFA_NEBULA_ffa_coeff_FDR.csv"),
+          file.path(dir.results, "NEFA_NEBULA_baseline_ffa_FDR.csv"),
           row.names = FALSE)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. VOLCANO PLOT
+# 6. RUN NEBULA — FFA SUPPRESSION
 # ══════════════════════════════════════════════════════════════════════════════
 
-plot_volcano_nefa <- function(df, ct, fdr_thresh = 0.05, logfc_thresh = 0.1) {
+results_suppression <- lapply(cell_types_of_interest, function(ct) {
+  run_nebula_ffa(so_subset, ct, ffa_col = "ffa_suppression",
+                 covariates = covariates, label = "ffa_suppression")
+})
+results_suppression_df <- do.call(rbind, results_suppression)
+
+suppression_results <- results_suppression_df %>%
+  group_by(cell_type) %>%
+  mutate(FDR = p.adjust(p_ffa_scaled, method = "BH")) %>%
+  ungroup() %>%
+  arrange(cell_type, FDR)
+
+write.csv(suppression_results,
+          file.path(dir.results, "NEFA_NEBULA_ffa_suppression_FDR.csv"),
+          row.names = FALSE)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. VOLCANO PLOTS (for both analyses)
+# ══════════════════════════════════════════════════════════════════════════════
+
+plot_volcano_nefa <- function(df, ct, title_var = "FFA", fdr_thresh = 0.05,
+                              logfc_thresh = 0.1) {
   df_ct <- df %>%
     filter(cell_type == ct) %>%
     mutate(
       sig       = FDR < fdr_thresh & abs(logFC_ffa_scaled) > logfc_thresh,
       direction = case_when(
-        sig & logFC_ffa_scaled > 0 ~ "Up with FFA",
-        sig & logFC_ffa_scaled < 0 ~ "Down with FFA",
+        sig & logFC_ffa_scaled > 0 ~ paste("Up with", title_var),
+        sig & logFC_ffa_scaled < 0 ~ paste("Down with", title_var),
         TRUE                       ~ "NS"
       )
     )
   
-  top_genes <- df_ct %>% filter(sig) %>% slice_min(FDR, n = 20)
+  top_genes <- if (sum(df_ct$sig) >= 3) {
+    df_ct %>% filter(sig) %>% slice_min(FDR, n = 20)
+  } else {
+    df_ct %>% slice_min(p_ffa_scaled, n = 20)
+  }
   
-  ggplot(df_ct, aes(x = logFC_ffa_scaled, y = -log10(p_ffa_scaled), color = direction)) +
+  ggplot(df_ct, aes(x = logFC_ffa_scaled, y = -log10(p_ffa_scaled),
+                    color = direction)) +
     geom_point(alpha = 0.6, size = 1.5) +
     geom_text_repel(data = top_genes, aes(label = gene),
-                    size = 3, max.overlaps = 20) +
-    scale_color_manual(values = c("Up with FFA"   = "#e63946",
-                                  "Down with FFA" = "#457b9d",
-                                  "NS"            = "grey70")) +
+                    size = 3, max.overlaps = 30) +
+    scale_color_manual(values = setNames(
+      c("#e63946", "#457b9d", "grey70"),
+      c(paste("Up with", title_var), paste("Down with", title_var), "NS")
+    )) +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey40") +
     geom_vline(xintercept = c(-logfc_thresh, logfc_thresh),
                linetype = "dashed", color = "grey40") +
-    labs(title    = paste("Baseline FFA vs. Transcriptome —", ct, "(T2D)"),
+    labs(title    = paste(title_var, "vs. Transcriptome —", ct, "(T2D)"),
          subtitle = paste0("FDR < ", fdr_thresh, " | |logFC| > ", logfc_thresh,
-                           "\nAdjusted for sex, age, BMI"),
-         x        = "Log2 FC per 1 SD baseline FFA",
-         y        = "-log10(p-value)",
-         color    = NULL) +
+                           "\nUnadjusted"),
+         x        = paste("Log2 FC per 1 SD", title_var),
+         y        = "-log10(p-value)", color = NULL) +
     theme_classic(base_size = 13) +
     theme(legend.position = "top")
 }
 
 for (ct in cell_types_of_interest) {
-  p <- plot_volcano_nefa(nefa_results, ct)
-  ggsave(filename = file.path(dir.results, paste0("volcano_FFA_", ct, ".pdf")),
-         plot = p, width = 7, height = 6)
-  print(p)
+  p1 <- plot_volcano_nefa(nefa_results, ct, title_var = "Baseline FFA")
+  ggsave(file.path(dir.results, paste0("volcano_baseline_ffa_", ct, ".pdf")),
+         p1, width = 7, height = 6)
+  
+  p2 <- plot_volcano_nefa(suppression_results, ct, title_var = "FFA Suppression")
+  ggsave(file.path(dir.results, paste0("volcano_ffa_suppression_", ct, ".pdf")),
+         p2, width = 7, height = 6)
 }
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. GSEA — MSigDB Hallmark + GO:BP gene sets
+# 8. GSEA FUNCTION (shared)
 # ══════════════════════════════════════════════════════════════════════════════
 
-library(fgsea)
-library(msigdbr)
-
-# Build gene sets: Hallmark + GO Biological Process
+# Build gene sets once
 msig_h  <- msigdbr(species = "Homo sapiens", category = "H") %>%
   dplyr::select(gs_name, gene_symbol)
 msig_bp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP") %>%
   dplyr::select(gs_name, gene_symbol)
-
 gene_sets <- bind_rows(msig_h, msig_bp) %>%
   split(x = .$gene_symbol, f = .$gs_name)
 
-run_gsea_nefa <- function(df, ct) {
-  cat("\nRunning GSEA for:", ct, "\n")
+run_gsea_ffa <- function(df, ct, label = "FFA") {
+  cat("\nRunning GSEA:", label, "—", ct, "\n")
   
   df_ct <- df %>% filter(cell_type == ct)
+  if (nrow(df_ct) == 0) { cat("  No results — skipping.\n"); return(NULL) }
   
-  if (nrow(df_ct) == 0) {
-    cat("  No results for", ct, "— skipping.\n")
-    return(NULL)
-  }
-  
-  # Ranking statistic: -log10(p) * sign(logFC) — prioritises significance + direction
   ranked <- df_ct %>%
     filter(!is.na(p_ffa_scaled), !is.na(logFC_ffa_scaled)) %>%
     mutate(stat = -log10(p_ffa_scaled) * sign(logFC_ffa_scaled)) %>%
@@ -338,54 +402,139 @@ run_gsea_nefa <- function(df, ct) {
     { setNames(.$stat, .$gene) }
   
   set.seed(123)
-  res <- fgsea(pathways  = gene_sets,
-               stats     = ranked,
-               minSize   = 15,
-               maxSize   = 500)
-  
+  res <- fgsea(pathways = gene_sets, stats = ranked,
+               minSize = 15, maxSize = 500)
   res$cell_type <- ct
+  res$ffa_var   <- label
   res %>% arrange(pval)
 }
 
-gsea_results <- lapply(cell_types_of_interest, run_gsea_nefa)
-gsea_results_df <- do.call(rbind, gsea_results) %>%
+# ── GSEA: baseline FFA ───────────────────────────────────────────────────────
+gsea_baseline <- lapply(cell_types_of_interest, function(ct) {
+  run_gsea_ffa(nefa_results, ct, label = "baseline_ffa")
+})
+gsea_baseline_df <- do.call(rbind, gsea_baseline) %>%
   group_by(cell_type) %>%
   mutate(FDR_gsea = p.adjust(pval, method = "BH")) %>%
-  ungroup() %>%
-  arrange(cell_type, pval)
+  ungroup() %>% arrange(cell_type, pval)
 
-write.csv(gsea_results_df %>% dplyr::select(-leadingEdge),
-          file = file.path(dir.results, "NEFA_GSEA_results.csv"),
-          row.names = FALSE)
+write.csv(gsea_baseline_df %>% dplyr::select(-leadingEdge),
+          file.path(dir.results, "GSEA_baseline_ffa.csv"), row.names = FALSE)
 
-# Dot plot: top 20 pathways by nominal p-value per cell type
-for (ct in cell_types_of_interest) {
-  df_plot <- gsea_results_df %>%
+# ── GSEA: FFA suppression ────────────────────────────────────────────────────
+gsea_suppression <- lapply(cell_types_of_interest, function(ct) {
+  run_gsea_ffa(suppression_results, ct, label = "ffa_suppression")
+})
+gsea_suppression_df <- do.call(rbind, gsea_suppression) %>%
+  group_by(cell_type) %>%
+  mutate(FDR_gsea = p.adjust(pval, method = "BH")) %>%
+  ungroup() %>% arrange(cell_type, pval)
+
+write.csv(gsea_suppression_df %>% dplyr::select(-leadingEdge),
+          file.path(dir.results, "GSEA_ffa_suppression.csv"), row.names = FALSE)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. GSEA DOT PLOTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+plot_gsea_dot <- function(df, ct, title_var, n_top = 20) {
+  df_plot <- df %>%
     filter(cell_type == ct) %>%
-    slice_min(pval, n = 20) %>%
-    mutate(pathway = gsub("_", " ", pathway),
-           pathway = stringr::str_wrap(pathway, 40),
-           direction = ifelse(NES > 0, "Positive NES", "Negative NES"))
+    slice_min(pval, n = n_top) %>%
+    mutate(pathway = str_wrap(gsub("_", " ", pathway), 40))
   
-  p <- ggplot(df_plot, aes(x = NES, y = reorder(pathway, NES),
-                           size = size, color = pval)) +
+  ggplot(df_plot, aes(x = NES, y = reorder(pathway, NES),
+                      size = size, color = pval)) +
     geom_point() +
     scale_color_gradient(low = "#e63946", high = "grey80", name = "p-value") +
     scale_size_continuous(name = "Gene set size", range = c(2, 8)) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
-    labs(title    = paste("GSEA — Baseline FFA —", ct, "(T2D)"),
-         subtitle = "Top 20 pathways by p-value | Hallmark + GO:BP",
-         x        = "Normalized Enrichment Score (NES)",
-         y        = NULL) +
+    labs(title    = paste("GSEA —", title_var, "—", ct, "(T2D)"),
+         subtitle = paste0("Top ", n_top, " pathways | Hallmark + GO:BP"),
+         x = "Normalized Enrichment Score (NES)", y = NULL) +
     theme_classic(base_size = 11) +
     theme(axis.text.y = element_text(size = 8))
+}
+
+for (ct in cell_types_of_interest) {
+  p1 <- plot_gsea_dot(gsea_baseline_df, ct, "Baseline FFA")
+  ggsave(file.path(dir.results, paste0("GSEA_baseline_ffa_", ct, ".pdf")),
+         p1, width = 9, height = 7)
   
-  ggsave(filename = file.path(dir.results, paste0("GSEA_dotplot_FFA_", ct, ".pdf")),
-         plot = p, width = 9, height = 7)
+  p2 <- plot_gsea_dot(gsea_suppression_df, ct, "FFA Suppression")
+  ggsave(file.path(dir.results, paste0("GSEA_ffa_suppression_", ct, ".pdf")),
+         p2, width = 9, height = 7)
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. COMPARE BASELINE FFA vs. FFA SUPPRESSION GSEA
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Merge both GSEA results by pathway and cell type
+gsea_compare <- gsea_baseline_df %>%
+  dplyr::select(pathway, cell_type, NES_baseline = NES,
+                pval_baseline = pval, FDR_baseline = FDR_gsea) %>%
+  full_join(
+    gsea_suppression_df %>%
+      dplyr::select(pathway, cell_type, NES_suppression = NES,
+                    pval_suppression = pval, FDR_suppression = FDR_gsea),
+    by = c("pathway", "cell_type")
+  ) %>%
+  mutate(
+    sig_baseline    = pval_baseline < 0.05,
+    sig_suppression = pval_suppression < 0.05,
+    concordant      = sign(NES_baseline) == sign(NES_suppression),
+    overlap_group   = case_when(
+      sig_baseline & sig_suppression & concordant  ~ "Both (concordant)",
+      sig_baseline & sig_suppression & !concordant ~ "Both (discordant)",
+      sig_baseline & !sig_suppression              ~ "Baseline FFA only",
+      !sig_baseline & sig_suppression              ~ "FFA suppression only",
+      TRUE                                         ~ "Neither"
+    )
+  ) %>%
+  arrange(cell_type, pval_baseline)
+
+write.csv(gsea_compare,
+          file.path(dir.results, "GSEA_comparison_baseline_vs_suppression.csv"),
+          row.names = FALSE)
+
+# Summary of overlap
+cat("\n── GSEA overlap summary ──\n")
+print(table(gsea_compare$overlap_group))
+
+# NES scatter plot: baseline FFA vs. FFA suppression
+for (ct in cell_types_of_interest) {
+  df_plot <- gsea_compare %>%
+    filter(cell_type == ct, !is.na(NES_baseline), !is.na(NES_suppression)) %>%
+    mutate(label = ifelse(sig_baseline | sig_suppression, 
+                          str_wrap(gsub("_", " ", pathway), 30), NA))
+  
+  p <- ggplot(df_plot, aes(x = NES_baseline, y = NES_suppression,
+                           color = overlap_group)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_text_repel(aes(label = label), size = 2.5, max.overlaps = 20,
+                    na.rm = TRUE) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "grey60") +
+    geom_vline(xintercept = 0, linetype = "dotted", color = "grey60") +
+    scale_color_manual(values = c(
+      "Both (concordant)"    = "#2a9d8f",
+      "Both (discordant)"    = "#e76f51",
+      "Baseline FFA only"    = "#457b9d",
+      "FFA suppression only" = "#e63946",
+      "Neither"              = "grey80"
+    )) +
+    labs(title    = paste("GSEA: Baseline FFA vs. FFA Suppression —", ct),
+         subtitle = "Each point = one gene set | Diagonal = perfect concordance",
+         x        = "NES (Baseline FFA)",
+         y        = "NES (FFA Suppression)",
+         color    = NULL) +
+    theme_classic(base_size = 12) +
+    theme(legend.position = "bottom")
+  
+  ggsave(file.path(dir.results, paste0("GSEA_scatter_comparison_", ct, ".pdf")),
+         p, width = 8, height = 7)
   print(p)
 }
 
-cat("\nGSEA complete. Results saved to:", dir.results, "\n")
-
-
-
+cat("\nAll analyses complete. Results saved to:", dir.results, "\n")
