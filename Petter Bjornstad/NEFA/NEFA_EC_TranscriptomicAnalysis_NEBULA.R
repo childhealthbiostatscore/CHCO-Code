@@ -110,6 +110,8 @@ demo_df <- so_subset@meta.data %>%
   distinct(record_id, .keep_all = TRUE) %>%
   filter(!is.na(baseline_ffa)) %>%
   mutate(
+    across(c(age, bmi, hba1c, baseline_ffa, ffa_suppression, acr_u),
+           ~ as.numeric(as.character(.x))),
     across(c(epic_insulin_1, epic_sglti2_1, epic_glp1ra_1, epic_tzd_1,
              epic_mfm_1, epic_raasi_1, epic_statin_1, epic_fibrate_1,
              microalbuminuria), as.factor)
@@ -243,43 +245,30 @@ run_nebula_ffa <- function(seurat_obj, cell_type, ffa_col, covariates = NULL,
   # Filter lowly expressed genes (expressed in ≥10 cells)
   expr_cells <- rowSums(count_mat > 0)
   count_mat  <- count_mat[expr_cells >= 10, , drop = FALSE]
-  gene_names <- rownames(count_mat)
-  cat("  Genes after filter:", length(gene_names), "\n")
+  cat("  Genes after filter:", nrow(count_mat), "\n")
   
   library_sizes <- meta$pooled_offset
-  results_list  <- vector("list", length(gene_names))
   
-  for (i in seq_along(gene_names)) {
-    g          <- gene_names[i]
-    count_gene <- count_mat[g, , drop = FALSE]
-    
-    data_g <- group_cell(count  = count_gene,
-                         id     = meta$record_id,
-                         pred   = pred_mat,
-                         offset = library_sizes)
-    if (is.null(data_g)) {
-      data_g <- list(count   = count_gene, id = meta$record_id,
-                     pred    = pred_mat,   library = library_sizes)
-    }
-    
-    offset_use <- if ("library" %in% names(data_g)) data_g$library else data_g$offset
-    
-    suppressMessages(suppressWarnings(tryCatch({
-      res               <- nebula(count = data_g$count, id = data_g$id,
-                                  pred  = data_g$pred, offset = offset_use,
-                                  ncore = 1, reml = TRUE, model = "NBLMM",
-                                  output_re = FALSE, covariance = TRUE)
-      df_res            <- as.data.frame(res$summary)
-      df_res$gene       <- g
-      df_res$cell_type  <- cell_type
-      df_res$ffa_var    <- label
-      results_list[[i]] <- df_res
-    }, error = function(e) { })))
-    
-    if (i %% 500 == 0) cat("  Processed", i, "/", length(gene_names), "genes\n")
+  data_g <- group_cell(count  = count_mat,
+                       id     = meta$record_id,
+                       pred   = pred_mat,
+                       offset = library_sizes)
+  if (is.null(data_g)) {
+    data_g <- list(count   = count_mat, id = meta$record_id,
+                   pred    = pred_mat,  library = library_sizes)
   }
   
-  do.call(rbind, results_list)
+  offset_use <- if ("library" %in% names(data_g)) data_g$library else data_g$offset
+  
+  res <- nebula(count     = data_g$count, id = data_g$id,
+                pred      = data_g$pred,  offset = offset_use,
+                ncore     = 1, reml = TRUE, model = "NBLMM",
+                output_re = FALSE, covariance = TRUE)
+  
+  df_res          <- as.data.frame(res$summary)
+  df_res$cell_type <- cell_type
+  df_res$ffa_var   <- label
+  df_res
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -331,7 +320,7 @@ plot_volcano_nefa <- function(df, ct, title_var = "FFA", fdr_thresh = 0.05,
   df_ct <- df %>%
     filter(cell_type == ct) %>%
     mutate(
-      sig       = FDR < fdr_thresh & abs(logFC_ffa_scaled) > logfc_thresh,
+      sig       = !is.na(FDR) & !is.na(logFC_ffa_scaled) & FDR < fdr_thresh & abs(logFC_ffa_scaled) > logfc_thresh,
       direction = case_when(
         sig & logFC_ffa_scaled > 0 ~ paste("Up with", title_var),
         sig & logFC_ffa_scaled < 0 ~ paste("Down with", title_var),
