@@ -1,0 +1,542 @@
+---
+title: "Single-Cell Transcriptomic Profiling of Early Kidney Dysfunction in Youth-Onset Type 2 Diabetes"
+subtitle: "Pseudobulk Analysis"
+author: "Hailey Hampson"
+date: today
+format:
+  revealjs:
+    title-slide-attributes:
+      data-background-color: "#a53860"
+    theme: simple
+    slide-number: true
+    toc: true
+    toc-depth: 2
+    toc-title: "Outline"
+    number-sections: false
+    transition: slide
+    background-transition: fade
+    code-fold: true
+    code-tools: true
+    fig-align: center
+    fig-width: 9
+    fig-height: 6
+    self-contained: true
+    scrollable: true
+    smaller: true
+    header-includes: |
+      <style>
+        .reveal .slide-number { font-size: 0.7em; }
+        .reveal h1 { color: #001219; }
+        .reveal h2 { color: #a53860; border-bottom: 2px solid #9b2226; padding-bottom: 4px; }
+        .reveal h3 { color: #9b2226; }
+        .reveal .toc { font-size: 0.85em; }
+        .reveal table { font-size: 0.75em; }
+        .caption { font-size: 0.7em; color: #555; }
+        .reveal ul { list-style-type: disc; }
+        .reveal ul ul { list-style-type: circle; }
+        .reveal .quarto-title-block .quarto-title,
+        .reveal .quarto-title-block .subtitle,
+        .reveal .quarto-title-block .quarto-title-authors,
+        .reveal .quarto-title-block .quarto-title-meta {
+          color: #e9d8a6 !important;
+        }
+        .reveal .toc a {
+          color: #000000 !important;
+        }
+        .reveal section[data-background-color="#a53860"] h1,
+        .reveal section[data-background-color="#a53860"] h2,
+        .reveal section[data-background-color="#001219"] h1,
+        .reveal section[data-background-color="#001219"] h2 {
+          color: #e9d8a6 !important;
+          border-bottom-color: #ee9b00 !important;
+        }
+      </style>
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: false
+  
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+library(kableExtra)
+library(limma)
+library(edgeR)
+library(Seurat)
+library(fgsea)
+library(msigdbr)
+library(stringr)
+library(htmltools)
+library(tidyverse)
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+dir_results <- "/home/hhampson/Results"
+
+# ── Color palette ─────────────────────────────────────────────────────────────
+pal <- list(
+  ink_black       = "#001219",
+  dark_cyan       = "#0a9396",
+  pearl_aqua      = "#94d2bd",
+  vanilla_custard = "#e9d8a6",
+  golden_orange   = "#ee9b00",
+  burnt_caramel   = "#ca6702",
+  rusty_spice     = "#bb3e03",
+  oxidized_iron   = "#ae2012",
+  brown_red       = "#9b2226"
+)
+pal2 <- list(
+  soft_apricot = "#f9dbbdff",
+  cotton_candy = "#ffa5abff",
+  blush_rose = "#da627dff",
+  berry_crush = "#a53860ff",
+  night_bordeaux = "#450920ff"
+)
+```
+
+# Background {background-color="#a53860" color="white"}
+
+## Background
+
+- Diabetic nephropathy — leading cause of end-stage renal disease in United States^1^
+- Youth-onset type 2 diabetes (T2D) shows more aggressive progression to Diabetic Kidney Disease (DKD) than adult^2^
+- Hyperglycemia drives kidney damage through multiple pathways including oxidative stress, inflammation, metabolic dysregulation, and podocyte injury^3^
+- Cellular mechanisms of glucose-induced kidney damage remain incompletely understood
+- Kidney organoids derived from patient cells offer a controlled environment to model diabetes-related pathology in vitro^4^
+- Single-cell RNA sequencing enables identification of cell type-specific responses to diabetic conditions^5^
+
+::: {.caption}
+1. Rabkin. Diabetic nephropathy 2003
+2. Dart et al. Diabetes Care 2012
+3. Jha et al. Antioxid Redox Signal 2016
+4. Nakanoh et al. Life (Basel) 2025
+5. Deng et al. Diabetes 2025
+:::
+
+## Research Aims Part 1: Diabetes-Driven Transcriptional Profiles
+
+- **Aim 1.1:** Identify diabetes-driven transcriptional signatures in kidney organoids.
+- *Research Question 1.1:* How does gene expression differ between kidney organoids derived from youth with type 2 diabetes (T2D) and lean controls (LC)?
+- **Aim 1.2:** Identify diabetes-driven transcriptional signatures in kidney biopsies.
+- *Research Question 1.2:* How does gene expression differ between kidney tissue biopsies from youth with T2D and LC?
+- **Aim 1.3:** Compare diabetes-driven molecular profiles between kidney organoids and kidney biopsies.
+- *Research Question 1.3:* How do diabetes-related molecular profiles compare between kidney organoids and kidney biopsies?
+
+
+# Methods {background-color="#a53860" color="white"}
+
+## Methods
+:::: {.columns}
+::: {.column width="45%"}
+- Participants enrolled in the CROCODILE study (N = 3) & RENAL-HEIR study (N = 3)
+- Collected demographics, anthropometrics, kidney tissue biopsy & blood samples
+- Kidney organoids derived from blood samples (iPSC → organoid, Freedman et al. 2018)
+- Single-cell RNA sequencing (scRNAseq) on matched kidney biopsies & kidney organoids
+- Organoids exposed to **15 mM** (physiologic) and **30 mM** (hyperglycemic) glucose
+:::
+::: {.column width="55%"}
+```{r}
+#| out-width: "100%"
+knitr::include_graphics("/home/hhampson/Results/methods_figure.png")
+```
+:::
+::::
+
+## Statistical Approach
+:::: {.columns}
+::: {.column width="100%"}
+
+| Step | Method |
+|------|--------|
+| Aggregation | Pseudobulk (`AggregateExpression`) |
+| Normalization | TMM (edgeR) |
+| Filtering | `filterByExpr` |
+| DE | Limma-voom |
+| Correction | BH (FDR) |
+| GSEA | fgsea (Reactome) |
+
+**Significance thresholds:** adj. p < 0.05, |logFC| > 1
+:::
+::::
+
+## Pseudobulk Methods
+
+**Pseudobulk Differential Expression (Limma-voom)**
+
+- Counts aggregated per `record_id × cell_type` using `AggregateExpression()`
+- TMM normalization applied to pseudobulk count matrix
+- Genes filtered with `filterByExpr()` prior to modeling
+- Model: `~ treatment + group` (treatment = glucose condition, group = T2D vs. LC)
+- Moderated t-statistics via empirical Bayes (`eBayes`)
+- Multiple testing correction: Benjamini-Hochberg (FDR)
+- **Significance:** adj.P.Val < 0.05 AND |logFC| > 1
+
+**Gene Set Enrichment Analysis (fgsea)**
+
+- Genes ranked by moderated t-statistic from limma-voom
+- Reactome pathways via msigdbr (C2:CP:REACTOME)
+- Gene set size filter: 15–500 genes
+- 10,000 permutations
+- Significance: adj. p < 0.05
+- Analysis performed using R/Bioconductor · limma · edgeR · fgsea · Seurat
+
+
+# Results {background-color="#a53860" color="white"}
+
+## Table 1 — Participant Demographics {.scrollable}
+
+```{r table1}
+t1_file <- file.path(dir_results, "table1_demographics.html")
+
+htmltools::HTML(readLines(t1_file, warn = FALSE))
+
+```
+
+
+
+# Organoid T2D vs. LC (Adj. Glucose Exposure) {background-color="#a53860" color="white"}
+```{r load-and-plot-functions, cache=FALSE}
+# ── Load all limma results ─────────────────────────────────────────────────────
+limma_files <- list.files("/home/hhampson/Results/Organoid Limma T2D vs. LC",
+                          pattern = "^limma_T2DvsLC_.*\\.csv$", full.names = TRUE)
+limma_files <- limma_files[!grepl("allcelltypes", limma_files)]
+results_all <- purrr::map_dfr(limma_files, read.csv)
+
+# ── Load all GSEA results ─────────────────────────────────────────────────────
+gsea_files <- list.files("/home/hhampson/Results/Organoid Limma T2D vs. LC",
+                         pattern = "^gsea_reactome_.*\\.csv$", full.names = TRUE)
+gsea_files <- gsea_files[!grepl("allcelltypes", gsea_files)]
+gsea_results_list <- purrr::map(gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_T2DvsLC_|\\.csv$", "", basename(gsea_files)))
+
+cell_counts <- read.csv("/home/hhampson/Results/Organoid Limma T2D vs. LC/cell_counts_per_celltype.csv")
+
+# ── Volcano plot function (adj.P.Val for coloring, P.Value for y-axis) ────────
+make_volcano <- function(df, ct, n_label = 20, cell_counts_df = cell_counts) {
+  n_genes <- nrow(df)
+  n_cells <- cell_counts_df$n_cells[cell_counts_df$cell_type == ct]
+  if (length(n_cells) == 0) n_cells <- NA
+  
+  df <- df |>
+    dplyr::mutate(
+      neg_log10p = -log10(P.Value),
+      direction = dplyr::case_when(
+        adj.P.Val < 0.05 & logFC > 0 ~ "Up",
+        adj.P.Val < 0.05 & logFC < 0 ~ "Down",
+        TRUE ~ "NS"
+      )
+    )
+  
+  top_up <- df |> dplyr::filter(logFC > 0) |> dplyr::slice_min(P.Value, n = n_label)
+  top_down <- df |> dplyr::filter(logFC < 0) |> dplyr::slice_min(P.Value, n = n_label)
+  to_label <- dplyr::bind_rows(top_up, top_down)
+  
+  subtitle_text <- paste0("Genes: ", format(n_genes, big.mark = ","),
+                          "  |  Cells: ", format(n_cells, big.mark = ","),
+                          "  |  Color = adj. P < 0.05")
+  
+  ggplot(df, aes(x = logFC, y = neg_log10p, color = direction)) +
+    geom_point(alpha = 0.5, size = 1) +
+    geom_text_repel(data = to_label, aes(label = gene),
+                    size = 2.5, max.overlaps = 30, segment.size = 0.2) +
+    scale_color_manual(values = c("Up" = pal$brown_red, "Down" = pal$ink_black, "NS" = "grey70")) +
+    labs(x = "log2 Fold Change", y = "-log10(P-value)",
+         title = "Volcano Plot",
+         subtitle = subtitle_text,
+         color = NULL) +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 8, color = "grey50"))
+}
+
+# ── GSEA bar plot function (nominal pval for selection & sig coloring) ────────
+make_gsea_bar <- function(df, ct, n_show = 20) {
+  df <- df |>
+    dplyr::mutate(
+      pathway_clean = gsub("^REACTOME_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = stringr::str_to_title(pathway_clean),
+      n_genes = size,
+      sig = pval < 0.05
+    ) |>
+    dplyr::slice_min(pval, n = n_show) |>
+    dplyr::arrange(NES)
+  
+  df$pathway_clean <- factor(df$pathway_clean, levels = df$pathway_clean)
+  max_abs <- max(abs(df$NES), na.rm = TRUE)
+  
+  ggplot(df, aes(x = NES, y = pathway_clean)) +
+    geom_col(aes(fill = ifelse(sig, NES, NA))) +
+    geom_col(data = df |> dplyr::filter(!sig), fill = "grey70") +
+    geom_text(aes(label = n_genes,
+                  x = ifelse(NES > 0, NES - 0.05, NES + 0.05),
+                  hjust = ifelse(NES > 0, 1, 0)),
+              size = 2.5, color = "white", fontface = "bold") +
+    scale_fill_gradient2(low = pal$ink_black, mid = "white", high = pal$brown_red,
+                         midpoint = 0, limits = c(-max_abs, max_abs),
+                         name = "NES", na.value = "grey70") +
+    labs(x = "Normalized Enrichment Score", y = NULL,
+         title = "Reactome GSEA",
+         subtitle = "Color = P < 0.05; grey = NS") +
+    theme_minimal() +
+    theme(axis.text.y = element_text(size = 7),
+          legend.position = "bottom",
+          plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 8, color = "grey50"))
+}
+
+# ── Function to extract top genes per pathway (nominal pval) ──────────────────
+extract_top_genes <- function(df, ct, n_show = 20, n_genes_show = 10) {
+  df |>
+    dplyr::mutate(
+      pathway_clean = gsub("^REACTOME_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = stringr::str_to_title(pathway_clean)
+    ) |>
+    dplyr::slice_min(pval, n = n_show) |>
+    dplyr::arrange(pval) |>
+    dplyr::rowwise() |>
+    dplyr::mutate(
+      top_genes = paste(head(strsplit(leadingEdge, ";")[[1]], n_genes_show), collapse = ", ")
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::select(Pathway = pathway_clean, NES, `P-Value` = pval, `Leading Edge Genes` = top_genes) |>
+    dplyr::mutate(
+      NES = round(NES, 2),
+      `P-Value` = formatC(`P-Value`, format = "e", digits = 2)
+    )
+}
+```
+
+```{r per-celltype-combined, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+gene_tables <- list()
+
+for (ct in unique(results_all$cell_type)) {
+  
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  p_volc <- make_volcano(results_all |> dplyr::filter(cell_type == ct), ct)
+  
+  if (ct %in% names(gsea_results_list)) {
+    p_gsea <- make_gsea_bar(gsea_results_list[[ct]], ct, n_show = 20)
+    gene_tables[[ct]] <- extract_top_genes(gsea_results_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No Significantly Enriched Pathways",
+               size = 4, color = "grey50") +
+      theme_void()
+  }
+  
+  combined <- p_volc + p_gsea +
+    plot_layout(widths = c(1, 1.2))
+  
+  print(combined)
+  cat("\n\n")
+}
+```
+
+```{r gsea-gene-tables, results='asis'}
+cat("\n\n# GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+```
+
+# Biopsy: T2D vs. LC {background-color="#a53860"}
+```{r load-biopsy-data, cache=FALSE}
+# ── Load biopsy limma results ─────────────────────────────────────────────────
+biopsy_limma_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC",
+                                 pattern = "^limma_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_limma_files <- biopsy_limma_files[!grepl("allcelltypes", biopsy_limma_files)]
+biopsy_results_all <- purrr::map_dfr(biopsy_limma_files, read.csv)
+
+# ── Load biopsy GSEA results ─────────────────────────────────────────────────
+biopsy_gsea_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/GSEA",
+                                pattern = "^gsea_reactome_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_gsea_files <- biopsy_gsea_files[!grepl("allcelltypes", biopsy_gsea_files)]
+biopsy_gsea_list <- purrr::map(biopsy_gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_biopsy_T2DvsLC_|\\.csv$", "", basename(biopsy_gsea_files)))
+
+biopsy_cell_counts <- read.csv("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/cell_counts_per_celltype.csv")
+```
+
+```{r biopsy-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+biopsy_gene_tables <- list()
+
+for (ct in unique(biopsy_results_all$cell_type)) {
+  
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  p_volc <- make_volcano(biopsy_results_all |> dplyr::filter(cell_type == ct), ct,
+                         cell_counts_df = biopsy_cell_counts)
+  
+  if (ct %in% names(biopsy_gsea_list)) {
+    p_gsea <- make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 20)
+    biopsy_gene_tables[[ct]] <- extract_top_genes(biopsy_gsea_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+               size = 4, color = "grey50") +
+      theme_void()
+  }
+  
+  combined <- p_volc + p_gsea +
+    plot_layout(widths = c(1, 1.2))
+  
+  print(combined)
+  cat("\n\n")
+}
+```
+
+```{r biopsy-gsea-gene-tables, results='asis'}
+cat("\n\n# Biopsy GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(biopsy_gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- biopsy_gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+```
+
+# Biopsy Full Data: T2D vs. LC {background-color="#a53860"}
+```{r load-full-biopsy-data, cache=FALSE}
+# ── Load biopsy limma results ─────────────────────────────────────────────────
+biopsy_limma_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset",
+                                 pattern = "^limma_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_limma_files <- biopsy_limma_files[!grepl("allcelltypes", biopsy_limma_files)]
+biopsy_results_all <- purrr::map_dfr(biopsy_limma_files, read.csv)
+
+# ── Load biopsy GSEA results ─────────────────────────────────────────────────
+biopsy_gsea_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/GSEA/Full Dataset",
+                                pattern = "^gsea_reactome_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_gsea_files <- biopsy_gsea_files[!grepl("allcelltypes", biopsy_gsea_files)]
+biopsy_gsea_list <- purrr::map(biopsy_gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_biopsy_T2DvsLC_|\\.csv$", "", basename(biopsy_gsea_files)))
+
+biopsy_cell_counts <- read.csv("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/cell_counts_per_celltype_full.csv")
+```
+
+```{r full biopsy-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+biopsy_gene_tables <- list()
+
+for (ct in unique(biopsy_results_all$cell_type)) {
+  
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  p_volc <- make_volcano(biopsy_results_all |> dplyr::filter(cell_type == ct), ct,
+                         cell_counts_df = biopsy_cell_counts)
+  
+  if (ct %in% names(biopsy_gsea_list)) {
+    p_gsea <- make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 20)
+    biopsy_gene_tables[[ct]] <- extract_top_genes(biopsy_gsea_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No Significantly Enriched Pathways",
+               size = 4, color = "grey50") +
+      theme_void()
+  }
+  
+  combined <- p_volc + p_gsea +
+    plot_layout(widths = c(1, 1.2))
+  
+  print(combined)
+  cat("\n\n")
+}
+```
+
+```{r full-biopsy-gsea-gene-tables, results='asis'}
+cat("\n\n# Biopsy GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(biopsy_gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- biopsy_gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+```
+
+# Organoid: 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
+```{r load-treatment-data, cache=FALSE}
+# ── Load treatment limma results ──────────────────────────────────────────────
+treat_limma_files <- list.files("/home/hhampson/Results/Organoid Limma Treatment",
+                                pattern = "^limma_treatment_.*\\.csv$", full.names = TRUE)
+treat_limma_files <- treat_limma_files[!grepl("allcelltypes", treat_limma_files)]
+treat_results_all <- purrr::map_dfr(treat_limma_files, read.csv)
+
+# ── Load treatment GSEA results ───────────────────────────────────────────────
+treat_gsea_files <- list.files("/home/hhampson/Results/Organoid Limma Treatment",
+                               pattern = "^gsea_reactome_treatment_.*\\.csv$", full.names = TRUE)
+treat_gsea_files <- treat_gsea_files[!grepl("allcelltypes", treat_gsea_files)]
+treat_gsea_list <- purrr::map(treat_gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_treatment_|\\.csv$", "", basename(treat_gsea_files)))
+
+# Reuse organoid cell counts (same cells, different comparison)
+treat_cell_counts <- read.csv("/home/hhampson/Results/Organoid Limma T2D vs. LC/cell_counts_per_celltype.csv")
+```
+
+```{r treat-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+treat_gene_tables <- list()
+
+for (ct in unique(treat_results_all$cell_type)) {
+  
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  p_volc <- make_volcano(treat_results_all |> dplyr::filter(cell_type == ct), ct,
+                         cell_counts_df = treat_cell_counts)
+  
+  if (ct %in% names(treat_gsea_list)) {
+    p_gsea <- make_gsea_bar(treat_gsea_list[[ct]], ct, n_show = 20)
+    treat_gene_tables[[ct]] <- extract_top_genes(treat_gsea_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+               size = 4, color = "grey50") +
+      theme_void()
+  }
+  
+  combined <- p_volc + p_gsea +
+    plot_layout(widths = c(1, 1.2))
+  
+  print(combined)
+  cat("\n\n")
+}
+```
+```{r treat-gsea-gene-tables, results='asis'}
+cat("\n\n# Treatment GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(treat_gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- treat_gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+```

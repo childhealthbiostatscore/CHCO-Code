@@ -7,7 +7,7 @@
 #SBATCH --partition=cpu-g2
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=24
-#SBATCH --mem=100G
+#SBATCH --mem=200G
 #SBATCH --time=01-00:00:00 # Max runtime in DD-HH:MM:SS format.
 #SBATCH --export=all
 
