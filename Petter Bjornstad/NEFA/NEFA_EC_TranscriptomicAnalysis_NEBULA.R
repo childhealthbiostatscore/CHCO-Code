@@ -131,17 +131,33 @@ demo_table <- demo_df %>%
       hba1c            ~ "continuous",
       baseline_ffa     ~ "continuous",
       ffa_suppression  ~ "continuous",
-      acr_u            ~ "continuous",
+      acr_u            ~ "continuous2",   # continuous2 allows custom statistic per var
       microalbuminuria ~ "categorical",
-      everything()     ~ "categorical"
+      epic_insulin_1   ~ "categorical",
+      epic_sglti2_1    ~ "categorical",
+      epic_glp1ra_1    ~ "categorical",
+      epic_tzd_1       ~ "categorical",
+      epic_mfm_1       ~ "categorical",
+      epic_raasi_1     ~ "categorical",
+      epic_statin_1    ~ "categorical",
+      epic_fibrate_1   ~ "categorical"
     ),
     statistic = list(
-      all_continuous()  ~ "{mean} ({sd})",
-      acr_u             ~ "{median} ({p25}, {p75})",
+      age             ~ "{mean} ({sd})",
+      bmi             ~ "{mean} ({sd})",
+      hba1c           ~ "{mean} ({sd})",
+      baseline_ffa    ~ "{mean} ({sd})",
+      ffa_suppression ~ "{mean} ({sd})",
+      acr_u           ~ "{median} ({p25}, {p75})",
       all_categorical() ~ "{n} ({p}%)"
     ),
     digits = list(
-      all_continuous()  ~ 1,
+      age             ~ 1,
+      bmi             ~ 1,
+      hba1c           ~ 1,
+      baseline_ffa    ~ 1,
+      ffa_suppression ~ 1,
+      acr_u           ~ 1,
       all_categorical() ~ c(0, 1)
     ),
     label = list(
@@ -151,7 +167,7 @@ demo_table <- demo_df %>%
       hba1c            ~ "HbA1c, %",
       baseline_ffa     ~ "Baseline FFA, µmol/L",
       ffa_suppression  ~ "FFA suppression, %",
-      acr_u            ~ "Urine albumin, mg/L (median, IQR)",
+      acr_u            ~ "Urine albumin, mg/L",
       microalbuminuria ~ "Albuminuria category",
       epic_insulin_1   ~ "Insulin",
       epic_sglti2_1    ~ "SGLT2i",
@@ -165,14 +181,26 @@ demo_table <- demo_df %>%
     missing_text = "Missing"
   ) %>%
   modify_header(label ~ "**Characteristic**") %>%
-  modify_footnote(all_stat_cols() ~ "Mean (SD) unless otherwise noted")
+  modify_footnote(all_stat_cols() ~ "Mean (SD) unless otherwise noted; urine albumin shown as median (IQR)")
 
 print(demo_table)
 
-# Save as CSV
+# Save as Word document
+library(flextable)
+library(officer)
+
+demo_table %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(
+    path = file.path(dir.results, "demographics_table.docx")
+  )
+
+# Also save as CSV as backup
 demo_table %>%
   as_tibble() %>%
   write.csv(file.path(dir.results, "demographics_table.csv"), row.names = FALSE)
+
+cat("Demographics table saved to:", file.path(dir.results, "demographics_table.docx"), "\n")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. COMPUTE OFFSET (before any cell-type subsetting)
@@ -526,8 +554,67 @@ for (ct in cell_types_of_interest) {
   print(p)
 }
 
-cat("\nAll analyses complete. Results saved to:", dir.results, "\n")
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. CORRELATION PLOTS — FFA VARIABLES
+# ══════════════════════════════════════════════════════════════════════════════
 
+library(ggpubr)
+
+# Get one row per participant with all FFA variables
+ffa_cor_df <- so_subset@meta.data %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  filter(!is.na(baseline_ffa)) %>%
+  dplyr::select(record_id, baseline_ffa, ffa_suppression, ffa_suppression_combined) %>%
+  mutate(across(c(baseline_ffa, ffa_suppression, ffa_suppression_combined),
+                ~ as.numeric(as.character(.x))))
+
+# Helper: scatter with regression line, r, and p-value
+scatter_cor <- function(df, x_var, y_var, x_lab, y_lab) {
+  df_clean <- df %>% filter(!is.na(.data[[x_var]]), !is.na(.data[[y_var]]))
+  ct <- cor.test(df_clean[[x_var]], df_clean[[y_var]])
+  r  <- round(ct$estimate, 2)
+  p  <- round(ct$p.value, 3)
+  p_label <- ifelse(p < 0.001, "p < 0.001", paste0("p = ", p))
+  
+  ggplot(df_clean, aes(x = .data[[x_var]], y = .data[[y_var]])) +
+    geom_point(size = 2.5, alpha = 0.8, color = "#457b9d") +
+    geom_smooth(method = "lm", se = TRUE, color = "#e63946", fill = "#e63946",
+                alpha = 0.15, linewidth = 1) +
+    annotate("text", x = Inf, y = Inf,
+             label = paste0("r = ", r, "\n", p_label),
+             hjust = 1.1, vjust = 1.5, size = 4, color = "grey30") +
+    labs(x = x_lab, y = y_lab) +
+    theme_classic(base_size = 12)
+}
+
+p_base_supp <- scatter_cor(
+  ffa_cor_df, "baseline_ffa", "ffa_suppression",
+  "Baseline FFA (µmol/L)", "FFA Suppression (%)"
+)
+
+p_base_supp_combined <- scatter_cor(
+  ffa_cor_df, "baseline_ffa", "ffa_suppression_combined",
+  "Baseline FFA (µmol/L)", "FFA Suppression Combined (%)"
+)
+
+p_supp_supp_combined <- scatter_cor(
+  ffa_cor_df, "ffa_suppression", "ffa_suppression_combined",
+  "FFA Suppression (%)", "FFA Suppression Combined (%)"
+)
+
+# Combine into one figure
+library(patchwork)
+p_cor_combined <- (p_base_supp | p_base_supp_combined | p_supp_supp_combined) +
+  plot_annotation(
+    title    = "Correlations between FFA variables — T2D biopsy cohort",
+    subtitle = paste0("n = ", nrow(ffa_cor_df %>% filter(!is.na(baseline_ffa))))
+  )
+
+ggsave(file.path(dir.results, "FFA_variable_correlations.pdf"),
+       p_cor_combined, width = 12, height = 4)
+print(p_cor_combined)
+
+cat("\nAll analyses complete. Results saved to:", dir.results, "\n")
 
 
 
@@ -635,23 +722,16 @@ make_gsea_dot <- function(df, ct, title_var, n_top = n_top_gsea) {
     filter(cell_type == ct) %>%
     slice_min(pval, n = n_top) %>%
     mutate(
-      collection = case_when(
-        str_starts(pathway, "HALLMARK_") ~ "Hallmark",
-        str_starts(pathway, "GOBP_")     ~ "GO:BP",
-        TRUE                             ~ "Other"
-      ),
       pathway  = str_wrap(gsub("_", " ", gsub("GOBP_|HALLMARK_", "", pathway)), 38),
       neg_logp = -log10(pval)
     )
   
-  ggplot(df_plot, aes(NES, reorder(pathway, NES), size = size, color = pval, shape = collection)) +
+  ggplot(df_plot, aes(NES, reorder(pathway, NES), size = size, color = pval)) +
     geom_point() +
     scale_color_gradient(low = "#e63946", high = "grey80",
                          name = "p-value", guide = guide_colorbar(barwidth = 4, barheight = 0.5)) +
     scale_size_continuous(name = "Set size", range = c(2, 7),
                           guide = guide_legend(override.aes = list(color = "grey50"))) +
-    scale_shape_manual(values = c("GO:BP" = 16, "Hallmark" = 17, "Other" = 15),
-                       name = "Collection") +
     geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, color = "grey50") +
     labs(
       title    = paste0("GSEA — ", title_var, " — ", ct, " (T2D)"),
