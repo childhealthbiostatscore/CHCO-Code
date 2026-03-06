@@ -46,11 +46,8 @@ rm(biopsy_meta, organoid_meta, biopsy_counts, organoid_counts, counts, mod_mat)
 # For each gene measured in both biopsies and organoids, fit a mixed model.
 # Use the same ZI formula for all models (intercept only for now)
 zf = ~1
-# Set up parallel processing
-# Register cluster
-cl <- makeCluster(24, type = "FORK")
 # Cluster lapply
-model_results = parLapply(cl, gene_overlap, function(gene) {
+model_results = lapply(gene_overlap, function(gene) {
   f1 = as.formula(paste0(
     gene,
     " ~ group * sample_type + (1 | record_id/sample_type)"
@@ -62,8 +59,6 @@ model_results = parLapply(cl, gene_overlap, function(gene) {
   )
   return(summary(model))
 })
-# Stop the cluster
-stopCluster(cl)
 # Save results
 save(
   model_results,
