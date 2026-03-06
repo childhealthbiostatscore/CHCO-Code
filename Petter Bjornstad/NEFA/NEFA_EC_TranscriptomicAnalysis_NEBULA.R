@@ -527,3 +527,226 @@ for (ct in cell_types_of_interest) {
 }
 
 cat("\nAll analyses complete. Results saved to:", dir.results, "\n")
+
+
+
+
+
+
+
+
+####Plotting
+
+library(patchwork)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(fgsea)
+library(stringr)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOAD PRE-COMPUTED RESULTS (saved by your NEBULA script)
+# ══════════════════════════════════════════════════════════════════════════════
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/NEFA_NEBULA/'
+
+nefa_results        <- read.csv(file.path(dir.results, "NEFA_NEBULA_baseline_ffa_FDR.csv"))
+suppression_results <- read.csv(file.path(dir.results, "NEFA_NEBULA_ffa_suppression_FDR.csv"))
+gsea_baseline_df    <- read.csv(file.path(dir.results, "GSEA_baseline_ffa.csv"))
+gsea_suppression_df <- read.csv(file.path(dir.results, "GSEA_ffa_suppression.csv"))
+gsea_compare        <- read.csv(file.path(dir.results, "GSEA_comparison_baseline_vs_suppression.csv"))
+
+ct <- "EC"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SHARED THEME
+# ══════════════════════════════════════════════════════════════════════════════
+
+theme_fig <- theme_classic(base_size = 10) +
+  theme(
+    legend.position  = "top",
+    legend.key.size  = unit(0.4, "cm"),
+    legend.text      = element_text(size = 8),
+    plot.title       = element_text(size = 10, face = "bold"),
+    plot.subtitle    = element_text(size = 8, color = "grey40"),
+    axis.text        = element_text(size = 8),
+    axis.title       = element_text(size = 9)
+  )
+
+fdr_thresh  <- 0.05
+lfc_thresh  <- 0.1
+n_top_gsea  <- 20
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PANEL A — Volcano: Baseline FFA
+# ══════════════════════════════════════════════════════════════════════════════
+
+make_volcano <- function(df, ct, title_var, fdr_t = fdr_thresh, lfc_t = lfc_thresh) {
+  up_lab   <- paste("Up with", title_var)
+  down_lab <- paste("Down with", title_var)
+  
+  df_ct <- df %>%
+    filter(cell_type == ct) %>%
+    filter(!(abs(logFC_ffa_scaled) > 10 & (is.na(FDR) | FDR >= fdr_t))) %>%
+    mutate(
+      sig = !is.na(FDR) & !is.na(logFC_ffa_scaled) &
+        FDR < fdr_t & abs(logFC_ffa_scaled) > lfc_t,
+      direction = case_when(
+        sig & logFC_ffa_scaled > 0 ~ up_lab,
+        sig & logFC_ffa_scaled < 0 ~ down_lab,
+        TRUE ~ "NS"
+      )
+    )
+  
+  top_genes <- if (sum(df_ct$sig) >= 1) {
+    df_ct %>% filter(sig) %>% slice_min(FDR, n = 20)
+  } else {
+    df_ct %>% slice_min(p_ffa_scaled, n = 5)
+  }
+  
+  ggplot(df_ct, aes(logFC_ffa_scaled, -log10(p_ffa_scaled), color = direction)) +
+    geom_point(alpha = 0.5, size = 1.2) +
+    geom_text_repel(data = top_genes, aes(label = gene),
+                    size = 2.5, max.overlaps = 25, show.legend = FALSE) +
+    scale_color_manual(values = setNames(
+      c("#e63946", "#457b9d", "grey75"),
+      c(up_lab, down_lab, "NS")
+    ), name = NULL) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", linewidth = 0.4, color = "grey50") +
+    geom_vline(xintercept = c(-lfc_t, lfc_t), linetype = "dashed", linewidth = 0.4, color = "grey50") +
+    labs(
+      title    = paste0(title_var, " vs. Transcriptome — ", ct, " (T2D)"),
+      subtitle = paste0("FDR < ", fdr_t, " | |logFC| > ", lfc_t, "  ·  Unadjusted"),
+      x        = paste("Log2 FC per 1 SD", title_var),
+      y        = expression(-log[10](p))
+    ) +
+    theme_fig
+}
+
+pA <- make_volcano(nefa_results,        ct, "Baseline FFA")
+pB <- make_volcano(suppression_results, ct, "FFA Suppression")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PANELS C & D — GSEA dot plots
+# ══════════════════════════════════════════════════════════════════════════════
+
+make_gsea_dot <- function(df, ct, title_var, n_top = n_top_gsea) {
+  df_plot <- df %>%
+    filter(cell_type == ct) %>%
+    slice_min(pval, n = n_top) %>%
+    mutate(
+      collection = case_when(
+        str_starts(pathway, "HALLMARK_") ~ "Hallmark",
+        str_starts(pathway, "GOBP_")     ~ "GO:BP",
+        TRUE                             ~ "Other"
+      ),
+      pathway  = str_wrap(gsub("_", " ", gsub("GOBP_|HALLMARK_", "", pathway)), 38),
+      neg_logp = -log10(pval)
+    )
+  
+  ggplot(df_plot, aes(NES, reorder(pathway, NES), size = size, color = pval, shape = collection)) +
+    geom_point() +
+    scale_color_gradient(low = "#e63946", high = "grey80",
+                         name = "p-value", guide = guide_colorbar(barwidth = 4, barheight = 0.5)) +
+    scale_size_continuous(name = "Set size", range = c(2, 7),
+                          guide = guide_legend(override.aes = list(color = "grey50"))) +
+    scale_shape_manual(values = c("GO:BP" = 16, "Hallmark" = 17, "Other" = 15),
+                       name = "Collection") +
+    geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, color = "grey50") +
+    labs(
+      title    = paste0("GSEA — ", title_var, " — ", ct, " (T2D)"),
+      subtitle = paste0("Top ", n_top, " pathways | Hallmark + GO:BP"),
+      x = "Normalized Enrichment Score (NES)", y = NULL
+    ) +
+    theme_fig +
+    theme(axis.text.y = element_text(size = 7))
+}
+
+pC <- make_gsea_dot(gsea_baseline_df,    ct, "Baseline FFA")
+pD <- make_gsea_dot(gsea_suppression_df, ct, "FFA Suppression")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PANEL E — NES concordance scatter
+# ══════════════════════════════════════════════════════════════════════════════
+
+overlap_colors <- c(
+  "Both (concordant)"    = "#2a9d8f",
+  "Both (discordant)"    = "#e76f51",
+  "Baseline FFA only"    = "#457b9d",
+  "FFA suppression only" = "#e63946",
+  "Neither"              = "grey82"
+)
+
+df_e <- gsea_compare %>%
+  filter(cell_type == ct, !is.na(NES_baseline), !is.na(NES_suppression)) %>%
+  mutate(
+    label = ifelse(
+      (sig_baseline | sig_suppression) & overlap_group != "Neither",
+      str_wrap(gsub("_", " ", gsub("GOBP_|HALLMARK_", "", pathway)), 28),
+      NA_character_
+    )
+  )
+
+pE <- ggplot(df_e, aes(NES_baseline, NES_suppression, color = overlap_group)) +
+  geom_point(alpha = 0.55, size = 1.5) +
+  geom_text_repel(aes(label = label), size = 2.3, max.overlaps = 22,
+                  na.rm = TRUE, lineheight = 0.85) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              linewidth = 0.4, color = "grey40") +
+  geom_hline(yintercept = 0, linetype = "dotted", linewidth = 0.3, color = "grey60") +
+  geom_vline(xintercept = 0, linetype = "dotted", linewidth = 0.3, color = "grey60") +
+  scale_color_manual(values = overlap_colors, name = NULL) +
+  labs(
+    title    = paste0("GSEA: Baseline FFA vs. FFA Suppression — ", ct),
+    subtitle = "Each point = one gene set  |  Diagonal = perfect concordance",
+    x = "NES (Baseline FFA)", y = "NES (FFA Suppression)"
+  ) +
+  theme_fig +
+  theme(legend.position = "bottom",
+        legend.text     = element_text(size = 7))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ASSEMBLE COMBINED FIGURE
+# ══════════════════════════════════════════════════════════════════════════════
+# Layout:
+#   Row 1: A (volcano baseline) | B (volcano suppression)
+#   Row 2: C (GSEA dot baseline) | D (GSEA dot suppression)
+#   Row 3: E (concordance scatter) — centered, narrower
+
+layout <- "
+AABB
+CCDD
+EEEE
+"
+
+combined <- pA + pB + pC + pD + pE +
+  plot_layout(design = layout, heights = c(1, 1.4, 1.2)) +
+  plot_annotation(
+    title   = "Free Fatty Acids and the Kidney Endothelial Cell Transcriptome in Youth-Onset T2D",
+    caption = "NEBULA mixed-effects model; unadjusted; FDR < 0.05 | |log2FC| > 0.1",
+    theme   = theme(
+      plot.title   = element_text(size = 12, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = 8, color = "grey50", hjust = 1)
+    )
+  ) &
+  plot_annotation(tag_levels = "A") &
+  theme(plot.tag = element_text(size = 11, face = "bold"))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE
+# ══════════════════════════════════════════════════════════════════════════════
+
+ggsave(
+  filename = file.path(dir.results, "Figure_FFA_EC_Transcriptome_combined.pdf"),
+  plot     = combined,
+  width    = 16, height = 20,
+  device   = cairo_pdf
+)
+
+ggsave(
+  filename = file.path(dir.results, "Figure_FFA_EC_Transcriptome_combined.png"),
+  plot     = combined,
+  width    = 16, height = 20, dpi = 300
+)
+
+cat("Combined figure saved to:", dir.results, "\n")
