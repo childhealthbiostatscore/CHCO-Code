@@ -1,0 +1,697 @@
+## All Cell Types — Overview
+
+```{r volcano-all, fig.width=14, fig.height=10}
+if (exists("results_all")) {
+  
+  make_volcano <- function(df, ct) {
+    # top 10 significant UP genes
+    top_up <- df %>%
+      dplyr::filter(sig == "Up in T2D") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::slice_head(n = 10)
+    
+    # top 10 significant DOWN genes
+    top_down <- df %>%
+      dplyr::filter(sig == "Down in T2D") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::slice_head(n = 10)
+    
+    top_genes <- dplyr::bind_rows(top_up, top_down)
+    
+    # fallback if no sig genes
+    if (nrow(top_genes) == 0) {
+      top_genes <- df %>%
+        dplyr::arrange(P.Value) %>%
+        dplyr::slice_head(n = 10)
+    }
+    
+    n_genes <- format(nrow(df), big.mark = ",")
+    
+    ggplot(df, aes(x = logFC, y = -log10(adj.P.Val), color = sig)) +
+      geom_point(alpha = 0.5, size = 1.5) +
+      geom_label_repel(
+        data         = top_genes,
+        aes(label    = gene),
+        size         = 3,
+        max.overlaps = 25,
+        show.legend  = FALSE,
+        box.padding  = 0.4,
+        point.padding = 0.3,
+        force        = 2
+      ) +
+      scale_color_manual(values = c(
+        "Up in T2D"   = pal$brown_red,
+        "Down in T2D" = pal$dark_teal,
+        "NS"          = "grey70"
+      )) +
+      labs(title    = ct,
+           subtitle = paste0(n_genes, " genes tested"),
+           x        = "log2FC (T2D vs LC)",
+           y        = "-log10(adj. p)",
+           color    = NULL) +
+      theme_bw(base_size = 11) +
+      theme(legend.position = "top",
+            plot.title      = element_text(face = "bold", size = 11, color = pal$ink_black),
+            plot.subtitle   = element_text(size = 8, color = "#555"))
+  }
+  
+  cell_types <- unique(results_all$cell_type)
+  plot_list  <- lapply(cell_types, function(ct) {
+    df <- results_all %>% dplyr::filter(cell_type == ct)
+    make_volcano(df, ct)
+  })
+  names(plot_list) <- cell_types
+  
+  n_cols <- 3
+  wrap_plots(plot_list, ncol = n_cols) +
+    plot_annotation(
+      title    = "Limma-voom: T2D vs. Lean Control by Cell Type",
+      subtitle = "adj.P.Val < 0.05, |logFC| > 1  |  Red = Up in T2D, Teal = Down in T2D",
+      theme    = theme(plot.title    = element_text(face = "bold", size = 16, color = pal$ink_black),
+                       plot.subtitle = element_text(size = 11, color = "#555"))
+    )
+}
+```
+
+# GSEA — Reactome {background-color="#a53860" color="white"}
+
+```{r gsea-load}
+# ── Load pre-computed GSEA results ────────────────────────────────────────────
+gsea_file <- file.path(dir_results, "gsea_reactome_T2DvsLC_allcelltypes.csv")
+
+gsea_results_list <- list()
+
+if (file.exists(gsea_file)) {
+  gsea_all <- read.csv(gsea_file)
+  gsea_results_list <- split(gsea_all, gsea_all$cell_type)
+} else {
+  cat("GSEA results file not found at:", gsea_file)
+}
+```
+
+## GSEA Summary
+
+```{r gsea-summary-table}
+if (exists("gsea_results_list") && length(gsea_results_list) > 0) {
+  
+  gsea_summary <- dplyr::bind_rows(gsea_results_list) %>%
+    dplyr::group_by(cell_type) %>%
+    dplyr::summarise(
+      Pathways_Tested = dplyr::n(),
+      Sig_Up          = sum(padj < 0.05 & NES > 0, na.rm = TRUE),
+      Sig_Down        = sum(padj < 0.05 & NES < 0, na.rm = TRUE),
+      .groups         = "drop"
+    ) %>%
+    dplyr::mutate(Total_Sig = Sig_Up + Sig_Down) %>%
+    dplyr::arrange(dplyr::desc(Total_Sig))
+  
+  kable(gsea_summary,
+        col.names = c("Cell Type", "Pathways Tested", "Up in T2D", "Down in T2D", "Total Sig"),
+        align = "lrrrr") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    row_spec(0, bold = TRUE, color = "white", background = pal$dark_teal)
+}
+```
+
+## All Cell Types — GSEA Overview
+
+```{r gsea-all, fig.width=14, fig.height=10}
+if (exists("gsea_results_list") && length(gsea_results_list) > 0) {
+  
+  make_gsea_bar <- function(gsea_df, ct, n_show = 20) {
+    sig_paths <- gsea_df %>%
+      dplyr::filter(padj < 0.05)
+    
+    if (nrow(sig_paths) < 3) {
+      sig_paths <- gsea_df %>%
+        dplyr::arrange(pval) %>%
+        dplyr::slice_head(n = n_show)
+    } else {
+      top_up <- sig_paths %>%
+        dplyr::filter(NES > 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      top_down <- sig_paths %>%
+        dplyr::filter(NES < 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      sig_paths <- dplyr::bind_rows(top_up, top_down)
+    }
+    
+    if (nrow(sig_paths) == 0) {
+      return(
+        ggplot() +
+          annotate("text", x = 0.5, y = 0.5, label = paste0(ct, "\nNo pathways"),
+                   size = 3, color = "grey50") +
+          theme_void() +
+          labs(title = ct) +
+          theme(plot.title = element_text(face = "bold", size = 9))
+      )
+    }
+    
+    sig_paths <- sig_paths %>%
+      dplyr::mutate(
+        pathway_short = gsub("^REACTOME_", "", pathway),
+        pathway_short = gsub("_", " ", pathway_short),
+        pathway_short = stringr::str_to_title(pathway_short),
+        pathway_short = stringr::str_trunc(pathway_short, 45),
+        direction     = ifelse(NES > 0, "Up in T2D", "Down in T2D")
+      )
+    
+    ggplot(sig_paths, aes(x = reorder(pathway_short, NES), y = NES, fill = direction)) +
+      geom_col(width = 0.7) +
+      coord_flip() +
+      scale_fill_manual(values = c("Up in T2D" = pal$brown_red, "Down in T2D" = pal$dark_teal)) +
+      labs(title = ct, x = NULL, y = "NES", fill = NULL) +
+      theme_bw(base_size = 7) +
+      theme(
+        legend.position = "top",
+        plot.title      = element_text(face = "bold", size = 9, color = pal$ink_black),
+        axis.text.y     = element_text(size = 6)
+      )
+  }
+  
+  gsea_plot_list <- lapply(names(gsea_results_list), function(ct) {
+    make_gsea_bar(gsea_results_list[[ct]], ct, n_show = 10)
+  })
+  names(gsea_plot_list) <- names(gsea_results_list)
+  
+  n_cols <- 3
+  wrap_plots(gsea_plot_list, ncol = n_cols) +
+    plot_annotation(
+      title    = "Reactome GSEA: T2D vs. Lean Control by Cell Type",
+      subtitle = "Top pathways by adj. p-value  |  Red = Up in T2D, Teal = Down in T2D",
+      theme    = theme(plot.title    = element_text(face = "bold", size = 14, color = pal$ink_black),
+                       plot.subtitle = element_text(size = 10, color = "#555"))
+    )
+}
+```
+
+## Summary Aim 1.1: Identify diabetes-driven transcriptional signatures in kidney organoids
+
+```{r cell-type-table}
+results_file <- file.path(dir_results, "Organoid Limma T2D vs. LC","limma_T2DvsLC_allcelltypes.csv")
+
+if (file.exists(results_file)) {
+  results_all <- read.csv(results_file)
+  
+  summary_tbl <- results_all %>%
+    dplyr::group_by(cell_type) %>%
+    dplyr::summarise(
+      Total_Genes_Tested = dplyr::n(),
+      Up_in_T2D          = sum(sig == "Up in T2D",   na.rm = TRUE),
+      Down_in_T2D        = sum(sig == "Down in T2D", na.rm = TRUE),
+      .groups            = "drop"
+    ) %>%
+    dplyr::mutate(Total_DEGs = Up_in_T2D + Down_in_T2D) %>%
+    dplyr::arrange(dplyr::desc(Total_DEGs))
+  
+  kable(summary_tbl,
+        col.names = c("Cell Type", "Genes Tested", "Up in T2D", "Down in T2D", "Total DEGs"),
+        align = "lrrrr") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    row_spec(0, bold = TRUE, color = "white", background = pal$dark_teal)
+} else {
+  cat("Results file not found at:", results_file)
+}
+```
+
+# Treatment Effect (30mM vs 15mM) {background-color="#a53860" color="white"}
+
+```{r trt-load}
+# ── Load pre-computed treatment effect results ────────────────────────────────
+trt_results_file <- file.path(dir_results, "limma_TreatmentEffect_allcelltypes.csv")
+trt_gsea_file    <- file.path(dir_results, "gsea_reactome_TreatmentEffect_allcelltypes.csv")
+
+if (file.exists(trt_results_file)) {
+  results_all_trt <- read.csv(trt_results_file)
+} else {
+  cat("Treatment DEG results not found at:", trt_results_file)
+}
+
+gsea_results_list_trt <- list()
+if (file.exists(trt_gsea_file)) {
+  gsea_all_trt <- read.csv(trt_gsea_file)
+  gsea_results_list_trt <- split(gsea_all_trt, gsea_all_trt$cell_type)
+} else {
+  cat("Treatment GSEA results not found at:", trt_gsea_file)
+}
+```
+
+## Treatment Effect — DEG Summary
+
+```{r trt-deg-table}
+if (exists("results_all_trt")) {
+  trt_summary <- results_all_trt %>%
+    dplyr::group_by(cell_type) %>%
+    dplyr::summarise(
+      Total_Genes_Tested = dplyr::n(),
+      Up_in_30mM         = sum(sig == "Up in 30mM",   na.rm = TRUE),
+      Down_in_30mM       = sum(sig == "Down in 30mM", na.rm = TRUE),
+      .groups            = "drop"
+    ) %>%
+    dplyr::mutate(Total_DEGs = Up_in_30mM + Down_in_30mM) %>%
+    dplyr::arrange(dplyr::desc(Total_DEGs))
+  
+  kable(trt_summary,
+        col.names = c("Cell Type", "Genes Tested", "Up in 30mM", "Down in 30mM", "Total DEGs"),
+        align = "lrrrr") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    row_spec(0, bold = TRUE, color = "white", background = pal$dark_teal)
+}
+```
+
+## Treatment Effect — Volcano Overview
+
+```{r trt-volcano-all, fig.width=18, fig.height=14}
+if (exists("results_all_trt")) {
+  
+  make_volcano_trt <- function(df, ct) {
+    top_up <- df %>%
+      dplyr::filter(sig == "Up in 30mM") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::slice_head(n = 10)
+    
+    top_down <- df %>%
+      dplyr::filter(sig == "Down in 30mM") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::slice_head(n = 10)
+    
+    top_genes <- dplyr::bind_rows(top_up, top_down)
+    
+    if (nrow(top_genes) == 0) {
+      top_genes <- df %>%
+        dplyr::arrange(P.Value) %>%
+        dplyr::slice_head(n = 10)
+    }
+    
+    n_genes <- format(nrow(df), big.mark = ",")
+    
+    ggplot(df, aes(x = logFC, y = -log10(adj.P.Val), color = sig)) +
+      geom_point(alpha = 0.5, size = 1.5) +
+      geom_label_repel(
+        data          = top_genes,
+        aes(label     = gene),
+        size          = 3,
+        max.overlaps  = 25,
+        show.legend   = FALSE,
+        box.padding   = 0.4,
+        point.padding = 0.3,
+        force         = 2
+      ) +
+      scale_color_manual(values = c(
+        "Up in 30mM"   = pal$brown_red,
+        "Down in 30mM" = pal$dark_teal,
+        "NS"           = "grey70"
+      )) +
+      labs(title    = ct,
+           subtitle = paste0(n_genes, " genes tested"),
+           x        = "log2FC (30mM vs 15mM)",
+           y        = "-log10(adj. p)",
+           color    = NULL) +
+      theme_bw(base_size = 11) +
+      theme(legend.position = "top",
+            plot.title      = element_text(face = "bold", size = 11, color = pal$ink_black),
+            plot.subtitle   = element_text(size = 8, color = "#555"))
+  }
+  
+  cell_types_trt <- unique(results_all_trt$cell_type)
+  plot_list_trt  <- lapply(cell_types_trt, function(ct) {
+    df <- results_all_trt %>% dplyr::filter(cell_type == ct)
+    make_volcano_trt(df, ct)
+  })
+  names(plot_list_trt) <- cell_types_trt
+  
+  n_cols <- 3
+  wrap_plots(plot_list_trt, ncol = n_cols) +
+    plot_annotation(
+      title    = "Limma-voom: Treatment Effect (30mM vs 15mM) by Cell Type",
+      subtitle = "adj.P.Val < 0.05, |logFC| > 1  |  Adjusted for T2D/LC group",
+      theme    = theme(plot.title    = element_text(face = "bold", size = 16, color = pal$ink_black),
+                       plot.subtitle = element_text(size = 11, color = "#555"))
+    )
+}
+```
+
+## Treatment Effect — GSEA Summary
+
+```{r trt-gsea-table}
+if (exists("gsea_results_list_trt") && length(gsea_results_list_trt) > 0) {
+  
+  trt_gsea_summary <- dplyr::bind_rows(gsea_results_list_trt) %>%
+    dplyr::group_by(cell_type) %>%
+    dplyr::summarise(
+      Pathways_Tested = dplyr::n(),
+      Sig_Up          = sum(padj < 0.05 & NES > 0, na.rm = TRUE),
+      Sig_Down        = sum(padj < 0.05 & NES < 0, na.rm = TRUE),
+      .groups         = "drop"
+    ) %>%
+    dplyr::mutate(Total_Sig = Sig_Up + Sig_Down) %>%
+    dplyr::arrange(dplyr::desc(Total_Sig))
+  
+  kable(trt_gsea_summary,
+        col.names = c("Cell Type", "Pathways Tested", "Up in 30mM", "Down in 30mM", "Total Sig"),
+        align = "lrrrr") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    row_spec(0, bold = TRUE, color = "white", background = pal$dark_teal)
+}
+```
+
+## Treatment Effect — GSEA Overview
+
+```{r trt-gsea-all, fig.width=14, fig.height=10}
+if (exists("gsea_results_list_trt") && length(gsea_results_list_trt) > 0) {
+  
+  make_gsea_bar_trt <- function(gsea_df, ct, n_show = 20) {
+    sig_paths <- gsea_df %>%
+      dplyr::filter(padj < 0.05)
+    
+    if (nrow(sig_paths) < 3) {
+      sig_paths <- gsea_df %>%
+        dplyr::arrange(pval) %>%
+        dplyr::slice_head(n = n_show)
+    } else {
+      top_up <- sig_paths %>%
+        dplyr::filter(NES > 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      top_down <- sig_paths %>%
+        dplyr::filter(NES < 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      sig_paths <- dplyr::bind_rows(top_up, top_down)
+    }
+    
+    if (nrow(sig_paths) == 0) {
+      return(
+        ggplot() +
+          annotate("text", x = 0.5, y = 0.5, label = paste0(ct, "\nNo pathways"),
+                   size = 3, color = "grey50") +
+          theme_void() +
+          labs(title = ct) +
+          theme(plot.title = element_text(face = "bold", size = 9))
+      )
+    }
+    
+    sig_paths <- sig_paths %>%
+      dplyr::mutate(
+        pathway_short = gsub("^REACTOME_", "", pathway),
+        pathway_short = gsub("_", " ", pathway_short),
+        pathway_short = stringr::str_to_title(pathway_short),
+        pathway_short = stringr::str_trunc(pathway_short, 45),
+        direction     = ifelse(NES > 0, "Up in 30mM", "Down in 30mM")
+      )
+    
+    ggplot(sig_paths, aes(x = reorder(pathway_short, NES), y = NES, fill = direction)) +
+      geom_col(width = 0.7) +
+      coord_flip() +
+      scale_fill_manual(values = c("Up in 30mM" = pal$brown_red, "Down in 30mM" = pal$dark_teal)) +
+      labs(title = ct, x = NULL, y = "NES", fill = NULL) +
+      theme_bw(base_size = 7) +
+      theme(
+        legend.position = "top",
+        plot.title      = element_text(face = "bold", size = 9, color = pal$ink_black),
+        axis.text.y     = element_text(size = 6)
+      )
+  }
+  
+  gsea_plot_list_trt <- lapply(names(gsea_results_list_trt), function(ct) {
+    make_gsea_bar_trt(gsea_results_list_trt[[ct]], ct, n_show = 10)
+  })
+  names(gsea_plot_list_trt) <- names(gsea_results_list_trt)
+  
+  n_cols <- 3
+  wrap_plots(gsea_plot_list_trt, ncol = n_cols) +
+    plot_annotation(
+      title    = "Reactome GSEA: Treatment Effect (30mM vs 15mM) by Cell Type",
+      subtitle = "Top pathways by adj. p-value  |  Red = Up in 30mM, Teal = Down in 30mM",
+      theme    = theme(plot.title    = element_text(face = "bold", size = 14, color = pal$ink_black),
+                       plot.subtitle = element_text(size = 10, color = "#555"))
+    )
+}
+```
+
+## Treatment Effect — Per Cell Type {.scrollable}
+
+```{r trt-per-celltype, fig.width=14, fig.height=6, results='asis'}
+if (exists("results_all_trt") && exists("gsea_results_list_trt") &&
+    exists("make_volcano_trt") && exists("make_gsea_bar_trt")) {
+  
+  for (ct in unique(results_all_trt$cell_type)) {
+    
+    cat("\n\n## ", ct, " — Treatment Effect {.scrollable}\n\n", sep = "")
+    
+    p_volc <- make_volcano_trt(results_all_trt %>% dplyr::filter(cell_type == ct), ct)
+    
+    if (ct %in% names(gsea_results_list_trt)) {
+      p_gsea <- make_gsea_bar_trt(gsea_results_list_trt[[ct]], ct, n_show = 20) +
+        labs(title = paste0("Reactome GSEA — ", ct)) +
+        theme(axis.text.y = element_text(size = 7))
+    } else {
+      p_gsea <- ggplot() +
+        annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+                 size = 4, color = "grey50") +
+        theme_void()
+    }
+    
+    combined <- p_volc + p_gsea +
+      plot_layout(widths = c(1, 1.2)) +
+      plot_annotation(
+        title = paste0(ct, " — 30mM vs 15mM"),
+        theme = theme(plot.title = element_text(face = "bold", size = 14, color = pal$ink_black))
+      )
+    
+    print(combined)
+    cat("\n\n")
+  }
+}
+```
+
+# Interaction — Group × Treatment {background-color="#a53860" color="white"}
+
+```{r interaction-load}
+# ── Load pre-computed interaction results ─────────────────────────────────────
+int_results_file <- file.path(dir_results, "limma_Interaction_allcelltypes.csv")
+emm_results_file <- file.path(dir_results, "limma_InteractionModel_EMM_allcelltypes.csv")
+gsea_int_file    <- file.path(dir_results, "gsea_reactome_Interaction_allcelltypes.csv")
+
+results_all_int <- if (file.exists(int_results_file)) read.csv(int_results_file) else NULL
+emm_all         <- if (file.exists(emm_results_file)) read.csv(emm_results_file) else NULL
+
+gsea_int_list <- list()
+if (file.exists(gsea_int_file)) {
+  gsea_int_all  <- read.csv(gsea_int_file)
+  gsea_int_list <- split(gsea_int_all, gsea_int_all$cell_type)
+}
+```
+
+## Interaction — Summary
+
+```{r int-summary-table}
+if (!is.null(results_all_int)) {
+  int_summary <- results_all_int %>%
+    dplyr::group_by(cell_type) %>%
+    dplyr::summarise(
+      Total_Genes = dplyr::n(),
+      Sig_Pos     = sum(sig == "Sig Positive", na.rm = TRUE),
+      Sig_Neg     = sum(sig == "Sig Negative", na.rm = TRUE),
+      .groups     = "drop"
+    ) %>%
+    dplyr::mutate(Total_Sig = Sig_Pos + Sig_Neg) %>%
+    dplyr::arrange(dplyr::desc(Total_Sig))
+  
+  kable(int_summary,
+        col.names = c("Cell Type", "Genes Tested", "Sig Positive", "Sig Negative", "Total Sig"),
+        align = "lrrrr",
+        caption = "Interaction term: does the T2D vs LC difference change with glucose treatment?") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    row_spec(0, bold = TRUE, color = "white", background = pal$dark_teal)
+}
+```
+
+## Interaction GSEA — Overview
+
+```{r int-gsea-all, fig.width=14, fig.height=10}
+if (length(gsea_int_list) > 0) {
+  
+  make_gsea_bar_int <- function(gsea_df, ct, n_show = 20) {
+    sig_paths <- gsea_df %>%
+      dplyr::filter(padj < 0.05)
+    
+    if (nrow(sig_paths) < 3) {
+      sig_paths <- gsea_df %>%
+        dplyr::arrange(pval) %>%
+        dplyr::slice_head(n = n_show)
+    } else {
+      top_up <- sig_paths %>%
+        dplyr::filter(NES > 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      top_down <- sig_paths %>%
+        dplyr::filter(NES < 0) %>%
+        dplyr::arrange(padj) %>%
+        dplyr::slice_head(n = ceiling(n_show / 2))
+      
+      sig_paths <- dplyr::bind_rows(top_up, top_down)
+    }
+    
+    if (nrow(sig_paths) == 0) {
+      return(
+        ggplot() +
+          annotate("text", x = 0.5, y = 0.5, label = paste0(ct, "\nNo pathways"),
+                   size = 3, color = "grey50") +
+          theme_void() +
+          labs(title = ct) +
+          theme(plot.title = element_text(face = "bold", size = 9))
+      )
+    }
+    
+    sig_paths <- sig_paths %>%
+      dplyr::mutate(
+        pathway_short = gsub("^REACTOME_", "", pathway),
+        pathway_short = gsub("_", " ", pathway_short),
+        pathway_short = stringr::str_to_title(pathway_short),
+        pathway_short = stringr::str_trunc(pathway_short, 45),
+        direction     = ifelse(NES > 0, "T2D > LC response", "LC > T2D response")
+      )
+    
+    ggplot(sig_paths, aes(x = reorder(pathway_short, NES), y = NES, fill = direction)) +
+      geom_col(width = 0.7) +
+      coord_flip() +
+      scale_fill_manual(values = c("T2D > LC response" = pal$brown_red,
+                                   "LC > T2D response" = pal$dark_teal)) +
+      labs(title = ct, x = NULL, y = "NES", fill = NULL) +
+      theme_bw(base_size = 7) +
+      theme(
+        legend.position = "top",
+        plot.title      = element_text(face = "bold", size = 9, color = pal$ink_black),
+        axis.text.y     = element_text(size = 6)
+      )
+  }
+  
+  gsea_int_plots <- lapply(names(gsea_int_list), function(ct) {
+    make_gsea_bar_int(gsea_int_list[[ct]], ct, n_show = 10)
+  })
+  names(gsea_int_plots) <- names(gsea_int_list)
+  
+  n_cols <- 3
+  wrap_plots(gsea_int_plots, ncol = n_cols) +
+    plot_annotation(
+      title    = "Reactome GSEA on Interaction Term (Group × Treatment)",
+      subtitle = "Positive NES = stronger glucose response in T2D · Negative NES = stronger in LC",
+      theme    = theme(plot.title    = element_text(face = "bold", size = 14, color = pal$ink_black),
+                       plot.subtitle = element_text(size = 10, color = "#555"))
+    )
+}
+```
+
+# Per Cell Type — GSEA + EMM Heatmap {background-color="#a53860" color="white"}
+
+```{r int-per-celltype, fig.width=14, fig.height=8, results='asis'}
+library(pheatmap)
+
+if (!is.null(results_all_int) && !is.null(emm_all)) {
+  
+  for (ct in unique(results_all_int$cell_type)) {
+    
+    # ── Slide 1: GSEA bar plot ──────────────────────────────────────────────
+    if (ct %in% names(gsea_int_list)) {
+      cat("\n\n## ", ct, " — Interaction GSEA {.scrollable}\n\n", sep = "")
+      
+      p_gsea <- make_gsea_bar_int(gsea_int_list[[ct]], ct, n_show = 20) +
+        labs(title = paste0("Interaction GSEA — ", ct)) +
+        theme(axis.text.y = element_text(size = 8))
+      print(p_gsea)
+      
+      cat("\n\n")
+    }
+    
+    # ── Slide 2: EMM Heatmap ────────────────────────────────────────────────
+    int_ct <- results_all_int %>%
+      dplyr::filter(cell_type == ct)
+    
+    sig_genes <- int_ct %>%
+      dplyr::filter(sig != "NS") %>%
+      dplyr::arrange(adj.P.Val) %>%
+      dplyr::pull(gene)
+    
+    if (length(sig_genes) < 10) {
+      top_by_p <- int_ct %>%
+        dplyr::filter(!gene %in% sig_genes) %>%
+        dplyr::arrange(P.Value) %>%
+        dplyr::slice_head(n = 30 - length(sig_genes)) %>%
+        dplyr::pull(gene)
+      sig_genes <- c(sig_genes, top_by_p)
+    }
+    
+    sig_genes <- head(sig_genes, 50)
+    
+    emm_ct <- emm_all %>%
+      dplyr::filter(cell_type == ct, gene %in% sig_genes)
+    
+    if (nrow(emm_ct) > 0) {
+      cat("\n\n## ", ct, " — EMM Heatmap {.scrollable}\n\n", sep = "")
+      
+      emm_mat <- emm_ct %>%
+        dplyr::select(gene, LC_15mM_EMM, LC_30mM_EMM, T2D_15mM_EMM, T2D_30mM_EMM) %>%
+        tibble::column_to_rownames("gene") %>%
+        as.matrix()
+      
+      colnames(emm_mat) <- c("LC 15mM", "LC 30mM", "T2D 15mM", "T2D 30mM")
+      emm_scaled <- t(scale(t(emm_mat)))
+      
+      col_anno <- data.frame(
+        Group   = c("LC", "LC", "T2D", "T2D"),
+        Glucose = c("15mM", "30mM", "15mM", "30mM"),
+        row.names = colnames(emm_scaled)
+      )
+      
+      anno_colors <- list(
+        Group   = c("LC" = pal$dark_teal, "T2D" = pal$brown_red),
+        Glucose = c("15mM" = pal$pearl_aqua, "30mM" = pal$golden_orange)
+      )
+      
+      n_genes_hm <- nrow(emm_scaled)
+      fontsize_row <- if (n_genes_hm > 40) 5 else if (n_genes_hm > 25) 6 else 7
+      
+      n_sig <- sum(int_ct$sig != "NS")
+      hm_subtitle <- if (n_sig > 0) {
+        paste0(n_sig, " sig interaction genes + top by p-value (", n_genes_hm, " total)")
+      } else {
+        paste0("Top ", n_genes_hm, " genes by interaction p-value (none adj.P < 0.05)")
+      }
+      
+      p_hm <- pheatmap(
+        emm_scaled,
+        cluster_cols      = FALSE,
+        cluster_rows      = TRUE,
+        show_rownames     = TRUE,
+        show_colnames     = TRUE,
+        fontsize_row      = fontsize_row,
+        fontsize_col      = 10,
+        annotation_col    = col_anno,
+        annotation_colors = anno_colors,
+        color             = colorRampPalette(c(pal$dark_teal, "white", pal$brown_red))(100),
+        border_color      = NA,
+        main              = paste0(ct, " — Estimated Marginal Means (z-scored)\n", hm_subtitle),
+        silent            = TRUE
+      )
+      
+      grid::grid.newpage()
+      grid::grid.draw(p_hm$gtable)
+      
+      cat("\n\n")
+    }
+  }
+}
+```

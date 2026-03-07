@@ -305,6 +305,7 @@ baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
   TRUE == NA_real_
 )
 baserisk <- full_join(baserisk, base_lipo, by = "releaseid")
+baserisk$homa_ir <- (baserisk$ins0min * baserisk$glu0min) / 405
   
 # Save
 save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
@@ -363,7 +364,7 @@ VISIT_keep$bsa_dubois <- 0.007184 * (VISIT_keep$height^0.725) * (VISIT_keep$weig
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
 CBL$visit <- CBL$mvisit
-CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c,ALT,AST)
+CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c,ALT,AST,glu0min)
 CBL_keep <- CBL_keep %>% filter(!visit=="R")
 CBL_keep$trig <- CBL_keep$Trig
 CBL_keep$Trig <- NULL
@@ -398,7 +399,7 @@ VISIT_TODAY2_KEEP$bsa_dubois <- 0.007184 * (VISIT_TODAY2_KEEP$height^0.725) * (V
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
 CBL_TODAY2$visit <- CBL_TODAY2$pvisit
 CBL_TODAY2$ins0min <- CBL_TODAY2$ins
-CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c, alt, ast)
+CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c, alt, ast, glu0min)
 
 # TODAY2 DXA - no DXA in TODAY2
 
@@ -431,6 +432,7 @@ long$visit_num <- as.numeric(str_sub(long$visit,2,length(long$visit)))
 long$si_1_ins0 <- 1/long$ins0min
 long <- merge(long, fup_length, by = "releaseid", all.x = T, all.y = T)
 long <- full_join(long, lipo, by = c("releaseid", "visit"))
+long$homa_ir <- (long$ins0min * long$glu0min) / 405
 
 # length of follow-up
 long_unique <- long %>% select(releaseid, fup_years) %>% unique() 
