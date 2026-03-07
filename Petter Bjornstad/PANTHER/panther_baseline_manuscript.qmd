@@ -419,30 +419,51 @@ table_controls <- tableby.control(
 ## By risk
 
 ```{r include = F}
-# # identify UACR outliers/high UACRs
-# panther_uacr <- subset(panther, 
-#                        select = c(record_id, mrn, group_2, aer_24, u24_mab, u24_hrs, 
-#                                   acr_u, creatinine_u, microalbumin_u)) %>%
-#   arrange(desc(u24_mab))
-# 
-# panther_uacr$flag <- ifelse(panther_uacr$u24_mab > 20 & panther_uacr$acr_u > 30, "flag", "")
-# 
-# panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
-#   mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+# identify UACR outliers/high UACRs
+panther_uacr <- subset(panther,
+                       select = c(record_id, mrn, group, group_2, aer_24, u24_mab, u24_hrs,
+                                  acr_u, creatinine_u, microalbumin_u)) %>%
+  arrange(desc(u24_mab))
+
+lc_high_uacr <- panther_uacr %>%
+  filter(group == "Lean Control" & acr_u > 30) %>%
+  pull(record_id)
+
+panther_uacr$flag <- ifelse(panther_uacr$u24_mab > 20 & panther_uacr$acr_u > 30, "flag", "")
+
+panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
+  mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>%
+  dplyr::select(record_id, mrn, visit, group, u24_mab, acr_u, creatinine_u, microalbumin_u)
+
+panther_uacr_wide <- panther_uacr_2 %>%
+  filter(record_id %in% lc_high_uacr) %>%
+  pivot_wider(
+    id_cols = c(record_id, mrn, group),  # person ID and group
+    names_from = 3,     # visit variable (baseline, year_1, year_2)
+    values_from = 5:8   # the numeric columns
+  ) %>%
+  dplyr::select(where(~ !all(is.na(.x))))
+
+panther_uacr_wide %>%
+  dplyr::select(record_id, starts_with("acr_u"))
+
+# panther_uacr_wide <- harm_dat %>% filter(study == "PANTHER") %>%
+#   mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T ~ as.character(mrn))) %>%
 #   filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
 #   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
 #                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
 #                    .by = c(mrn, visit)) %>%
-#   dplyr::select(record_id, visit, group, u24_mab, acr_u, creatinine_u, microalbumin_u, creatinine_s)
-# 
-# panther_uacr_wide <- panther_uacr_2 %>%
-#   pivot_wider(
-#     id_cols = c(record_id, group),  # person ID and group
-#     names_from = 2,     # visit variable (baseline, year_1, year_2)
-#     values_from = 4:8   # the numeric columns
-#   ) %>%
-#   dplyr::select(where(~ !all(is.na(.x))))
-
+#   dplyr::select(record_id, mrn, visit, group, avg_c_t1) %>%
+  # pivot_wider(
+  #   id_cols = c(record_id, mrn, group),  # person ID and group
+  #   names_from = 3,     # visit variable (baseline, year_1, year_2)
+  #   values_from = 5:8   # the numeric columns
+  # ) %>%
+  # dplyr::select(where(~ !all(is.na(.x))))
 
 ```
 
@@ -451,11 +472,12 @@ table_controls <- tableby.control(
 kable(summary(tableby(group_risk ~ age + sex + group_2 + race_ethnicity_condensed + height + weight + 
                         bmi +  bmiz + bmip + sbp + dbp +  hba1c + 
                         eGFR_fas_cr + eGFR_fas_cr_cysc + eGFR_CKiD_U25_avg + 
-                        kwt(acr_u, "medianq1q3") + fe(uacr_cat) + kwt(u24_mab, "medianq1q3") + 
+                        # kwt(acr_u, "medianq1q3") + fe(uacr_cat) + 
+                        kwt(u24_mab, "medianq1q3") + # μg/min
                         gotast_base + gptalt_base +  
                         fe(metformin_timepoint) + fe(insulin_med_timepoint) + fe(glp1_agonist_timepoint) + fe(sglti_timepoint), 
                       data = panther, 
-                      # control = table_controls,
+                      control = table_controls,
                       test = T), digits = 1))
 
 # chisq.test(table(panther$group_risk, panther$glp1_agonist_timepoint))
@@ -463,42 +485,6 @@ kable(summary(tableby(group_risk ~ age + sex + group_2 + race_ethnicity_condense
 # gtsummary::tbl_summary(panther, by = group_risk,
 #                        include = c(metformin_timepoint, insulin_med_timepoint, glp1_agonist_timepoint, sglti_timepoint)) %>%
 #   add_p(test = everything() ~ "chisq.test.no.correct")
-
-# people missing cystatin C and not creatinine
-subset(panther, is.na(panther$cystatin_c) & !is.na(panther$creatinine_s))
-subset(panther, is.na(eGFR_fas_cr_cysc))$cystatin_c
-subset(panther, is.na(eGFR_fas_cr_cysc))$creatinine_s
-subset(panther, is.na(eGFR_fas_cr_cysc))$age
-subset(panther, is.na(eGFR_fas_cr_cysc))$sex
-
-
-test <- panther %>%
-  mutate(qcr = floor(age),
-         qcr = case_when(qcr == 8 ~ 0.46,
-                         qcr == 9 ~ 0.49,
-                         qcr == 10 ~ 0.51,
-                         qcr == 11 ~ 0.53,
-                         qcr == 12 ~ 0.57,
-                         qcr == 13 ~ 0.59,
-                         qcr == 14 ~ 0.61,
-                         sex == "female" & qcr == 15 ~ 0.64,
-                         sex == "female" & qcr == 15 ~ 0.64,
-                         sex == "female" & qcr == 16 ~ 0.67,
-                         sex == "female" & qcr == 17 ~ 0.69,
-                         sex == "female" & qcr == 18 ~ 0.69,
-                         sex == "female" & qcr >= 19 ~ 0.70,
-                         
-                         sex == "male" & qcr == 15 ~ 0.72,
-                         sex == "male" & qcr == 16 ~ 0.78,
-                         sex == "male" & qcr == 17 ~ 0.82,
-                         sex == "male" & qcr == 18 ~ 0.85,
-                         sex == "male" & qcr == 19 ~ 0.88,
-                         sex == "male" & qcr > 19 ~ 0.90),
-         f1 = creatinine_s / qcr,
-         f3 = cystatin_c_s / 0.82,
-         egfr_calc = 107.3 / ((0.5 * f1) + (0.5 * f3))) %>%
-  dplyr::select(record_id, visit, age, sex, qcr, cystatin_c_s, creatinine_s, f1, f3, eGFR_fas_cr_cysc, egfr_calc)
-
 ```
 
 ```{r results = 'asis', echo = F}
@@ -537,15 +523,15 @@ subset(panther, is.na(cpeptide), select = c(mrn, visit, record_id, date, cpep_mi
 # By tanner stage
 summary(tableby(tanner_stage_comp_panther_cat ~ age + sex + group_2 + race_ethnicity_condensed + height + weight + 
                   bmi +  bmiz + bmip + sbp + dbp +  hba1c + 
-                  eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg + 
-                  kwt(acr_u, "medianq1q3") + uacr_cat + kwt(u24_mab, "medianq1q3") + 
+                   eGFR_fas_cr_cysc + eGFR_CKiD_U25_avg + 
+                  kwt(u24_mab, "medianq1q3") + 
                   gotast_base + gptalt_base + total_kidney_volume_ml + ht_adj_tkv + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + 
                   mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
                   ra + re + anova(rvr, digits = 3) + glomerular_pressure + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + 
                   kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score_calc + cpeptide + 
                   dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass,
                 data = subset(panther, !is.na(group_risk)), 
-                # control = table_controls, 
+                control = table_controls,
                 total = T, test = F, digits = 1))
 ```
 
@@ -1120,7 +1106,7 @@ dict_heat <- dict %>%
     gfr_raw_plasma = "mGFR",
     erpf_raw_plasma = "ERPF",
     erpf_bsa_plasma = "ERPF (BSA)",
-    eGFR_fas_cr = "eGFR (EKFC)",
+    eGFR_fas_cr_cysc = "eGFR - EKFC\n(CystC & Creat)",
     log_acr_u = "ln(UACR)",
     glomerular_pressure = "Glomerular\npressure",
     ra = "Afferent\nresistance",
@@ -1146,7 +1132,7 @@ dict_heat <- dict %>%
 corr_plot_modified_gg(
   panther,
   X = xvars,
-  Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma", "eGFR_fas_cr",
+  Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma", "eGFR_fas_cr_cysc",
         "log_acr_u", "glomerular_pressure", "ra", "re", "rvr"),
   dict = dict_heat,
   x_groups = list(
@@ -1270,328 +1256,68 @@ corr_plot_ver2(panther,
 
 
 ## Volcano plots for proteomics
-### Risk
-
-```{r echo = F}
-panther <- panther %>% arrange(record_id)
-# Look at differential expressed proteins (DEPs) between low and high risk in PANTHER
-# filter soma scan data to baseline data only and log transform
-soma_risk <- panther %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
-  dplyr::select(starts_with("seq"))
-y <- t(soma_risk)
-y <- log2(y)
-
-# Design matrix
-cond = as.factor(panther$group_risk)
-design_mat <- model.matrix(~0 + group_risk, data = panther)
-colnames(design_mat) = gsub("group_risk","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("High-Low"), levels = design_mat) # positive = higher expression in high risk grp
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res_risk <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res_risk$Target <- analytes$Target[match(rownames(res_risk), analytes$AptName)]
-res_risk$TargetFullName <- analytes$TargetFullName[match(rownames(res_risk), analytes$AptName)]
-kbl(head(res_risk, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_risk_save <- res_risk %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(Target, TargetFullName)) %>%
-  left_join(analytes, by = "AptName")
-
-EnhancedVolcano(res_risk_save,
-                lab = res_risk_save$Target,
-                x = 'logFC',
-                y = 'adj.P.Val',
-                title = paste0("High vs. Low Risk"),
-                subtitle = "",
-                pCutoff = 0.05,
-                FCcutoff = 0.75,
-                labFace = 'bold',
-                pointSize = 4,
-                labSize = 5,
-                drawConnectors = TRUE,
-                widthConnectors = 1.0,
-                colConnectors = 'black',
-                legendPosition=c(0.9,0.5),
-                boxedLabels = TRUE,
-                max.overlaps=30,
-                caption = "")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_risk_dep.jpeg"),
-#       width = 12, height = 10)
-
-```
-
-### Across Tanner stage 1-2 vs. 3-5
-
-```{r echo = F}
-soma <- panther %>%
-  filter(!is.na(tanner_stage_cat)) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
-  dplyr::select(starts_with("seq"))
-y <- t(soma)
-y <- log2(y)
-# Design matrix
-cond = as.factor(panther$tanner_stage_cat)
-panther <- panther %>% arrange(record_id)
-design_mat <- model.matrix(~0 + tanner_stage_cat, data = panther)
-colnames(design_mat) = gsub("tanner_stage_cat","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("III_V-I_II"), levels = design_mat) # positive = higher expression in TS 3-5
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res_ts <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res_ts$Target <- analytes$Target[match(rownames(res_ts), analytes$AptName)]
-res_ts$TargetFullName <- analytes$TargetFullName[match(rownames(res_ts), analytes$AptName)]
-kbl(head(res_ts, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_ts_save <- res_ts %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(Target, TargetFullName)) %>%
-  left_join(analytes, by = "AptName")
-
-EnhancedVolcano(res_ts_save,
-                lab = res_ts_save$Target,
-                x = 'logFC',
-                y = 'P.Value',
-                title = paste0("TS>=3 vs. TS<3 (with unadjusted p-values)"),
-                subtitle = "",
-                pCutoff = 0.05,
-                FCcutoff = 0.5,
-                labFace = 'bold',
-                pointSize = 4,
-                labSize = 5,
-                drawConnectors = TRUE,
-                widthConnectors = 1.0,
-                colConnectors = 'black',
-                legendPosition=c(0.9,0.5),
-                boxedLabels = TRUE,
-                max.overlaps=30,
-                caption = "")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_dep.jpeg"),
-#       width = 12, height = 10)
-```
-
-### Across Tanner stage 1-2 vs. 3-5 (High risk only)
-
-```{r echo = F}
-panther_high <- subset(panther, group_risk == "High")
-soma <- panther_high %>%
-  filter(!is.na(tanner_stage_cat)) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
-  dplyr::select(starts_with("seq"))
-y <- t(soma)
-y <- log2(y)
-# Design matrix
-cond = as.factor(panther_high$tanner_stage_cat)
-panther_high <- panther_high %>% arrange(record_id)
-design_mat <- model.matrix(~0 + tanner_stage_cat, data = panther_high)
-colnames(design_mat) = gsub("tanner_stage_cat","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("III_V-I_II"), levels = design_mat) # positive = higher expression in TS 3-5
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res_ts_high <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res_ts_high$Target <- analytes$Target[match(rownames(res_ts_high), analytes$AptName)]
-res_ts_high$TargetFullName <- analytes$TargetFullName[match(rownames(res_ts_high), analytes$AptName)]
-kbl(head(res_ts_high, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_ts_high_save <- res_ts_high %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(Target, TargetFullName)) %>%
-  left_join(analytes, by = "AptName")
-
-EnhancedVolcano(res_ts_high_save,
-                lab = res_ts_high_save$Target,
-                x = 'logFC',
-                y = 'P.Value',
-                title = paste0("TS>=3 vs. TS<3 (High risk only, with unadjusted p-values)"),
-                subtitle = "",
-                pCutoff = 0.05,
-                FCcutoff = 0.5,
-                labFace = 'bold',
-                pointSize = 4,
-                labSize = 5,
-                drawConnectors = TRUE,
-                widthConnectors = 1.0,
-                colConnectors = 'black',
-                legendPosition=c(0.9,0.5),
-                boxedLabels = TRUE,
-                max.overlaps=30,
-                caption = "")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_high_highrisk_dep.jpeg"),
-#       width = 12, height = 10)
-```
-### Across Tanner stage 1-2 vs. 3-5 (Low risk only)
-
-```{r echo = F}
-panther_low <- subset(panther, group_risk == "Low")
-soma <- panther_low %>%
-  filter(!is.na(tanner_stage_cat)) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
-  dplyr::select(starts_with("seq"))
-y <- t(soma)
-y <- log2(y)
-# Design matrix
-cond = as.factor(panther_low$tanner_stage_cat)
-panther_low <- panther_low %>% arrange(record_id)
-design_mat <- model.matrix(~0 + tanner_stage_cat, data = panther_low)
-colnames(design_mat) = gsub("tanner_stage_cat","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("III_V-I_II"), levels = design_mat) # positive = higher expression in TS 3-5
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res_ts_low <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res_ts_low$Target <- analytes$Target[match(rownames(res_ts_low), analytes$AptName)]
-res_ts_low$TargetFullName <- analytes$TargetFullName[match(rownames(res_ts_low), analytes$AptName)]
-kbl(head(res_ts_low, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_ts_low_save <- res_ts_low %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(Target, TargetFullName)) %>%
-  left_join(analytes, by = "AptName")
-
-EnhancedVolcano(res_ts_low_save,
-                lab = res_ts_low_save$Target,
-                x = 'logFC',
-                y = 'P.Value',
-                title = paste0("TS>=3 vs. TS<3 (Low risk only, with unadjusted p-values)"),
-                subtitle = "",
-                pCutoff = 0.05,
-                FCcutoff = 0.5,
-                labFace = 'bold',
-                pointSize = 4,
-                labSize = 5,
-                drawConnectors = TRUE,
-                widthConnectors = 1.0,
-                colConnectors = 'black',
-                legendPosition=c(0.9,0.5),
-                boxedLabels = TRUE,
-                max.overlaps=30,
-                caption = "")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_low_lowrisk_dep.jpeg"),
-#       width = 12, height = 10)
-```
-
-### Sex
-
-```{r echo = F}
-soma <- panther %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
-  dplyr::select(starts_with("seq"))
-y <- t(soma)
-y <- log2(y)
-# Design matrix
-panther <- panther %>% arrange(record_id)
-design_mat <- model.matrix(~0 + sex, data = panther)
-colnames(design_mat) = gsub("sex","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("male-female"), levels = design_mat) # positive = higher expression in males
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res_sex <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res_sex$Target <- analytes$Target[match(rownames(res_sex), analytes$AptName)]
-res_sex$TargetFullName <- analytes$TargetFullName[match(rownames(res_sex), analytes$AptName)]
-
-kbl(head(res_sex, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_sex_save <- res_sex %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(Target, TargetFullName)) %>%
-  left_join(analytes, by = "AptName")
-
-EnhancedVolcano(res_sex_save,
-                lab = res_sex_save$Target,
-                x = 'logFC',
-                y = 'P.Value',
-                title = paste0("Male vs. Female (with unadjusted p-values)"),
-                subtitle = "",
-                pCutoff = 0.05,
-                FCcutoff = 0.5,
-                labFace = 'bold',
-                pointSize = 4,
-                labSize = 5,
-                drawConnectors = TRUE,
-                widthConnectors = 1.0,
-                colConnectors = 'black',
-                legendPosition=c(0.9,0.5),
-                boxedLabels = TRUE,
-                max.overlaps=30,
-                caption = "")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_sex_dep.jpeg"),
-#       width = 12, height = 10)
-```
 
 ### Correlation w/ key parameters shown to change with puberty above (in heatmaps)
 
 ```{r echo = F}
-plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
-                             identify_manual = NULL,
-                             fc.cutoff = 1,
-                             label_apt = F, pt.size = 8, text.size = 20,
-                             cutoff = 0.05/nrow(data),
-                             sig_fc_pos_lab = "Significant & Fold-Change (+)",
-                             sig_fc_neg_lab = "Significant & Fold-Change (-)",
-                             sig_lab = "Significant",
-                             fc_lab = "Fold-Change",
-                             ns_lab = "Non-Significant",
-                             sig_fc_pos_lab_col = "#f28482",
-                             sig_fc_neg_lab_col = "#8ecae6",
-                             sig_lab_col = "#f6bd60",
-                             fc_lab_col = "#84a59d",
-                             ns_lab_col = "#dad7cd",
-                             main = NULL, x.lab = NULL, ...)
-{
-  .fc <- enquo(FC)
-  .p <- enquo(p.value)
+plotVolcano_mod <- function(data, FC, p.value, labels,
+                            identify = FALSE,
+                            label_apt = FALSE,
+                            identify_manual = NULL,
+                            fc.cutoff = 0,
+                            pt.size = 4, text.size = 10, title.size = 20,
+                            cutoff = 0.05,
+                            expansion.left = 0.25,
+                            expansion.right = 0.25, 
+                            sig_fc_pos_lab = "Significant & Fold-Change (+)",
+                            sig_fc_neg_lab = "Significant & Fold-Change (-)",
+                            ns_lab = "Non-Significant",
+                            sig_fc_pos_col = "#f28482",
+                            sig_fc_neg_col = "#8ecae6",
+                            ns_col = "#dad7cd",
+                            main = "Volcano Plot of Significant Fold Changes",
+                            x.lab = NULL) {
+
+  .fc    <- enquo(FC)
+  .p     <- enquo(p.value)
   .label <- enquo(labels)
-  
+
   if (all(pull(data, !!.fc) >= 0)) {
     warning("It appears you are not passing log2-transformed ",
             "fold-change values. Please check.", call. = FALSE)
   }
-  if (is.null(main)) {
-    main <- "Volcano Plot of Significant Fold Changes"
-  }
+
   if (is.null(x.lab)) {
     x.lab <- bquote(italic(log)[2] ~ (Fold ~ Change))
   }
   y.lab <- bquote(-italic(log)[10] ~ (p - value))
-  plot_df <- dplyr::mutate(data,
-                           group_2 = case_when((-log10(!!.p) >= -log10(cutoff)) &
-                                                 (abs(!!.fc) >= fc.cutoff & !!.fc > 0) ~
-                                                 sig_fc_pos_lab,
-                                               (-log10(!!.p) >= -log10(cutoff)) &
-                                                 (abs(!!.fc) >= fc.cutoff & !!.fc < 0) ~
-                                                 sig_fc_neg_lab,
-                                               -log10(!!.p) >= -log10(cutoff) ~
-                                                 sig_lab, abs(!!.fc) >= fc.cutoff ~
-                                                 fc_lab,
-                                               TRUE ~ ns_lab),
-                           type = grepl(paste0("^", sig_lab, "|Significant"), group_2))
-  
-  create_col_vector <- function(label_values, colors) {
-    cols <- setNames(colors, label_values)
-    return(cols)
-  }
-  
-  label_values = c(ns_lab, fc_lab, sig_lab, sig_fc_pos_lab, sig_fc_neg_lab)
-  label_colors = c(ns_lab_col, fc_lab_col, sig_lab_col, sig_fc_pos_lab_col, sig_fc_neg_lab_col)
-  cols <- create_col_vector(label_values, label_colors)
-  
-  p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group_2)) +
-    geom_point(alpha = 0.5, size = pt.size) +
+
+  # --- Classify into 3 groups
+  plot_df <- dplyr::mutate(
+    data,
+    group = case_when(
+      (!!.p < cutoff) & (!!.fc >= fc.cutoff)  ~ sig_fc_pos_lab,
+      (!!.p < cutoff) & (!!.fc < -fc.cutoff)  ~ sig_fc_neg_lab,
+      TRUE                                     ~ ns_lab
+    ),
+    significant = group != ns_lab,
+    labeled = significant & (!!.label %in% identify_manual),
+    pt_size = case_when(
+      labeled     ~ pt.size * 2.3,
+      significant ~ pt.size * 1,
+      TRUE        ~ pt.size * 0.8
+    )
+  )
+
+  cols <- c(
+    setNames(ns_col,         ns_lab),
+    setNames(sig_fc_pos_col, sig_fc_pos_lab),
+    setNames(sig_fc_neg_col, sig_fc_neg_lab)
+  )
+
+  p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group)) +
+    geom_point(aes(size = pt_size), alpha = 0.5) +
+    scale_size_identity() +
     scale_color_manual(values = cols, name = "") +
     labs(x = x.lab, y = y.lab, title = main) +
     geom_vline(xintercept = 0,
@@ -1599,63 +1325,147 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = F,
     geom_hline(yintercept = -log10(0.05),
                color = "grey50", linetype = "dashed", alpha = 0.75) +
     theme_soma() +
-    theme(text = element_text(size = text.size),
-          panel.grid = element_blank(),
-          plot.background = element_rect(color = "transparent")) +
-    NULL
-  
-  if (identify) { # Label ALL significant points
-    p <- p + geom_text_repel(data = dplyr::filter(plot_df, type),
-                             aes(label = !!.label),
-                             hjust = "inward",
-                             size = text.size,
-                             max.overlaps = Inf,
-                             color = "black",
-                             face = "bold")
-  }
-  if (!is.null(identify_manual) & label_apt) { # Label manually specified points only (with apt)
-    plot_df <- plot_df %>%
-      dplyr::mutate(label_col = rownames(plot_df))
-    p <- p + geom_point(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                        size = pt.size + 3, alpha = 0.3) +
-      geom_text_repel(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                      aes(label = label_col, color = group_2),
-                      hjust = "inward",
-                      size = text.size,
-                      max.overlaps = 20,
-                      color = "grey20",
-                      force_pull = -.002,
-                      force = 8)
+    theme(
+      text            = element_text(size = text.size),
+      plot.title      = element_text(hjust = 0.5),
+      title           = element_text(size = title.size, hjust = 0.5),
+      legend.text     = element_text(size = text.size + 5),
+      panel.grid      = element_blank(),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      legend.key = element_rect(fill = "transparent", color = NA)
+    ) +
+    guides(
+      size = "none",
+      color = guide_legend(override.aes = list(size = pt.size * 2))
+    )
+
+  # --- Label ALL significant points
+  if (!is.null(identify_manual)) {
+    label_df <- dplyr::filter(plot_df, labeled) %>%
+      dplyr::mutate(
+        neg_log_p = -log10(!!.p),
+        side      = ifelse(!!.fc < 0, "neg", "pos")
+      )
+
+    # Determine label text
+    if (label_apt) {
+      label_df <- dplyr::mutate(label_df, label_text = rownames(
+        dplyr::filter(plot_df, labeled)
+      ))
+    } else {
+      label_df <- dplyr::mutate(label_df, label_text = !!.label)
+    }
+
+    # Nudge distance inward from the point
+    x_range <- range(pull(plot_df, !!.fc), na.rm = TRUE)
+    nudge   <- diff(x_range) * 0.1
+
+    # Within each side, sort by y (descending) and spread labels evenly
+    # so they don't pile on top of each other
+    y_range <- range(-log10(pull(plot_df, !!.p)), na.rm = TRUE)
+    line_ht <- diff(y_range) * 0.04
     
-  }
-  if (!is.null(identify_manual) & !label_apt) { # Label manually specified points only (without apt)
+    label_df <- label_df %>%
+      dplyr::group_by(side) %>%
+      dplyr::arrange(desc(neg_log_p), .by_group = TRUE) %>%
+      dplyr::mutate(
+        rank     = dplyr::row_number(),
+        # Start at the y position of the most significant point in this group
+        label_y  = max(neg_log_p) - (rank - 1) * line_ht,
+        # Place label column inward from the most extreme point on each side
+        label_x  = ifelse(side == "neg",
+                          !!.fc - nudge,
+                          !!.fc + nudge),
+        hjust_val = ifelse(side == "neg", 1, 0)
+      ) %>%
+      dplyr::ungroup()
+
     p <- p +
-      geom_point(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                 size = pt.size + 3, alpha = 0.3) +
-      geom_text_repel(data = dplyr::filter(plot_df, !!.label %in% identify_manual),
-                      aes(label = !!.label, color = group_2),
-                      hjust = "inward",
-                      size = text.size,
-                      max.overlaps = 20,
-                      color = "grey20",
-                      force_pull = -.002,
-                      force = 8)
+      # Horizontal segment from label to point's x, then let the
+      # y difference show the connection
+      geom_segment(
+        data = label_df,
+        aes(x = label_x, y = label_y,
+            xend = !!.fc, yend = neg_log_p),
+        color = "grey60", linewidth = 0.25, alpha = 0.4
+      ) +
+      geom_text(
+        data = label_df,
+        aes(x = label_x, y = label_y,
+            label = label_text, hjust = hjust_val),
+        size  = text.size * 0.7,
+        color = "grey20",
+        vjust = 0.5
+      ) +
+      # Expand x-axis so labels aren't clipped
+      scale_x_continuous(expand = expansion(mult = c(expansion.left, expansion.right)))
   }
+  
+  # --- Label manually specified points
+  if (!is.null(identify_manual)) {
+    label_df <- dplyr::filter(plot_df, labeled) %>%
+      dplyr::mutate(
+        neg_log_p = -log10(!!.p),
+        side      = ifelse(!!.fc < 0, "neg", "pos")
+      )
+    
+    # Determine label text
+    if (label_apt) {
+      label_df <- dplyr::mutate(label_df, label_text = rownames(
+        dplyr::filter(plot_df, labeled)
+      ))
+    } else {
+      label_df <- dplyr::mutate(label_df, label_text = !!.label)
+    }
+    
+    # Nudge distance inward from the point
+    x_range <- range(pull(plot_df, !!.fc), na.rm = TRUE)
+    nudge   <- diff(x_range) * 0.1
+    
+    # Within each side, sort by y (descending) and spread labels evenly
+    # so they don't pile on top of each other
+    y_range <- range(-log10(pull(plot_df, !!.p)), na.rm = TRUE)
+    line_ht <- diff(y_range) * 0.04
+    
+    label_df <- label_df %>%
+      dplyr::group_by(side) %>%
+      dplyr::arrange(desc(neg_log_p)) %>%
+      dplyr::mutate(
+        rank     = dplyr::row_number(),
+        # Start stacking from the top of the y range
+        label_y  = max(neg_log_p) - (rank - 1) * line_ht,
+        # Place label column inward from the most extreme point on each side
+        label_x  = ifelse(side == "neg",
+                          !!.fc - nudge,
+                          !!.fc + nudge),
+        hjust_val = ifelse(side == "neg", 1, 0)
+      ) %>%
+      dplyr::ungroup()
+    
+    p <- p +
+      # Horizontal segment from label to point's x, then let the
+      # y difference show the connection
+      geom_segment(
+        data = label_df,
+        aes(x = label_x, y = label_y,
+            xend = !!.fc, yend = neg_log_p),
+        color = "grey60", linewidth = 0.25, alpha = 0.4
+      ) +
+      geom_text(
+        data = label_df,
+        aes(x = label_x, y = label_y,
+            label = label_text, hjust = hjust_val),
+        size  = text.size * 0.7,
+        color = "grey20",
+        vjust = 0.5
+      ) +
+      # Expand x-axis so labels aren't clipped
+      scale_x_continuous(expand = expansion(mult = c(expansion.left, expansion.right)))
+  }
+  
   p
-}
-# Heatmap tables (combined)
-ts_tbl <- function(x, columns = NULL){
-  gt(x)  %>%
-    data_color(columns = columns,
-               method = "numeric",
-               palette = c("#023e8a","#ade8f4",
-                           "#ffffff",
-                           "#ffe5ec","#d62828"),
-               domain = c(-0.8, -0.2,
-                          0,
-                          0.2, 0.8)) %>%
-    tab_options(column_labels.hidden = T) %>%
-    as_raw_html()
 }
 
 # Function to run linear models & extract significant proteins
@@ -1703,6 +1513,8 @@ pearson_cor_mat <- run_corr("gfr_raw_plasma", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   # filter(p.value < 0.05) %>%
   arrange(desc(abs(gfr_raw_plasma)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_mgfr.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1725,13 +1537,11 @@ mgfr_plot <- plotVolcano_mod(data = pearson_cor_mat,
                              cutoff = 0.05,
                              x.lab = "Correlation",
                              main = "mGFR",
-                             pt.size = 1.5,
-                             text.size = 5,
-                             fc_lab = "p > 0.05",
-                             fc_lab_col = "#dad7cd",
-                             sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                             sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/gfr_cor_plot.jpeg"), mgfr_plot,
+                             sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                             sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                             expansion.left = 0.15,
+                             expansion.right = 0.35)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/gfr_cor_plot.png"), mgfr_plot,
       width = 12, height = 10, bg = "transparent")
 ```
 
@@ -1747,6 +1557,8 @@ pearson_cor_mat <- run_corr("erpf_raw_plasma", analytes$AptName) %>%
   dplyr::mutate(direction = ifelse(erpf_raw_plasma < 0, "Negative", "Positive"),
                 Target_nodup = row.names(.))  %>%
   arrange(desc(abs(erpf_raw_plasma)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_erpf_raw.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1759,69 +1571,22 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
-                FC = erpf_raw_plasma,
-                p.value = p.value,
-                labels = Target,
-                identify = F,
-                identify_manual = top_10_correlations,
-                fc.cutoff = 0,
-                cutoff = 0.05,
-                x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$erpf_raw_plasma)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-# ggsave(file.path(root_path, "PANTHER/Results/Figures/erpf_cor_plot.jpeg"),
-#       width = 12, height = 10)
-```
-
-#### eGFR (CKD EPI)
-
-```{r echo = F}
-# Find significant lm results w/ eGFR_CKD_epi
-# tbl_lm_top <- run_lm("eGFR_CKD_epi")
-
-# Pearson correlations
-pearson_cor_mat <- run_corr("eGFR_CKD_epi", analytes$AptName) %>%
-  dplyr::select(eGFR_CKD_epi, p.value, Target) %>%
-  dplyr::mutate(direction = ifelse(eGFR_CKD_epi < 0, "Negative", "Positive"),
-                Target_nodup = row.names(.))  %>%
-  #filter(p.value < 0.05) %>%
-  arrange(desc(abs(eGFR_CKD_epi)))
-
-negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
-  filter(p.value < 0.05) %>%
-  filter(eGFR_CKD_epi < 0) %>%
-  distinct(Target, .keep_all = T)
-positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
-  filter(p.value < 0.05) %>%
-  filter(eGFR_CKD_epi > 0) %>%
-  distinct(Target, .keep_all = T)
-top_10_correlations <- c(negative_correlations$Target[1:10],
-                         positive_correlations$Target[1:10])
-
-plotVolcano_mod(data = pearson_cor_mat,
-                FC = eGFR_CKD_epi,
-                p.value = p.value,
-                labels = Target,
-                identify = F,
-                identify_manual = top_10_correlations,
-                fc.cutoff = 0,
-                cutoff = 0.05,
-                x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$eGFR_CKD_epi)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/egfr_cor_plot.jpeg"),
-       width = 12, height = 10)
+erpf_raw_plot <- plotVolcano_mod(data = pearson_cor_mat,
+                                 FC = erpf_raw_plasma,
+                                 p.value = p.value,
+                                 labels = Target,
+                                 identify = F,
+                                 identify_manual = top_10_correlations,
+                                 fc.cutoff = 0,
+                                 cutoff = 0.05,
+                                 x.lab = "Correlation",
+                                 main = "ERPF",
+                                 sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                                 sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                                 expansion.left = 0.15,
+                                 expansion.right = 0.45)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/erpf_cor_plot.png"), erpf_raw_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### PGLO
@@ -1837,6 +1602,8 @@ pearson_cor_mat <- run_corr("glomerular_pressure", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(glomerular_pressure)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_pglo.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1849,24 +1616,22 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
-                FC = glomerular_pressure,
-                p.value = p.value,
-                labels = Target,
-                identify = F,
-                identify_manual = top_10_correlations,
-                fc.cutoff = 0,
-                cutoff = 0.05,
-                x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$glomerular_pressure)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/pglo_cor_plot.jpeg"),
-       width = 12, height = 10)
+pglo_plot <- plotVolcano_mod(data = pearson_cor_mat,
+                             FC = glomerular_pressure,
+                             p.value = p.value,
+                             labels = Target,
+                             identify = F,
+                             identify_manual = top_10_correlations,
+                             fc.cutoff = 0,
+                             cutoff = 0.05,
+                             x.lab = "Correlation",
+                             main = "Glomerular Pressure",
+                             sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                             sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                             expansion.right = 0.45,
+                             expansion.left = 0.35)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/pglo_cor_plot.png"), pglo_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### RA
@@ -1882,6 +1647,8 @@ pearson_cor_mat <- run_corr("ra", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(ra)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_ra.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1894,7 +1661,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+ra_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = ra,
                 p.value = p.value,
                 labels = Target,
@@ -1903,15 +1670,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$ra)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/ra_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Afferent Resistance",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.35,
+                expansion.left = 0.5)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/ra_cor_plot.png"), ra_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### RVR
@@ -1927,6 +1692,8 @@ pearson_cor_mat <- run_corr("rvr", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(rvr)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_rvr.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1939,7 +1706,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+rvr_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = rvr,
                 p.value = p.value,
                 labels = Target,
@@ -1948,15 +1715,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$rvr)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/rvr_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Renal Vascular Resistance",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.75,
+                expansion.left = 0.55)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/rvr_cor_plot.png"), rvr_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### TKV
@@ -1972,6 +1737,9 @@ pearson_cor_mat <- run_corr("total_kidney_volume_ml", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(total_kidney_volume_ml)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_tkv.csv"),
+          row.names = F, na = "")
+
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -1984,7 +1752,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+tkv_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = total_kidney_volume_ml,
                 p.value = p.value,
                 labels = Target,
@@ -1993,15 +1761,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$total_kidney_volume_ml)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/tkv_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Total Kidney Volume",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.4,
+                expansion.left = 0.15)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/tkv_cor_plot.png"), tkv_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Ht adjusted TKV
@@ -2017,6 +1783,8 @@ pearson_cor_mat <- run_corr("ht_adj_tkv", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(ht_adj_tkv)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_ht_tkv.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2029,7 +1797,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+ht_tkv_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = ht_adj_tkv,
                 p.value = p.value,
                 labels = Target,
@@ -2038,15 +1806,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$ht_adj_tkv)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/httkv_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Height Adjusted Total Kidney Volume",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.4,
+                expansion.left = 0.18)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/httkv_cor_plot.png"), ht_tkv_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Avg ASL
@@ -2062,6 +1828,9 @@ pearson_cor_mat <- run_corr("avg_pcascl", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   # filter(p.value < 0.05) %>%
   arrange(desc(abs(avg_pcascl)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_asl.csv"),
+          row.names = F, na = "")
+
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2074,7 +1843,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+asl_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = avg_pcascl,
                 p.value = p.value,
                 labels = Target,
@@ -2083,15 +1852,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$avg_pcascl)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/asl_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Arterial Spin Labelling",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.25,
+                expansion.left = 0.32)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/asl_cor_plot.png"), asl_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Avg cortical ADC
@@ -2107,6 +1874,8 @@ pearson_cor_mat <- run_corr("avg_c_adc", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(avg_c_adc)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_adc.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2119,7 +1888,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+adc_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = avg_c_adc,
                 p.value = p.value,
                 labels = Target,
@@ -2128,15 +1897,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$avg_c_adc)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/adc_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Cortical ADC",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.15,
+                expansion.left = 0.1)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/adc_cor_plot.png"), adc_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Minmod SI
@@ -2152,6 +1919,8 @@ pearson_cor_mat <- run_corr("mm_si", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(mm_si)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_si.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2164,7 +1933,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+si_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = mm_si,
                 p.value = p.value,
                 labels = Target,
@@ -2173,15 +1942,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$mm_si)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/si_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Insulin Sensitivity",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.45,
+                expansion.left = 0.55)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/si_cor_plot.png"), si_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### DEXA fat (kg)
@@ -2197,6 +1964,8 @@ pearson_cor_mat <- run_corr("dexa_fat_kg", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_fat_kg)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_fatkg.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2209,7 +1978,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+fatkg_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = dexa_fat_kg,
                 p.value = p.value,
                 labels = Target,
@@ -2218,15 +1987,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$dexa_fat_kg)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/fatkg_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Fat Mass",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.55,
+                expansion.left = 0.45)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/fatkg_cor_plot.png"), fatkg_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### DEXA trunk mass (%)
@@ -2242,6 +2009,9 @@ pearson_cor_mat <- run_corr("dexa_trunk_mass", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_trunk_mass)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_trunkmass.csv"),
+          row.names = F, na = "")
+
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2254,24 +2024,22 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
-                FC = dexa_trunk_mass,
-                p.value = p.value,
-                labels = Target,
-                identify = F,
-                identify_manual = top_10_correlations,
-                fc.cutoff = 0,
-                cutoff = 0.05,
-                x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$dexa_trunk_mass)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/trunkmass_cor_plot.jpeg"),
-       width = 12, height = 10)
+trunkmass_plot <- plotVolcano_mod(data = pearson_cor_mat,
+                                  FC = dexa_trunk_mass,
+                                  p.value = p.value,
+                                  labels = Target,
+                                  identify = F,
+                                  identify_manual = top_10_correlations,
+                                  fc.cutoff = 0,
+                                  cutoff = 0.05,
+                                  x.lab = "Correlation",
+                                  main = "Trunk Mass Percentage",
+                                  sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                                  sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                                  expansion.right = 0.55,
+                                  expansion.left = 0.25)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/trunkmass_cor_plot.png"), trunkmass_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### DEXA BMD
@@ -2287,6 +2055,8 @@ pearson_cor_mat <- run_corr("dexa_bone_mineral_density", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(dexa_bone_mineral_density)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_bmd.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2299,7 +2069,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+bmd_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = dexa_bone_mineral_density,
                 p.value = p.value,
                 labels = Target,
@@ -2308,15 +2078,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$dexa_bone_mineral_density)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/bmd_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Bone Mineral Density",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.22,
+                expansion.left = 0.15)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/bmd_cor_plot.png"), bmd_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Weight
@@ -2332,6 +2100,8 @@ pearson_cor_mat <- run_corr("weight", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   #filter(p.value < 0.05) %>%
   arrange(desc(abs(weight)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_weight.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2344,7 +2114,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+weight_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = weight,
                 p.value = p.value,
                 labels = Target,
@@ -2353,15 +2123,13 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$weight)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/weight_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Weight",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.35,
+                expansion.left = 0.25)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/weight_cor_plot.png"), weight_plot,
+       width = 12, height = 10, bg = "transparent")
 ```
 
 #### Height
@@ -2377,6 +2145,8 @@ pearson_cor_mat <- run_corr("height", analytes$AptName) %>%
                 Target_nodup = row.names(.))  %>%
   # filter(p.value < 0.05) %>%
   arrange(desc(abs(height)))
+write.csv(pearson_cor_mat, file.path(root_path, "PANTHER/Results/Proteomics/pearson_correlation_height.csv"),
+          row.names = F, na = "")
 
 negative_correlations <- arrange(pearson_cor_mat, p.value) %>%
   filter(p.value < 0.05) %>%
@@ -2389,7 +2159,7 @@ positive_correlations <- arrange(pearson_cor_mat, p.value) %>%
 top_10_correlations <- c(negative_correlations$Target[1:10],
                          positive_correlations$Target[1:10])
 
-plotVolcano_mod(data = pearson_cor_mat,
+height_plot <- plotVolcano_mod(data = pearson_cor_mat,
                 FC = height,
                 p.value = p.value,
                 labels = Target,
@@ -2398,481 +2168,113 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc.cutoff = 0,
                 cutoff = 0.05,
                 x.lab = "Correlation",
-                main = paste0("Pearson correlations for ", label(panther$height)),
-                pt.size = 1.5,
-                text.size = 5,
-                fc_lab = "p > 0.05",
-                fc_lab_col = "#dad7cd",
-                sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-                sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
-ggsave(file.path(root_path, "PANTHER/Results/Figures/height_cor_plot.jpeg"),
-       width = 12, height = 10)
+                main = "Height",
+                sig_fc_pos_lab = "p < 0.05\nPositive correlation",
+                sig_fc_neg_lab = "p < 0.05\nNegative correlation",
+                expansion.right = 0.15,
+                expansion.left = 0.15)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/height_cor_plot.png"), height_plot,
+       width = 12, height = 10, bg = "transparent")
+```
+
+```{r}
+# combine volcanos
+# mgfr, pglo, rvr, tkv, si, trunkmass
+combined_p <- ggarrange(mgfr_plot, pglo_plot, rvr_plot, tkv_plot, si_plot, trunkmass_plot,
+                        ncol = 2, nrow = 3, labels = "AUTO", font.label = list(size = 25, face = "bold"),
+          common.legend = T)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/combined_cor_plot.png"), combined_p,
+       width = 25, height = 25, bg = "transparent")
 ```
 
 ## Pathway analysis
+
+```{r}
+panther <- panther %>% arrange(record_id)
+# Look at differential expressed proteins (DEPs) between low and high risk in PANTHER
+# filter soma scan data to baseline data only and log transform
+soma_risk <- panther %>% 
+  remove_rownames() %>% column_to_rownames(var = "record_id") %>%
+  dplyr::select(starts_with("seq"))
+y <- t(soma_risk)
+y <- log2(y)
+
+# Design matrix
+cond = as.factor(panther$group_risk)
+design_mat <- model.matrix(~0 + group_risk, data = panther)
+colnames(design_mat) = gsub("group_risk","",colnames(design_mat))
+# Fit
+contrast = makeContrasts(contrasts = c("High-Low"), levels = design_mat) # positive = higher expression in high risk grp
+fit <- lmFit(y, design_mat)
+fit <- contrasts.fit(fit, contrasts = contrast)
+fit <- eBayes(fit)
+res_risk <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
+res_risk$Target <- analytes$Target[match(rownames(res_risk), analytes$AptName)]
+res_risk$TargetFullName <- analytes$TargetFullName[match(rownames(res_risk), analytes$AptName)]
+kbl(head(res_risk, 50)) %>%
+  kable_paper() %>%
+  scroll_box(width = "100%", height = "500px")
+res_risk_save <- res_risk %>%
+  rownames_to_column("AptName") %>%
+  dplyr::select(-c(Target, TargetFullName)) %>%
+  left_join(analytes, by = "AptName")
+
+# write.csv(res_risk_save, file.path(root_path, "PANTHER/Results/IPA/panther_risk_dep.csv"), row.names = F)
+```
+
 ```{r echo = F}
-# write.csv(res_risk_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_risk_dep.csv"), row.names = F)
-# write.csv(res_ts_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_ts_dep.csv"), row.names = F)
-# write.csv(res_sex_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_sex_dep.csv"), row.names = F)
-
-risk_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_risk_dep_pathway.xls"), skip = 1)
-sex_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_sex_dep_pathway.xls"), skip = 1)
-ts_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_ts_dep_pathway.xls"), skip = 1)
-
+risk_pathway <- read_excel(file.path(root_path, "PANTHER/Results/IPA/panther_risk_dep_pathways_2.xls"), skip = 1)
 colnames(risk_pathway) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
-colnames(sex_pathway) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
-colnames(ts_pathway) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
 
 text1 = 6.5
 text2 = 18
 text3 = 20
 ```
 
-### Risk DEP pathways
-#### Negative Pathways
-```{r echo = F}
-pathways_negative <- risk_pathway %>%
-  filter(z < 0) %>%
-  arrange(desc(neg_log_p))
-
-pathways_negative$pathway <- reorder(pathways_negative$pathway, pathways_negative$neg_log_p)
-
-top50_negative <- pathways_negative[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 10), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-n_pathways_negative <- pathways_negative %>%
-  filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
-
-top50_negative
-
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_negative_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-
-########## Limited to z < -2
-pathways_negative_sig <- pathways_negative %>%
-  filter(z < -2)
-top50_negative <- pathways_negative_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 9), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 0.2))
-
-top50_negative
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_negative_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-```
-
-#### Positive Pathways
-```{r echo = F}
-pathways_positive <- risk_pathway %>%
-  filter(z > 0) %>%
-  arrange(desc(neg_log_p))
-
-pathways_positive$pathway <- reorder(pathways_positive$pathway, pathways_positive$neg_log_p)
-
-top50_positive <- pathways_positive[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size_continuous(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.05) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       color = "Scenario",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways")   +
-  scale_x_continuous(limits = c(0, 6), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-n_pathways_positive <- pathways_positive %>%
-  filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_positive_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-
-########## Limited to z > 2
-pathways_positive_sig <- pathways_positive %>%
-  filter(z > 2)
-top50_positive <- pathways_positive_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.05) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways") +
-  scale_x_continuous(limits = c(0, 4), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_positive_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-```
-### Sex DEP pathways
-#### Negative Pathways
-```{r echo = F}
-pathways_negative <- sex_pathway %>%
-  filter(z < 0) %>%
-  arrange(desc(neg_log_p))
-
-pathways_negative$pathway <- reorder(pathways_negative$pathway, pathways_negative$neg_log_p)
-
-top50_negative <- pathways_negative[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 10), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-n_pathways_negative <- pathways_negative %>%
-  filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
-
-top50_negative
-
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-
-########## Limited to z < -2
-pathways_negative_sig <- pathways_negative %>%
-  filter(z < -2)
-top50_negative <- pathways_negative_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 9), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-top50_negative
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-```
-
-#### Positive Pathways
-```{r echo = F}
-pathways_positive <- sex_pathway %>%
-  filter(z > 0) %>%
-  arrange(desc(neg_log_p))
-
-pathways_positive$pathway <- reorder(pathways_positive$pathway, pathways_positive$neg_log_p)
-
-top50_positive <- pathways_positive[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size_continuous(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       color = "Scenario",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways")   +
-  scale_x_continuous(limits = c(0, 7), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-n_pathways_positive <- pathways_positive %>%
-  filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_positive_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-
-########## Limited to z > 2
-pathways_positive_sig <- pathways_positive %>%
-  filter(z > 2)
-top50_positive <- pathways_positive_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways") +
-  scale_x_continuous(limits = c(0, 5), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-```
-
 ### Tanner stage DEP pathways
-#### Negative Pathways
-```{r echo = F}
-pathways_negative <- ts_pathway %>%
-  filter(z < 0) %>%
-  arrange(desc(neg_log_p))
 
-pathways_negative$pathway <- reorder(pathways_negative$pathway, pathways_negative$neg_log_p)
-
-top50_negative <- pathways_negative[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 6), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-n_pathways_negative <- pathways_negative %>%
+```{r}
+# Lollipop plot
+risk_pathway_plot_df <-  risk_pathway %>%
   filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
+  filter(!is.na(z) & z != 0) %>%
+  arrange(z) %>%
+  dplyr::mutate(n = row_number(),
+                text_col = ifelse(z > 0, "#d00000", "#219ebc"))
 
-top50_negative
+risk_pathway_plot_df %>%
+  ggplot(aes(x = z, y = n, size = neg_log_p, color = z)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "#495057") +
+  geom_segment(aes(xend = 0), linewidth = 1) +
+  geom_point() +
+  scale_size(range = c(3, 10)) + 
+  scale_color_gradient2(low = "#219ebc", mid = "white", high = "#d00000", midpoint = 0) +
+  geom_text(data = subset(risk_pathway_plot_df, z > 0),
+    aes(x = -0.1, y = n,
+                label = pathway),
+    color = subset(risk_pathway_plot_df, z > 0) %>%
+      pull(text_col),
+    hjust = 1,
+    inherit.aes = F,
+    size = 5) +
+  geom_text(data = subset(risk_pathway_plot_df, z < 0),
+            aes(x = 0.1, y = n,
+                label = pathway),
+            color = subset(risk_pathway_plot_df, z < 0) %>%
+              pull(text_col),
+            hjust = 0,
+            inherit.aes = F,
+            size = 5) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 20),
+        axis.text.y = element_blank(),
+        legend.position = "top",
+        legend.title.position = "top") +
+  labs(y = NULL, x = "Z-Score", color = "Z-Score", size = "-log10(p)") +
+  scale_x_continuous(expand = expansion(mult = c(0.015, 0.05)))
 
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_negative_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
 
-########## Limited to z < -2
-pathways_negative_sig <- pathways_negative %>%
-  filter(z < -2)
-top50_negative <- pathways_negative_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = abs(z)), alpha = 0.8, color = "#2c7da0") +
-  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#2c7da0", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Inhibited Pathways")   +
-  scale_x_continuous(limits = c(0, 6), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-top50_negative
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_negative_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-```
-
-#### Positive Pathways
-```{r echo = F}
-pathways_positive <- ts_pathway %>%
-  filter(z > 0) %>%
-  arrange(desc(neg_log_p))
-
-pathways_positive$pathway <- reorder(pathways_positive$pathway, pathways_positive$neg_log_p)
-
-top50_positive <- pathways_positive[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size_continuous(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       color = "Scenario",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways")   +
-  scale_x_continuous(limits = c(0, 7), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-n_pathways_positive <- pathways_positive %>%
-  filter(neg_log_p > -log10(0.05)) %>%
-  nrow()
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_positive_pathways.jpeg"),
-       width = 27.5, height = 14, scale = 1)
-
-########## Limited to z > 2
-pathways_positive_sig <- pathways_positive %>%
-  filter(z > 2)
-top50_positive <- pathways_positive_sig[1:50,] %>%
-  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
-  geom_point(aes(size = z), color = "#c75146", alpha = 0.8) +
-  scale_size(range = c(0,10)) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_text(aes(group_2 = pathway), color = "#c75146", hjust = 0, size = text1, nudge_x = 0.1) +
-  theme_bw() +
-  theme(axis.text.y = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = text3),
-        axis.title = element_text(size = text3),
-        axis.ticks.y = element_blank(),
-        legend.position = c(0.9,0.2),
-        legend.background = element_blank(),
-        legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = text2),
-        legend.text = element_text(size = text2),
-        title = element_text (size = text3)) +
-  labs(x = "-log(p-value)",
-       y = "Pathways",
-       size = "Z-score",
-       title = "Top 50 Activated Pathways") +
-  scale_x_continuous(limits = c(0, 4), expand = c(0, 0)) +
-  scale_y_discrete(expand = expansion(add = 1))
-
-top50_positive
-ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_positive_pathways_2.jpeg"),
-       width = 27.5, height = 14, scale = 1)
+ggsave(file.path(root_path, "PANTHER/Results/Figures/risk_ipa_combined.png"), bg = "transparent",
+       width = 14, height = 14)
 ```
