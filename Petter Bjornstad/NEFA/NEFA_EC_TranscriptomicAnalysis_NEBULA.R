@@ -830,3 +830,414 @@ ggsave(
 )
 
 cat("Combined figure saved to:", dir.results, "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### FFA suppression combined 
+
+
+library(Seurat)
+library(nebula)
+library(Matrix)
+library(SingleCellExperiment)
+library(scran)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(purrr)
+library(fgsea)
+library(msigdbr)
+library(stringr)
+library(patchwork)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 0. LOAD & PREPARE SEURAT OBJECT
+# ══════════════════════════════════════════════════════════════════════════════
+
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
+so_subset <- so_kpmp_sc
+remove(so_kpmp_sc)
+
+# ── Load & collapse harmonized data ─────────────────────────────────────────
+harmonized_data <- read.csv(
+  "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
+  na = ''
+)
+
+dat <- harmonized_data %>%
+  dplyr::select(-dob) %>%
+  arrange(date_of_screen) %>%
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_,      mean(na.omit(.x), na.rm = TRUE))),
+    .by = c(record_id, visit)
+  )
+
+# ── Merge clinical variables ─────────────────────────────────────────────────
+vars_to_merge <- c("baseline_ffa", "ffa_suppression", "ffa_suppression_combined",
+                   "age", "bmi", "acr_u", "hba1c",
+                   "epic_insulin_1", "epic_sglti2_1", "epic_glp1ra_1",
+                   "epic_tzd_1", "epic_mfm_1", "epic_raasi_1",
+                   "epic_statin_1", "epic_fibrate_1")
+
+merge_df <- dat %>%
+  dplyr::select(any_of(c("record_id", vars_to_merge))) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+for (v in vars_to_merge) {
+  if (v %in% colnames(merge_df)) {
+    so_subset@meta.data[[v]] <- merge_df[[v]][
+      match(so_subset@meta.data$record_id, merge_df$record_id)
+    ]
+  }
+}
+
+cat("baseline_ffa non-NA cells:",            sum(!is.na(so_subset@meta.data$baseline_ffa)), "\n")
+cat("ffa_suppression non-NA cells:",         sum(!is.na(so_subset@meta.data$ffa_suppression)), "\n")
+cat("ffa_suppression_combined non-NA cells:", sum(!is.na(so_subset@meta.data$ffa_suppression_combined)), "\n")
+
+# ── Cell type annotations ────────────────────────────────────────────────────
+so_subset$celltype1 <- case_when(
+  grepl("PT-",  so_subset$celltype_rpca) ~ "PT",
+  grepl("TAL-", so_subset$celltype_rpca) ~ "TAL",
+  grepl("EC-",  so_subset$celltype_rpca) ~ "EC",
+  grepl("POD",  so_subset$celltype_rpca) ~ "POD",
+  grepl("MAC",  so_subset$celltype_rpca) ~ "MAC",
+  grepl("MON",  so_subset$celltype_rpca) ~ "MON",
+  grepl("PC-",  so_subset$celltype_rpca) ~ "PC",
+  grepl("FIB",  so_subset$celltype_rpca) ~ "FIB_MC_VSMC",
+  grepl("DTL",  so_subset$celltype_rpca) ~ "DTL",
+  so_subset$celltype_rpca == "DCT"        ~ "DCT",
+  so_subset$celltype_rpca == "ATL"        ~ "ATL",
+  so_subset$celltype_rpca == "B"          ~ "B",
+  so_subset$celltype_rpca == "T"          ~ "T"
+)
+so_subset$celltype1      <- as.character(so_subset$celltype1)
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2      <- ifelse(
+  so_subset$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"), "PT",
+  ifelse(grepl("TAL", so_subset$KPMP_celltype), "TAL",
+         ifelse(grepl("EC-", so_subset$KPMP_celltype), "EC",
+                so_subset$KPMP_celltype2)))
+so_subset$DCT_celltype <- ifelse(
+  so_subset$KPMP_celltype %in% c("DCT", "dDCT"), "DCT", "Non-DCT")
+
+# ── Subset to T2D, exclude CRC-55 ───────────────────────────────────────────
+so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
+so_subset <- subset(so_subset, subset = group == 'Type_2_Diabetes')
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/NEFA_NEBULA_combined/'
+dir.create(dir.results, showWarnings = FALSE, recursive = TRUE)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. COMPUTE OFFSET
+# ══════════════════════════════════════════════════════════════════════════════
+
+sce_full <- SingleCellExperiment(
+  assays = list(counts = round(GetAssayData(so_subset, layer = "counts")))
+)
+sce_full <- computeSumFactors(sce_full)
+so_subset@meta.data$pooled_offset <- sizeFactors(sce_full)
+cat("Offset computed:", ncol(so_subset), "cells\n")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+get_celltype_column <- function(ct) {
+  if (ct %in% c("DCT", "dDCT"))         return("DCT_celltype")
+  if (ct %in% c("IC-A", "IC-B", "CNT")) return("KPMP_celltype2")
+  return("celltype2")
+}
+
+cell_types_of_interest <- c("EC")
+covariates <- NULL
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. NEBULA FUNCTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_nebula_ffa <- function(seurat_obj, cell_type, ffa_col,
+                           covariates = NULL, label = NULL) {
+  if (is.null(label)) label <- ffa_col
+  
+  cat("\n──────────────────────────────────────────\n")
+  cat("Variable:", label, "| Cell type:", cell_type, "\n")
+  
+  ct_col <- get_celltype_column(cell_type)
+  so_ct  <- subset(seurat_obj,
+                   cells = which(seurat_obj@meta.data[[ct_col]] == cell_type))
+  cat("Cells:", ncol(so_ct), "\n")
+  
+  if (ncol(so_ct) < 20) { cat("  Too few cells — skipping.\n"); return(NULL) }
+  
+  count_mat <- round(GetAssayData(so_ct, layer = "counts"))
+  meta      <- so_ct@meta.data
+  
+  if (!ffa_col %in% colnames(meta)) {
+    cat("  Column", ffa_col, "not found — skipping.\n"); return(NULL)
+  }
+  
+  pred_vars <- c(ffa_col, covariates)
+  keep      <- complete.cases(meta[, pred_vars, drop = FALSE])
+  cat("  Complete cases:", sum(keep), "/", nrow(meta), "\n")
+  
+  if (sum(keep) < 20) { cat("  Too few complete cases — skipping.\n"); return(NULL) }
+  
+  count_mat <- count_mat[, keep, drop = FALSE]
+  meta      <- meta[keep, ]
+  
+  meta$ffa_scaled <- scale(meta[[ffa_col]])[, 1]
+  
+  formula_str <- if (!is.null(covariates)) {
+    paste("~ffa_scaled +", paste(covariates, collapse = " + "))
+  } else "~ffa_scaled"
+  
+  pred_mat <- model.matrix(as.formula(formula_str), data = meta)
+  cat("  Formula:", formula_str, "\n")
+  cat("  Subjects:", length(unique(meta$record_id)), "\n")
+  
+  expr_cells <- rowSums(count_mat > 0)
+  count_mat  <- count_mat[expr_cells >= 10, , drop = FALSE]
+  cat("  Genes after filter:", nrow(count_mat), "\n")
+  
+  data_g <- group_cell(count  = count_mat,
+                       id     = meta$record_id,
+                       pred   = pred_mat,
+                       offset = meta$pooled_offset)
+  if (is.null(data_g)) {
+    data_g <- list(count = count_mat, id = meta$record_id,
+                   pred  = pred_mat,  library = meta$pooled_offset)
+  }
+  
+  offset_use <- if ("library" %in% names(data_g)) data_g$library else data_g$offset
+  
+  res <- nebula(count     = data_g$count, id = data_g$id,
+                pred      = data_g$pred,  offset = offset_use,
+                ncore     = 1, reml = TRUE, model = "NBLMM",
+                output_re = FALSE, covariance = TRUE)
+  
+  df_res           <- as.data.frame(res$summary)
+  df_res$cell_type <- cell_type
+  df_res$ffa_var   <- label
+  df_res
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. RUN NEBULA — FFA SUPPRESSION COMBINED
+# ══════════════════════════════════════════════════════════════════════════════
+
+results_combined <- lapply(cell_types_of_interest, function(ct) {
+  run_nebula_ffa(so_subset, ct,
+                 ffa_col    = "ffa_suppression_combined",
+                 covariates = covariates,
+                 label      = "ffa_suppression_combined")
+})
+results_combined_df <- do.call(rbind, results_combined) %>%
+  group_by(cell_type) %>%
+  mutate(FDR = p.adjust(p_ffa_scaled, method = "BH")) %>%
+  ungroup() %>%
+  arrange(cell_type, FDR)
+
+write.csv(results_combined_df,
+          file.path(dir.results, "NEFA_NEBULA_ffa_suppression_combined_FDR.csv"),
+          row.names = FALSE)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. VOLCANO PLOT
+# ══════════════════════════════════════════════════════════════════════════════
+
+theme_fig <- theme_classic(base_size = 10) +
+  theme(
+    legend.position = "top",
+    legend.key.size = unit(0.4, "cm"),
+    legend.text     = element_text(size = 8),
+    plot.title      = element_text(size = 10, face = "bold"),
+    plot.subtitle   = element_text(size = 8, color = "grey40"),
+    axis.text       = element_text(size = 8),
+    axis.title      = element_text(size = 9)
+  )
+
+fdr_thresh <- 0.05
+lfc_thresh <- 0.1
+
+make_volcano <- function(df, ct, title_var,
+                         fdr_t = fdr_thresh, lfc_t = lfc_thresh) {
+  up_lab   <- paste("Up with", title_var)
+  down_lab <- paste("Down with", title_var)
+  
+  df_ct <- df %>%
+    filter(cell_type == ct) %>%
+    filter(!(abs(logFC_ffa_scaled) > 10 & (is.na(FDR) | FDR >= fdr_t))) %>%
+    mutate(
+      sig = !is.na(FDR) & !is.na(logFC_ffa_scaled) &
+        FDR < fdr_t & abs(logFC_ffa_scaled) > lfc_t,
+      direction = case_when(
+        sig & logFC_ffa_scaled > 0 ~ up_lab,
+        sig & logFC_ffa_scaled < 0 ~ down_lab,
+        TRUE                       ~ "NS"
+      )
+    )
+  
+  top_genes <- if (sum(df_ct$sig) >= 1) {
+    df_ct %>% filter(sig) %>% slice_min(FDR, n = 20)
+  } else {
+    df_ct %>% slice_min(p_ffa_scaled, n = 5)
+  }
+  
+  ggplot(df_ct, aes(logFC_ffa_scaled, -log10(p_ffa_scaled), color = direction)) +
+    geom_point(alpha = 0.5, size = 1.2) +
+    geom_text_repel(data = top_genes, aes(label = gene),
+                    size = 2.5, max.overlaps = 25, show.legend = FALSE) +
+    scale_color_manual(values = setNames(
+      c("#e63946", "#457b9d", "grey75"),
+      c(up_lab, down_lab, "NS")
+    ), name = NULL) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed",
+               linewidth = 0.4, color = "grey50") +
+    geom_vline(xintercept = c(-lfc_t, lfc_t), linetype = "dashed",
+               linewidth = 0.4, color = "grey50") +
+    labs(
+      title    = paste0(title_var, " vs. Transcriptome — ", ct, " (T2D)"),
+      subtitle = paste0("FDR < ", fdr_t, " | |logFC| > ", lfc_t, "  ·  Unadjusted"),
+      x        = paste("Log2 FC per 1 SD", title_var),
+      y        = expression(-log[10](p))
+    ) +
+    theme_fig
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. GSEA
+# ══════════════════════════════════════════════════════════════════════════════
+
+msig_h  <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol)
+msig_bp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP") %>%
+  dplyr::select(gs_name, gene_symbol)
+gene_sets <- bind_rows(msig_h, msig_bp) %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+
+run_gsea_ffa <- function(df, ct, label = "FFA") {
+  cat("\nRunning GSEA:", label, "—", ct, "\n")
+  df_ct <- df %>% filter(cell_type == ct)
+  if (nrow(df_ct) == 0) { cat("  No results — skipping.\n"); return(NULL) }
+  
+  ranked <- df_ct %>%
+    filter(!is.na(p_ffa_scaled), !is.na(logFC_ffa_scaled)) %>%
+    mutate(stat = -log10(p_ffa_scaled) * sign(logFC_ffa_scaled)) %>%
+    arrange(desc(stat)) %>%
+    distinct(gene, .keep_all = TRUE) %>%
+    { setNames(.$stat, .$gene) }
+  
+  set.seed(123)
+  res <- fgsea(pathways = gene_sets, stats = ranked,
+               minSize = 15, maxSize = 500)
+  res$cell_type <- ct
+  res$ffa_var   <- label
+  res %>% arrange(pval)
+}
+
+gsea_combined_df <- lapply(cell_types_of_interest, function(ct) {
+  run_gsea_ffa(results_combined_df, ct, label = "ffa_suppression_combined")
+}) %>%
+  do.call(rbind, .) %>%
+  group_by(cell_type) %>%
+  mutate(FDR_gsea = p.adjust(pval, method = "BH")) %>%
+  ungroup() %>%
+  arrange(cell_type, pval)
+
+write.csv(gsea_combined_df %>% dplyr::select(-leadingEdge),
+          file.path(dir.results, "GSEA_ffa_suppression_combined.csv"),
+          row.names = FALSE)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. GSEA DOT PLOT
+# ══════════════════════════════════════════════════════════════════════════════
+
+make_gsea_dot <- function(df, ct, title_var, n_top = 20) {
+  df_plot <- df %>%
+    filter(cell_type == ct) %>%
+    slice_min(pval, n = n_top) %>%
+    mutate(
+      collection = case_when(
+        str_starts(pathway, "HALLMARK_") ~ "Hallmark",
+        str_starts(pathway, "GOBP_")     ~ "GO:BP",
+        TRUE                             ~ "Other"
+      ),
+      pathway = str_wrap(gsub("_", " ", gsub("GOBP_|HALLMARK_", "", pathway)), 38)
+    )
+  
+  ggplot(df_plot, aes(NES, reorder(pathway, NES),
+                      size = size, color = pval, shape = collection)) +
+    geom_point() +
+    scale_color_gradient(low = "#e63946", high = "grey80", name = "p-value",
+                         guide = guide_colorbar(barwidth = 4, barheight = 0.5)) +
+    scale_size_continuous(name = "Set size", range = c(2, 7),
+                          guide = guide_legend(override.aes = list(color = "grey50"))) +
+    scale_shape_manual(values = c("GO:BP" = 16, "Hallmark" = 17, "Other" = 15),
+                       name = "Collection") +
+    geom_vline(xintercept = 0, linetype = "dashed",
+               linewidth = 0.4, color = "grey50") +
+    labs(
+      title    = paste0("GSEA — ", title_var, " — ", ct, " (T2D)"),
+      subtitle = "Top 20 pathways | Hallmark + GO:BP",
+      x = "Normalized Enrichment Score (NES)", y = NULL
+    ) +
+    theme_fig +
+    theme(axis.text.y = element_text(size = 7))
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. ASSEMBLE & SAVE COMBINED FIGURE
+# ══════════════════════════════════════════════════════════════════════════════
+
+for (ct in cell_types_of_interest) {
+  pA <- make_volcano(results_combined_df, ct, "FFA Suppression Combined")
+  pB <- make_gsea_dot(gsea_combined_df,   ct, "FFA Suppression Combined")
+  
+  combined <- pA + pB +
+    plot_layout(ncol = 2, widths = c(1, 1.4)) +
+    plot_annotation(
+      title   = "FFA Suppression (Combined) and the Kidney Endothelial Cell Transcriptome in Youth-Onset T2D",
+      caption = "NEBULA mixed-effects model; unadjusted; FDR < 0.05 | |log2FC| > 0.1",
+      theme   = theme(
+        plot.title   = element_text(size = 11, face = "bold", hjust = 0.5),
+        plot.caption = element_text(size = 8, color = "grey50", hjust = 1)
+      )
+    ) &
+    plot_annotation(tag_levels = "A") &
+    theme(plot.tag = element_text(size = 11, face = "bold"))
+  
+  ggsave(
+    filename = file.path(dir.results, paste0("Figure_FFA_suppression_combined_", ct, ".pdf")),
+    plot     = combined,
+    width = 16, height = 9, device = cairo_pdf
+  )
+  ggsave(
+    filename = file.path(dir.results, paste0("Figure_FFA_suppression_combined_", ct, ".png")),
+    plot     = combined,
+    width = 16, height = 9, dpi = 300
+  )
+  print(combined)
+}
+
+cat("\nAll analyses complete. Results saved to:", dir.results, "\n")
