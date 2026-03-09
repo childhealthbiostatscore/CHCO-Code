@@ -269,11 +269,10 @@ modified_marginal <- bplapply(
 )
 names(modified_marginal) <- names(ref_data$ref_fit_marginal)
 
-# copula_list is set to NULL: simulate gene marginals independently.
-# The fitted copula from 00_fit_reference.R is keyed on reference subject IDs
-# and cannot be directly applied to new simulated subjects. For benchmarking
-# DE methods, marginal accuracy (per-gene mean/dispersion) matters more than
-# between-gene correlation. Between-gene correlation structure is dropped here.
+# The fitted copula from 00_fit_reference.R is keyed on reference subject IDs.
+# When the simulation has more subjects than the reference, we cycle through
+# reference copulas and clone input_data rows for the extra subjects.
+# This preserves gene-gene correlation structure while allowing flexible sample sizes.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. SIMULATE COUNTS (held in memory only)
@@ -313,24 +312,50 @@ if (is.null(sim_para)) {
   quit(status = 1)
 }
 
-message("  Remap copula list and input data")
+message("  Remap copula list and input data for new subject design...")
 ref_copula   <- ref_data$ref_fit_copula$copula_list
 ref_names    <- names(ref_copula)
+ref_dat_full <- ref_data$ref_construct_data$dat %>%
+  dplyr::mutate(corr_group = as.character(corr_group))
 
-# Get new subject IDs from new_covariate
-new_subjects <- unique(new_covariate$subject_id)
+# New subjects from the simulation design
+new_subjects <- as.character(unique(new_covariate$subject_id))
 
-# Cycle through reference copulas to cover all new subjects
+# Map each new subject to a reference subject by cycling through available refs.
+# Works whether n_new < n_ref (subset), n_new == n_ref (1:1), or n_new > n_ref (recycle).
+ref_assignment <- setNames(
+  ref_names[((seq_along(new_subjects) - 1) %% length(ref_names)) + 1],
+  new_subjects
+)
+message(sprintf("  Mapping %d new subjects -> %d reference copulas (cycling)",
+                length(new_subjects), length(ref_names)))
+
+# Build mapped_copula: one entry per new subject, copied from assigned ref
 mapped_copula <- setNames(
-  
-  ref_copula[((seq_along(new_subjects) - 1) %% length(ref_names)) + 1],
+  lapply(new_subjects, function(s) ref_copula[[ ref_assignment[[s]] ]]),
   new_subjects
 )
 
-ref_data_dat <- ref_data$ref_construct_data$dat %>%
-  filter(subject_id %in% new_subjects) %>%
-  dplyr::mutate(corr_group = as.character(corr_group))
-  
+# Build input_data: for each new subject, we need rows in input_data so that
+# simu_new() can iterate over unique(input_data$corr_group).
+#   - If the new subject exists in the reference data, use its real rows.
+#   - If it doesn't (n_new > n_ref), clone rows from the assigned donor and relabel.
+ref_subject_ids <- unique(as.character(ref_dat_full$subject_id))
+input_data_list <- lapply(new_subjects, function(s) {
+  if (s %in% ref_subject_ids) {
+    # Subject exists in reference — use real rows
+    ref_dat_full %>% dplyr::filter(subject_id == s)
+  } else {
+    # Subject not in reference — clone from the assigned donor
+    donor <- ref_assignment[[s]]
+    ref_dat_full %>%
+      dplyr::filter(subject_id == donor) %>%
+      dplyr::mutate(subject_id = s,
+                    corr_group = s)
+  }
+})
+ref_data_dat <- do.call(rbind, input_data_list)
+
 message("  Simulating counts with simu_new()...")
 
 sim_result <- simu_new(
@@ -391,7 +416,7 @@ message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
 # Free heavy objects no longer needed (ref_data retained only as long as needed above)
-rm(fit_mod, modified_marginal, sim_result, sim_para, ref_data)
+rm(modified_marginal, sim_result, sim_para, ref_data, ref_data_dat, mapped_copula)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -463,10 +488,10 @@ extract_nebula_stats <- function(fit_neb) {
 }
 
 nebula_stats <- tryCatch({
-
+  
   fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
   extract_nebula_stats(fit_neb)
-
+  
 }, error = function(e) {
   # Fallback 1: switch method (LN <-> HL), serial to avoid parallel noise
   fb1 <- if (opt$nebula_method == "LN") "HL" else "LN"
@@ -484,8 +509,8 @@ nebula_stats <- tryCatch({
                     fb1, conditionMessage(e2)))
     tryCatch({
       r2 <- extract_nebula_stats(
-              run_nebula(counts, new_covariate, fb1, 1L,
-                         offset_vec = rep(0, ncol(counts))))
+        run_nebula(counts, new_covariate, fb1, 1L,
+                   offset_vec = rep(0, ncol(counts))))
       attr(r2, "nebula_fallback") <- paste0(fb1, "_zero_offset")
       r2
     }, error = function(e3) {
@@ -675,7 +700,7 @@ wilcox_stats <- tryCatch({
     min.pct         = 0,
     verbose         = FALSE
   )
-
+  
   full <- data.frame(gene = hvg_genes,
                      logFC_int = NA_real_, pval_int = NA_real_,
                      stringsAsFactors = FALSE)
@@ -684,7 +709,7 @@ wilcox_stats <- tryCatch({
   full$pval_int[hit]  <- fm_w$p_val
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  Wilcoxon error: ", conditionMessage(e))
   NULL
@@ -708,7 +733,7 @@ message(sprintf("  Running FindMarkers (MAST, max_cells=%d)...", opt$mast_max_ce
 
 mast_stats <- tryCatch({
   so_mast <- so_post  # may be subsampled below
-
+  
   if (n_post > opt$mast_max_cells) {
     n_per_group <- floor(opt$mast_max_cells / 2)
     cells_A <- WhichCells(so_post, idents = "Treatment")
@@ -721,7 +746,7 @@ mast_stats <- tryCatch({
     message(sprintf("  MAST: subsampled to %d POST cells (%d/group)",
                     ncol(so_mast), n_per_group))
   }
-
+  
   fm_m <- FindMarkers(
     so_mast,
     ident.1         = "Treatment",
@@ -732,7 +757,7 @@ mast_stats <- tryCatch({
     min.pct         = 0,
     verbose         = FALSE
   )
-
+  
   full <- data.frame(gene = hvg_genes,
                      logFC_int = NA_real_, pval_int = NA_real_,
                      stringsAsFactors = FALSE)
@@ -741,7 +766,7 @@ mast_stats <- tryCatch({
   full$pval_int[hit]  <- fm_m$p_val
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  MAST error: ", conditionMessage(e))
   NULL
