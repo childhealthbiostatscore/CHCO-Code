@@ -673,6 +673,8 @@ so_sim <- CreateSeuratObject(
   meta.data = new_covariate,
   min.cells = 0, min.features = 0
 )
+
+options(future.globals.maxSize = 2 * 1024^3)
 so_sim <- NormalizeData(so_sim, verbose = FALSE)
 
 # Subset to POST cells only; set identity to treatment group
@@ -819,8 +821,8 @@ s3saveRDS(params,
 
 total_elapsed <- sum(timing)
 message(sprintf(
-  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1f | neb=%.1f | d2=%.1f | er=%.1f | wilcox=%.1f | mast=%.1f) ══",
+  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1fs | neb=%.1fs | d2=%.1f s| er=%.1fs | wilcox=%.1fs | mast=%.1fs) ══",
   opt$array_id, total_elapsed,
-  timing["sim"], timing["nebula"], timing["deseq2"], timing["edger"],
-  timing["wilcox"], timing["mast"]
+  timing["sim.elapsed"], timing["nebula.elapsed"], timing["deseq2.elapsed"], timing["edger.elapsed"],
+  timing["wilcox.elapsed"], timing["mast.elapsed"]
 ))
