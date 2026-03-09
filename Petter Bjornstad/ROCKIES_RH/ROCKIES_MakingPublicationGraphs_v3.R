@@ -8,6 +8,8 @@ library(ggpubr)
 library(patchwork)
 library(ggbeeswarm)
 library(data.table)
+library(ggplotify)
+
 
 load_image_panel <- function(path, tag) {
   ext <- tolower(tools::file_ext(path))
@@ -615,8 +617,8 @@ rockies_baseline <- rockies_crossover %>%
 
 pet_vars    <- c("k2_cortex", "k2_medulla", "k2f_cortex", "k2f_medulla")
 clin_vars   <- c("homa_base", "ogis_base", "bw_base")
-pet_labels  <- c("k\u2082 Cortex", "k\u2082 Medulla",
-                 "k\u2082/F Cortex", "k\u2082/F Medulla")
+pet_labels  <- c("k2 Cortex", "k2 Medulla",
+                 "k2/F Cortex", "k/F Medulla")
 clin_labels <- c("HOMA-IR", "OGIS", "Body Weight")
 
 rho_mat <- matrix(NA_real_, 4, 3, dimnames = list(pet_labels, clin_labels))
@@ -1224,23 +1226,24 @@ tryCatch({
 # PAGE 1: Figure 1 — ROCKIES Trial
 ########################################################################
 
-row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
-row2 <- fig1c | fig1d | fig1e
-row3 <- fig1f | fig1g | fig1h
-row4 <- fig1i | fig1j | fig1k
+########################################################################
+# ASSEMBLE FIGURE 1
+########################################################################
 
-fig1 <- row1 / row2 / row3 / row4 +
-  plot_layout(heights = c(3, 2, 2, 2)) +
-  plot_annotation(
-    title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
-    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
-  )
+row1 <- fig1a + fig1b +
+  plot_layout(widths = c(1.2, 1.2))
 
-save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 22)
+row2 <- fig1c + fig1d +
+  plot_layout(widths = c(1, 1.4))
 
+row3 <- fig1e + fig1f + fig1g + fig1h +
+  plot_layout(widths = c(1, 1, 1, 1))
+
+row4 <- fig1i + fig1j +
+  plot_layout(widths = c(1.8, 1.2))
 
 fig1_full <- row1 / row2 / row3 / row4 +
-  plot_layout(heights = c(2.5, 2, 2, 2)) +
+  plot_layout(heights = c(3.5, 3, 2.5, 3)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
     theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
@@ -1679,8 +1682,8 @@ rockies_baseline <- rockies_crossover %>%
 
 pet_vars    <- c("k2_cortex", "k2_medulla", "k2f_cortex", "k2f_medulla")
 clin_vars   <- c("homa_base", "ogis_base", "bw_base")
-pet_labels  <- c("k\u2082 Cortex", "k\u2082 Medulla",
-                 "k\u2082/F Cortex", "k\u2082/F Medulla")
+pet_labels  <- c("k2 Cortex", "k2 Medulla",
+                 "k2/F Cortex", "k2/F Medulla")
 clin_labels <- c("HOMA-IR", "OGIS", "Body Weight")
 
 rho_mat <- matrix(NA_real_, 4, 3, dimnames = list(pet_labels, clin_labels))
@@ -1890,7 +1893,7 @@ fig1_full <- row1 / row2 / row3 / row4 +
   )
 
 print(fig1_full)
-save_fig(fig1_full, "Figure1_ROCKIES", width = 16, height = 22)
+#save_fig(fig1_full, "Figure1_ROCKIES", width = 16, height = 22)
 cat("Figure 1 saved!\n")
 
 ########################################################################
@@ -2097,10 +2100,10 @@ fig6 <- plot_grid(
   rel_heights = c(1, 0.05)   # legend row is 5% of total height
 )
 
-ggsave(paste0(base_path, "Figure6_TCA_Cycle.png"), fig6,
-       width = 14, height = 10.5, dpi = 300)
-ggsave(paste0(base_path, "Figure6_TCA_Cycle.pdf"), fig6,
-       width = 14, height = 10.5, device = cairo_pdf)
+#ggsave(paste0(base_path, "Figure6_TCA_Cycle.png"), fig6,
+#       width = 14, height = 10.5, dpi = 300)
+#ggsave(paste0(base_path, "Figure6_TCA_Cycle.pdf"), fig6,
+#       width = 14, height = 10.5, device = cairo_pdf)
 cat("Figure 6 saved!\n")
 
 ########################################################################
@@ -2127,10 +2130,10 @@ fig7 <- plot_grid(
   rel_heights = c(1, 0.05)
 )
 
-ggsave(paste0(base_path, "Figure7_OxPhos.png"), fig7,
-       width = 14, height = 10.5, dpi = 300)
-ggsave(paste0(base_path, "Figure7_OxPhos.pdf"), fig7,
-       width = 14, height = 10.5, device = cairo_pdf)
+#ggsave(paste0(base_path, "Figure7_OxPhos.png"), fig7,
+#       width = 14, height = 10.5, dpi = 300)
+#ggsave(paste0(base_path, "Figure7_OxPhos.pdf"), fig7,
+#       width = 14, height = 10.5, device = cairo_pdf)
 cat("Figure 7 saved!\n")
 
 # For the combined PDF pages:
