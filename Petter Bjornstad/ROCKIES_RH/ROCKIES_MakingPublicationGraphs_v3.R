@@ -2044,83 +2044,98 @@ make_barplot <- function(filepath, celltype_label, panel_tag, show_legend = FALS
 }
 
 ########################################################################
-# BUILD FIGURE 6: TCA
+# SHARED LEGEND — built from a dummy plot so BOTH colors always appear
 ########################################################################
 
-# Build all 4 panels — PT gets show_legend=TRUE so we can extract it
-tca_pt    <- make_barplot(tca_files[["PT"]],       "PT",       "A", show_legend = TRUE)
-tca_s1s2  <- make_barplot(tca_files[["PT-S1/S2"]], "PT-S1/S2", "B")
-tca_s3    <- make_barplot(tca_files[["PT-S3"]],    "PT-S3",    "C")
-tca_apt   <- make_barplot(tca_files[["aPT"]],      "aPT",      "D")
+legend_dummy <- ggplot(
+  data.frame(
+    x = 1:2,
+    y = c(1, -1),
+    direction = factor(c("Up-regulated", "Down-regulated"),
+                       levels = c("Up-regulated", "Down-regulated"))
+  ),
+  aes(x = x, y = y, fill = direction)
+) +
+  geom_col() +
+  scale_fill_manual(
+    name   = "Regulation",
+    values = c("Up-regulated" = "#4A90D9", "Down-regulated" = "#E74C3C")
+  ) +
+  theme_void() +
+  theme(
+    legend.position  = "bottom",
+    legend.title     = element_text(size = 10, face = "bold"),
+    legend.text      = element_text(size = 10),
+    legend.key.size  = unit(0.6, "cm"),
+    legend.key       = element_rect(colour = "black", linewidth = 0.3)
+  )
 
-# Extract shared legend from PT panel
-legend6 <- get_legend(tca_pt)
+shared_legend <- get_legend(legend_dummy)
 
-# Remove legend from PT for the main layout
-tca_pt_nl <- tca_pt + theme(legend.position = "none")
+########################################################################
+# FIGURE 6: TCA  — no legends on any panel, attach shared legend below
+########################################################################
 
-# Combine panels
-fig6_combined <- (tca_pt_nl) /
+tca_pt_nl   <- make_barplot(tca_files[["PT"]],       "PT",       "A") # show_legend default FALSE
+tca_s1s2    <- make_barplot(tca_files[["PT-S1/S2"]], "PT-S1/S2", "B")
+tca_s3      <- make_barplot(tca_files[["PT-S3"]],    "PT-S3",    "C")
+tca_apt     <- make_barplot(tca_files[["aPT"]],      "aPT",      "D")
+
+fig6_panels <- (tca_pt_nl) /
   (tca_s1s2 | tca_s3 | tca_apt) +
   plot_layout(heights = c(1.3, 1)) +
   plot_annotation(
     title = "Figure 6. TCA Cycle Gene Expression in Proximal Tubule Cells",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
-    )
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
   )
 
-# Add legend via inset_element
-fig6 <- fig6_combined +
-  inset_element(legend6,
-                left = 0.38, bottom = -0.04,
-                right = 0.62, top = 0.0,
-                align_to = 'full')
+# Convert patchwork to grob, then attach legend below using cowplot
+fig6 <- plot_grid(
+  as.grob(fig6_panels),   # requires ggplotGrob or wrap via cowplot
+  shared_legend,
+  ncol    = 1,
+  rel_heights = c(1, 0.05)   # legend row is 5% of total height
+)
 
-# Save
 ggsave(paste0(base_path, "Figure6_TCA_Cycle.png"), fig6,
-       width = 14, height = 10, dpi = 300)
+       width = 14, height = 10.5, dpi = 300)
 ggsave(paste0(base_path, "Figure6_TCA_Cycle.pdf"), fig6,
-       width = 14, height = 10, device = cairo_pdf)
+       width = 14, height = 10.5, device = cairo_pdf)
 cat("Figure 6 saved!\n")
 
 ########################################################################
-# BUILD FIGURE 7: OxPhos
+# FIGURE 7: OxPhos — same pattern
 ########################################################################
 
-oxphos_pt   <- make_barplot(oxphos_files[["PT"]],       "PT",       "A", show_legend = TRUE)
-oxphos_s1s2 <- make_barplot(oxphos_files[["PT-S1/S2"]], "PT-S1/S2", "B")
-oxphos_s3   <- make_barplot(oxphos_files[["PT-S3"]],    "PT-S3",    "C")
-oxphos_apt  <- make_barplot(oxphos_files[["aPT"]],      "aPT",      "D")
+oxphos_pt_nl <- make_barplot(oxphos_files[["PT"]],       "PT",       "A")
+oxphos_s1s2  <- make_barplot(oxphos_files[["PT-S1/S2"]], "PT-S1/S2", "B")
+oxphos_s3    <- make_barplot(oxphos_files[["PT-S3"]],    "PT-S3",    "C")
+oxphos_apt   <- make_barplot(oxphos_files[["aPT"]],      "aPT",      "D")
 
-legend7 <- get_legend(oxphos_pt)
-
-oxphos_pt_nl <- oxphos_pt + theme(legend.position = "none")
-
-fig7_combined <- (oxphos_pt_nl) /
+fig7_panels <- (oxphos_pt_nl) /
   (oxphos_s1s2 | oxphos_s3 | oxphos_apt) +
   plot_layout(heights = c(1.3, 1)) +
   plot_annotation(
     title = "Figure 7. OxPhos Gene Expression in Proximal Tubule Cells",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
-    )
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
   )
 
-fig7 <- fig7_combined +
-  inset_element(legend7,
-                left = 0.38, bottom = -0.04,
-                right = 0.62, top = 0.0,
-                align_to = 'full')
+fig7 <- plot_grid(
+  as.grob(fig7_panels),
+  shared_legend,
+  ncol        = 1,
+  rel_heights = c(1, 0.05)
+)
 
 ggsave(paste0(base_path, "Figure7_OxPhos.png"), fig7,
-       width = 14, height = 10, dpi = 300)
+       width = 14, height = 10.5, dpi = 300)
 ggsave(paste0(base_path, "Figure7_OxPhos.pdf"), fig7,
-       width = 14, height = 10, device = cairo_pdf)
+       width = 14, height = 10.5, device = cairo_pdf)
 cat("Figure 7 saved!\n")
 
- print(fig6)
- print(fig7)
+# For the combined PDF pages:
+print(fig6)
+print(fig7)
 dev.off()
 
 cat("\n========================================================\n")
