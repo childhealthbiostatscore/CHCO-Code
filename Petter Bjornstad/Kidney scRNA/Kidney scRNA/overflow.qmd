@@ -1,3 +1,66 @@
+# Biopsy Full Data: T2D vs. LC {background-color="#a53860"}
+```{r load-full-biopsy-data, cache=FALSE}
+# ── Load biopsy limma results ─────────────────────────────────────────────────
+biopsy_limma_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset",
+                                 pattern = "^limma_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_limma_files <- biopsy_limma_files[!grepl("allcelltypes", biopsy_limma_files)]
+biopsy_results_all <- purrr::map_dfr(biopsy_limma_files, read.csv)
+
+# ── Load biopsy GSEA results ─────────────────────────────────────────────────
+biopsy_gsea_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/GSEA/Full Dataset",
+                                pattern = "^gsea_reactome_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
+biopsy_gsea_files <- biopsy_gsea_files[!grepl("allcelltypes", biopsy_gsea_files)]
+biopsy_gsea_list <- purrr::map(biopsy_gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_biopsy_T2DvsLC_|\\.csv$", "", basename(biopsy_gsea_files)))
+
+biopsy_cell_counts <- read.csv("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/cell_counts_per_celltype_full.csv")
+```
+
+```{r full biopsy-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+biopsy_gene_tables <- list()
+
+for (ct in unique(biopsy_results_all$cell_type)) {
+  
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  p_volc <- make_volcano(biopsy_results_all |> dplyr::filter(cell_type == ct), ct,
+                         cell_counts_df = biopsy_cell_counts)
+  
+  if (ct %in% names(biopsy_gsea_list)) {
+    p_gsea <- make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 20)
+    biopsy_gene_tables[[ct]] <- extract_top_genes(biopsy_gsea_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No Significantly Enriched Pathways",
+               size = 4, color = "grey50") +
+      theme_void()
+  }
+  
+  combined <- p_volc + p_gsea +
+    plot_layout(widths = c(1, 1.2))
+  
+  print(combined)
+  cat("\n\n")
+}
+```
+
+```{r full-biopsy-gsea-gene-tables, results='asis'}
+cat("\n\n# Biopsy GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(biopsy_gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- biopsy_gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+```
+
+
 ## All Cell Types — Overview
 
 ```{r volcano-all, fig.width=14, fig.height=10}

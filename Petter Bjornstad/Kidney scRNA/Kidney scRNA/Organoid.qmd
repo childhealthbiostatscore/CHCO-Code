@@ -29,7 +29,6 @@ format:
         .reveal h1 { color: #001219; }
         .reveal h2 { color: #a53860; border-bottom: 2px solid #9b2226; padding-bottom: 4px; }
         .reveal h3 { color: #9b2226; }
-        .reveal .toc { font-size: 0.85em; }
         .reveal table { font-size: 0.75em; }
         .caption { font-size: 0.7em; color: #555; }
         .reveal ul { list-style-type: disc; }
@@ -40,14 +39,12 @@ format:
         .reveal .quarto-title-block .quarto-title-meta {
           color: #e9d8a6 !important;
         }
-        .reveal .toc a,
-        .reveal .toc li,
-        .reveal .toc {
+        .reveal .slides section a {
           color: #000000 !important;
         }
-        .reveal .toc {
-          max-height: 70vh;
-          overflow-y: auto;
+        .reveal .slides section {
+          overflow-y: auto !important;
+          max-height: 85vh !important;
         }
         .reveal section[data-background-color="#a53860"] h1,
         .reveal section[data-background-color="#a53860"] h2,
@@ -65,7 +62,26 @@ execute:
 ---
 
 ```{r setup, include=FALSE}
-source("/home/hhampson/path/to/your_script.R")
+source("/home/hhampson/CHCO-Code/Petter Bjornstad/Kidney scRNA/Kidney scRNA/Libraries.R")
+
+pal <- list(
+  ink_black       = "#001219",
+  dark_cyan       = "#0a9396",
+  pearl_aqua      = "#94d2bd",
+  vanilla_custard = "#e9d8a6",
+  golden_orange   = "#ee9b00",
+  burnt_caramel   = "#ca6702",
+  rusty_spice     = "#bb3e03",
+  oxidized_iron   = "#ae2012",
+  brown_red       = "#9b2226"
+)
+pal2 <- list(
+  soft_apricot = "#f9dbbdff",
+  cotton_candy = "#ffa5abff",
+  blush_rose = "#da627dff",
+  berry_crush = "#a53860ff",
+  night_bordeaux = "#450920ff"
+)
 ```
 
 # Background {background-color="#a53860" color="white"}
@@ -89,11 +105,15 @@ source("/home/hhampson/path/to/your_script.R")
 
 ## Research Aims Part 1: Diabetes-Driven Transcriptional Profiles
 - **Aim 1.1:** Identify diabetes-driven transcriptional signatures in kidney organoids.
-    - *Research Question 1.1:* How does gene expression differ between kidney organoids derived from youth with type 2 diabetes (T2D) and lean controls (LC)?
+- *Research Question 1.1:* How does gene expression differ between kidney organoids derived from youth with type 2 diabetes (T2D) and lean controls (LC)?
 - **Aim 1.2:** Identify diabetes-driven transcriptional signatures in kidney biopsies.
-    - *Research Question 1.2:* How does gene expression differ between kidney tissue biopsies from youth with T2D and LC?
+- *Research Question 1.2:* How does gene expression differ between kidney tissue biopsies from youth with T2D and LC?
 - **Aim 1.3:** Compare diabetes-driven molecular profiles between kidney organoids and kidney biopsies.
-    - *Research Question 1.3:* How do diabetes-related molecular profiles compare between kidney organoids and kidney biopsies?
+- *Research Question 1.3:* How do diabetes-related molecular profiles compare between kidney organoids and kidney biopsies?
+
+## Research Aims Part 2: T2D-specific glucose response signatures in organoid models
+- **Aim 2:** Characterize glucose-induced transcriptional changes in T2D compared to LC organoid models.
+- *Research Question 2:* How do gene expression profiles differ in response to hyperglycemia (30 mM vs. 15 mM glucose concentrations) in T2D versus LC kidney organoids.
 
 
 # Methods {background-color="#a53860" color="white"}
@@ -165,7 +185,26 @@ htmltools::HTML(readLines(t1_file, warn = FALSE))
 
 ```
 
+## UMAPs - Organoid & Biopsy
 
+:::: {.columns}
+::: {.column width="50%"}
+**Organoid**
+```{r}
+#| out-width: "100%"
+#| fig-align: center
+knitr::include_graphics("/home/hhampson/Results/umap_organoid.png")
+```
+:::
+::: {.column width="50%"}
+**Biopsy**
+```{r}
+#| out-width: "100%"
+#| fig-align: center
+knitr::include_graphics("/home/hhampson/Results/umap_biopsy.png")
+```
+:::
+::::
 
 # Organoid T2D vs. LC (Adj. Glucose Exposure) {background-color="#a53860" color="white"}
 ```{r load-and-plot-functions, cache=FALSE}
@@ -272,7 +311,15 @@ extract_top_genes <- function(df, ct, n_show = 20, n_genes_show = 10) {
     dplyr::arrange(pval) |>
     dplyr::rowwise() |>
     dplyr::mutate(
-      top_genes = paste(head(strsplit(leadingEdge, ";")[[1]], n_genes_show), collapse = ", ")
+      top_genes = tryCatch({
+        le <- as.character(leadingEdge)
+        if (length(le) == 0 || is.null(le) || all(is.na(le)) || le == "" || le == "NA") {
+          ""
+        } else {
+          genes <- base::strsplit(le, ";")[[1]]
+          base::paste(utils::head(genes, n_genes_show), collapse = ", ")
+        }
+      }, error = function(e) "")
     ) |>
     dplyr::ungroup() |>
     dplyr::select(Pathway = pathway_clean, NES, `P-Value` = pval, `Leading Edge Genes` = top_genes) |>
@@ -388,68 +435,6 @@ for (ct in names(biopsy_gene_tables)) {
 }
 ```
 
-# Biopsy Full Data: T2D vs. LC {background-color="#a53860"}
-```{r load-full-biopsy-data, cache=FALSE}
-# ── Load biopsy limma results ─────────────────────────────────────────────────
-biopsy_limma_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset",
-                                 pattern = "^limma_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
-biopsy_limma_files <- biopsy_limma_files[!grepl("allcelltypes", biopsy_limma_files)]
-biopsy_results_all <- purrr::map_dfr(biopsy_limma_files, read.csv)
-
-# ── Load biopsy GSEA results ─────────────────────────────────────────────────
-biopsy_gsea_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/GSEA/Full Dataset",
-                                pattern = "^gsea_reactome_biopsy_T2DvsLC_.*\\.csv$", full.names = TRUE)
-biopsy_gsea_files <- biopsy_gsea_files[!grepl("allcelltypes", biopsy_gsea_files)]
-biopsy_gsea_list <- purrr::map(biopsy_gsea_files, read.csv) |>
-  setNames(gsub("gsea_reactome_biopsy_T2DvsLC_|\\.csv$", "", basename(biopsy_gsea_files)))
-
-biopsy_cell_counts <- read.csv("/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/cell_counts_per_celltype_full.csv")
-```
-
-```{r full biopsy-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
-biopsy_gene_tables <- list()
-
-for (ct in unique(biopsy_results_all$cell_type)) {
-  
-  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
-  
-  p_volc <- make_volcano(biopsy_results_all |> dplyr::filter(cell_type == ct), ct,
-                         cell_counts_df = biopsy_cell_counts)
-  
-  if (ct %in% names(biopsy_gsea_list)) {
-    p_gsea <- make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 20)
-    biopsy_gene_tables[[ct]] <- extract_top_genes(biopsy_gsea_list[[ct]], ct, n_show = 20)
-  } else {
-    p_gsea <- ggplot() +
-      annotate("text", x = 0.5, y = 0.5, label = "No Significantly Enriched Pathways",
-               size = 4, color = "grey50") +
-      theme_void()
-  }
-  
-  combined <- p_volc + p_gsea +
-    plot_layout(widths = c(1, 1.2))
-  
-  print(combined)
-  cat("\n\n")
-}
-```
-
-```{r full-biopsy-gsea-gene-tables, results='asis'}
-cat("\n\n# Biopsy GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
-
-for (ct in names(biopsy_gene_tables)) {
-  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
-  
-  tbl <- biopsy_gene_tables[[ct]] |>
-    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
-    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
-    kableExtra::column_spec(4, width = "40em")
-  
-  cat(as.character(tbl))
-  cat("\n\n")
-}
-```
-
 # Organoid: 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
 ```{r load-treatment-data, cache=FALSE}
 # ── Load treatment limma results ──────────────────────────────────────────────
@@ -497,7 +482,7 @@ for (ct in unique(treat_results_all$cell_type)) {
 }
 ```
 ```{r treat-gsea-gene-tables, results='asis'}
-cat("\n\n# Treatment GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+cat("\n\n# 30mM vs 15mM GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
 
 for (ct in names(treat_gene_tables)) {
   cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
@@ -511,3 +496,501 @@ for (ct in names(treat_gene_tables)) {
   cat("\n\n")
 }
 ```
+
+# Organoid: Interaction (Group × Treatment) {background-color="#a53860"}
+
+```{r load-interaction-data, cache=FALSE}
+# ── Load interaction limma results ───────────────────────────────────────────
+int_dir <- "/home/hhampson/Results/Organoid_Interaction"
+
+int_limma_files <- list.files(int_dir,
+                              pattern = "^limma_interaction_.*\\.csv$",
+                              full.names = TRUE)
+int_limma_files <- int_limma_files[!grepl("allcelltypes", int_limma_files)]
+int_results_all <- purrr::map_dfr(int_limma_files, read.csv)
+
+# ── Load interaction GSEA results ────────────────────────────────────────────
+int_gsea_files <- list.files(file.path(int_dir, "GSEA"),
+                             pattern = "^gsea_reactome_interaction_.*\\.csv$",
+                             full.names = TRUE)
+int_gsea_files <- int_gsea_files[!grepl("allcelltypes", int_gsea_files)]
+int_gsea_list <- purrr::map(int_gsea_files, read.csv) |>
+  setNames(gsub("gsea_reactome_interaction_|\\.csv$", "", basename(int_gsea_files)))
+
+# ── Load heatmap data ────────────────────────────────────────────────────────
+hm_files <- list.files(file.path(int_dir, "Heatmap_Data"),
+                       pattern = "^heatmap_emm_.*\\.csv$",
+                       full.names = TRUE)
+hm_list <- purrr::map(hm_files, function(f) {
+  df <- read.csv(f, row.names = 1)
+  df
+}) |>
+  setNames(gsub("heatmap_emm_|\\.csv$", "", basename(hm_files)))
+
+# ── Load cell counts ─────────────────────────────────────────────────────────
+int_cell_counts <- read.csv(file.path(int_dir, "cell_counts_per_celltype_interaction.csv"))
+```
+
+```{r interaction-gsea-per-celltype, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+int_gene_tables <- list()
+
+for (ct in names(int_gsea_list)) {
+
+  cat("\n\n## ", ct, " — Interaction GSEA {.scrollable}\n\n", sep = "")
+
+  p_gsea <- make_gsea_bar(int_gsea_list[[ct]], ct, n_show = 20)
+  print(p_gsea)
+
+  int_gene_tables[[ct]] <- extract_top_genes(int_gsea_list[[ct]], ct, n_show = 20)
+
+  cat("\n\n")
+}
+```
+```{r interaction-gsea-gene-tables, results='asis'}
+if (length(int_gene_tables) > 0) {
+  cat("\n\n# Interaction GSEA Leading Edge Genes {background-color=\"#a53860\"}\n\n")
+  for (ct in names(int_gene_tables)) {
+    
+    if (is.null(int_gene_tables[[ct]]) || nrow(int_gene_tables[[ct]]) == 0) next
+    
+    cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+    
+    tbl <- tryCatch({
+      int_gene_tables[[ct]] |>
+        kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+        kableExtra::kable_styling(font_size = 14,
+                                  bootstrap_options = c("striped", "hover", "condensed")) |>
+        kableExtra::column_spec(4, width = "40em")
+    }, error = function(e) {
+      int_gene_tables[[ct]] |>
+        kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+        kableExtra::kable_styling(font_size = 14,
+                                  bootstrap_options = c("striped", "hover", "condensed"))
+    })
+    
+    cat(as.character(tbl))
+    cat("\n\n")
+  }
+}
+```
+
+
+
+# Interaction EMM Heatmaps {background-color="#a53860"}
+
+```{r interaction-emm-heatmaps, results='asis', fig.width=10, fig.height=8, cache=FALSE}
+library(pheatmap)
+library(grid)
+
+hm_files <- list.files("/home/hhampson/Results/Organoid_Interaction/Heatmap_Data",
+                       pattern = "^heatmap_emm_.*\\.csv$",
+                       full.names = TRUE)
+
+hm_list <- purrr::map(hm_files, function(f) {
+  read.csv(f, row.names = 1)
+}) |>
+  setNames(gsub("heatmap_emm_|\\.csv$", "", basename(hm_files)))
+
+# Annotation: column grouping
+# col_annot <- data.frame(
+#   Group     = c("LC", "T2D", "LC", "T2D"),
+#   Treatment = c("15mM", "15mM", "30mM", "30mM"),
+#   row.names = c("LC_15mM", "T2D_15mM", "LC_30mM", "T2D_30mM")
+# )
+col_annot <- data.frame(
+  Group     = c("LC", "LC", "T2D", "T2D"),
+  Treatment = c("15mM", "30mM", "15mM", "30mM"),
+  row.names = c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM")
+)
+
+annot_colors <- list(
+  Group     = c("LC" = pal$dark_cyan, "T2D" = pal$brown_red),
+  Treatment = c("15mM" = pal$vanilla_custard, "30mM" = pal$golden_orange)
+)
+
+for (ct in names(hm_list)) {
+
+  cat("\n\n## ", gsub("_", " ", ct), " — EMM Heatmap\n\n", sep = "")
+
+  hm_mat <- as.matrix(hm_list[[ct]])
+
+  # Scale genes (rows) for visualization
+  hm_scaled <- t(scale(t(hm_mat)))
+
+  # Reorder columns consistently
+  # col_order <- c("LC_15mM", "T2D_15mM", "LC_30mM", "T2D_30mM")
+  col_order <- c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM")
+  col_order <- col_order[col_order %in% colnames(hm_scaled)]
+  hm_scaled <- hm_scaled[, col_order]
+
+  tryCatch({
+    p_hm <- pheatmap(
+      hm_scaled,
+      cluster_cols      = FALSE,
+      cluster_rows      = TRUE,
+      show_rownames     = TRUE,
+      fontsize_row      = 7,
+      fontsize_col      = 10,
+      color             = colorRampPalette(c(pal$ink_black, "white", pal$brown_red))(100),
+      annotation_col    = col_annot[col_order, , drop = FALSE],
+      annotation_colors = annot_colors,
+      main              = paste0(gsub("_", " ", ct), " — Estimated Marginal Means"),
+      border_color      = NA,
+      silent            = TRUE
+    )
+
+    grid.newpage()
+    grid.draw(p_hm$gtable)
+  }, error = function(e) {
+    message("  Heatmap error for ", ct, ": ", e$message)
+  })
+
+  cat("\n\n")
+}
+```
+
+# Cross-System Comparison: Organoid vs. Biopsy {background-color="#a53860"}
+
+## Comparative Cell Types
+
+| Biopsy | Organoid | Combined Label |
+|--------|----------|----------------|
+| POD | ProlPod | Podocytes |
+| DCT | DT | Distal Tubule |
+| EC | EEC | Endothelial |
+| VSMC/Pericyte | MesV | Vascular Smooth Muscle |
+
+```{r cross-system-setup, cache=FALSE}
+# ── Cell type mapping ────────────────────────────────────────────────────────
+cross_map <- list(
+  "Podocytes"       = list(biopsy = "POD",            organoid = "ProlPod"),
+  "Distal Tubule"   = list(biopsy = "DCT",            organoid = "DT"),
+  "Endothelial"     = list(biopsy = "EC",             organoid = "EEC"),
+  "Vascular Smooth" = list(biopsy = "VSMC/P",  organoid = "MesV")
+)
+```
+
+```{r cross-volcano, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+for (label in names(cross_map)) {
+  
+  bio_ct  <- cross_map[[label]]$biopsy
+  org_ct  <- cross_map[[label]]$organoid
+  
+  cat("\n\n## ", label, " — Volcano: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  
+  # ── Organoid volcano ───────────────────────────────────────────────────
+  org_df <- results_all |> dplyr::filter(cell_type == org_ct)
+  p_org <- if (nrow(org_df) > 0) {
+    make_volcano(org_df, org_ct, cell_counts_df = cell_counts) +
+      ggtitle(paste0("Organoid: ", org_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Organoid: ", org_ct))
+  }
+  
+  # ── Biopsy volcano ─────────────────────────────────────────────────────
+  bio_df <- biopsy_results_all |> dplyr::filter(cell_type == bio_ct)
+  p_bio <- if (nrow(bio_df) > 0) {
+    make_volcano(bio_df, bio_ct, cell_counts_df = biopsy_cell_counts) +
+      ggtitle(paste0("Biopsy: ", bio_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Biopsy: ", bio_ct))
+  }
+  
+  combined <- p_org + p_bio + plot_layout(ncol = 2)
+  print(combined)
+  cat("\n\n")
+}
+```
+
+```{r cross-gsea, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+for (label in names(cross_map)) {
+  
+  bio_ct  <- cross_map[[label]]$biopsy
+  org_ct  <- cross_map[[label]]$organoid
+  
+  cat("\n\n## ", label, " — GSEA: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  
+  # ── Organoid GSEA ──────────────────────────────────────────────────────
+  p_org_gsea <- if (org_ct %in% names(gsea_results_list)) {
+    make_gsea_bar(gsea_results_list[[org_ct]], org_ct, n_show = 15) +
+      ggtitle(paste0("Organoid: ", org_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+                        size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Organoid: ", org_ct))
+  }
+  
+  # ── Biopsy GSEA ────────────────────────────────────────────────────────
+  p_bio_gsea <- if (bio_ct %in% names(biopsy_gsea_list)) {
+    make_gsea_bar(biopsy_gsea_list[[bio_ct]], bio_ct, n_show = 15) +
+      ggtitle(paste0("Biopsy: ", bio_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+                        size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Biopsy: ", bio_ct))
+  }
+  
+  combined <- p_org_gsea + p_bio_gsea + plot_layout(ncol = 2)
+  print(combined)
+  cat("\n\n")
+}
+```
+
+
+# Summary of Findings {background-color="#a53860"}
+
+## Organoid: T2D vs. LC — Key Findings {.scrollable}
+
+```{r summary-organoid, results='asis', cache=FALSE}
+# ── Count significant DEGs per cell type ─────────────────────────────────────
+org_summary <- results_all |>
+  dplyr::mutate(
+    sig = adj.P.Val < 0.05 & abs(logFC) > 1
+  ) |>
+  dplyr::group_by(cell_type) |>
+  dplyr::summarise(
+    total_genes = dplyr::n(),
+    sig_up   = sum(sig & logFC > 0, na.rm = TRUE),
+    sig_down = sum(sig & logFC < 0, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(sig_total = sig_up + sig_down) |>
+  dplyr::arrange(dplyr::desc(sig_total))
+
+# ── Count significant GSEA pathways per cell type ────────────────────────────
+org_gsea_summary <- purrr::map_dfr(names(gsea_results_list), function(ct) {
+  df <- gsea_results_list[[ct]]
+  data.frame(
+    cell_type     = ct,
+    sig_pathways  = sum(df$padj < 0.05, na.rm = TRUE),
+    up_pathways   = sum(df$padj < 0.05 & df$NES > 0, na.rm = TRUE),
+    down_pathways = sum(df$padj < 0.05 & df$NES < 0, na.rm = TRUE)
+  )
+})
+
+org_combined <- org_summary |>
+  dplyr::left_join(org_gsea_summary, by = "cell_type") |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~tidyr::replace_na(.x, 0)))
+
+tbl <- org_combined |>
+  dplyr::select(
+    `Cell Type` = cell_type,
+    `Genes Tested` = total_genes,
+    `DEGs Up` = sig_up,
+    `DEGs Down` = sig_down,
+    `DEGs Total` = sig_total,
+    `GSEA Up` = up_pathways,
+    `GSEA Down` = down_pathways,
+    `GSEA Total` = sig_pathways
+  ) |>
+  kableExtra::kbl(escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 16, bootstrap_options = c("striped", "hover", "condensed"))
+
+cat(as.character(tbl))
+```
+
+## Biopsy: T2D vs. LC — Key Findings {.scrollable}
+
+```{r summary-biopsy, results='asis', cache=FALSE}
+bio_summary <- biopsy_results_all |>
+  dplyr::mutate(
+    sig = adj.P.Val < 0.05 & abs(logFC) > 1
+  ) |>
+  dplyr::group_by(cell_type) |>
+  dplyr::summarise(
+    total_genes = dplyr::n(),
+    sig_up   = sum(sig & logFC > 0, na.rm = TRUE),
+    sig_down = sum(sig & logFC < 0, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(sig_total = sig_up + sig_down) |>
+  dplyr::arrange(dplyr::desc(sig_total))
+
+bio_gsea_summary <- purrr::map_dfr(names(biopsy_gsea_list), function(ct) {
+  df <- biopsy_gsea_list[[ct]]
+  data.frame(
+    cell_type     = ct,
+    sig_pathways  = sum(df$padj < 0.05, na.rm = TRUE),
+    up_pathways   = sum(df$padj < 0.05 & df$NES > 0, na.rm = TRUE),
+    down_pathways = sum(df$padj < 0.05 & df$NES < 0, na.rm = TRUE)
+  )
+})
+
+bio_combined <- bio_summary |>
+  dplyr::left_join(bio_gsea_summary, by = "cell_type") |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~tidyr::replace_na(.x, 0)))
+
+tbl <- bio_combined |>
+  dplyr::select(
+    `Cell Type` = cell_type,
+    `Genes Tested` = total_genes,
+    `DEGs Up` = sig_up,
+    `DEGs Down` = sig_down,
+    `DEGs Total` = sig_total,
+    `GSEA Up` = up_pathways,
+    `GSEA Down` = down_pathways,
+    `GSEA Total` = sig_pathways
+  ) |>
+  kableExtra::kbl(escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 16, bootstrap_options = c("striped", "hover", "condensed"))
+
+cat(as.character(tbl))
+```
+
+## Treatment: 30mM vs. 15mM — Key Findings {.scrollable}
+
+```{r summary-treatment, results='asis', cache=FALSE}
+treat_summary <- treat_results_all |>
+  dplyr::mutate(
+    sig = adj.P.Val < 0.05 & abs(logFC) > 1
+  ) |>
+  dplyr::group_by(cell_type) |>
+  dplyr::summarise(
+    total_genes = dplyr::n(),
+    sig_up   = sum(sig & logFC > 0, na.rm = TRUE),
+    sig_down = sum(sig & logFC < 0, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(sig_total = sig_up + sig_down) |>
+  dplyr::arrange(dplyr::desc(sig_total))
+
+treat_gsea_summary <- purrr::map_dfr(names(treat_gsea_list), function(ct) {
+  df <- treat_gsea_list[[ct]]
+  data.frame(
+    cell_type     = ct,
+    sig_pathways  = sum(df$padj < 0.05, na.rm = TRUE),
+    up_pathways   = sum(df$padj < 0.05 & df$NES > 0, na.rm = TRUE),
+    down_pathways = sum(df$padj < 0.05 & df$NES < 0, na.rm = TRUE)
+  )
+})
+
+treat_combined <- treat_summary |>
+  dplyr::left_join(treat_gsea_summary, by = "cell_type") |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~tidyr::replace_na(.x, 0)))
+
+tbl <- treat_combined |>
+  dplyr::select(
+    `Cell Type` = cell_type,
+    `Genes Tested` = total_genes,
+    `DEGs Up` = sig_up,
+    `DEGs Down` = sig_down,
+    `DEGs Total` = sig_total,
+    `GSEA Up` = up_pathways,
+    `GSEA Down` = down_pathways,
+    `GSEA Total` = sig_pathways
+  ) |>
+  kableExtra::kbl(escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 16, bootstrap_options = c("striped", "hover", "condensed"))
+
+cat(as.character(tbl))
+```
+
+## Interaction: Group × Treatment — Key Findings {.scrollable}
+
+```{r summary-interaction, results='asis', cache=FALSE}
+int_summary <- int_results_all |>
+  dplyr::mutate(
+    sig = adj.P.Val < 0.05 & abs(logFC) > 1
+  ) |>
+  dplyr::group_by(cell_type) |>
+  dplyr::summarise(
+    total_genes = dplyr::n(),
+    sig_up   = sum(sig & logFC > 0, na.rm = TRUE),
+    sig_down = sum(sig & logFC < 0, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(sig_total = sig_up + sig_down) |>
+  dplyr::arrange(dplyr::desc(sig_total))
+
+int_gsea_summary <- purrr::map_dfr(names(int_gsea_list), function(ct) {
+  df <- int_gsea_list[[ct]]
+  data.frame(
+    cell_type     = ct,
+    sig_pathways  = sum(df$padj < 0.05, na.rm = TRUE),
+    up_pathways   = sum(df$padj < 0.05 & df$NES > 0, na.rm = TRUE),
+    down_pathways = sum(df$padj < 0.05 & df$NES < 0, na.rm = TRUE)
+  )
+})
+
+int_combined <- int_summary |>
+  dplyr::left_join(int_gsea_summary, by = "cell_type") |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~tidyr::replace_na(.x, 0)))
+
+tbl <- int_combined |>
+  dplyr::select(
+    `Cell Type` = cell_type,
+    `Genes Tested` = total_genes,
+    `DEGs Up` = sig_up,
+    `DEGs Down` = sig_down,
+    `DEGs Total` = sig_total,
+    `GSEA Up` = up_pathways,
+    `GSEA Down` = down_pathways,
+    `GSEA Total` = sig_pathways
+  ) |>
+  kableExtra::kbl(escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 16, bootstrap_options = c("striped", "hover", "condensed"))
+
+cat(as.character(tbl))
+```
+
+## Cross-System Concordance {.scrollable}
+
+```{r cross-concordance, results='asis', cache=FALSE}
+# ── For each matched cell type pair, find shared DEGs and pathway overlap ────
+concordance_rows <- list()
+
+for (label in names(cross_map)) {
+  bio_ct  <- cross_map[[label]]$biopsy
+  org_ct  <- cross_map[[label]]$organoid
+  
+  # Shared DEGs (same gene, same direction, sig in both)
+  org_degs <- results_all |>
+    dplyr::filter(cell_type == org_ct, adj.P.Val < 0.05, abs(logFC) > 1) |>
+    dplyr::select(gene, org_logFC = logFC)
+  
+  bio_degs <- biopsy_results_all |>
+    dplyr::filter(cell_type == bio_ct, adj.P.Val < 0.05, abs(logFC) > 1) |>
+    dplyr::select(gene, bio_logFC = logFC)
+  
+  shared <- dplyr::inner_join(org_degs, bio_degs, by = "gene") |>
+    dplyr::mutate(concordant = sign(org_logFC) == sign(bio_logFC))
+  
+  # Shared GSEA pathways (sig in both, same NES direction)
+  org_gsea_sig <- if (org_ct %in% names(gsea_results_list)) {
+    gsea_results_list[[org_ct]] |>
+      dplyr::filter(padj < 0.05) |>
+      dplyr::select(pathway, org_NES = NES)
+  } else { data.frame(pathway = character(), org_NES = numeric()) }
+  
+  bio_gsea_sig <- if (bio_ct %in% names(biopsy_gsea_list)) {
+    biopsy_gsea_list[[bio_ct]] |>
+      dplyr::filter(padj < 0.05) |>
+      dplyr::select(pathway, bio_NES = NES)
+  } else { data.frame(pathway = character(), bio_NES = numeric()) }
+  
+  shared_paths <- dplyr::inner_join(org_gsea_sig, bio_gsea_sig, by = "pathway") |>
+    dplyr::mutate(concordant = sign(org_NES) == sign(bio_NES))
+  
+  concordance_rows[[label]] <- data.frame(
+    `Cell Type`           = label,
+    `Biopsy`              = bio_ct,
+    `Organoid`            = org_ct,
+    `Shared DEGs`         = nrow(shared),
+    `Concordant DEGs`     = sum(shared$concordant, na.rm = TRUE),
+    `Shared Pathways`     = nrow(shared_paths),
+    `Concordant Pathways` = sum(shared_paths$concordant, na.rm = TRUE),
+    check.names = FALSE
+  )
+}
+
+concordance_df <- dplyr::bind_rows(concordance_rows)
+
+tbl <- concordance_df |>
+  kableExtra::kbl(escape = FALSE) |>
+  kableExtra::kable_styling(font_size = 18, bootstrap_options = c("striped", "hover", "condensed"))
+
+cat(as.character(tbl))
+```
+
