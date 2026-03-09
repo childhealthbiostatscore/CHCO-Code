@@ -28,114 +28,8 @@ if (user == "choiyej") { # local version
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 
-# Pull in nebula results
-folders <- c(
-  # new additions
-  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
-  "T2D_GLP_N_vs_HC" = "t2d_glpn_hc"
-  # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
-  # 
-  # # --- Base DKD vs nonDKD ---
-  # "DKD_vs_nonDKD_30" = "dkd30",
-  # "DKD_vs_nonDKD_100" = "dkd100",
-  # 
-  # # --- DKD vs nonDKD with T2D ---
-  # "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
-  # "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
-  # 
-  # # --- DKD vs HC (30 / 100) ---
-  # "DKD_30_vs_HC" = "dkd30_hc",
-  # "DKD_100_vs_HC" = "dkd100_hc",
-  # 
-  # # --- DKD vs HC with T2D ---
-  # "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
-  # "DKD_100_t2d_vs_HC" = "dkd100_t2d_hc",
-  # 
-  # # --- nonDKD vs HC (30 / 100) ---
-  # "nonDKD_30_vs_HC" = "nondkd30_hc",
-  # "nonDKD_100_vs_HC" = "nondkd100_hc",
-  # 
-  # # --- nonDKD vs HC with T2D ---
-  # "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
-  # "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
-  # 
-  # # --- GLP (within DKD) ---
-  # "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn"
-  # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
-  # 
-  # # --- GLP (within nonDKD) ---
-  # "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn",
-  # "nonDKD_100_GLP_Y_vs_nonDKD_100_GLP_N" = "nondkd_100_glpy_glpn",
-  # 
-  # # --- GLP N/Y vs HC (nonDKD) ---
-  # "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
-  # "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
-  # "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
-  # "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
-  # 
-  # # --- GLP N/Y vs HC (DKD) ---
-  # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
-  # "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc",
-  # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc",
-  # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
-  # 
-  # # --- SGLT2i (within DKD) ---
-  # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
-  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
-  # 
-  # # --- SGLT2i (within nonDKD) ---
-  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
-  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
-  # 
-  # # --- SGLT2i N/Y vs HC (nonDKD) ---
-  # "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
-  # "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
-  # "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
-  # "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
-  # 
-  # # --- SGLT2i N/Y vs HC (DKD) ---
-  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
-  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
-  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
-  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
-)
-
-# Define common parameters
-celltype_groups <- list(
-  PT = c("PT-S1/S2", "PT-S3", "aPT"),
-  aPT = "aPT",
-  `PT-S1/S2` = "PT-S1/S2",
-  `PT-S3` = "PT-S3",
-  # `PT-1` = "PT-1",
-  # `PT-2` = "PT-2",
-  # `PT-3` = "PT-3",
-  # `PT-4` = "PT-4",
-  # `PT-5` = "PT-5",
-  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
-  `C-TAL-1` = "C-TAL-1",
-  `C-TAL-2` = "C-TAL-2",
-  aTAL = "aTAL",
-  dTAL = "dTAL",
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
-  `EC-AVR` = "EC-AVR",
-  `EC-GC`  = "EC-GC",
-  `EC-PTC` = "EC-PTC",
-  `EC-AEA` = "EC-AEA",
-  `EC-LYM` = "EC-LYM",
-  `EC/VSMC` = "EC/VSMC",
-  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
-  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
-  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
-  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
-  IC = c("IC-A", "IC-B", "aIC"),
-  DTL_ATL = c("DTL", "aDTL", "ATL"),
-  DCT_CNT = c("DCT", "dDCT", "CNT"),
-  VSMC_P_FIB = c("VSMC/P", "FIB"),
-  POD = "POD",
-  MC = "MC",
-  PEC = "PEC",
-  Schwann = "SchwannCells"
-)
+# Shared analysis config (folders, celltype_groups, celltype_groups_high, celltype_groups_low)
+source(file.path(git_path, "Renal HEIRitage/analysis_config.R"))
 
 # Load all run metadata and save as one file
 meta_df_compiled <- data.frame(analysis_type = NULL, 
@@ -212,7 +106,7 @@ for (folder in names(folders)) {
               file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")), 
               row.names = F, fileEncoding = "UTF-8")
     
-    write.csv(subset(processed_df, processed_df[[6]] < 0.05), 
+    write.csv(subset(processed_df, processed_df[[grep("^p_.*GLP", names(processed_df))]] < 0.05), 
               file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/pval/", var_name, "_kpmp_pval.csv")), 
               row.names = F, fileEncoding = "UTF-8")
     
@@ -239,7 +133,6 @@ for (folder in names(folders)) {
     var_name <- paste0(tolower(cell), "_", folders[folder])
     var_name <- gsub("/", "_", var_name)
     
-    # ---- GUARD: skip if object doesn't exist ----
     if (!exists(var_name, inherits = TRUE)) {
       message("Skipping missing object: ", var_name)
       next
@@ -247,13 +140,16 @@ for (folder in names(folders)) {
     
     df <- get(var_name)
     
-    sig_df <- subset(df, df[[6]] < 0.05)
+    pval_col  <- grep("^p_.*glp",     names(df), value = TRUE)
+    logfc_col <- grep("^logFC_.*glp", names(df), value = TRUE)
+    
+    sig_df <- subset(df, df[[pval_col]] < 0.05)
     
     sig_df_summary <- sig_df %>%
       mutate(
         direction = case_when(
-          .data[[names(sig_df)[2]]] > 0 ~ "Positive",
-          .data[[names(sig_df)[2]]] < 0 ~ "Negative",
+          .data[[logfc_col]] > 0 ~ "Positive",
+          .data[[logfc_col]] < 0 ~ "Negative",
           TRUE ~ NA_character_
         )
       ) %>%
@@ -279,6 +175,7 @@ for (folder in names(folders)) {
       `rownames<-`(NULL)
     
     sig_df_summary_comp <- rbind(sig_df_summary_comp, sig_df_summary)
+    
   }
 }
 
@@ -1063,8 +960,8 @@ for (folder in folders) {
         
         df_pathway <- df %>% 
           filter(Gene %in% unlist(gsea_res_hallmark_top_pathway$leadingEdge)) %>%
-          arrange(across(2)) %>%
-          mutate(Gene = factor(Gene, levels = Gene),
+          dplyr::arrange(across(2)) %>%
+          dplyr::mutate(Gene = factor(Gene, levels = Gene),
                  text_style = ifelse(.[[6]] < 0.05, "bold", "plain"),
                  text_color = ifelse(.[[6]] < 0.05, "#212529", "#343a40"))
         

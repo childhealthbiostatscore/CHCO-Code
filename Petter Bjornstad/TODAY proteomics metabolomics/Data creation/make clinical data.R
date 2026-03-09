@@ -306,7 +306,8 @@ baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
 )
 baserisk <- full_join(baserisk, base_lipo, by = "releaseid")
 baserisk$homa_ir <- (baserisk$ins0min * baserisk$glu0min) / 405
-  
+baserisk$waist_height <- baserisk$wastcirc / baserisk$height
+
 # Save
 save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
 
@@ -433,6 +434,7 @@ long$si_1_ins0 <- 1/long$ins0min
 long <- merge(long, fup_length, by = "releaseid", all.x = T, all.y = T)
 long <- full_join(long, lipo, by = c("releaseid", "visit"))
 long$homa_ir <- (long$ins0min * long$glu0min) / 405
+long$waist_height <- long$wastcirc / long$height
 
 # length of follow-up
 long_unique <- long %>% select(releaseid, fup_years) %>% unique() 
