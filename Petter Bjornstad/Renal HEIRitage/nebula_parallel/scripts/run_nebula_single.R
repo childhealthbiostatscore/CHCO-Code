@@ -92,11 +92,11 @@ analysis_config <- list(
     adjust_covariates = c("age", "sex.x", "bmi")
   ),
   # T2D GLP+ vs T2D GLP- (adjusted for age, sex, bmi, hba1c)
-  T2D_GLP_Y_vs_T2D_GLP_N_adj2 = list(
+  T2D_GLP_Y_vs_T2D_GLP_N_age_sex_bmi_hba1c = list(
     subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
     group_var = "glp_t2dob", ref_level = "GLP_N",
     pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
-    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_adj2", file_suffix = "t2d_glpyn_adj2",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N_age_sex_bmi_hba1c", file_suffix = "t2d_glpyn_age_sex_bmi_hba1c",
     adjust_covariates = c("age", "sex.x", "bmi", "hba1c")
   ),
   # DKD vs nonDKD comparisons (ACR >= 100)
@@ -678,6 +678,8 @@ nebula_res <- run_nebula_parallel(
   group = FALSE
 )
 
+nebula_res <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/nebula/T2D_GLP_Y_vs_T2D_GLP_N_adj_age_sex/EC/EC_rh_rh2_imp_nebula_kpmp_t2d_glpyn_adj_age_sex.rds",
+                        bucket = "scrna", region = "")
 # Process results
 processed <- process_nebula_results(
   nebula_res$results,

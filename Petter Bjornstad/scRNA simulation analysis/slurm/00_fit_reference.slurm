@@ -18,16 +18,16 @@ N_CORES=8
 BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis"
 SCRIPT_DIR="${BASE_DIR}/R"
 
-# Ensure log dirs exist (absolute, like your working script)
+# Ensure log dirs exist
 mkdir -p "${BASE_DIR}/logs/output" "${BASE_DIR}/logs/error"
 
-# Load Apptainer module (matches your known-working pattern)
+# Load Apptainer module
 module load apptainer  # or module load singularity
 
 # Container path
 CONTAINER="/mmfs1/gscratch/togo/YC_scRNA.sif"
 
-# Move to base dir (matches your known-working pattern)
+# Move to base dir
 cd "${BASE_DIR}"
 
 echo "Working directory: $(pwd)"
