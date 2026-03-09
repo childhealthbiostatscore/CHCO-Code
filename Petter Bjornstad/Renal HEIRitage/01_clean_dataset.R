@@ -3,8 +3,8 @@
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "yejichoi") {
   root_path <- "/mmfs1/gscratch/togo/yejichoi/"
@@ -43,19 +43,16 @@ harm_dat_collapsed <- harm_dat %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
   group_by(record_id, visit) %>%
   fill(date, .direction = "updown") %>% ungroup() %>%
+  group_by(mrn, kit_id) %>% 
+  fill(c(lv_cardiac_index, lv_cardiac_output, 
+         lv_hr, lv_myo_thickness_dias,
+         lv_myo_thickness_total, lv_stroke_volume,
+         lved_mass, lvedv, lvef, lves_mass, 
+         lvesv, rv_cardiac_index, rv_cardiac_output, 
+         rv_hr, rv_stroke_volume, rvedv, rvef, rvesv), .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit))
-
-harm_dat_collapsed$agem = harm_dat_collapsed$age * 12
-bmi_percentile = ext_bmiz(data = subset(harm_dat_collapsed, 
-                                        select = c("record_id", "visit", "sex", "agem", 
-                                                   "weight", "height", "bmi")),
-                          wt = "weight", ht = "height") %>%
-  dplyr::select(record_id, visit, bmip)
-
-harm_dat_collapsed <- harm_dat_collapsed %>%
-  left_join(bmi_percentile, by = c("record_id", "visit")) %>% 
+                   .by = c(record_id, visit)) %>%
   dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
                                                        ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
                                                      race == "Black or African American" &
@@ -74,7 +71,6 @@ harm_dat_collapsed <- harm_dat_collapsed %>%
                   levels = c("eGFR >= 90 and UACR <100 mg/g",
                              "eGFR < 90 and/or UACR >=100 mg/g")
                 ),
-                
                 dkd_group_100 = case_when(
                   eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
                   eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
