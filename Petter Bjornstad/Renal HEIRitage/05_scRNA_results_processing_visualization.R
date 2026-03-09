@@ -183,6 +183,20 @@ write.csv(sig_df_summary_comp, file.path(root_path, "Renal HERITAGE/Results/Summ
 
 # Define plot parameters for each comparison
 plot_params <- list(
+  "t2d_glpn_hc_adj_age_sex" = list(
+    p_col = "p_glp_t2dobGLP_N",
+    fc_col = "logFC_glp_t2dobGLP_N",
+    x_label = "logFC T2D GLP- vs. HC",
+    positive_text = "Positive with T2D",
+    negative_text = "Negative with T2D",
+    formula = "T2D GLP_N + age + sexM"),
+  "t2d_glpyn_adj_age_sex" = list(
+    p_col = "p_glp_t2dobGLP_Y",
+    fc_col = "logFC_glp_t2dobGLP_Y",
+    x_label = "logFC T2D GLP+ vs. T2D GLP-",
+    positive_text = "Positive with GLP+",
+    negative_text = "Negative with GLP+",
+    formula = "T2D GLP_Y + age + sexM"),
   "t2d_glpn_hc" = list(
     fc_col = "logFC_glp_t2dobGLP_N",
     p_col = "p_glp_t2dobGLP_N",
