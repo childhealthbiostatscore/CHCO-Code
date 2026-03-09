@@ -107,7 +107,7 @@ s3read_using_region <- function(FUN, ..., object, bucket,
 option_list <- list(
   make_option("--cell_type",   type = "character", default = "PT",
               help = "Value in KPMP_celltype_general to subset [default: PT]"),
-  make_option("--n_hvg",       type = "integer",   default = 2000L,
+  make_option("--n_hvg",       type = "integer",   default = 2000,
               help = "Number of HVGs to retain [default: 2000]"),
   make_option("--n_cores",     type = "integer",   default = 32L,
               help = "Number of parallel cores [default: 32]"),
@@ -115,6 +115,10 @@ option_list <- list(
               help = "Random seed [default: 42]")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
+
+# manual mods for debugging
+# opt$cell_type <- "POD"
+# opt$n_hvg <- 10
 
 set.seed(opt$seed)
 BiocParallel::register(BiocParallel::MulticoreParam(opt$n_cores))
@@ -135,8 +139,6 @@ celltype_groups <- list(
   EC              = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
   IC              = c("IC-A", "IC-B", "aIC"),
   Immune          = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
-  # Immune_myeloid  = c("MAC", "MON", "cDC", "pDC"),
-  # Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
   VSMC_P_FIB      = c("VSMC/P", "FIB"),
   POD             = "POD"
 )
@@ -180,26 +182,44 @@ message("  hvg_genes.rds saved to S3")
 # Recode clinical labels to generic simulation labels:
 #   visit:     PRE           -> timepoint1
 #              POST          -> timepoint2
-#   treatment: Placebo       -> groupB  (reference group)
-#              Dapagliflozin -> groupA  (treatment group)
+#   treatment: Placebo       -> Placebo  (reference group)
+#              Dapagliflozin -> Treatment  (treatment group)
 #
 # Factor levels set so reference = first level:
 #   visit:     c("timepoint1", "timepoint2")
-#   treatment: c("groupB", "groupA")
+#   treatment: c("Placebo", "Treatment")
 #
 message("── [00] Building SingleCellExperiment ──")
-counts_mat <- GetAssayData(so_sub, slot = "counts")[hvg_genes, ]
+counts_mat <- GetAssayData(so_sub, layer = "counts")[hvg_genes, ]
+
+# Create a clean subject ID mapping
+orig_ids <- sort(unique(as.character(so_sub$subject_id)))
+
+# figure out which are Placebo vs Treatment from the original data
+orig_trt <- sapply(orig_ids, function(id) {
+  unique(as.character(so_sub$treatment[so_sub$subject_id == id]))
+})
+
+# assign grpPlacebo_S01, grpTreatment_S01, etc.
+placebo_ids   <- orig_ids[orig_trt == "Placebo"]
+treatment_ids <- orig_ids[orig_trt != "Placebo"]
+
+clean_ids <- character(length(orig_ids))
+names(clean_ids) <- orig_ids
+
+clean_ids[placebo_ids]   <- sprintf("grpPlacebo_S%02d", seq_along(placebo_ids))
+clean_ids[treatment_ids] <- sprintf("grpTreatment_S%02d", seq_along(treatment_ids))
 
 col_df <- data.frame(
   cell        = colnames(so_sub),
-  subject_id  = factor(as.character(so_sub$subject_id)),
+  subject_id  = factor(clean_ids[as.character(so_sub$subject_id)]),
   visit       = factor(
     ifelse(so_sub$visit == "PRE", "timepoint1", "timepoint2"),
     levels = c("timepoint1", "timepoint2")
   ),
   treatment   = factor(
-    ifelse(so_sub$treatment == "Placebo", "groupB", "groupA"),
-    levels = c("groupB", "groupA")
+    ifelse(so_sub$treatment == "Placebo", "Placebo", "Treatment"),
+    levels = c("Placebo", "Treatment")
   ),
   celltype    = so_sub$KPMP_celltype_general,
   stringsAsFactors = FALSE
@@ -232,13 +252,13 @@ compute_group_lfc <- function(grp) {
   mu_post - mu_pre  # log-scale difference (roughly log2FC)
 }
 
-lfc_groupA     <- compute_group_lfc("groupA")
-lfc_groupB     <- compute_group_lfc("groupB")
-interaction_lfc <- lfc_groupA - lfc_groupB  # delta-delta
+lfc_Treatment <- compute_group_lfc("Treatment")
+lfc_Placebo <- compute_group_lfc("Placebo")
+interaction_lfc <- lfc_Treatment - lfc_Placebo  # delta-delta
 
 effect_summary <- list(
-  lfc_groupA              = summary(lfc_groupA),
-  lfc_groupB              = summary(lfc_groupB),
+  lfc_Treatment              = summary(lfc_Treatment),
+  lfc_Placebo              = summary(lfc_Placebo),
   interaction_lfc         = summary(interaction_lfc),
   interaction_sd          = sd(interaction_lfc),
   interaction_median_abs  = median(abs(interaction_lfc[interaction_lfc != 0])),
@@ -267,62 +287,65 @@ print(effect_summary$effect_sizes)
 #
 # Factor levels:
 #   visit:     reference = "timepoint1"
-#   treatment: reference = "groupB"
-# -> interaction coefficient name = "visittimepoint2:treatmentgroupA"
+#   treatment: reference = "Placebo"
+# -> interaction coefficient name = "visittimepoint2:treatmentTreatment"
 message("── [00] Fitting scDesign3 reference model (this may take a while) ──")
 
 set.seed(opt$seed)
-fit_obj <- scdesign3(
+ref_construct_data <- construct_data(
   sce              = sce_ref,
   assay_use        = "counts",
   celltype         = "celltype",           # colData column for cell type label
   pseudotime       = NULL,                 # not a trajectory experiment
   spatial          = NULL,
   other_covariates = c("subject_id", "visit", "treatment"),
+  corr_by = "subject_id")
+
+# fit the NB models per gene (NB and ZINB look similar but NB is more efficient)
+ref_fit_marginal <- fit_marginal(
+  data = ref_construct_data,
   mu_formula       = "visit * treatment",
   sigma_formula    = "1",                  # global dispersion
-  family_use       = "nb",                 # negative binomial
-  n_cores          = opt$n_cores,
-  usebam           = FALSE,
-  corr_formula     = "subject_id",         # cell-cell correlation within subject
+  family_use = "nb",
+  n_cores = 4,
+  usebam = FALSE
+)
+
+# fit the copula correlation structure
+ref_fit_copula <- fit_copula(
+  sce = sce_ref,
+  assay_use = "counts",
+  input_data = ref_construct_data$dat,
+  marginal_list = ref_fit_marginal,
+  family_use = "nb",
   copula           = "gaussian",
   DT               = TRUE,
-  pseudo_obs       = TRUE,
-  return_model     = TRUE,
-  parallelization  = "pbmcapply",
-  BPPARAM          = BiocParallel::MulticoreParam(opt$n_cores)
+  pseudo_obs       = FALSE,
+  important_feature = "all",
+  if_sparse = FALSE,
+  n_cores = 4,
+  parallelization = "mcmapply",
+  BPPARAM = NULL
 )
 
-s3saveRDS(fit_obj,
-          object = paste0(S3_PREFIX, "scdesign3_fit.rds"),
-          bucket = S3_BUCKET,
-          region = "")
-message("  scdesign3_fit.rds saved to S3")
-
-# ── 6. Save construct_data output for use in 02_simulate_analyze.R ────────────
-# scdesign3() does not expose the construct_data() output directly.
-# We re-run construct_data() to obtain $dat and $filtered_gene, which are
-# required by extract_para() and simu_new() in step 02.
-message("── [00] Running construct_data() to save dat + filtered_gene ──")
-
-# Build the new_covariate (= covariate of the reference data itself)
-ref_covariate <- as.data.frame(colData(sce_ref)[, c("subject_id", "visit",
-                                                    "treatment", "celltype")])
-
-construct_data_result <- construct_data(
+# extract parameters from the fitted marginals + copula
+ref_extract_para <- extract_para(
   sce              = sce_ref,
   assay_use        = "counts",
-  celltype         = "celltype",
-  pseudotime       = NULL,
-  spatial          = NULL,
-  other_covariates = c("subject_id", "visit", "treatment"),
-  corr_by          = "subject_id"
-)
+  marginal_list = ref_fit_marginal,
+  n_cores = 4,
+  family_use = "nb",
+  new_covariate = ref_construct_data$new_covariate,
+  parallelization = "mcmapply",
+  BPPARAM = NULL,
+  data = ref_construct_data$dat)
 
 # Save only the components needed downstream (not the full SCE again)
 ref_data <- list(
-  dat           = construct_data_result$dat,
-  filtered_gene = construct_data_result$filtered_gene
+  ref_construct_data = ref_construct_data,
+  ref_fit_marginal = ref_fit_marginal,
+  ref_fit_copula = ref_fit_copula,
+  ref_extract_para = ref_extract_para
 )
 
 s3saveRDS(ref_data,
@@ -333,3 +356,25 @@ message("  construct_data.rds saved to S3")
 
 message(sprintf("── [00] Done. All reference outputs saved to s3://%s/%s ──",
                 S3_BUCKET, S3_PREFIX))
+
+# test_res <- simu_new(
+#   sce = sce_ref,
+#   assay_use = "counts",
+#   mean_mat = ref_extract_para$mean_mat,
+#   sigma_mat = ref_extract_para$sigma_mat,
+#   zero_mat = ref_extract_para$zero_mat,
+#   quantile_mat = NULL,
+#   copula_list = ref_fit_copula$copula_list,
+#   n_cores = 1,
+#   family_use = "gaussian",
+#   input_data = ref_construct_data$dat,
+#   new_covariate = ref_construct_data$new_covariate,
+#   important_feature = ref_fit_copula$important_feature,
+#   filtered_gene = ref_construct_data$filtered_gene
+# )
+# 
+# 
+# ref_cov <- ref_data$ref_construct_data$newCovariate
+# cells_per_group <- ref_cov %>%
+#   group_by(subject_id, celltype, visit, treatment) %>%
+#   summarise(n_cells = n(), .groups = "drop")

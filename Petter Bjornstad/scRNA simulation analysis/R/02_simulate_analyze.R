@@ -45,14 +45,14 @@
 #     nebula_stats.rds    -- gene x {logFC, pval, padj, is_de, beta_int_true}
 #     deseq2_stats.rds    -- same structure
 #     edger_stats.rds     -- same structure
-#     wilcox_stats.rds    -- same structure (contrast: groupA POST vs groupB POST)
+#     wilcox_stats.rds    -- same structure (contrast: Treatment POST vs Placebo POST)
 #     mast_stats.rds      -- same structure (MAST + subject_id latent covariate)
 #     timing.rds          -- named vector: sim, nebula, deseq2, edger, wilcox, mast (s)
 #     params.rds          -- single-row data.frame of this task's parameters
 #     truth.rds           -- data.frame: gene, is_de, beta_int_true
 #
 # NOTE on Wilcoxon / MAST contrast:
-#   These methods compare groupA POST cells vs groupB POST cells, which tests
+#   These methods compare Treatment POST cells vs Placebo POST cells, which tests
 #   (b_trt + b_int), not the pure interaction b_int. Under prop_de = 0 (b_int=0),
 #   detections reflect the main treatment effect from the reference model,
 #   demonstrating type I error inflation from ignoring paired structure.
@@ -127,6 +127,9 @@ option_list <- list(
 opt <- parse_args(OptionParser(option_list = option_list))
 if (is.null(opt$array_id)) stop("--array_id is required")
 
+# manual settings for debugging
+# opt$array_id = 1
+
 # Seed is array_id so each task is reproducible and unique
 set.seed(opt$array_id)
 message(sprintf("  Seed set to: %d (= array_id)", opt$array_id))
@@ -150,8 +153,6 @@ param_grid <- s3readRDS(
 params <- param_grid[opt$array_id, ]
 
 message("  Loading reference model from S3...")
-fit_obj      <- s3readRDS(object = paste0(S3_REF_PFX, "scdesign3_fit.rds"),
-                          bucket = S3_BUCKET, region = "")
 hvg_genes    <- s3readRDS(object = paste0(S3_REF_PFX, "hvg_genes.rds"),
                           bucket = S3_BUCKET, region = "")
 sce_ref      <- s3readRDS(object = paste0(S3_REF_PFX, "sce_ref.rds"),
@@ -168,17 +169,21 @@ message(sprintf("  Scenario: %s  rep=%d", params$scenario_id, params$sim_rep))
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. BUILD CELL-LEVEL DESIGN
 #
-# n_subjects_per_arm subjects in each of 2 arms (groupA / groupB),
+# n_subjects_per_arm subjects in each of 2 arms (Placebo / Treatment),
 # each with timepoint1 + timepoint2 visit (paired design).
 # Cells per subject drawn from N(cells_mean, cells_sd^2), clipped to >= 50.
 # ─────────────────────────────────────────────────────────────────────────────
-treatments <- c("groupB", "groupA")
+treatments <- c("Placebo", "Treatment")
 visits     <- c("timepoint1", "timepoint2")
 
+# grab the exact subject IDs the copula knows about
+ref_subjects <- levels(ref_data$ref_construct_data$newCovariate$subject_id)
+# e.g. c("grpPlacebo_S01", "grpPlacebo_S02", ..., "grpTreatment_S01", ...)
+
+n_ref_per_arm <- sum(grepl("^grpPlacebo", ref_subjects))
+
 make_subject_cells <- function(subj_id, trt, cells_mean, cells_sd) {
-  # Each subject has cells from BOTH visits; split roughly 50/50 between visits
   n_total <- max(50L, round(rnorm(1, cells_mean, cells_sd)))
-  # Assign visits proportionally (slightly random split)
   n_pre   <- round(n_total * runif(1, 0.4, 0.6))
   n_post  <- n_total - n_pre
   data.frame(
@@ -190,18 +195,18 @@ make_subject_cells <- function(subj_id, trt, cells_mean, cells_sd) {
 }
 
 cell_list <- lapply(treatments, function(trt) {
+  prefix <- ifelse(trt == "Treatment", "grpTreatment", "grpPlacebo")
   lapply(seq_len(params$n_subjects_per_arm), function(j) {
-    # Subject ID encodes arm and subject number
-    subj <- sprintf("%s_S%02d",
-                    ifelse(trt == "groupA", "grpA", "grpB"), j)
+    subj <- sprintf("%s_S%02d", prefix, j)
     make_subject_cells(subj, trt, params$cells_mean, params$cells_sd)
   })
 })
+
 new_covariate <- do.call(rbind, do.call(c, cell_list))
 new_covariate$visit     <- factor(new_covariate$visit,
                                   levels = c("timepoint1", "timepoint2"))
 new_covariate$treatment <- factor(new_covariate$treatment,
-                                  levels = c("groupB", "groupA"))
+                                  levels = c("Placebo", "Treatment"))
 new_covariate$celltype  <- unique(sce_ref$celltype)[1]
 
 n_cells_total <- nrow(new_covariate)
@@ -233,10 +238,10 @@ truth_df <- data.frame(
 #
 # Factor levels in sce_ref colData are:
 #   visit:     c("timepoint1", "timepoint2")  -> reference = "timepoint1"
-#   treatment: c("groupB", "groupA")          -> reference = "groupB"
-# So the interaction coefficient is: "visittimepoint2:treatmentgroupA"
+#   treatment: c("Placebo", "Treatment")          -> reference = "Placebo"
+# So the interaction coefficient is: "visittimepoint2:treatmentTreatment"
 # ─────────────────────────────────────────────────────────────────────────────
-COEF_INT <- "visittimepoint2:treatmentgroupA"
+COEF_INT <- "visittimepoint2:treatmentTreatment"
 
 modify_gene_model <- function(gm, beta_int, iv_factor) {
   if (!is.null(gm$fit)) {
@@ -256,21 +261,18 @@ modify_gene_model <- function(gm, beta_int, iv_factor) {
 
 message("  Modifying scDesign3 model (DE injection + individual variance)...")
 modified_marginal <- bplapply(
-  seq_along(fit_obj$marginal_list),
-  function(g) modify_gene_model(fit_obj$marginal_list[[g]],
+  seq_along(ref_data$ref_fit_marginal),
+  function(g) modify_gene_model(ref_data$ref_fit_marginal[[g]],
                                 beta_int  = beta_int_true[g],
                                 iv_factor = params$indiv_var_factor),
   BPPARAM = BiocParallel::MulticoreParam(opt$n_cores)
 )
-names(modified_marginal) <- names(fit_obj$marginal_list)
+names(modified_marginal) <- names(ref_data$ref_fit_marginal)
 
-# copula_list is set to NULL: simulate gene marginals independently.
-# The fitted copula from 00_fit_reference.R is keyed on reference subject IDs
-# and cannot be directly applied to new simulated subjects. For benchmarking
-# DE methods, marginal accuracy (per-gene mean/dispersion) matters more than
-# between-gene correlation. Between-gene correlation structure is dropped here.
-fit_mod <- fit_obj
-fit_mod$marginal_list <- modified_marginal
+# The fitted copula from 00_fit_reference.R is keyed on reference subject IDs.
+# When the simulation has more subjects than the reference, we cycle through
+# reference copulas and clone input_data rows for the extra subjects.
+# This preserves gene-gene correlation structure while allowing flexible sample sizes.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. SIMULATE COUNTS (held in memory only)
@@ -281,15 +283,18 @@ fit_mod$marginal_list <- modified_marginal
 # ─────────────────────────────────────────────────────────────────────────────
 t_sim <- proc.time()
 message("  Extracting parameters from modified model...")
+new_covariate_for_sim <- new_covariate[, colnames(ref_data$ref_construct_data$newCovariate)]
+new_covariate_for_sim <- new_covariate_for_sim %>%
+  dplyr::mutate(corr_group = subject_id)
 
 sim_para <- tryCatch(
   extract_para(
     sce           = sce_ref,
-    marginal_list = fit_mod$marginal_list,
+    marginal_list = modified_marginal,
     n_cores       = opt$n_cores,
     family_use    = "nb",
-    new_covariate = new_covariate,
-    data          = ref_data$dat
+    new_covariate = new_covariate_for_sim,
+    data          = ref_data$ref_construct_data$dat
   ),
   error = function(e) {
     message("  ERROR in extract_para: ", conditionMessage(e))
@@ -307,40 +312,65 @@ if (is.null(sim_para)) {
   quit(status = 1)
 }
 
-message("  Simulating counts with simu_new()...")
-# simu_new() in scDesign3 v1.x does not handle copula_list = NULL gracefully —
-# it enters the copula branch regardless and crashes on an empty list.
-# The workaround: supply quantile_mat directly (independent U(0,1) draws per
-# gene per cell). simu_new() skips copula sampling when quantile_mat is provided
-# and uses these values to invert the fitted NB marginals instead.
-quantile_mat_ind <- matrix(
-  runif(prod(dim(sim_para$mean_mat))),
-  nrow     = nrow(sim_para$mean_mat),
-  ncol     = ncol(sim_para$mean_mat),
-  dimnames = dimnames(sim_para$mean_mat)
+message("  Remap copula list and input data for new subject design...")
+ref_copula   <- ref_data$ref_fit_copula$copula_list
+ref_names    <- names(ref_copula)
+ref_dat_full <- ref_data$ref_construct_data$dat %>%
+  dplyr::mutate(corr_group = as.character(corr_group))
+
+# New subjects from the simulation design
+new_subjects <- as.character(unique(new_covariate$subject_id))
+
+# Map each new subject to a reference subject by cycling through available refs.
+# Works whether n_new < n_ref (subset), n_new == n_ref (1:1), or n_new > n_ref (recycle).
+ref_assignment <- setNames(
+  ref_names[((seq_along(new_subjects) - 1) %% length(ref_names)) + 1],
+  new_subjects
+)
+message(sprintf("  Mapping %d new subjects -> %d reference copulas (cycling)",
+                length(new_subjects), length(ref_names)))
+
+# Build mapped_copula: one entry per new subject, copied from assigned ref
+mapped_copula <- setNames(
+  lapply(new_subjects, function(s) ref_copula[[ ref_assignment[[s]] ]]),
+  new_subjects
 )
 
-sim_result <- tryCatch(
-  simu_new(
-    sce               = sce_ref,
-    mean_mat          = sim_para$mean_mat,
-    sigma_mat         = sim_para$sigma_mat,
-    zero_mat          = sim_para$zero_mat,
-    quantile_mat      = quantile_mat_ind,  # bypasses copula; genes are independent
-    copula_list       = NULL,
-    n_cores           = opt$n_cores,
-    family_use        = "nb",
-    input_data        = ref_data$dat,
-    new_covariate     = new_covariate,
-    important_feature = fit_obj$important_feature,
-    filtered_gene     = ref_data$filtered_gene
-  ),
-  error = function(e) {
-    message("  ERROR in simu_new: ", conditionMessage(e))
-    NULL
+# Build input_data: for each new subject, we need rows in input_data so that
+# simu_new() can iterate over unique(input_data$corr_group).
+#   - If the new subject exists in the reference data, use its real rows.
+#   - If it doesn't (n_new > n_ref), clone rows from the assigned donor and relabel.
+ref_subject_ids <- unique(as.character(ref_dat_full$subject_id))
+input_data_list <- lapply(new_subjects, function(s) {
+  if (s %in% ref_subject_ids) {
+    # Subject exists in reference — use real rows
+    ref_dat_full %>% dplyr::filter(subject_id == s)
+  } else {
+    # Subject not in reference — clone from the assigned donor
+    donor <- ref_assignment[[s]]
+    ref_dat_full %>%
+      dplyr::filter(subject_id == donor) %>%
+      dplyr::mutate(subject_id = s,
+                    corr_group = s)
   }
+})
+ref_data_dat <- do.call(rbind, input_data_list)
+
+message("  Simulating counts with simu_new()...")
+
+sim_result <- simu_new(
+  sce           = sce_ref,
+  mean_mat      = sim_para$mean_mat,
+  sigma_mat     = sim_para$sigma_mat,
+  zero_mat      = sim_para$zero_mat,
+  copula_list   = mapped_copula,
+  n_cores       = opt$n_cores,
+  family_use    = "nb",
+  important_feature = ref_data$ref_fit_copula$important_feature,
+  input_data    = ref_data_dat,
+  filtered_gene = ref_data$ref_construct_data$filtered_gene,
+  new_covariate = new_covariate_for_sim
 )
-rm(quantile_mat_ind); gc(verbose = FALSE)
 
 t_sim_elapsed <- (proc.time() - t_sim)["elapsed"]
 
@@ -386,7 +416,7 @@ message(sprintf("  Simulated: %d genes x %d cells  (%.1f s)",
                 nrow(counts), ncol(counts), t_sim_elapsed))
 
 # Free heavy objects no longer needed (ref_data retained only as long as needed above)
-rm(fit_mod, modified_marginal, sim_result, sim_para, ref_data)
+rm(modified_marginal, sim_result, sim_para, ref_data, ref_data_dat, mapped_copula)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -407,37 +437,30 @@ tidy_join <- function(gene, logfc, pval) {
 t_neb <- proc.time()
 message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 
-run_nebula <- function(counts, new_covariate, method, n_cores,
-                       offset_vec = NULL) {
-  # Build offset if not supplied.
-  # Independent simulation (no copula) creates extreme library-size variability:
-  # top HVGs dominate some cells, making ratio-based offsets (lib/median) take
-  # values like log(100) = 4.6 that push the NB log-likelihood into NaN.
-  # Fix: mean-center on the log scale and clip to [-5, 5] (~150-fold range).
-  # As last resort the caller may pass rep(0, ncol(counts)) (zero offset).
-  if (is.null(offset_vec)) {
-    log_ls     <- log(pmax(colSums(counts), 1L))
-    offset_vec <- pmin(pmax(log_ls - mean(log_ls), -5), 5)
-  }
-
+run_nebula <- function(counts, new_covariate, method, n_cores) {
   nc <- new_covariate
   nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
-  nc$treatment <- factor(nc$treatment,  levels = c("groupB",     "groupA"))
-
+  nc$treatment <- factor(nc$treatment,  levels = c("Placebo",     "Treatment"))
+  nc$subject_id <- as.character(nc$subject_id)
+  
   X   <- model.matrix(~ visit * treatment, data = nc)
-  neb <- list(count  = counts,
+  neb <- group_cell(count  = counts,
                     id     = nc$subject_id,
-                    pred   = X,
-                    offset = offset_vec)
-
+                    pred   = X)
+  
+  # group_cell returns NULL when cells are already grouped
+  if (is.null(neb)) {
+    message("  Cells already grouped, using inputs directly")
+    neb <- list(count = counts, id = nc$subject_id, pred = X)
+  }
+  
   # Identify subjects per arm dynamically from new_covariate (not hardcoded)
-  subjects_grpA <- unique(nc$subject_id[nc$treatment == "groupA"])
-  subjects_grpB <- unique(nc$subject_id[nc$treatment == "groupB"])
-
+  subjects_Treatment <- unique(nc$subject_id[nc$treatment == "Treatment"])
+  subjects_Placebo <- unique(nc$subject_id[nc$treatment == "Placebo"])
   keep <- sapply(seq_len(nrow(neb$count)), function(g) {
     expr_vec <- neb$count[g, ]
-    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpA]))
-    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_grpB]))
+    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Treatment]))
+    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Placebo]))
     (subA >= 2) & (subB >= 2)
   })
   
@@ -446,18 +469,16 @@ run_nebula <- function(counts, new_covariate, method, n_cores,
   nebula(count   = neb$count,
          id      = neb$id,
          pred    = neb$pred,
-         offset  = neb$offset,
          method  = method,
          ncore   = n_cores,
          verbose = T)
 }
 
-
 extract_nebula_stats <- function(fit_neb) {
   summ     <- fit_neb$summary
   # NEBULA stores gene names in a $gene column; rownames are just integers 1..n
   gene_vec <- if ("gene" %in% colnames(summ)) summ$gene else rownames(summ)
-  lfc_col  <- grep("logFC.*visittimepoint2.*groupA|logFC.*groupA.*visittimepoint2",
+  lfc_col  <- grep("logFC.*visittimepoint2.*Treatment|logFC.*Treatment.*visittimepoint2",
                    colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
@@ -467,10 +488,10 @@ extract_nebula_stats <- function(fit_neb) {
 }
 
 nebula_stats <- tryCatch({
-
+  
   fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
   extract_nebula_stats(fit_neb)
-
+  
 }, error = function(e) {
   # Fallback 1: switch method (LN <-> HL), serial to avoid parallel noise
   fb1 <- if (opt$nebula_method == "LN") "HL" else "LN"
@@ -488,8 +509,8 @@ nebula_stats <- tryCatch({
                     fb1, conditionMessage(e2)))
     tryCatch({
       r2 <- extract_nebula_stats(
-              run_nebula(counts, new_covariate, fb1, 1L,
-                         offset_vec = rep(0, ncol(counts))))
+        run_nebula(counts, new_covariate, fb1, 1L,
+                   offset_vec = rep(0, ncol(counts))))
       attr(r2, "nebula_fallback") <- paste0(fb1, "_zero_offset")
       r2
     }, error = function(e3) {
@@ -524,7 +545,7 @@ rownames(pb_meta) <- unique_pbs
 pb_meta$visit     <- factor(pb_meta$visit,
                             levels = c("timepoint1", "timepoint2"))
 pb_meta$treatment <- factor(pb_meta$treatment,
-                            levels = c("groupB", "groupA"))
+                            levels = c("Placebo", "Treatment"))
 
 # Filter low-count genes
 keep           <- rowSums(pb_counts >= opt$pb_min_count) >= opt$pb_min_samples
@@ -544,12 +565,10 @@ message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
 #   DESeq2/edgeR will refuse to fit.
 #
 # What the terms mean:
-#   subject_id       absorbs all between-subject variance, INCLUDING the
-#                    arm-level mean difference (i.e. the treatment main effect)
 #   visit            the within-subject visit effect averaged across arms
 #   visit:treatment  the INTERACTION -- how much the visit effect differs
-#                    between groupA and groupB -- this is the estimand of interest
-pb_design <- model.matrix(~ subject_id + visit + visit:treatment, data = pb_meta)
+#                    between Treatment and Placebo -- this is the estimand of interest
+pb_design <- model.matrix(~ visit + treatment + visit:treatment, data = pb_meta)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. DESeq2
@@ -560,7 +579,7 @@ message("  Running DESeq2...")
 deseq2_stats <- tryCatch({
   dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
                                 colData   = pb_meta,
-                                design    = ~ subject_id + visit + visit:treatment)
+                                design    = ~ visit + treatment + visit:treatment)
   
   dds <- DESeq(dds, parallel = TRUE,
                BPPARAM  = BiocParallel::MulticoreParam(opt$n_cores),
@@ -568,7 +587,7 @@ deseq2_stats <- tryCatch({
   
   # Find interaction result name
   rn       <- resultsNames(dds)
-  int_name <- grep("visittimepoint2.*groupA|groupA.*visittimepoint2",
+  int_name <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
                    rn, value = TRUE)
   if (!length(int_name)) {
     message("  WARNING: DESeq2 interaction term not found; using last coef: ",
@@ -611,7 +630,7 @@ edger_stats <- tryCatch({
   fit_er  <- glmQLFit(dge, design = pb_design, robust = TRUE)
   
   # Identify interaction column
-  int_col <- grep("visittimepoint2.*groupA|groupA.*visittimepoint2",
+  int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
                   colnames(pb_design))
   if (!length(int_col)) {
     message("  WARNING: edgeR interaction column not found; using last column.")
@@ -642,7 +661,7 @@ message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. BUILD SEURAT OBJECT FOR CELL-LEVEL METHODS (Wilcoxon, MAST)
 #
-# Both FindMarkers methods compare groupA POST cells vs groupB POST cells.
+# Both FindMarkers methods compare Treatment POST cells vs Placebo POST cells.
 # NOTE: This contrast tests (b_trt + b_int), NOT the pure interaction b_int.
 # For null scenarios (prop_de = 0, b_int = 0), any detections reflect the
 # main treatment effect in the reference model (illustrating type I error
@@ -654,16 +673,18 @@ so_sim <- CreateSeuratObject(
   meta.data = new_covariate,
   min.cells = 0, min.features = 0
 )
+
+options(future.globals.maxSize = 2 * 1024^3)
 so_sim <- NormalizeData(so_sim, verbose = FALSE)
 
 # Subset to POST cells only; set identity to treatment group
 so_post <- subset(so_sim, subset = visit == "timepoint2")
 Idents(so_post) <- "treatment"
 n_post <- ncol(so_post)
-message(sprintf("  POST cells: %d  (groupA=%d, groupB=%d)",
+message(sprintf("  POST cells: %d  (Treatment=%d, Placebo=%d)",
                 n_post,
-                sum(so_post$treatment == "groupA"),
-                sum(so_post$treatment == "groupB")))
+                sum(so_post$treatment == "Treatment"),
+                sum(so_post$treatment == "Placebo")))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 12. FINDMARKERS — Wilcoxon (naive, treats each cell as independent)
@@ -674,14 +695,14 @@ message("  Running FindMarkers (Wilcoxon)...")
 wilcox_stats <- tryCatch({
   fm_w <- FindMarkers(
     so_post,
-    ident.1         = "groupA",
-    ident.2         = "groupB",
+    ident.1         = "Treatment",
+    ident.2         = "Placebo",
     test.use        = "wilcox",
     logfc.threshold = 0,    # no pre-filtering: we evaluate all 2k genes
     min.pct         = 0,
     verbose         = FALSE
   )
-
+  
   full <- data.frame(gene = hvg_genes,
                      logFC_int = NA_real_, pval_int = NA_real_,
                      stringsAsFactors = FALSE)
@@ -690,7 +711,7 @@ wilcox_stats <- tryCatch({
   full$pval_int[hit]  <- fm_w$p_val
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  Wilcoxon error: ", conditionMessage(e))
   NULL
@@ -714,11 +735,11 @@ message(sprintf("  Running FindMarkers (MAST, max_cells=%d)...", opt$mast_max_ce
 
 mast_stats <- tryCatch({
   so_mast <- so_post  # may be subsampled below
-
+  
   if (n_post > opt$mast_max_cells) {
     n_per_group <- floor(opt$mast_max_cells / 2)
-    cells_A <- WhichCells(so_post, idents = "groupA")
-    cells_B <- WhichCells(so_post, idents = "groupB")
+    cells_A <- WhichCells(so_post, idents = "Treatment")
+    cells_B <- WhichCells(so_post, idents = "Placebo")
     keep <- c(
       sample(cells_A, min(n_per_group, length(cells_A))),
       sample(cells_B, min(n_per_group, length(cells_B)))
@@ -727,18 +748,18 @@ mast_stats <- tryCatch({
     message(sprintf("  MAST: subsampled to %d POST cells (%d/group)",
                     ncol(so_mast), n_per_group))
   }
-
+  
   fm_m <- FindMarkers(
     so_mast,
-    ident.1         = "groupA",
-    ident.2         = "groupB",
+    ident.1         = "Treatment",
+    ident.2         = "Placebo",
     test.use        = "MAST",
     latent.vars     = "subject_id",
     logfc.threshold = 0,
     min.pct         = 0,
     verbose         = FALSE
   )
-
+  
   full <- data.frame(gene = hvg_genes,
                      logFC_int = NA_real_, pval_int = NA_real_,
                      stringsAsFactors = FALSE)
@@ -747,7 +768,7 @@ mast_stats <- tryCatch({
   full$pval_int[hit]  <- fm_m$p_val
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-
+  
 }, error = function(e) {
   message("  MAST error: ", conditionMessage(e))
   NULL
@@ -800,8 +821,8 @@ s3saveRDS(params,
 
 total_elapsed <- sum(timing)
 message(sprintf(
-  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1f | neb=%.1f | d2=%.1f | er=%.1f | wilcox=%.1f | mast=%.1f) ══",
+  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1fs | neb=%.1fs | d2=%.1f s| er=%.1fs | wilcox=%.1fs | mast=%.1fs) ══",
   opt$array_id, total_elapsed,
-  timing["sim"], timing["nebula"], timing["deseq2"], timing["edger"],
-  timing["wilcox"], timing["mast"]
+  timing["sim.elapsed"], timing["nebula.elapsed"], timing["deseq2.elapsed"], timing["edger.elapsed"],
+  timing["wilcox.elapsed"], timing["mast.elapsed"]
 ))

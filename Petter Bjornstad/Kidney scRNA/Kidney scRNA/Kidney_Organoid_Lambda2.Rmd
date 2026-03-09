@@ -501,6 +501,7 @@ rm(counts_layer)
 
 #Save cleaned biopsy Seurat object
 # saveRDS(so_kpmp_sc, file = "/home/hhampson/Data/cleaned_biopsy.rds")
+
 ```
 
 ### ii. Biopsy Data Full Data LC & T2D
@@ -1270,6 +1271,19 @@ print(p)
 #Save cleaned & annotated organoid data
 # saveRDS(so_combined, file = "/home/hhampson/Data/annotated_cleaned_organoid.rds")
 
+# Organoid UMAP
+s3$download_file(
+  Bucket = "scrna",
+  Key = "Kidney organoids/UMAP_celltype_bold_labels_v2.png",
+  Filename = "/home/hhampson/Results/umap_organoid.png"
+)
+
+# Biopsy UMAP — update the Key to your actual biopsy UMAP path
+s3$download_file(
+  Bucket = "scrna",
+  Key = "Kidney organoids/UMAP_celltype_biopsy.png",  # adjust this path
+  Filename = "/home/hhampson/Results/umap_biopsy.png"
+)
 ```
 
 
@@ -6372,6 +6386,300 @@ message("GSEA complete! Results saved to /home/hhampson/Results/")
 ```
 
 ###2. T2D vs. LC, Effect Modification with Treatment (Interaction)
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# Organoid Interaction Model: Group × Treatment
+# Limma-voom pseudobulk with EMMs, GSEA, and heatmap-ready output
+# ══════════════════════════════════════════════════════════════════════════════
+
+library(limma)
+library(edgeR)
+library(Seurat)
+library(tidyverse)
+library(fgsea)
+library(msigdbr)
+library(stringr)
+
+# ── Output directory ─────────────────────────────────────────────────────────
+out_dir      <- "/home/hhampson/Results/Organoid_Interaction"
+gsea_dir     <- file.path(out_dir, "GSEA")
+emm_dir      <- file.path(out_dir, "EMM")
+heatmap_dir  <- file.path(out_dir, "Heatmap_Data")
+
+dir.create(out_dir,     showWarnings = FALSE, recursive = TRUE)
+dir.create(gsea_dir,    showWarnings = FALSE, recursive = TRUE)
+dir.create(emm_dir,     showWarnings = FALSE, recursive = TRUE)
+dir.create(heatmap_dir, showWarnings = FALSE, recursive = TRUE)
+
+# ── Reactome gene sets ───────────────────────────────────────────────────────
+reactome_df <- msigdbr(species = "Homo sapiens", collection = "C2", subcollection = "CP:REACTOME")
+reactome_pathways <- split(reactome_df$gene_symbol, reactome_df$gs_name)
+
+# ── Cell types ───────────────────────────────────────────────────────────────
+cell_types <- unique(so_combined@meta.data$cell_type_abbrev)
+
+# ── Storage ──────────────────────────────────────────────────────────────────
+results_interaction <- list()
+emm_list            <- list()
+gsea_interaction    <- list()
+heatmap_data_list   <- list()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Main loop
+# ══════════════════════════════════════════════════════════════════════════════
+for (ct in cell_types) {
+
+  message("\n═══ Processing: ", ct, " ═══")
+  ct_safe <- gsub("[/ ]", "_", ct)
+
+  # ── 1. Subset & pseudobulk ──────────────────────────────────────────────
+  so_sub <- subset(so_combined, subset = cell_type_abbrev == ct)
+
+  pseudo <- AggregateExpression(
+    so_sub,
+    assays        = "RNA",
+    return.seurat = TRUE,
+    group.by      = c("record_id", "treatment")
+  )
+
+  pb_counts <- GetAssayData(pseudo, assay = "RNA", layer = "counts")
+
+  if (ncol(pb_counts) < 4) {
+    message("  Skipping — too few pseudobulk samples (n=", ncol(pb_counts), ")")
+    next
+  }
+
+  # ── 2. Sample metadata ─────────────────────────────────────────────────
+  sample_ids_raw <- colnames(pb_counts)
+
+  sample_info <- data.frame(
+    pb_sample = sample_ids_raw,
+    record_id = sub("_([^_]+)$", "", sample_ids_raw),
+    treatment = sub("^.*_", "", sample_ids_raw),
+    stringsAsFactors = FALSE
+  )
+
+  sample_meta <- so_combined@meta.data |>
+    dplyr::distinct(record_id, .keep_all = TRUE) |>
+    dplyr::select(record_id, group)
+
+  sample_info <- sample_info |>
+    dplyr::left_join(sample_meta, by = "record_id")
+
+  if (any(is.na(sample_info$group))) {
+    message("  Skipping — metadata alignment failed")
+    next
+  }
+
+  grp <- relevel(factor(sample_info$group),     ref = "Lean Control")
+  trt <- relevel(factor(sample_info$treatment), ref = "15")
+
+  if (nlevels(grp) < 2 || nlevels(trt) < 2) {
+    message("  Skipping — insufficient factor levels")
+    next
+  }
+
+  # ── 3. TMM normalization + filtering ───────────────────────────────────
+  dge  <- DGEList(counts = pb_counts)
+  dge  <- calcNormFactors(dge, method = "TMM")
+  keep <- filterByExpr(dge, group = interaction(grp, trt))
+  dge  <- dge[keep, , keep.lib.sizes = FALSE]
+
+  if (nrow(dge) < 10) {
+    message("  Skipping — too few genes after filtering (n=", nrow(dge), ")")
+    next
+  }
+
+  # ── 4. Design + voom + fit ─────────────────────────────────────────────
+  design <- model.matrix(~ grp * trt)
+
+  v    <- voom(dge, design, plot = FALSE)
+  fit  <- lmFit(v, design)
+  fit2 <- eBayes(fit)
+
+  coef_names <- colnames(fit2$coefficients)
+  n_coefs    <- ncol(fit2$coefficients)
+  message("  Coefficients (", n_coefs, "): ", paste(coef_names, collapse = ", "))
+
+  # ── 5. Interaction term DEGs ───────────────────────────────────────────
+  int_coef <- grep(":", coef_names, value = TRUE)
+
+  if (length(int_coef) != 1 || all(is.na(fit2$coefficients[, int_coef]))) {
+    message("  Interaction term not estimable — skipping DEGs/GSEA")
+    next
+  }
+
+  res_int <- topTable(fit2, coef = int_coef, number = Inf, adjust.method = "BH") |>
+    dplyr::mutate(
+      gene      = rownames(topTable(fit2, coef = int_coef, number = Inf, adjust.method = "BH")),
+      cell_type = ct,
+      sig       = dplyr::case_when(
+        adj.P.Val < 0.05 & logFC >  1 ~ "Sig Positive",
+        adj.P.Val < 0.05 & logFC < -1 ~ "Sig Negative",
+        TRUE                           ~ "NS"
+      )
+    )
+
+  results_interaction[[ct]] <- res_int
+
+  write.csv(res_int,
+            file.path(out_dir, paste0("limma_interaction_", ct_safe, ".csv")),
+            row.names = FALSE)
+
+  n_sig <- sum(res_int$sig != "NS", na.rm = TRUE)
+  message("  Interaction DEGs: ", n_sig, " significant")
+
+  # ── 6. GSEA on interaction term ────────────────────────────────────────
+  ranks <- res_int |>
+    dplyr::filter(!is.na(t) & is.finite(t)) |>
+    dplyr::arrange(dplyr::desc(t))
+
+  gene_ranks <- setNames(ranks$t, ranks$gene)
+  gene_ranks <- gene_ranks[!duplicated(names(gene_ranks))]
+
+  if (length(gene_ranks) >= 50) {
+    set.seed(42)
+    gsea_res <- fgsea(
+      pathways    = reactome_pathways,
+      stats       = gene_ranks,
+      minSize     = 15,
+      maxSize     = 500,
+      nPermSimple = 10000
+    ) |>
+      dplyr::arrange(padj) |>
+      dplyr::mutate(cell_type = ct)
+
+    gsea_interaction[[ct]] <- gsea_res
+
+    gsea_out <- gsea_res |>
+      dplyr::mutate(leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+
+    write.csv(gsea_out,
+              file.path(gsea_dir, paste0("gsea_reactome_interaction_", ct_safe, ".csv")),
+              row.names = FALSE)
+
+    message("  GSEA: ", sum(gsea_res$padj < 0.05, na.rm = TRUE), " significant pathways")
+  } else {
+    message("  GSEA: too few ranked genes (", length(gene_ranks), ")")
+  }
+
+  # ── 7. Estimated Marginal Means ────────────────────────────────────────
+  if (n_coefs != 4) {
+    message("  Skipping EMMs — only ", n_coefs, " estimable coefficients")
+    next
+  }
+
+  # Contrast vectors for each group×treatment combination
+  # Design: ~ grp * trt  →  (Intercept), grpT2D, trt30, grpT2D:trt30
+  contrast_emm <- rbind(
+    "LC_15mM"  = c(1, 0, 0, 0),
+    "T2D_15mM" = c(1, 1, 0, 0),
+    "LC_30mM"  = c(1, 0, 1, 0),
+    "T2D_30mM" = c(1, 1, 1, 1)
+  )
+
+  emm_vals <- fit2$coefficients %*% t(contrast_emm)
+
+  emm_df <- data.frame(gene = rownames(fit2$coefficients), stringsAsFactors = FALSE)
+
+  for (g in rownames(contrast_emm)) {
+    cvec <- contrast_emm[g, ]
+    cfit <- contrasts.fit(fit, contrasts = cvec)
+    cfit <- eBayes(cfit)
+
+    emm_df[[paste0(g, "_EMM")]] <- emm_vals[, g]
+    emm_df[[paste0(g, "_SE")]]  <- sqrt(cfit$s2.post) * cfit$stdev.unscaled[, 1]
+  }
+
+  emm_df$cell_type <- ct
+  emm_list[[ct]] <- emm_df
+
+  write.csv(emm_df,
+            file.path(emm_dir, paste0("emm_interaction_", ct_safe, ".csv")),
+            row.names = FALSE)
+
+  # ── 8. Heatmap data: top 20 positive + top 20 negative by interaction logFC
+  top_pos <- res_int |>
+    dplyr::filter(logFC > 0) |>
+    dplyr::slice_min(P.Value, n = 20)
+
+  top_neg <- res_int |>
+    dplyr::filter(logFC < 0) |>
+    dplyr::slice_min(P.Value, n = 20)
+
+  top_genes <- dplyr::bind_rows(top_pos, top_neg)$gene
+
+  if (length(top_genes) > 0) {
+    hm_mat <- emm_df |>
+      dplyr::filter(gene %in% top_genes) |>
+      dplyr::select(gene, ends_with("_EMM")) |>
+      tibble::column_to_rownames("gene")
+
+    colnames(hm_mat) <- gsub("_EMM$", "", colnames(hm_mat))
+
+    heatmap_data_list[[ct]] <- hm_mat
+
+    write.csv(hm_mat,
+              file.path(heatmap_dir, paste0("heatmap_emm_", ct_safe, ".csv")),
+              row.names = TRUE)
+
+    message("  Heatmap: ", nrow(hm_mat), " genes (", sum(top_pos$gene %in% rownames(hm_mat)),
+            " pos + ", sum(top_neg$gene %in% rownames(hm_mat)), " neg)")
+  }
+
+  message("  ✓ Done")
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Combine & save all results
+# ══════════════════════════════════════════════════════════════════════════════
+if (length(results_interaction) > 0) {
+  interaction_all <- dplyr::bind_rows(results_interaction)
+  write.csv(interaction_all,
+            file.path(out_dir, "limma_interaction_allcelltypes.csv"),
+            row.names = FALSE)
+}
+
+if (length(emm_list) > 0) {
+  emm_all <- dplyr::bind_rows(emm_list)
+  write.csv(emm_all,
+            file.path(emm_dir, "emm_interaction_allcelltypes.csv"),
+            row.names = FALSE)
+}
+
+if (length(gsea_interaction) > 0) {
+  gsea_int_all <- dplyr::bind_rows(gsea_interaction) |>
+    dplyr::mutate(leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+  write.csv(gsea_int_all,
+            file.path(gsea_dir, "gsea_reactome_interaction_allcelltypes.csv"),
+            row.names = FALSE)
+}
+
+# ── Cell counts for Quarto ───────────────────────────────────────────────────
+cell_counts_interaction <- so_combined@meta.data |>
+  dplyr::count(cell_type_abbrev, group, treatment) |>
+  tidyr::pivot_wider(
+    names_from  = c(group, treatment),
+    values_from = n,
+    values_fill = 0
+  ) |>
+  dplyr::arrange(cell_type_abbrev)
+
+write.csv(cell_counts_interaction,
+          file.path(out_dir, "cell_counts_per_celltype_interaction.csv"),
+          row.names = FALSE)
+
+message("\n✅ Interaction analysis complete!")
+message("Results saved to: ", out_dir)
+message("  ├── limma_interaction_*.csv        (DEG tables)")
+message("  ├── GSEA/gsea_reactome_*.csv       (pathway enrichment)")
+message("  ├── EMM/emm_interaction_*.csv      (estimated marginal means)")
+message("  └── Heatmap_Data/heatmap_emm_*.csv (heatmap matrices)")
+
+
+
+```
+
 #Check cell types first 
 ```{r}
 # ── Cell counts per cell type × group × treatment ─────────────────────────────

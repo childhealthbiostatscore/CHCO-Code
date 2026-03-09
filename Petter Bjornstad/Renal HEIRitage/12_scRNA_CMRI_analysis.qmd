@@ -1,0 +1,109 @@
+---
+title: "12_scRNA CMR analysis"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r include = F}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(msigdbr)
+library(ggpubr)
+library(ggrepel)
+library(RColorBrewer)
+library(ggtrace)
+library(ggtext)
+library(nebula)
+```
+
+```{r include = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+
+s3write_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    # if object has an extension, keep it; otherwise make a generic tmp
+    ext <- tools::file_ext(object)
+    if (nzchar(ext)) tempfile(fileext = paste0(".", ext)) else tempfile()
+  }
+  
+  on.exit(unlink(tmp), add = TRUE)
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  FUN(tmp, ...)
+  
+  if (is.null(opts)) {
+    r <- put_object(file = tmp, bucket = bucket, object = object)
+  } else {
+    r <- do.call("put_object", c(list(file = tmp, bucket = bucket, object = object), opts))
+  }
+  
+  return(invisible(r))
+}
+
+pb90_subset <- s3readRDS("data_clean/subset/pb90_ckd_analysis_subset.rds", "scrna", region = "")
+pb90_subset <- subset(pb90_subset, group != "Obese_Control")
+# integrate CMR
+```
+
+```{r}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
+  DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"), 
+  # Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",                         # mesangial cells
+  PEC = "PEC",                       # parietal epithelial cells
+  Schwann = "SchwannCells"
+  # Other = c("non-specific")          # catchall
+)
+```

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nebula_array
-#SBATCH --array=1-122%10             # Run 168 jobs, max 7 concurrent
+#SBATCH --array=1-3%10             # Run 168 jobs, max 7 concurrent
 #SBATCH --time=03:00:00             # 3 hour per job (30min + buffer)
 #SBATCH --mem=200G                  # Memory per job
 #SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
@@ -26,9 +26,9 @@ CONFIG_FILE="${BASE_DIR}/config/job_config.txt"
 JOB_PARAMS=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${CONFIG_FILE}")
 
 # Parse run name, cell type, and cell type variable (tab-delimited)
-RUN_NAME=$(echo "$JOB_PARAMS" | cut -d$'\t' -f1)
-CELL_TYPE=$(echo "$JOB_PARAMS" | cut -d$'\t' -f2)
-CELL_TYPE_VAR=$(echo "$JOB_PARAMS" | cut -d$'\t' -f3)
+RUN_NAME=$(echo "$JOB_PARAMS" | cut -d$' ' -f1)
+CELL_TYPE=$(echo "$JOB_PARAMS" | cut -d$' ' -f2)
+CELL_TYPE_VAR=$(echo "$JOB_PARAMS" | cut -d$' ' -f3)
 
 echo "Working directory: $(pwd)"
 echo "Config file: ${CONFIG_FILE}"
