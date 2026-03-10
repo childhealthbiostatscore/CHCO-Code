@@ -5,27 +5,87 @@ library(tidyverse)
 library(jsonlite)
 library(aws.s3)
 
-attempt_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_AnalyticalDatasets_Denver.xlsx"
-attempt_mri_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_MRI_SK_LHSC_TorontoLondon.csv"
-attempt_mri_labs_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_MRI_HCT_SBP_TorontoLondon.csv"
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+## Create an S3 client
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+attempt_file = file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_AnalyticalDatasets_Denver.xlsx")
+attempt_mri_file = file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_MRI_SK_LHSC_TorontoLondon.csv")
+attempt_mri_labs_file = file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_MRI_HCT_SBP_TorontoLondon.csv")
 # attempt data from Antoine on 3/14/25 after SOMAScan results
-attempt_031425_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv")
+attempt_031425_raw <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv"))
 # attempd TIR data from Antoine on 5/28/25
-attempt_052825_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250528.csv")
-attempt_061725_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250617.csv")
+attempt_052825_raw <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250528.csv"))
+attempt_061725_raw <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250617.csv"))
 
 # non-Denver data formatting to match
 attempt_mri <- read.csv(attempt_mri_file) %>%
-  dplyr::rename(mri_r2_kidney_r = rk_r2s_mean,
-                mri_r2_cortex_r = rc_r2s_mean,
-                mri_r2_kidney_l = lk_r2s_mean,
-                mri_r2_cortex_l = lc_r2s_mean) %>%
-  dplyr::mutate(mri_date = as.Date(mri_date, format = "%m/%d/%y"),
+  dplyr::rename(bold_r_bl_kidney = rk_r2s_mean,
+                bold_r_bl_cortex = rc_r2s_mean,
+                bold_l_bl_kidney = lk_r2s_mean,
+                bold_l_bl_cortex = lc_r2s_mean) %>%
+  dplyr::mutate(date = as.Date(mri_date, format = "%m/%d/%y"),
+                procedure = "mri",
                 site = case_when(subject_id < 20000 ~ "Toronto",
-                                 subject_id < 30000 ~ "London"))
-attempt_mri_labs <- read.csv(attempt_mri_labs_file) %>%
-  dplyr::mutate(mri_date = as.Date(mri_date, format = "%m/%d/%y"),
-                date_visit = as.Date(date_visit, format = "%m/%d/%y"))
+                                 subject_id < 30000 ~ "London")) %>%
+  dplyr::select(-mri_date)
+
+attempt_mri_labs <- read.csv(attempt_mri_labs_file)
+
+attempt_mri_labs_labs <- attempt_mri_labs %>%
+  transmute(
+    subject_id,
+    visit,
+    site,
+    treatment_arm,
+    procedure = "labs",
+    date = as.Date(date_visit, format = "%m/%d/%y"),
+    sbp = sbp_mmhg,
+    hct_ll,
+    hct_percent_us
+  )
+
+attempt_mri_labs_mri <- attempt_mri_labs %>%
+  transmute(
+    subject_id,
+    visit,
+    site,
+    treatment_arm,
+    procedure = "bold_mri",
+    date = as.Date(mri_date, format = "%m/%d/%y"),
+    sbp = mri_sbp,
+    hct_ll = NA_real_,
+    hct_percent_us = NA_real_
+  ) %>%
+  filter(!is.na(sbp))
+
+attempt_mri_labs_combined <- bind_rows(attempt_mri_labs_labs, attempt_mri_labs_mri) %>%
+  arrange(subject_id, visit, procedure)
+
 attempt_031425 <- attempt_031425_raw %>%
   dplyr::mutate(date_visit = as.Date(date_visit, format = "%m/%d/%y"),
                 urine24h_start_date = as.Date(urine24h_start_date, format = "%m/%d/%y"),
@@ -34,7 +94,7 @@ attempt_031425 <- attempt_031425_raw %>%
                                                      T ~ target_glucose_low_mmoll),
                 target_glucose_low_mmoll = as.numeric(target_glucose_low_mmoll),
                 target_glucose_high_mmoll = case_when(grepl("<", target_glucose_high_mmoll) ~ "5",
-                                                     T ~ target_glucose_high_mmoll),
+                                                      T ~ target_glucose_high_mmoll),
                 target_glucose_high_mmoll = as.numeric(target_glucose_high_mmoll),
                 emu_1_albumin_mgl = as.character(emu_1_albumin_mgl),
                 emu_2_albumin_mgl = as.character(emu_2_albumin_mgl),
@@ -43,7 +103,7 @@ attempt_031425 <- attempt_031425_raw %>%
                 emu_2_acr_mgmmol = as.character(emu_2_acr_mgmmol),
                 emu_3_acr_mgmmol = as.character(emu_3_acr_mgmmol),
                 emu_urine_acr_mean_pooled = as.character(emu_urine_acr_mean_pooled),
-                emu_urine_acr_mean = as.character(emu_urine_acr_mean))
+                acr_u = as.character(emu_urine_acr_mean))
 
 dict <- read_excel(attempt_file, sheet = "Data Dictionary", na = c("NA", "")) %>%
   dplyr::select(Variable_Name, Label) %>%
@@ -79,18 +139,28 @@ mri <- read_excel(attempt_file, sheet = "ATTEMPT_BoldMRI", na = c("NA", "")) %>%
 ketones <- read_excel(attempt_file, sheet = "ATTEMPT_mGFR", na = c("NA", "")) %>%
   dplyr::select(subject_id, visit, site, starts_with("mgfr_ketone"))
 
-randomization <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_Randomization_Denver.xlsx",
+randomization <- read_excel(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_Randomization_Denver.xlsx"),
                             sheet = "ATTEMPT_Randomization", na = c("NA", ""))
 
 data_frames <- list(attempt_031425 = attempt_031425,
-  demo = demo, randomization = randomization, anthro = anthro, 
-  medfamsmoking = medfamsmoking, diabetesman = diabetesman, 
-  glucosemon = glucosemon, urinelab = urinelab, 
-  urineemu = urineemu, urine_24h = urine_24h, 
-  bloodlab_local = bloodlab_local, 
-  bloodlab_central = bloodlab_central, compliance = compliance, 
-  egfr = egfr, mgfr = mgfr, mri = mri, attempt_mri_labs = attempt_mri_labs,
-  tir = attempt_052825_raw, ketones = ketones)
+                    demo = demo, 
+                    randomization = randomization, 
+                    anthro = anthro, 
+                    medfamsmoking = medfamsmoking, 
+                    diabetesman = diabetesman, 
+                    glucosemon = glucosemon, 
+                    urinelab = urinelab, 
+                    urineemu = urineemu, 
+                    urine_24h = urine_24h, 
+                    bloodlab_local = bloodlab_local, 
+                    bloodlab_central = bloodlab_central, 
+                    compliance = compliance, 
+                    egfr = egfr, 
+                    mgfr = mgfr, 
+                    mri = mri, 
+                    attempt_mri_labs = attempt_mri_labs_combined,
+                    tir = attempt_052825_raw,
+                    ketones = ketones)
 
 data_frames <- lapply(data_frames, function(df) {
   df %>%
@@ -200,18 +270,7 @@ merged_data <- merged_data[, colSums(!is.na(merged_data)) > 0]
 merged_data <- merged_data[, !grepl("^ethnicity_ca___|^ethnicity_us___", names(merged_data))]
 
 # merge and save
-save(merged_data, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_AC.RData")
-
-## Create an S3 client
-keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-
-Sys.setenv(
-  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
-  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
-  "AWS_DEFAULT_REGION" = "",
-  "AWS_REGION" = "",
-  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
-)
+save(merged_data, file = file.path(root_path, "ATTEMPT/Data Clean/ATTEMPT_AC.RData"))
 
 # save in kopah
 s3saveRDS(
