@@ -124,8 +124,18 @@ seu@meta.data <- meta[colnames(seu), ]
 cat("Meds merged into Seurat. Columns added:", paste(unlist(DRUG_COLS), collapse = ", "), "\n")
 
 # ── Subset to Endothelial Cells only ─────────────────────────────────────────
+cat("celltype2 values in seu:\n")
+print(table(seu$celltype2))
+cat("Drug column distributions in full seu:\n")
+print(table(seu@meta.data[["tzd"]], useNA = "always"))
+
 seu_ec <- subset(seu, celltype2 == "EC")
 cat("EC cells:", ncol(seu_ec), "| donors:", length(unique(seu_ec$record_id)), "\n")
+
+cat("Drug column distributions in EC subset:\n")
+for (col in unlist(DRUG_COLS)) {
+  cat(col, ":\n"); print(table(seu_ec@meta.data[[col]], useNA = "always"))
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GENE SETS
@@ -248,23 +258,45 @@ for (cond in all_conditions) {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RUN GSEA FOR EACH CONDITION x GENE SET TYPE
+# GSEA HELPER
+# ══════════════════════════════════════════════════════════════════════════════
+run_gsea <- function(de_res, label, gs_list, gs_name) {
+  ranked <- de_res %>%
+    arrange(desc(logFC)) %>%
+    dplyr::select(gene, logFC) %>%
+    deframe()
+  ranked <- ranked[!duplicated(names(ranked))]
+  set.seed(42)
+  fgsea(pathways = gs_list, stats = ranked,
+        minSize = 15, maxSize = 500, nPermSimple = 10000) %>%
+    as_tibble() %>%
+    mutate(drug    = label,
+           gs_type = gs_name,
+           leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUN GSEA FOR EACH CONDITION x CELL TYPE x GENE SET
 # ══════════════════════════════════════════════════════════════════════════════
 all_gsea <- list()
 
-for (lbl in names(all_de)) {
-  cat("GSEA for:", lbl, "\n")
-  de <- all_de[[lbl]]
+for (key in names(all_de)) {
+  ct  <- str_split(key, "__")[[1]][1]
+  lbl <- str_split(key, "__")[[1]][2]
+  de  <- all_de[[key]]
+  cat("GSEA for:", key, "\n")
   for (gs_name in names(genesets)) {
-    key <- paste(lbl, gs_name, sep = "|")
-    all_gsea[[key]] <- run_gsea(de, lbl, genesets[[gs_name]], gs_name)
+    gkey <- paste(key, gs_name, sep = "|")
+    gsea_res <- run_gsea(de, lbl, genesets[[gs_name]], gs_name)
+    gsea_res$celltype <- ct
+    all_gsea[[gkey]] <- gsea_res
   }
 }
 
 gsea_df <- bind_rows(all_gsea) %>%
   mutate(condition_type = if_else(str_detect(drug, "\\+"), "combo", "single"))
 
-write.csv(gsea_df, paste0(dir.base, "GSEA/all_conditions_gsea_EC.csv"), row.names = FALSE)
+write.csv(gsea_df, paste0(dir.base, "GSEA/all_conditions_gsea.csv"), row.names = FALSE)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SYNERGY SCORE
