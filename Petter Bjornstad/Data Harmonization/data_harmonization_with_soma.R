@@ -68,18 +68,8 @@ library(dplyr)
 clean <- clean %>%
   mutate(
     dob = suppressWarnings(parse_date_time(dob, orders = c("ymd", "mdy", "dmy"))),
-    date = suppressWarnings(parse_date_time(date, orders = c("ymd", "mdy", "dmy")))
-  )
-
-# Step 2: Compute age in months
-clean <- clean %>%
-  mutate(
-    age_mo = as.numeric(difftime(date, dob, units = "days")) / 30.44
-  )
-
-# Step 3: clean numeric columns (force conversion and drop bad rows)
-clean <- clean %>%
-  mutate(
+    date = suppressWarnings(parse_date_time(date, orders = c("ymd", "mdy", "dmy"))),
+    age_mo = coalesce(as.numeric(difftime(date, dob, units = "days")) / 30.44, as.numeric(age)*12),
     age_mo = as.numeric(age_mo),
     weight = as.numeric(weight),
     height = as.numeric(height),
