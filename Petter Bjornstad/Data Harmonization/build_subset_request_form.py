@@ -82,6 +82,7 @@ STUDY_VISIT_FILTER = {
     "ATTEMPT": {"screening", "baseline", "4_weeks_post", "4_months_post"},
 }
 
+
 # form_name values in data_dictionary_master.csv that represent
 # demographics, consent, baseline admin data — excluded from the
 # per-study dictionary panels.  Extend as needed.
@@ -95,6 +96,19 @@ EXCLUDED_DICT_FORMS = {
     "race_ethnicity", "baseline",
     # additional admin/non-procedure forms
 
+}
+# Variable names that are always excluded from procedure dictionary panels,
+# regardless of form_name.  Covers demographic / operational / admin variables
+# whose form_name is not captured by EXCLUDED_DICT_FORMS, or that are
+# undocumented and would otherwise slip in via the third-pass bare-name logic.
+EXCLUDED_VARS = {
+    # demographic / admin
+    "diabetes_duration", "group_risk", "participation_status", "race_ethnicity",
+    "birthweight",
+    # lab / clinical values that bleed into non-lab procedure rows
+    "cystatin_c_s", "eGFR_fas_cr_cysc",
+    # medication flag columns (yes/no fields, not procedure measurements)
+    "fibrates", "mra", "phentermine", "topiramate",
 }
 
 # Set True to print per-study form→procedure mapping and proc_groups to stdout.
@@ -418,6 +432,7 @@ def load_study_metadata(data_file):
     no_proc_col_tracker  = collections.defaultdict(set)  # study -> set of col names
     no_proc_var_n_tracker = collections.defaultdict(set) # (study, col) -> set of record_ids
 
+
     # For Table 1: track first non-missing value per (study, record_id, col)
     t1_cols   = [col for col, _, _ in TABLE1_VARS if col != "group"]
     seen_t1   = collections.defaultdict(dict)   # (study, rid) -> {col: value}
@@ -493,6 +508,7 @@ def load_study_metadata(data_file):
                         found_np.add(c)
                         if rid:
                             no_proc_var_n_tracker[(study, c)].add(rid)
+
 
             # ── proc_n: participants with ≥1 non-missing clinical value ────
             if proc:
@@ -835,6 +851,8 @@ def _add_study_sheet(wb, study_name, meta,
             proc_lower   = proc.lower()
             _filtered, _full = [], []
             for col_name in sorted(proc_col_set):
+                if col_name in EXCLUDED_VARS:
+                    continue
                 if col_name not in data_dict:
                     continue
                 info     = data_dict[col_name]
@@ -846,8 +864,22 @@ def _add_study_sheet(wb, study_name, meta,
             full_proc_groups[proc] = _full
 
         # ── Step 2: deduplicate — assign each variable to exactly one proc ────
-        # Priority: (1) form_name exactly matches proc name; (2) first alpha proc.
+        # Priority: (1) exact form_name match; (2) highest var_n among procs
+        # where the variable is not cross-cutting (≤ half of all procedures).
         var_to_proc = {}
+        n_procs = len(study_procs)
+        _cross_thresh = max(1, n_procs // 2)
+        var_n_lookup  = meta.get("var_n", {})
+
+        # Count how many procedures each documented variable appears in.
+        # Variables present in more than half the procedures are cross-cutting
+        # (filled in on every row regardless of procedure) and should not be
+        # forced onto any one procedure in the second pass.
+        var_proc_count = collections.Counter()
+        for proc in study_procs:
+            for col_name in study_proc_cols.get(proc, set()):
+                if col_name in data_dict and col_name not in EXCLUDED_VARS:
+                    var_proc_count[col_name] += 1
 
         # First pass: exact form_name → proc name matches take priority
         for proc in sorted(study_procs):
@@ -856,11 +888,21 @@ def _add_study_sheet(wb, study_name, meta,
                 if (info.get("form_name", "") or "").lower() == proc_lower:
                     var_to_proc[col_name] = proc
 
-        # Second pass: claim remaining unassigned vars (first alphabetical proc wins)
+        # Second pass: for each remaining variable, collect candidate procedures
+        # (those where var_proc_count ≤ threshold) and assign to the one with
+        # the highest unique-participant count.  Alphabetical name breaks ties.
+        _var_candidates = collections.defaultdict(list)
         for proc in sorted(study_procs):
             for col_name, info in raw_proc_groups.get(proc, []):
                 if col_name not in var_to_proc:
-                    var_to_proc[col_name] = proc
+                    if var_proc_count.get(col_name, 1) <= _cross_thresh:
+                        n = var_n_lookup.get((proc, col_name), 0)
+                        _var_candidates[col_name].append((n, proc))
+        for col_name, candidates in _var_candidates.items():
+            if col_name not in var_to_proc and candidates:
+                # highest var_n wins; alphabetical proc name as tiebreaker
+                candidates.sort(key=lambda x: (-x[0], x[1]))
+                var_to_proc[col_name] = candidates[0][1]
 
         # Third pass: data-tracked vars absent from data_dict (bare names).
         # Only include vars tracked by exactly one procedure in this study —
@@ -869,12 +911,15 @@ def _add_study_sheet(wb, study_name, meta,
         undoc_proc_count = collections.Counter()
         for proc in study_procs:
             for col_name in study_proc_cols.get(proc, set()):
-                if col_name not in data_dict and col_name not in var_to_proc:
+                if (col_name not in data_dict
+                        and col_name not in var_to_proc
+                        and col_name not in EXCLUDED_VARS):
                     undoc_proc_count[col_name] += 1
         for proc in sorted(study_procs):
             for col_name in sorted(study_proc_cols.get(proc, set())):
                 if (col_name not in data_dict
                         and col_name not in var_to_proc
+                        and col_name not in EXCLUDED_VARS
                         and undoc_proc_count[col_name] == 1):
                     var_to_proc[col_name] = proc
 
@@ -889,16 +934,23 @@ def _add_study_sheet(wb, study_name, meta,
         for proc in sorted(study_procs):
             if proc_groups[proc]:
                 continue
-            # Fallback 1: include full (non-exclusion-filtered) unassigned vars
+            # Fallback 1: include full (non-exclusion-filtered) unassigned vars,
+            # but still skip cross-cutting vars (appear in > half of procedures).
             for col_name, info in full_proc_groups.get(proc, []):
-                if col_name not in var_to_proc:
+                if (col_name not in var_to_proc
+                        and col_name not in EXCLUDED_VARS
+                        and var_proc_count.get(col_name, 1) <= _cross_thresh):
                     proc_groups[proc].append((col_name, info))
                     var_to_proc[col_name] = proc
             proc_groups[proc].sort(key=lambda x: x[0])
-            # Fallback 2: include proc_col_set vars not in data_dict (bare names)
+            # Fallback 2: include proc_col_set vars not in data_dict (bare names),
+            # again skipping cross-cutting undocumented vars.
             if not proc_groups[proc]:
                 proc_col_set = study_proc_cols.get(proc, set())
-                unassigned = sorted(c for c in proc_col_set if c not in var_to_proc)
+                unassigned = sorted(c for c in proc_col_set
+                                    if c not in var_to_proc
+                                    and c not in EXCLUDED_VARS
+                                    and undoc_proc_count.get(c, 1) <= _cross_thresh)
                 proc_groups[proc] = [(c, {}) for c in unassigned]
                 for c in unassigned:
                     var_to_proc[c] = proc
@@ -906,7 +958,7 @@ def _add_study_sheet(wb, study_name, meta,
         if DEBUG_DICT:
             print(f"  [{study_name}] proc_groups (deduplicated): "
                   + ", ".join(f"{p}({len(v)})" for p, v in proc_groups.items()))
-
+            
         # ── Build no-procedure variables section ───────────────────────────────
         # Includes clinical cols with non-missing data in rows where procedure=""
         # that are NOT in EXCLUDED_DICT_FORMS.  Undocumented cols are shown as
@@ -1171,9 +1223,10 @@ def _add_study_sheet(wb, study_name, meta,
         r += 1
 
     # ── Data dictionary (right-side panel, separate row counter dr) ────────
-    # Grouped by procedure name. Each section header is the procedure name
+    # Grouped by procedure name with an addition section for rows without procedure.
+    # Each section header is the procedure name
     # (as it appears in the 'procedure' column), not the REDCap form_name.
-    if data_dict and (proc_groups or no_proc_vars):
+    if data_dict and proc_groups:
         dr = 1  # independent row counter; starts at the top of the sheet
 
         # Title bar
@@ -1235,45 +1288,6 @@ def _add_study_sheet(wb, study_name, meta,
                                n_participants if n_participants else "",
                                bg=bg, size=9, h_align="center")
                     dr += 1
-
-            blank_row(ws, dr, height=8); dr += 1
-
-        # ── Non-procedure variables section ────────────────────────────────────
-        if no_proc_vars:
-            ws.merge_cells(start_row=dr, start_column=DICT_VAR_COL,
-                           end_row=dr,   end_column=DICT_N_COL)
-            style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
-                       f"General (No Procedure)  ({len(no_proc_vars)})",
-                       bg=MID_BLUE, fg=WHITE, bold=True, size=11)
-            ws.row_dimensions[dr].height = 20; dr += 1
-
-            # Column headers
-            for col_idx, lbl in [
-                (DICT_VAR_COL,   "Variable"),
-                (DICT_LABEL_COL, "Label"),
-                (DICT_UNITS_COL, "Units"),
-                (DICT_N_COL,     "N Participants"),
-            ]:
-                style_cell(ws.cell(row=dr, column=col_idx), lbl,
-                           bg=LIGHT_BLUE, fg=DARK_BLUE, size=9,
-                           bold=True, h_align="center")
-            style_cell(ws.cell(row=dr, column=DICT_FORM_COL), "", bg=LIGHT_BLUE)
-            ws.row_dimensions[dr].height = 20; dr += 1
-
-            for i, (col_name, info) in enumerate(no_proc_vars):
-                bg = LIGHT_GREEN if i % 2 == 0 else WHITE
-                n_participants = var_n.get(("", col_name), 0)
-                style_cell(ws.cell(row=dr, column=DICT_VAR_COL),
-                           col_name, bg=bg, fg=DARK_BLUE, size=9)
-                style_cell(ws.cell(row=dr, column=DICT_LABEL_COL),
-                           info.get("label", ""), bg=bg, size=9)
-                style_cell(ws.cell(row=dr, column=DICT_UNITS_COL),
-                           info.get("units", ""), bg=bg, size=9, h_align="center")
-                style_cell(ws.cell(row=dr, column=DICT_FORM_COL), "", bg=bg)
-                style_cell(ws.cell(row=dr, column=DICT_N_COL),
-                           n_participants if n_participants else "",
-                           bg=bg, size=9, h_align="center")
-                dr += 1
 
             blank_row(ws, dr, height=8); dr += 1
 

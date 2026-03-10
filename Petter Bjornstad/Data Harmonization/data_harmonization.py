@@ -264,8 +264,6 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'] == 'age', 'form_name'] = 'demographics'
     # Merge ATTEMPT-specific variables before derived computations (bmi, diabetes_duration, eGFR)
     # so that filled height, diabetes_dx_date, and creatinine_s benefit all three.
-    from attempt_data_merge import merge_attempt_dat
-    harmonized = merge_attempt_dat(harmonized)
 
     # BMI
     harmonized["bmi"] = pd.to_numeric(harmonized["weight"])/((pd.to_numeric(harmonized["height"])/100)**2)
