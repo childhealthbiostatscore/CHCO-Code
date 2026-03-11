@@ -84,6 +84,374 @@ pal2 <- list(
 )
 ```
 
+```{r nebula-shared-helpers, cache=FALSE}
+
+# ── Filename stem extractor ───────────────────────────────────────────────────
+ct_from_nebula_file <- function(paths, prefix_pat, suffix_pat) {
+  bn <- basename(paths)
+  bn <- sub(prefix_pat, "", bn)
+  bn <- sub(suffix_pat, "", bn)
+  bn
+}
+
+# ── NEBULA volcano (generic: pass logfc/pval/fdr column names) ────────────────
+make_nebula_volcano <- function(df,
+                                ct_label,
+                                logfc_col,
+                                pval_col,
+                                fdr_col,
+                                n_label = 20,
+                                title_extra = "") {
+
+  # defensive: try dot-variant if underscore variant missing
+  try_col <- function(df, col) {
+    if (col %in% colnames(df)) return(col)
+    alt <- chartr("_", ".", col)
+    if (alt %in% colnames(df)) return(alt)
+    NA_character_
+  }
+  logfc_col <- try_col(df, logfc_col)
+  pval_col  <- try_col(df, pval_col)
+  fdr_col   <- try_col(df, fdr_col)
+
+  if (any(is.na(c(logfc_col, pval_col, fdr_col)))) {
+    return(ggplot() +
+      annotate("text", x = .5, y = .5,
+               label = paste("Column not found\nin", ct_label),
+               size = 4, color = "grey50") +
+      theme_void())
+  }
+
+  gene_col <- if ("gene" %in% colnames(df)) "gene" else
+              if ("Gene" %in% colnames(df)) "Gene" else NA_character_
+
+  df <- df |>
+    dplyr::mutate(
+      .logfc     = .data[[logfc_col]],
+      .pval      = .data[[pval_col]],
+      .fdr       = .data[[fdr_col]],
+      neg_log10p = -log10(pmax(.pval, 1e-300)),
+      direction  = dplyr::case_when(
+        .fdr < 0.05 & .logfc > 0 ~ "Up",
+        .fdr < 0.05 & .logfc < 0 ~ "Down",
+        TRUE ~ "NS"
+      )
+    )
+
+  to_label <- if (!is.na(gene_col)) {
+    top_up   <- df |> dplyr::filter(.logfc > 0) |> dplyr::slice_min(.pval, n = n_label)
+    top_down <- df |> dplyr::filter(.logfc < 0) |> dplyr::slice_min(.pval, n = n_label)
+    dplyr::bind_rows(top_up, top_down) |> dplyr::mutate(.label = .data[[gene_col]])
+  } else { data.frame() }
+
+  n_cells <- dplyr::coalesce(
+    df$Cells[1], df$Nuclei[1], NA_real_
+  )
+
+  subtitle_text <- paste0(
+    "Genes: ", format(nrow(df), big.mark = ","),
+    "  |  Cells: ", format(n_cells, big.mark = ","),
+    "  |  Color = FDR < 0.05"
+  )
+
+  p <- ggplot(df, aes(x = .logfc, y = neg_log10p, color = direction)) +
+    geom_point(alpha = 0.5, size = 1) +
+    scale_color_manual(
+      values = c("Up" = "#9b2226", "Down" = "#001219", "NS" = "grey70")
+    ) +
+    labs(
+      x        = "log2 Fold Change",
+      y        = "-log10(P-value)",
+      title    = paste0("NEBULA Volcano", title_extra, ": ", ct_label),
+      subtitle = subtitle_text,
+      color    = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.title      = element_text(face = "bold", size = 11),
+      plot.subtitle   = element_text(size = 8, color = "grey50")
+    )
+
+  if (!is.na(gene_col) && nrow(to_label) > 0) {
+    p <- p + ggrepel::geom_text_repel(
+      data = to_label,
+      aes(label = .label),
+      size = 2.5, max.overlaps = 30, segment.size = 0.2
+    )
+  }
+  p
+}
+
+# ── NEBULA GSEA runner (fgsea on NEBULA t-stats) ──────────────────────────────
+# Ranks genes by signed -log10(p) * sign(logFC) — a common NEBULA ranking
+run_nebula_gsea <- function(df,
+                            logfc_col,
+                            pval_col,
+                            gene_col = NULL,
+                            nperm    = 10000,
+                            min_size = 15,
+                            max_size = 500) {
+
+  try_col <- function(df, col) {
+    if (!is.null(col) && col %in% colnames(df)) return(col)
+    if (!is.null(col)) { alt <- chartr("_", ".", col); if (alt %in% colnames(df)) return(alt) }
+    NA_character_
+  }
+
+  logfc_col <- try_col(df, logfc_col)
+  pval_col  <- try_col(df, pval_col)
+
+  if (is.null(gene_col)) {
+    gene_col <- if ("gene" %in% colnames(df)) "gene" else
+                if ("Gene" %in% colnames(df)) "Gene" else NA_character_
+  }
+
+  if (any(is.na(c(logfc_col, pval_col, gene_col)))) return(NULL)
+
+  # Reactome gene sets
+  msig <- msigdbr::msigdbr(species = "Homo sapiens",
+                            category = "C2", subcategory = "CP:REACTOME") |>
+    dplyr::select(gs_name, gene_symbol)
+  pathways <- split(msig$gene_symbol, msig$gs_name)
+
+  # Ranking: sign(logFC) * -log10(p)
+  ranks <- df |>
+    dplyr::filter(!is.na(.data[[pval_col]]), !is.na(.data[[logfc_col]])) |>
+    dplyr::mutate(
+      stat = sign(.data[[logfc_col]]) * (-log10(pmax(.data[[pval_col]], 1e-300)))
+    ) |>
+    dplyr::arrange(dplyr::desc(stat)) |>
+    dplyr::distinct(.data[[gene_col]], .keep_all = TRUE)
+
+  rank_vec <- setNames(ranks$stat, ranks[[gene_col]])
+
+  set.seed(42)
+  fgsea::fgsea(
+    pathways  = pathways,
+    stats     = rank_vec,
+    minSize   = min_size,
+    maxSize   = max_size,
+    nPermSimple = nperm
+  ) |>
+    as.data.frame() |>
+    dplyr::mutate(
+      leadingEdge = sapply(leadingEdge, paste, collapse = ";"),
+      padj_bh     = p.adjust(pval, method = "BH")
+    ) |>
+    dplyr::arrange(pval)
+}
+
+# ── GSEA bar for NEBULA (re-uses your existing make_gsea_bar style) ───────────
+make_nebula_gsea_bar <- function(gsea_df, ct_label, n_show = 20,
+                                 title_extra = "") {
+  if (is.null(gsea_df) || nrow(gsea_df) == 0) {
+    return(
+      ggplot() +
+        annotate("text", x = .5, y = .5,
+                 label = "No GSEA results", size = 4, color = "grey50") +
+        theme_void() +
+        labs(title = paste0("NEBULA GSEA", title_extra, ": ", ct_label))
+    )
+  }
+
+  df <- gsea_df |>
+    dplyr::mutate(
+      pathway_clean = gsub("^REACTOME_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = stringr::str_to_title(pathway_clean),
+      n_genes = size,
+      sig     = pval < 0.05
+    )
+
+  n_up   <- ceiling(n_show / 2)
+  n_down <- floor(n_show / 2)
+  top_up   <- df |> dplyr::filter(NES > 0) |> dplyr::slice_min(pval, n = n_up)
+  top_down <- df |> dplyr::filter(NES < 0) |> dplyr::slice_min(pval, n = n_down)
+  df_plot  <- dplyr::bind_rows(top_up, top_down) |> dplyr::arrange(NES)
+  df_plot$pathway_clean <- factor(df_plot$pathway_clean,
+                                  levels = df_plot$pathway_clean)
+
+  max_abs <- max(abs(df_plot$NES), na.rm = TRUE)
+
+  ggplot(df_plot, aes(x = NES, y = pathway_clean)) +
+    geom_col(aes(fill = ifelse(sig, NES, NA_real_))) +
+    geom_text(aes(label = n_genes,
+                  x     = ifelse(NES > 0, NES - 0.05, NES + 0.05),
+                  hjust = ifelse(NES > 0, 1, 0)),
+              size = 2.5, color = "white", fontface = "bold") +
+    scale_fill_gradient2(
+      low      = pal$ink_black,
+      mid      = "white",
+      high     = pal$brown_red,
+      midpoint = 0,
+      limits   = c(-max_abs, max_abs),
+      name     = "NES",
+      na.value = "grey70"
+    ) +
+    labs(
+      x        = "Normalized Enrichment Score",
+      y        = NULL,
+      title    = paste0("NEBULA GSEA", title_extra, ": ", ct_label),
+      subtitle = "Color = P < 0.05; grey = NS"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.y   = element_text(size = 7),
+      legend.position = "bottom",
+      plot.title    = element_text(face = "bold", size = 11),
+      plot.subtitle = element_text(size = 8, color = "grey50")
+    )
+}
+
+# ── Leading-edge gene table (same style as limma version) ─────────────────────
+extract_nebula_top_genes <- function(gsea_df, n_show = 20, n_genes_show = 10) {
+  if (is.null(gsea_df) || nrow(gsea_df) == 0) return(NULL)
+
+  gsea_df |>
+    dplyr::mutate(
+      pathway_clean = gsub("^REACTOME_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = stringr::str_to_title(pathway_clean)
+    ) |>
+    dplyr::slice_min(pval, n = n_show) |>
+    dplyr::arrange(pval) |>
+    dplyr::rowwise() |>
+    dplyr::mutate(
+      top_genes = tryCatch({
+        le <- as.character(leadingEdge)
+        if (length(le) == 0 || is.null(le) || all(is.na(le)) || le == "" || le == "NA") ""
+        else paste(utils::head(base::strsplit(le, ";")[[1]], n_genes_show), collapse = ", ")
+      }, error = function(e) "")
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::select(
+      Pathway             = pathway_clean,
+      NES,
+      `P-Value`           = pval,
+      `Leading Edge Genes`= top_genes
+    ) |>
+    dplyr::mutate(
+      NES       = round(NES, 2),
+      `P-Value` = formatC(`P-Value`, format = "e", digits = 2)
+    )
+}
+
+# ── EMM heatmap from NEBULA interaction results ───────────────────────────────
+# Computes group-mean log-expression as a proxy for EMMs when the full
+# mixed-model object is unavailable (i.e. we only have the saved CSV).
+# Uses top N genes by interaction FDR.
+make_nebula_emm_heatmap <- function(so_sub,
+                                    ct_label,
+                                    n_top      = 50,
+                                    int_fdr_col  = "fdr_groupType.2.Diabetes.treatment30",
+                                    int_lfc_col  = "logFC_groupType.2.Diabetes.treatment30",
+                                    results_df = NULL) {
+
+  # Identify top interaction genes from results CSV
+  if (!is.null(results_df)) {
+    # try both naming conventions
+    fdr_col_use <- if (int_fdr_col %in% colnames(results_df)) int_fdr_col else
+                   chartr("_", ".", int_fdr_col)
+    lfc_col_use <- if (int_lfc_col %in% colnames(results_df)) int_lfc_col else
+                   chartr("_", ".", int_lfc_col)
+
+    gene_col <- if ("gene" %in% colnames(results_df)) "gene" else "Gene"
+
+    top_genes <- results_df |>
+      dplyr::arrange(.data[[fdr_col_use]]) |>
+      dplyr::slice_head(n = n_top) |>
+      dplyr::pull(.data[[gene_col]])
+  } else {
+    # fall back: use HVGs
+    top_genes <- head(VariableFeatures(so_sub), n_top)
+  }
+
+  top_genes <- intersect(top_genes, rownames(so_sub))
+  if (length(top_genes) < 2) return(NULL)
+
+  # Pull normalized counts
+  DefaultAssay(so_sub) <- "RNA"
+  expr_mat <- as.matrix(Seurat::GetAssayData(so_sub, layer = "data")[top_genes, , drop = FALSE])
+
+  # Build condition label per cell
+  meta <- so_sub@meta.data |>
+    dplyr::mutate(
+      cond = paste0(
+        dplyr::case_when(group == "Type 2 Diabetes" ~ "T2D",
+                         group == "T2D"              ~ "T2D",
+                         TRUE                         ~ "LC"),
+        "_",
+        dplyr::case_when(grepl("30", treatment) ~ "30mM",
+                         TRUE                   ~ "15mM")
+      )
+    )
+
+  # Mean per condition
+  conds   <- unique(meta$cond)
+  emm_mat <- sapply(conds, function(cc) {
+    cells <- rownames(meta)[meta$cond == cc]
+    rowMeans(expr_mat[, cells, drop = FALSE])
+  })
+
+  # Reorder columns
+  col_order <- intersect(c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM"),
+                         colnames(emm_mat))
+  emm_mat <- emm_mat[, col_order, drop = FALSE]
+
+  # Scale rows
+  hm_scaled <- t(scale(t(emm_mat)))
+
+  col_annot <- data.frame(
+    Group     = c("LC", "LC", "T2D", "T2D"),
+    Treatment = c("15mM", "30mM", "15mM", "30mM"),
+    row.names = c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM")
+  )[col_order, , drop = FALSE]
+
+  annot_colors <- list(
+    Group     = c("LC" = pal$dark_cyan, "T2D" = pal$brown_red),
+    Treatment = c("15mM" = pal$vanilla_custard, "30mM" = pal$golden_orange)
+  )
+
+  pheatmap::pheatmap(
+    hm_scaled,
+    cluster_cols      = FALSE,
+    cluster_rows      = TRUE,
+    show_rownames     = TRUE,
+    fontsize_row      = 7,
+    fontsize_col      = 10,
+    color             = colorRampPalette(c(pal$ink_black, "white", pal$brown_red))(100),
+    annotation_col    = col_annot,
+    annotation_colors = annot_colors,
+    main              = paste0(ct_label, " — NEBULA Top Interaction Genes (mean expr)"),
+    border_color      = NA,
+    silent            = TRUE
+  )
+}
+
+# ── DEG concordance helper ────────────────────────────────────────────────────
+compute_concordance <- function(df_a, df_b,
+                                gene_col_a, lfc_col_a, fdr_col_a,
+                                gene_col_b, lfc_col_b, fdr_col_b,
+                                fdr_thresh = 0.05) {
+  sig_a <- df_a |>
+    dplyr::filter(.data[[fdr_col_a]] < fdr_thresh) |>
+    dplyr::select(gene = dplyr::all_of(gene_col_a),
+                  lfc_a = dplyr::all_of(lfc_col_a))
+  sig_b <- df_b |>
+    dplyr::filter(.data[[fdr_col_b]] < fdr_thresh) |>
+    dplyr::select(gene = dplyr::all_of(gene_col_b),
+                  lfc_b = dplyr::all_of(lfc_col_b))
+  shared <- dplyr::inner_join(sig_a, sig_b, by = "gene") |>
+    dplyr::mutate(concordant = sign(lfc_a) == sign(lfc_b))
+  list(n_a = nrow(sig_a), n_b = nrow(sig_b),
+       n_shared = nrow(shared),
+       n_concordant = sum(shared$concordant, na.rm = TRUE))
+}
+```
+
+
+
 # Background {background-color="#a53860" color="white"}
 
 ## Background
@@ -206,7 +574,7 @@ knitr::include_graphics("/home/hhampson/Results/umap_biopsy.png")
 :::
 ::::
 
-# Organoid T2D vs. LC (Adj. Glucose Exposure) {background-color="#a53860" color="white"}
+# Organoid T2D vs. LC (Adj. Glucose Exposure) - Pseudobulk (LIMMA) {background-color="#a53860" color="white"}
 ```{r load-and-plot-functions, cache=FALSE}
 # ── Load all limma results ─────────────────────────────────────────────────────
 limma_files <- list.files("/home/hhampson/Results/Organoid Limma T2D vs. LC",
@@ -373,7 +741,225 @@ for (ct in names(gene_tables)) {
 }
 ```
 
-# Biopsy: T2D vs. LC {background-color="#a53860"}
+# Organoid T2D vs. LC (Adj. Glucose Exposure) — Single-Cell (NEBULA) {background-color="#a53860"}
+```{r}
+#| echo: false
+#| cache: false
+
+# Load NEBULA DE results
+nebula_files <- list.files("/home/hhampson/Results/T2DvsLC NEBULA",
+                           pattern = "^NEBULA_T2DvsLC_.*\\.csv$", full.names = TRUE)
+nebula_results_all <- purrr::map_dfr(nebula_files, function(f) {
+  df <- read.csv(f)
+  ct <- gsub("^NEBULA_T2DvsLC_(.*)_treatment_adjusted_2000\\.csv$", "\\1", basename(f))
+  df$cell_type <- ct
+  df
+})
+
+# Load NEBULA GSEA results from RDS
+nebula_gsea_files <- list.files("/home/hhampson/Results/T2DvsLC NEBULA",
+                                pattern = "_T2DvsLC_Reactome\\.rds$", full.names = TRUE)
+nebula_gsea_list <- purrr::map(nebula_gsea_files, readRDS) |>
+  setNames(gsub("_T2DvsLC_Reactome\\.rds$", "", basename(nebula_gsea_files)))
+```
+
+```{r}
+#| results: 'asis'
+#| echo: false
+#| cache: false
+
+# Reuse make_volcano / make_gsea_bar — just need a nebula cell counts csv
+# If you don't have one, we can skip the cell count annotation
+nebula_gene_tables <- list()
+
+for (ct in unique(nebula_results_all$cell_type)) {
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  df_ct <- nebula_results_all |> dplyr::filter(cell_type == ct)
+  
+  # NEBULA uses logFC / p_val — rename to match make_volcano expectations
+  df_ct <- df_ct |>
+    dplyr::rename(
+      P.Value   = p_group,       # update to your actual NEBULA column names
+      adj.P.Val = fdr,
+      logFC     = logFC_group, 
+      gene      = gene
+    )
+  
+  p_volc <- make_volcano(df_ct, ct, cell_counts_df = data.frame(cell_type = ct, n_cells = NA))
+  
+  if (ct %in% names(nebula_gsea_list)) {
+    p_gsea <- make_gsea_bar(nebula_gsea_list[[ct]], ct, n_show = 20)
+    nebula_gene_tables[[ct]] <- extract_top_genes(nebula_gsea_list[[ct]], ct, n_show = 20)
+  } else {
+    p_gsea <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+               size = 4, color = "grey50") + theme_void()
+  }
+  
+  combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.2))
+  print(combined)
+  cat("\n\n")
+}
+
+```
+
+```{r}
+#| results: 'asis'
+#| echo: false
+#| cache: false
+
+cat("\n\n# GSEA Leading Edge Genes — NEBULA {background-color=\"#a53860\"}\n\n")
+
+for (ct in names(nebula_gene_tables)) {
+  cat("\n\n## ", ct, " — Leading Edge Genes {.scrollable}\n\n", sep = "")
+  
+  tbl <- nebula_gene_tables[[ct]] |>
+    kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
+    kableExtra::kable_styling(font_size = 14, bootstrap_options = c("striped", "hover", "condensed")) |>
+    kableExtra::column_spec(4, width = "40em")
+  
+  cat(as.character(tbl))
+  cat("\n\n")
+}
+
+```
+
+# Comparison Single-Cell (NEBULA) vs. Pseudobulk (LIMMA)
+```{r}
+#| results: 'asis'
+#| echo: false
+#| cache: false
+
+shared_cts <- intersect(unique(results_all$cell_type), unique(nebula_results_all$cell_type))
+
+for (ct in shared_cts) {
+  cat("\n\n## ", ct, " — limma vs. NEBULA {.scrollable}\n\n", sep = "")
+  
+  df_limma <- results_all |> dplyr::filter(cell_type == ct)
+  df_nebula <- nebula_results_all |>
+    dplyr::filter(cell_type == ct) |>
+    dplyr::rename(P.Value = p_group, adj.P.Val = fdr, logFC = logFC_group)
+  
+  p_limma_vol  <- make_volcano(df_limma,  ct) + ggtitle("Pseudobulk (limma)")
+  p_nebula_vol <- make_volcano(df_nebula, ct,
+                               cell_counts_df = data.frame(cell_type = ct, n_cells = NA)) +
+                  ggtitle("Single-Cell (NEBULA)")
+  
+  if (ct %in% names(gsea_results_list) && ct %in% names(nebula_gsea_list)) {
+    p_limma_gsea  <- make_gsea_bar(gsea_results_list[[ct]],  ct, n_show = 15) + ggtitle("GSEA — limma")
+    p_nebula_gsea <- make_gsea_bar(nebula_gsea_list[[ct]], ct, n_show = 15) + ggtitle("GSEA — NEBULA")
+    combined <- (p_limma_vol | p_nebula_vol) / (p_limma_gsea | p_nebula_gsea)
+  } else {
+    combined <- p_limma_vol | p_nebula_vol
+  }
+  
+  print(combined)
+  cat("\n\n")
+}
+
+```
+
+```{r}
+#| results: 'asis'
+#| echo: false
+#| cache: false
+
+cat("\n\n# Limma vs. NEBULA Overlap {background-color=\"#005f73\"}\n\n")
+
+sig_threshold <- 0.05
+shared_cts <- intersect(unique(results_all$cell_type), unique(nebula_results_all$cell_type))
+
+for (ct in shared_cts) {
+  cat("\n\n## ", ct, " {.scrollable}\n\n", sep = "")
+  
+  # --- Overlapping DE genes ---
+  limma_sig <- results_all |>
+    dplyr::filter(cell_type == ct, adj.P.Val < sig_threshold) |>
+    dplyr::pull(gene)
+  
+  nebula_sig <- nebula_results_all |>
+    dplyr::filter(cell_type == ct, fdr < sig_threshold) |>
+    dplyr::pull(gene)
+  
+  overlap_genes <- intersect(limma_sig, nebula_sig)
+  
+  cat("**Overlapping significant DE genes:**", length(overlap_genes),
+      "of", length(limma_sig), "(limma) and", length(nebula_sig), "(NEBULA)\n\n")
+  
+  if (length(overlap_genes) > 0) {
+    limma_dir <- results_all |>
+      dplyr::filter(cell_type == ct, gene %in% overlap_genes) |>
+      dplyr::select(gene, logFC_limma = logFC, adjP_limma = adj.P.Val)
+    
+    nebula_dir <- nebula_results_all |>
+      dplyr::filter(cell_type == ct, gene %in% overlap_genes) |>
+      dplyr::select(gene, logFC_nebula = logFC_group, adjP_nebula = fdr)
+    
+    gene_overlap_tbl <- dplyr::inner_join(limma_dir, nebula_dir, by = "gene") |>
+      dplyr::mutate(
+        concordant = sign(logFC_limma) == sign(logFC_nebula),
+        logFC_limma  = round(logFC_limma, 3),
+        logFC_nebula = round(logFC_nebula, 3),
+        adjP_limma   = formatC(adjP_limma,  format = "e", digits = 2),
+        adjP_nebula  = formatC(adjP_nebula, format = "e", digits = 2)
+      ) |>
+      dplyr::arrange(concordant)
+    
+    tbl <- gene_overlap_tbl |>
+      kableExtra::kbl(escape = FALSE) |>
+      kableExtra::kable_styling(font_size = 13, bootstrap_options = c("striped", "hover", "condensed")) |>
+      kableExtra::row_spec(which(!gene_overlap_tbl$concordant), background = "#fff3cd")
+    
+    cat(as.character(tbl))
+    cat("\n\n")
+  }
+  
+  # --- Overlapping pathways ---
+  if (ct %in% names(gsea_results_list) && ct %in% names(nebula_gsea_list)) {
+    
+    limma_sig_paths  <- gsea_results_list[[ct]] |> dplyr::filter(pval < sig_threshold) |> dplyr::pull(pathway)
+    nebula_sig_paths <- nebula_gsea_list[[ct]]  |> dplyr::filter(pval < sig_threshold) |> dplyr::pull(pathway)
+    overlap_paths    <- intersect(limma_sig_paths, nebula_sig_paths)
+    
+    cat("**Overlapping significant pathways:**", length(overlap_paths),
+        "of", length(limma_sig_paths), "(limma) and", length(nebula_sig_paths), "(NEBULA)\n\n")
+    
+    if (length(overlap_paths) > 0) {
+      limma_path_df  <- gsea_results_list[[ct]] |>
+        dplyr::filter(pathway %in% overlap_paths) |>
+        dplyr::select(pathway, NES_limma = NES, pval_limma = pval)
+      
+      nebula_path_df <- nebula_gsea_list[[ct]] |>
+        dplyr::filter(pathway %in% overlap_paths) |>
+        dplyr::select(pathway, NES_nebula = NES, pval_nebula = pval)
+      
+      path_overlap_tbl <- dplyr::inner_join(limma_path_df, nebula_path_df, by = "pathway") |>
+        dplyr::mutate(
+          pathway = gsub("^REACTOME_", "", pathway),
+          pathway = stringr::str_to_title(gsub("_", " ", pathway)),
+          concordant_NES = sign(NES_limma) == sign(NES_nebula),
+          NES_limma  = round(NES_limma, 2),
+          NES_nebula = round(NES_nebula, 2),
+          pval_limma  = formatC(pval_limma,  format = "e", digits = 2),
+          pval_nebula = formatC(pval_nebula, format = "e", digits = 2)
+        ) |>
+        dplyr::arrange(concordant_NES)
+      
+      tbl2 <- path_overlap_tbl |>
+        kableExtra::kbl(escape = FALSE) |>
+        kableExtra::kable_styling(font_size = 13, bootstrap_options = c("striped", "hover", "condensed")) |>
+        kableExtra::row_spec(which(!path_overlap_tbl$concordant_NES), background = "#fff3cd")
+      
+      cat(as.character(tbl2))
+      cat("\n\n")
+    }
+  }
+}
+
+```
+
+# Biopsy: T2D vs. LC (Unadjusted) - Pseudobulk (LIMMA) {background-color="#a53860"}
 ```{r load-biopsy-data, cache=FALSE}
 # ── Load biopsy limma results ─────────────────────────────────────────────────
 biopsy_limma_files <- list.files("/home/hhampson/Results/Biopsy_Limma_T2DvsLC",
