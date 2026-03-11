@@ -49,7 +49,7 @@ def parse_pairs(docx_path):
 
 
 docx_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/reused_visits.docx"
-csv_path  = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv"
+csv_path  = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/rh_it_crc_long_03102026.csv"
 out_path  = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/unmatched_dates.csv"
 
 pairs = parse_pairs(docx_path)
@@ -59,11 +59,11 @@ print(f"Parsed {len(pairs)} unique pairs from docx.")
 
 df = pd.read_csv(
     csv_path,
-    usecols=["record_id", "visit", "procedure", "date"],
+    usecols=["record_id", "visit", "procedure", "days_since_baseline"],
     low_memory=False,
     dtype=str,
 )
-df["date"]      = df["date"].str.strip()
+df["days_since_baseline"] = df["days_since_baseline"].str.strip()
 df["visit"]     = df["visit"].str.strip()
 df["record_id"] = df["record_id"].str.strip()
 df["procedure"] = df["procedure"].str.strip()
@@ -83,8 +83,8 @@ for (rid1, visit1), (rid2, visit2) in pairs:
     common = procs1 & procs2
 
     for proc in sorted(common):
-        dates1 = sub1.loc[sub1["procedure"] == proc, "date"].dropna().unique()
-        dates2 = sub2.loc[sub2["procedure"] == proc, "date"].dropna().unique()
+        dates1 = sub1.loc[sub1["procedure"] == proc, "days_since_baseline"].dropna().unique()
+        dates2 = sub2.loc[sub2["procedure"] == proc, "days_since_baseline"].dropna().unique()
 
         date1 = dates1[0] if len(dates1) == 1 else ("; ".join(sorted(dates1)) if len(dates1) > 1 else None)
         date2 = dates2[0] if len(dates2) == 1 else ("; ".join(sorted(dates2)) if len(dates2) > 1 else None)
@@ -100,15 +100,15 @@ for (rid1, visit1), (rid2, visit2) in pairs:
                 "record_id_2": rid2,
                 "visit_2":     visit2,
                 "procedure":   proc,
-                "date_1":      date1,
-                "date_2":      date2,
+                "days_since_baseline_1":      date1,
+                "days_since_baseline_2":      date2,
             })
 
 # ── 4. Save results ──────────────────────────────────────────────────────────
 
 out = pd.DataFrame(rows_out, columns=[
     "record_id_1", "visit_1", "record_id_2", "visit_2",
-    "procedure", "date_1", "date_2",
+    "procedure", "days_since_baseline_1", "days_since_baseline_2",
 ])
 out = out.sort_values(["record_id_1", "visit_1", "record_id_2", "visit_2", "procedure"]).reset_index(drop=True)
 out.to_csv(out_path, index=False)

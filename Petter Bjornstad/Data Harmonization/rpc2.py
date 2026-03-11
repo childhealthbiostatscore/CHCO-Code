@@ -421,7 +421,7 @@ def clean_rpc2_redcap():
     drop_ids = ["RPC-06", "RPC-09", "RPC-10", "RPC-11", "RPC-12", "RPC-14", "RPC-15", 
                 "RPC-18", "RPC-19", "RPC-20", "RPC-22", "RPC-23", "RPC-24", 
                 "RPC-28", "RPC-30", "RPC-31", "RPC-32", "RPC-33", "RPC-34", 
-                "RPC-35", "RPC-36", "RPC-39", "RPC-40", "RPC-42", "RPC-43"]  
+                "RPC-35", "RPC-36", "RPC-39", "RPC-40", "RPC-42", "RPC-43", "RPC-44"]  
     df = df[~df['record_id'].isin(drop_ids)]
 
 
