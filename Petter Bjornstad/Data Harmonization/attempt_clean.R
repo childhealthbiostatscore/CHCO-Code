@@ -338,12 +338,17 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 gfr_raw_plasma = mgfr_si)
 
 date_cols <- grep("(^date$|_date$|^date_|_date_)", names(merged_data), value = TRUE)
+# diabetes_dx_date is already a Date object (days since epoch), not a Unix timestamp (seconds)
+# — exclude it from the Unix timestamp loop and format it separately
+date_cols <- setdiff(date_cols, "diabetes_dx_date")
 time_cols <- grep("(^time$|time$|^time_|_time_)", names(merged_data), value = TRUE)
 
 # Convert numeric Unix timestamps to formatted date strings
 merged_data[date_cols] <- lapply(merged_data[date_cols], function(x) {
   format(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"), "%m/%d/%y")
 })
+
+merged_data$diabetes_dx_date <- format(as.Date(merged_data$diabetes_dx_date, origin = "1970-01-01"), "%m/%d/%y")
 
 merged_data[time_cols] <- lapply(merged_data[time_cols], function(x) {
   # Only convert if numeric

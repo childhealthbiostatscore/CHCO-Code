@@ -39,7 +39,7 @@ attempt <- merged_data %>%
   mutate(group = "Type 1 Diabetes",
          study = "ATTEMPT",
          diabetes_duration = diabetes_dx_duration) %>%
-  dplyr::select(names(merged_data)[names(merged_data) %in% names(clean)], record_id, visit, study, PWV, treatment_arm)
+  dplyr::select(any_of(names(clean)), record_id, visit, study, PWV, treatment_arm, everything())
 attempt[] <- lapply(attempt, function(x) {
   if (is.numeric(x)) as.character(x) else x
 })
@@ -48,14 +48,17 @@ attempt[] <- lapply(attempt, function(x) {
 clean <- clean %>%
   full_join(attempt) %>%
   dplyr::group_by(record_id, visit) %>%
-  dplyr::mutate(across(where(is.character), ~ na_if(., ""))) %>%
+  dplyr::mutate(across(where(is.character), ~ na_if(., "")),
+                diabetes_dx_date = na_if(diabetes_dx_date, "01/01/70"),
+                diabetes_dx_date = na_if(diabetes_dx_date, "1/1/70"),
+                diabetes_dx_date = na_if(diabetes_dx_date, "1970-01-01")) %>%
   dplyr::mutate(screen_date = case_when(procedure == "screening" | visit == "screening" ~ date)) %>%
   fill(screen_date, .direction = "updown") %>%
   dplyr::mutate(screen_date = case_when(is.na(screen_date) ~ min(date, na.rm = T),
                                  T ~ screen_date)) %>%
   fill(screen_date, .direction = "updown") %>% ungroup() %>%
   group_by(mrn) %>%
-  fill(dob, diabetes_dx_date, screen_date,
+  fill(dob, screen_date,
        attempt_id, casper_id, coffee_id, croc_id, improve_id, penguin_id,
        rh_id, rh2_id, panther_id, panda_id, rpc2_id, swht_id, ultra_id, co_enroll_id,
        .direction = "downup") %>%

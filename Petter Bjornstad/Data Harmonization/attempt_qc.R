@@ -244,6 +244,62 @@ if (exists("clean")) {
   print(filter(var_comparison, n_raw > 0), n = Inf)
   cat("\n")
 
+  # 9g. Pass-through variable check (non-renamed variables)
+  cat("--- Pass-through variable check (non-renamed/converted variables) ---\n")
+  passthrough_vars <- list(
+    compliance        = c("compliance_percent", "ondrug_days", "drugstoppage_days",
+                          "pillcount_consumed", "pillcount_dispensed", "pillcount_returned",
+                          "treatmentperiod_days"),
+    diabetes_mgmt     = c("tdid_u", "tdid_basal_u", "tdid_bolus_u", "tdid_u_kg",
+                          "tdid_basal_u_kg", "tdid_bolus_u_kg", "icr_average",
+                          "isf_average_mmoll", "insulin_regimen", "aid_yn", "controliq_yn",
+                          "inuslin_therapy", "csii_device", "aid_algorithm",
+                          "blood_glucose_check", "insulin_basal_type", "insulin_bolus_type",
+                          "target_glucose_low_mmoll", "target_glucose_high_mmoll"),
+    dipstick_urine    = c("glucose_urine_dip", "bilirubin_urine_dip", "ketones_urine_dip",
+                          "spgravity_urine_dip", "blood_urine_dip", "ph_urine_dip",
+                          "urobilinogen_urine_dip", "protein_urine_dip", "nitrite_urine_dip",
+                          "leukocytes_urine_dip"),
+    central_blood_lab = c("glucose_serum_mmoll", "albumin_serum_gl", "uricacid_serum_umoll",
+                          "magnesium_serum_mmoll", "bhb1_serum_mmoll", "tsh_serum_miul",
+                          "pth_serum_pmoll"),
+    local_blood_lab   = c("wbc_local", "rbc_local", "hgb_local", "hct_local",
+                          "mcv_local", "mch_local", "mchc_local",
+                          "potassium_blood_local", "chloride_blood_local",
+                          "bicarbonate_local", "alt_local", "alp_local",
+                          "bilirubin_local", "lipase_local"),
+    mgfr              = c("gfr_raw_plasma", "mgfr_si_adjusted", "mgfr_bm_adult",
+                          "mgfr_bm_adult_adjusted", "mgfr_jodal_bsa")
+  )
+
+  for (group in names(passthrough_vars)) {
+    vars <- passthrough_vars[[group]]
+    in_raw  <- vars[vars %in% names(merged_data)]
+    in_harm <- vars[vars %in% names(attempt_clean)]
+    missing_from_harm <- setdiff(in_raw, names(attempt_clean))
+    missing_from_raw  <- setdiff(vars, names(merged_data))
+
+    cat(sprintf("\n[%s]\n", group))
+    if (length(missing_from_raw) > 0)
+      cat("  Not in raw merged_data:     ", paste(missing_from_raw, collapse = ", "), "\n")
+    if (length(missing_from_harm) > 0)
+      cat("  Missing from harmonized:    ", paste(missing_from_harm, collapse = ", "), "\n")
+    if (length(missing_from_raw) == 0 && length(missing_from_harm) == 0)
+      cat("  All present in both raw and harmonized.\n")
+
+    # Non-missing counts for variables present in both
+    both <- intersect(in_raw, names(attempt_clean))
+    if (length(both) > 0) {
+      counts <- tibble(
+        variable     = both,
+        n_raw        = sapply(both, function(v) sum(!is.na(merged_data[[v]]))),
+        n_harmonized = sapply(both, function(v) sum(!is.na(attempt_clean[[v]])))
+      ) %>% filter(n_raw > 0 | n_harmonized > 0)
+      if (nrow(counts) > 0) print(counts, n = Inf)
+    }
+  }
+  cat("\n")
+
 } else {
   cat("NOTE: 'clean' not found — run data_harmonization_with_soma.R first to check raw vs harmonized QC.\n\n")
 }
