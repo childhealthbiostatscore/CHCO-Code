@@ -61,10 +61,9 @@ execute:
 knitr:
   opts_chunk:
     results: 'asis'
-
 ---
 
-```{r setup, include=FALSE}
+```{r setup colors, include=FALSE}
 source("/home/hhampson/CHCO-Code/Petter Bjornstad/Kidney scRNA/Kidney scRNA/Libraries.R")
 
 pal <- list(
@@ -87,31 +86,6 @@ pal2 <- list(
 )
 ```
 
-```{r setup, include=FALSE}
-source("/home/hhampson/CHCO-Code/Petter Bjornstad/Kidney scRNA/Kidney scRNA/Libraries.R")
-
-# ── S3 / Kopah connection ─────────────────────────────────────────────────────
-library(aws.s3)
-library(paws)
-
-s3 <- paws::s3(config = list(
-  credentials = list(
-    creds = list(
-      access_key_id     = Sys.getenv("AWS_ACCESS_KEY_ID"),
-      secret_access_key = Sys.getenv("AWS_SECRET_ACCESS_KEY")
-    )
-  ),
-  endpoint = Sys.getenv("AWS_S3_ENDPOINT"),
-  region   = Sys.getenv("AWS_REGION")
-))
-
-# ── Palettes ──────────────────────────────────────────────────────────────────
-pal <- list(
-  ink_black       = "#001219",
-  ...
-)
-```
-
 ```{r nebula-shared-helpers, cache=FALSE}
 
 # ── Filename stem extractor ───────────────────────────────────────────────────
@@ -130,7 +104,7 @@ make_nebula_volcano <- function(df,
                                 fdr_col,
                                 n_label = 20,
                                 title_extra = "") {
-
+  
   # defensive: try dot-variant if underscore variant missing
   try_col <- function(df, col) {
     if (col %in% colnames(df)) return(col)
@@ -141,18 +115,18 @@ make_nebula_volcano <- function(df,
   logfc_col <- try_col(df, logfc_col)
   pval_col  <- try_col(df, pval_col)
   fdr_col   <- try_col(df, fdr_col)
-
+  
   if (any(is.na(c(logfc_col, pval_col, fdr_col)))) {
     return(ggplot() +
-      annotate("text", x = .5, y = .5,
-               label = paste("Column not found\nin", ct_label),
-               size = 4, color = "grey50") +
-      theme_void())
+             annotate("text", x = .5, y = .5,
+                      label = paste("Column not found\nin", ct_label),
+                      size = 4, color = "grey50") +
+             theme_void())
   }
-
+  
   gene_col <- if ("gene" %in% colnames(df)) "gene" else
-              if ("Gene" %in% colnames(df)) "Gene" else NA_character_
-
+    if ("Gene" %in% colnames(df)) "Gene" else NA_character_
+  
   df <- df |>
     dplyr::mutate(
       .logfc     = .data[[logfc_col]],
@@ -165,23 +139,23 @@ make_nebula_volcano <- function(df,
         TRUE ~ "NS"
       )
     )
-
+  
   to_label <- if (!is.na(gene_col)) {
     top_up   <- df |> dplyr::filter(.logfc > 0) |> dplyr::slice_min(.pval, n = n_label)
     top_down <- df |> dplyr::filter(.logfc < 0) |> dplyr::slice_min(.pval, n = n_label)
     dplyr::bind_rows(top_up, top_down) |> dplyr::mutate(.label = .data[[gene_col]])
   } else { data.frame() }
-
+  
   n_cells <- dplyr::coalesce(
     df$Cells[1], df$Nuclei[1], NA_real_
   )
-
+  
   subtitle_text <- paste0(
     "Genes: ", format(nrow(df), big.mark = ","),
     "  |  Cells: ", format(n_cells, big.mark = ","),
     "  |  Color = FDR < 0.05"
   )
-
+  
   p <- ggplot(df, aes(x = .logfc, y = neg_log10p, color = direction)) +
     geom_point(alpha = 0.5, size = 1) +
     scale_color_manual(
@@ -200,7 +174,7 @@ make_nebula_volcano <- function(df,
       plot.title      = element_text(face = "bold", size = 11),
       plot.subtitle   = element_text(size = 8, color = "grey50")
     )
-
+  
   if (!is.na(gene_col) && nrow(to_label) > 0) {
     p <- p + ggrepel::geom_text_repel(
       data = to_label,
@@ -220,29 +194,29 @@ run_nebula_gsea <- function(df,
                             nperm    = 10000,
                             min_size = 15,
                             max_size = 500) {
-
+  
   try_col <- function(df, col) {
     if (!is.null(col) && col %in% colnames(df)) return(col)
     if (!is.null(col)) { alt <- chartr("_", ".", col); if (alt %in% colnames(df)) return(alt) }
     NA_character_
   }
-
+  
   logfc_col <- try_col(df, logfc_col)
   pval_col  <- try_col(df, pval_col)
-
+  
   if (is.null(gene_col)) {
     gene_col <- if ("gene" %in% colnames(df)) "gene" else
-                if ("Gene" %in% colnames(df)) "Gene" else NA_character_
+      if ("Gene" %in% colnames(df)) "Gene" else NA_character_
   }
-
+  
   if (any(is.na(c(logfc_col, pval_col, gene_col)))) return(NULL)
-
+  
   # Reactome gene sets
   msig <- msigdbr::msigdbr(species = "Homo sapiens",
-                            category = "C2", subcategory = "CP:REACTOME") |>
+                           category = "C2", subcategory = "CP:REACTOME") |>
     dplyr::select(gs_name, gene_symbol)
   pathways <- split(msig$gene_symbol, msig$gs_name)
-
+  
   # Ranking: sign(logFC) * -log10(p)
   ranks <- df |>
     dplyr::filter(!is.na(.data[[pval_col]]), !is.na(.data[[logfc_col]])) |>
@@ -251,9 +225,9 @@ run_nebula_gsea <- function(df,
     ) |>
     dplyr::arrange(dplyr::desc(stat)) |>
     dplyr::distinct(.data[[gene_col]], .keep_all = TRUE)
-
+  
   rank_vec <- setNames(ranks$stat, ranks[[gene_col]])
-
+  
   set.seed(42)
   fgsea::fgsea(
     pathways  = pathways,
@@ -282,7 +256,7 @@ make_nebula_gsea_bar <- function(gsea_df, ct_label, n_show = 20,
         labs(title = paste0("NEBULA GSEA", title_extra, ": ", ct_label))
     )
   }
-
+  
   df <- gsea_df |>
     dplyr::mutate(
       pathway_clean = gsub("^REACTOME_", "", pathway),
@@ -291,7 +265,7 @@ make_nebula_gsea_bar <- function(gsea_df, ct_label, n_show = 20,
       n_genes = size,
       sig     = pval < 0.05
     )
-
+  
   n_up   <- ceiling(n_show / 2)
   n_down <- floor(n_show / 2)
   top_up   <- df |> dplyr::filter(NES > 0) |> dplyr::slice_min(pval, n = n_up)
@@ -299,9 +273,9 @@ make_nebula_gsea_bar <- function(gsea_df, ct_label, n_show = 20,
   df_plot  <- dplyr::bind_rows(top_up, top_down) |> dplyr::arrange(NES)
   df_plot$pathway_clean <- factor(df_plot$pathway_clean,
                                   levels = df_plot$pathway_clean)
-
+  
   max_abs <- max(abs(df_plot$NES), na.rm = TRUE)
-
+  
   ggplot(df_plot, aes(x = NES, y = pathway_clean)) +
     geom_col(aes(fill = ifelse(sig, NES, NA_real_))) +
     geom_text(aes(label = n_genes,
@@ -335,7 +309,7 @@ make_nebula_gsea_bar <- function(gsea_df, ct_label, n_show = 20,
 # ── Leading-edge gene table (same style as limma version) ─────────────────────
 extract_nebula_top_genes <- function(gsea_df, n_show = 20, n_genes_show = 10) {
   if (is.null(gsea_df) || nrow(gsea_df) == 0) return(NULL)
-
+  
   gsea_df |>
     dplyr::mutate(
       pathway_clean = gsub("^REACTOME_", "", pathway),
@@ -375,17 +349,17 @@ make_nebula_emm_heatmap <- function(so_sub,
                                     int_fdr_col  = "fdr_groupType.2.Diabetes.treatment30",
                                     int_lfc_col  = "logFC_groupType.2.Diabetes.treatment30",
                                     results_df = NULL) {
-
+  
   # Identify top interaction genes from results CSV
   if (!is.null(results_df)) {
     # try both naming conventions
     fdr_col_use <- if (int_fdr_col %in% colnames(results_df)) int_fdr_col else
-                   chartr("_", ".", int_fdr_col)
+      chartr("_", ".", int_fdr_col)
     lfc_col_use <- if (int_lfc_col %in% colnames(results_df)) int_lfc_col else
-                   chartr("_", ".", int_lfc_col)
-
+      chartr("_", ".", int_lfc_col)
+    
     gene_col <- if ("gene" %in% colnames(results_df)) "gene" else "Gene"
-
+    
     top_genes <- results_df |>
       dplyr::arrange(.data[[fdr_col_use]]) |>
       dplyr::slice_head(n = n_top) |>
@@ -394,14 +368,14 @@ make_nebula_emm_heatmap <- function(so_sub,
     # fall back: use HVGs
     top_genes <- head(VariableFeatures(so_sub), n_top)
   }
-
+  
   top_genes <- intersect(top_genes, rownames(so_sub))
   if (length(top_genes) < 2) return(NULL)
-
+  
   # Pull normalized counts
   DefaultAssay(so_sub) <- "RNA"
   expr_mat <- as.matrix(Seurat::GetAssayData(so_sub, layer = "data")[top_genes, , drop = FALSE])
-
+  
   # Build condition label per cell
   meta <- so_sub@meta.data |>
     dplyr::mutate(
@@ -414,33 +388,33 @@ make_nebula_emm_heatmap <- function(so_sub,
                          TRUE                   ~ "15mM")
       )
     )
-
+  
   # Mean per condition
   conds   <- unique(meta$cond)
   emm_mat <- sapply(conds, function(cc) {
     cells <- rownames(meta)[meta$cond == cc]
     rowMeans(expr_mat[, cells, drop = FALSE])
   })
-
+  
   # Reorder columns
   col_order <- intersect(c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM"),
                          colnames(emm_mat))
   emm_mat <- emm_mat[, col_order, drop = FALSE]
-
+  
   # Scale rows
   hm_scaled <- t(scale(t(emm_mat)))
-
+  
   col_annot <- data.frame(
     Group     = c("LC", "LC", "T2D", "T2D"),
     Treatment = c("15mM", "30mM", "15mM", "30mM"),
     row.names = c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM")
   )[col_order, , drop = FALSE]
-
+  
   annot_colors <- list(
     Group     = c("LC" = pal$dark_cyan, "T2D" = pal$brown_red),
     Treatment = c("15mM" = pal$vanilla_custard, "30mM" = pal$golden_orange)
   )
-
+  
   pheatmap::pheatmap(
     hm_scaled,
     cluster_cols      = FALSE,
@@ -528,13 +502,7 @@ compute_concordance <- function(df_a, df_b,
 ::: {.column width="55%"}
 ```{r}
 #| out-width: "100%"
-# knitr::include_graphics("/home/hhampson/Results/methods_figure.png")
-library(base64enc)
-
-img_raw <- s3$get_object(Bucket = "scrna", Key = "Kidney organoids/Methods.png")$Body
-img_b64 <- base64enc::base64encode(img_raw)
-
-knitr::raw_html(paste0('<img src="data:image/png;base64,', img_b64, '" style="width:100%;">'))
+knitr::include_graphics("/home/hhampson/Results/methods_figure.png")
 ```
 :::
 ::::
@@ -666,17 +634,15 @@ htmltools::HTML(readLines(t1_file, warn = FALSE))
 ::: {.column width="50%"}
 **Organoid**
 ```{r}
-img_raw <- s3$get_object(Bucket = "scrna", Key = "Kidney organoids/UMAP_celltype_bold_labels_v2.png")$Body
-img_b64 <- base64enc::base64encode(img_raw)
-knitr::raw_html(paste0('<img src="data:image/png;base64,', img_b64, '" style="width:100%;">'))
+#| out-width: "100%"
+knitr::include_graphics("/home/hhampson/Results/umap_organoid.png")
 ```
 :::
 ::: {.column width="50%"}
 **Biopsy**
 ```{r}
-img_raw <- s3$get_object(Bucket = "scrna", Key = "Kidney organoids/UMAP_celltype_biopsy.png")$Body
-img_b64 <- base64enc::base64encode(img_raw)
-knitr::raw_html(paste0('<img src="data:image/png;base64,', img_b64, '" style="width:100%;">'))
+#| out-width: "100%"
+knitr::include_graphics("/home/hhampson/Results/umap_biopsy.png")
 ```
 :::
 ::::
@@ -789,13 +755,18 @@ extract_top_genes <- function(df, ct, n_show = 20, n_genes_show = 10) {
     dplyr::rowwise() |>
     dplyr::mutate(
       top_genes = tryCatch({
-        le <- as.character(leadingEdge)
-        if (length(le) == 0 || is.null(le) || all(is.na(le)) || le == "" || le == "NA") {
-          ""
+        le <- leadingEdge
+        # List-column (RDS format) vs semicolon string (CSV format)
+        if (is.list(le) || is.vector(le)) {
+          genes <- unlist(le)
         } else {
+          le <- as.character(le)
+          if (is.na(le) || le == "" || le == "NA") return("")
           genes <- base::strsplit(le, ";")[[1]]
-          base::paste(utils::head(genes, n_genes_show), collapse = ", ")
         }
+        genes <- genes[!is.na(genes) & genes != ""]
+        if (length(genes) == 0) return("")
+        base::paste(utils::head(genes, n_genes_show), collapse = ", ")
       }, error = function(e) "")
     ) |>
     dplyr::ungroup() |>
@@ -805,6 +776,7 @@ extract_top_genes <- function(df, ct, n_show = 20, n_genes_show = 10) {
       `P-Value` = formatC(`P-Value`, format = "e", digits = 2)
     )
 }
+
 ```
 
 ```{r per-celltype-combined, fig.width=14, fig.height=6, results='asis', cache=FALSE}
@@ -873,8 +845,6 @@ nebula_gsea_list <- purrr::map(nebula_gsea_files, readRDS) |>
 ```{r}
 knitr::opts_current$set(fig.width = 20, fig.height = 8, out.width = "100%")
 
-# Reuse make_volcano / make_gsea_bar — just need a nebula cell counts csv
-# If you don't have one, we can skip the cell count annotation
 nebula_gene_tables <- list()
 
 for (ct in unique(nebula_results_all$cell_type)) {
@@ -882,19 +852,20 @@ for (ct in unique(nebula_results_all$cell_type)) {
   
   df_ct <- nebula_results_all |> dplyr::filter(cell_type == ct)
   
-  # NEBULA uses logFC / p_val — rename to match make_volcano expectations
   df_ct <- df_ct |>
     dplyr::rename(
-      P.Value   = p_group,       # update to your actual NEBULA column names
+      P.Value   = p_group,
       adj.P.Val = fdr,
-      logFC     = logFC_group, 
+      logFC     = logFC_group,
       gene      = gene
     )
   
   p_volc <- make_volcano(df_ct, ct, cell_counts_df = data.frame(cell_type = ct, n_cells = NA))
   
   if (ct %in% names(nebula_gsea_list)) {
-    p_gsea <- make_gsea_bar(nebula_gsea_list[[ct]], ct, n_show = 20)
+    gsea_trunc <- nebula_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    p_gsea <- make_gsea_bar(gsea_trunc, ct, n_show = 20)
     nebula_gene_tables[[ct]] <- extract_top_genes(nebula_gsea_list[[ct]], ct, n_show = 20)
   } else {
     p_gsea <- ggplot() +
@@ -928,9 +899,7 @@ for (ct in names(nebula_gene_tables)) {
 
 ## Organoid Comparison Single-Cell (NEBULA) vs. Pseudobulk (LIMMA)
 ```{r}
-
 shared_cts <- intersect(unique(results_all$cell_type), unique(nebula_results_all$cell_type))
-
 for (ct in shared_cts) {
   cat("\n\n## ", ct, " — limma vs. NEBULA {.scrollable}\n\n", sep = "")
   
@@ -942,14 +911,21 @@ for (ct in shared_cts) {
   p_limma_vol  <- make_volcano(df_limma,  ct) + ggtitle("Pseudobulk (limma)")
   p_nebula_vol <- make_volcano(df_nebula, ct,
                                cell_counts_df = data.frame(cell_type = ct, n_cells = NA)) +
-                  ggtitle("Single-Cell (NEBULA)")
+    ggtitle("Single-Cell (NEBULA)")
   
   if (ct %in% names(gsea_results_list) && ct %in% names(nebula_gsea_list)) {
-    p_limma_gsea  <- make_gsea_bar(gsea_results_list[[ct]],  ct, n_show = 15) + ggtitle("GSEA — limma")
-    p_nebula_gsea <- make_gsea_bar(nebula_gsea_list[[ct]], ct, n_show = 15) + ggtitle("GSEA — NEBULA")
-    combined <- (p_limma_vol | p_nebula_vol) / (p_limma_gsea | p_nebula_gsea)
+    gsea_limma_trunc  <- gsea_results_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    gsea_nebula_trunc <- nebula_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    
+    p_limma_gsea  <- make_gsea_bar(gsea_limma_trunc,  ct, n_show = 15) + ggtitle("GSEA — limma")
+    p_nebula_gsea <- make_gsea_bar(gsea_nebula_trunc, ct, n_show = 15) + ggtitle("GSEA — NEBULA")
+    combined <- (p_limma_vol | p_nebula_vol) / (p_limma_gsea | p_nebula_gsea) +
+      plot_annotation(title = ct, theme = theme(plot.title = element_text(size = 16, face = "bold")))
   } else {
-    combined <- p_limma_vol | p_nebula_vol
+    combined <- (p_limma_vol | p_nebula_vol) +
+      plot_annotation(title = ct, theme = theme(plot.title = element_text(size = 16, face = "bold")))
   }
   
   print(combined)
@@ -1055,6 +1031,7 @@ for (ct in shared_cts) {
 ```
 
 # Aim 1.2a: Type 2 Diabetes vs. Lean Controls in Biopsies {background-color="#a53860" color="white"}
+
 ## Biopsy: Pseudobulk (LIMMA) - T2D vs. LC (Unadjusted) {background-color="#a53860"}
 ```{r load-biopsy-data, cache=FALSE}
 # ── Load biopsy limma results ─────────────────────────────────────────────────
@@ -1121,13 +1098,13 @@ for (ct in names(biopsy_gene_tables)) {
 ```{r load-nebula-biopsy}
 nebula_bio_files <- list.files(
   "/home/hhampson/Results/T2DvsLC NEBULA Biopsy",
-  pattern = "^NEBULA_T2DvsLC_.*\\.csv$",
+  pattern = "^NEBULA_Biopsy_T2DvsLC_.*\\.csv$",
   full.names = TRUE
 )
 
 nebula_bio_all <- purrr::map_dfr(nebula_bio_files, function(f) {
   df <- read.csv(f)
-  ct <- gsub("^NEBULA_T2DvsLC_(.*)_.*_2000\\.csv$", "\\1", basename(f))
+  ct <- gsub("^NEBULA_Biopsy_T2DvsLC_(.*)_.*_2000\\.csv$", "\\1", basename(f))
   df$cell_type <- ct
   df
 })
@@ -1135,7 +1112,7 @@ nebula_bio_all <- purrr::map_dfr(nebula_bio_files, function(f) {
 # Detect column names — biopsy NEBULA has no treatment so simpler structure
 bio_logfc_col <- grep("^logFC_group", names(nebula_bio_all), value = TRUE)[1]
 bio_pval_col  <- grep("^p_group",     names(nebula_bio_all), value = TRUE)[1]
-bio_fdr_col   <- grep("^fdr_group",   names(nebula_bio_all), value = TRUE)[1]
+bio_fdr_col   <- grep("^fdr",   names(nebula_bio_all), value = TRUE)[1]
 gene_col_bio  <- if ("gene" %in% names(nebula_bio_all)) "gene" else "Gene"
 
 cat("Biopsy NEBULA columns detected:\n",
@@ -1157,11 +1134,11 @@ if (length(gsea_rds_files_bio) > 0) {
     setNames(gsub("_T2DvsLC_Biopsy_Reactome\\.rds$", "",
                   basename(gsea_rds_files_bio)))
   cat("Loaded", length(nebula_bio_gsea_list), "biopsy GSEA result(s) from disk\n")
-
+  
 } else {
   cat("No saved GSEA found — running now\n")
   nebula_bio_gsea_list <- list()
-
+  
   for (ct in unique(nebula_bio_all$cell_type)) {
     cat("Running GSEA for:", ct, "\n")
     df_ct  <- nebula_bio_all |> dplyr::filter(cell_type == ct)
@@ -1193,14 +1170,14 @@ nebula_bio_gene_tables <- list()
 
 for (ct in unique(nebula_bio_all$cell_type)) {
   cat("\n\n## ", gsub("_", " ", ct), " — NEBULA Biopsy\n\n", sep = "")
-
+  
   df_ct <- nebula_bio_all |> dplyr::filter(cell_type == ct)
-
+  
   if (is.na(bio_logfc_col) || all(is.na(df_ct[[bio_pval_col]]))) {
     cat("No results for", ct, "\n\n")
     next
   }
-
+  
   # ── Volcano ──────────────────────────────────────────────────────────────
   df_volc <- df_ct |>
     dplyr::mutate(
@@ -1214,11 +1191,11 @@ for (ct in unique(nebula_bio_all$cell_type)) {
         TRUE ~ "NS"
       )
     )
-
+  
   top_up   <- df_volc |> dplyr::filter(logFC > 0) |> dplyr::slice_min(pval, n = 10)
   top_down <- df_volc |> dplyr::filter(logFC < 0) |> dplyr::slice_min(pval, n = 10)
   to_label <- dplyr::bind_rows(top_up, top_down)
-
+  
   p_volc <- ggplot(df_volc, aes(x = logFC, y = neg_log10p, color = direction)) +
     geom_point(alpha = 0.5, size = 1) +
     ggrepel::geom_label_repel(
@@ -1246,7 +1223,7 @@ for (ct in unique(nebula_bio_all$cell_type)) {
       plot.title      = element_text(face = "bold", size = 11),
       plot.subtitle   = element_text(size = 8, color = "grey50")
     )
-
+  
   # ── GSEA bar ─────────────────────────────────────────────────────────────
   if (!is.null(nebula_bio_gsea_list[[ct]]) &&
       nrow(nebula_bio_gsea_list[[ct]]) > 0) {
@@ -1261,7 +1238,7 @@ for (ct in unique(nebula_bio_all$cell_type)) {
                label = "No GSEA results", size = 4, color = "grey50") +
       theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
@@ -1273,10 +1250,10 @@ for (ct in unique(nebula_bio_all$cell_type)) {
 for (ct in names(nebula_bio_gene_tables)) {
   if (is.null(nebula_bio_gene_tables[[ct]]) ||
       nrow(nebula_bio_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", gsub("_", " ", ct),
       " — Biopsy NEBULA Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- nebula_bio_gene_tables[[ct]] |>
     kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
     kableExtra::kable_styling(
@@ -1284,7 +1261,7 @@ for (ct in names(nebula_bio_gene_tables)) {
       bootstrap_options = c("striped", "hover", "condensed")
     ) |>
     kableExtra::column_spec(4, width = "40em")
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
@@ -1301,10 +1278,10 @@ shared_bio_cts <- intersect(
 
 for (ct in shared_bio_cts) {
   cat("\n\n## ", gsub("_", " ", ct), " — Biopsy: limma vs. NEBULA\n\n", sep = "")
-
+  
   # ── limma data ────────────────────────────────────────────────────────────
   df_limma <- biopsy_results_all |> dplyr::filter(cell_type == ct)
-
+  
   # ── NEBULA data — rename to match make_volcano expectations ───────────────
   df_nebula <- nebula_bio_all |>
     dplyr::filter(cell_type == ct) |>
@@ -1314,7 +1291,7 @@ for (ct in shared_bio_cts) {
       logFC     = !!bio_logfc_col,
       gene      = !!gene_col_bio
     )
-
+  
   # ── Volcanos ──────────────────────────────────────────────────────────────
   p_limma_vol <- make_volcano(
     df_limma, ct,
@@ -1323,7 +1300,7 @@ for (ct in shared_bio_cts) {
     labs(title = "Pseudobulk (limma)",
          subtitle = paste0("Genes: ", format(nrow(df_limma), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   p_nebula_vol <- make_volcano(
     df_nebula, ct,
     cell_counts_df = data.frame(cell_type = ct, n_cells = df_nebula$Cells[1])
@@ -1332,10 +1309,12 @@ for (ct in shared_bio_cts) {
          subtitle = paste0("Genes: ", format(nrow(df_nebula), big.mark = ","),
                            "  |  Cells: ", format(df_nebula$Cells[1], big.mark = ","),
                            "  |  Color = FDR < 0.05"))
-
+  
   # ── GSEA bars ─────────────────────────────────────────────────────────────
   p_limma_gsea <- if (ct %in% names(biopsy_gsea_list)) {
-    make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 15) +
+    gsea_limma_trunc <- biopsy_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_limma_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Pseudobulk (limma)")
   } else {
     ggplot() +
@@ -1344,9 +1323,9 @@ for (ct in shared_bio_cts) {
       theme_void() +
       labs(title = "GSEA — Pseudobulk (limma)")
   }
-
+  
   p_nebula_gsea <- if (!is.null(nebula_bio_gsea_list[[ct]]) &&
-                        nrow(nebula_bio_gsea_list[[ct]]) > 0) {
+                       nrow(nebula_bio_gsea_list[[ct]]) > 0) {
     make_gsea_bar(nebula_bio_gsea_list[[ct]], ct, n_show = 15) +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   } else {
@@ -1356,10 +1335,10 @@ for (ct in shared_bio_cts) {
       theme_void() +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   }
-
+  
   # ── 2x2 layout ────────────────────────────────────────────────────────────
   combined <- (p_limma_vol | p_nebula_vol) /
-              (p_limma_gsea | p_nebula_gsea) +
+    (p_limma_gsea | p_nebula_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — Biopsy T2D vs. LC"),
@@ -1369,7 +1348,7 @@ for (ct in shared_bio_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
@@ -1403,26 +1382,26 @@ for (label in names(cross_map)) {
   bio_ct  <- cross_map[[label]]$biopsy
   org_ct  <- cross_map[[label]]$organoid
   
-  cat("\n\n## ", label, " — Volcano: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  cat("\n\n## ", label, " — Pseudobulk Volcano: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
   
   # ── Organoid volcano ───────────────────────────────────────────────────
   org_df <- results_all |> dplyr::filter(cell_type == org_ct)
   p_org <- if (nrow(org_df) > 0) {
     make_volcano(org_df, org_ct, cell_counts_df = cell_counts) +
-      ggtitle(paste0("Organoid: ", org_ct))
+      ggtitle(paste0("Organoid (Pseudobulk): ", org_ct))
   } else {
     ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
-      theme_void() + ggtitle(paste0("Organoid: ", org_ct))
+      theme_void() + ggtitle(paste0("Organoid (Pseudobulk): ", org_ct))
   }
   
   # ── Biopsy volcano ─────────────────────────────────────────────────────
   bio_df <- biopsy_results_all |> dplyr::filter(cell_type == bio_ct)
   p_bio <- if (nrow(bio_df) > 0) {
     make_volcano(bio_df, bio_ct, cell_counts_df = biopsy_cell_counts) +
-      ggtitle(paste0("Biopsy: ", bio_ct))
+      ggtitle(paste0("Biopsy (Pseudobulk): ", bio_ct))
   } else {
     ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
-      theme_void() + ggtitle(paste0("Biopsy: ", bio_ct))
+      theme_void() + ggtitle(paste0("Biopsy (Pseudobulk): ", bio_ct))
   }
   
   combined <- p_org + p_bio + plot_layout(ncol = 2)
@@ -1437,26 +1416,115 @@ for (label in names(cross_map)) {
   bio_ct  <- cross_map[[label]]$biopsy
   org_ct  <- cross_map[[label]]$organoid
   
-  cat("\n\n## ", label, " — GSEA: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  cat("\n\n## ", label, " — Pseudobulk GSEA: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
   
   # ── Organoid GSEA ──────────────────────────────────────────────────────
   p_org_gsea <- if (org_ct %in% names(gsea_results_list)) {
-    make_gsea_bar(gsea_results_list[[org_ct]], org_ct, n_show = 15) +
-      ggtitle(paste0("Organoid: ", org_ct))
+    gsea_trunc <- gsea_results_list[[org_ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, org_ct, n_show = 15) +
+      ggtitle(paste0("Organoid (Pseudobulk): ", org_ct))
   } else {
     ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
                         size = 4, color = "grey50") +
-      theme_void() + ggtitle(paste0("Organoid: ", org_ct))
+      theme_void() + ggtitle(paste0("Organoid (Pseudobulk): ", org_ct))
   }
   
   # ── Biopsy GSEA ────────────────────────────────────────────────────────
   p_bio_gsea <- if (bio_ct %in% names(biopsy_gsea_list)) {
-    make_gsea_bar(biopsy_gsea_list[[bio_ct]], bio_ct, n_show = 15) +
-      ggtitle(paste0("Biopsy: ", bio_ct))
+    gsea_trunc <- biopsy_gsea_list[[bio_ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, bio_ct, n_show = 15) +
+      ggtitle(paste0("Biopsy (Pseudobulk): ", bio_ct))
   } else {
     ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
                         size = 4, color = "grey50") +
-      theme_void() + ggtitle(paste0("Biopsy: ", bio_ct))
+      theme_void() + ggtitle(paste0("Biopsy (Pseudobulk): ", bio_ct))
+  }
+  
+  combined <- p_org_gsea + p_bio_gsea + plot_layout(ncol = 2)
+  print(combined)
+  cat("\n\n")
+}
+```
+```{r cross-volcano-nebula, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+for (label in names(cross_map)) {
+  
+  bio_ct  <- cross_map[[label]]$biopsy
+  org_ct  <- cross_map[[label]]$organoid
+  
+  cat("\n\n## ", label, " — Single-Cell Volcano: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  
+  # ── Organoid NEBULA volcano ────────────────────────────────────────────
+  org_df_neb <- nebula_results_all |>
+    dplyr::filter(cell_type == org_ct) |>
+    dplyr::rename(P.Value = p_group, adj.P.Val = fdr, logFC = logFC_group)
+  
+  p_org <- if (nrow(org_df_neb) > 0) {
+    make_volcano(org_df_neb, org_ct,
+                 cell_counts_df = data.frame(cell_type = org_ct, n_cells = NA)) +
+      ggtitle(paste0("Organoid (NEBULA): ", org_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Organoid (NEBULA): ", org_ct))
+  }
+  
+  # ── Biopsy NEBULA volcano ──────────────────────────────────────────────
+  bio_df_neb <- nebula_bio_all |>
+    dplyr::filter(cell_type == bio_ct) |>
+    dplyr::rename(
+      P.Value   = !!bio_pval_col,
+      adj.P.Val = !!bio_fdr_col,
+      logFC     = !!bio_logfc_col,
+      gene      = !!gene_col_bio
+    )
+  
+  p_bio <- if (nrow(bio_df_neb) > 0) {
+    make_volcano(bio_df_neb, bio_ct,
+                 cell_counts_df = data.frame(cell_type = bio_ct, n_cells = bio_df_neb$Cells[1])) +
+      ggtitle(paste0("Biopsy (NEBULA): ", bio_ct))+
+      coord_cartesian(xlim = c(-5, 5))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data", size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Biopsy (NEBULA): ", bio_ct))
+  }
+  
+  combined <- p_org + p_bio + plot_layout(ncol = 2)
+  print(combined)
+  cat("\n\n")
+}
+```
+```{r cross-gsea-nebula, fig.width=14, fig.height=6, results='asis', cache=FALSE}
+for (label in names(cross_map)) {
+  
+  bio_ct  <- cross_map[[label]]$biopsy
+  org_ct  <- cross_map[[label]]$organoid
+  
+  cat("\n\n## ", label, " — Single-Cell GSEA: Organoid vs. Biopsy {.scrollable}\n\n", sep = "")
+  
+  # ── Organoid NEBULA GSEA ───────────────────────────────────────────────
+  p_org_gsea <- if (org_ct %in% names(nebula_gsea_list)) {
+    gsea_trunc <- nebula_gsea_list[[org_ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, org_ct, n_show = 15) +
+      ggtitle(paste0("Organoid (NEBULA): ", org_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+                        size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Organoid (NEBULA): ", org_ct))
+  }
+  
+  # ── Biopsy NEBULA GSEA ─────────────────────────────────────────────────
+  p_bio_gsea <- if (!is.null(nebula_bio_gsea_list[[bio_ct]]) &&
+                    nrow(nebula_bio_gsea_list[[bio_ct]]) > 0) {
+    gsea_trunc <- nebula_bio_gsea_list[[bio_ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, bio_ct, n_show = 15) +
+      ggtitle(paste0("Biopsy (NEBULA): ", bio_ct))
+  } else {
+    ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
+                        size = 4, color = "grey50") +
+      theme_void() + ggtitle(paste0("Biopsy (NEBULA): ", bio_ct))
   }
   
   combined <- p_org_gsea + p_bio_gsea + plot_layout(ncol = 2)
@@ -1468,7 +1536,7 @@ for (label in names(cross_map)) {
 
 # Aim 1.4: High Glucose Exposure (30mM) vs. Low Glucose Expsure (15mM) in Organoids {background-color="#a53860" color="white"}
 
-## Organoid: Pseudobulk (LIMMA) - 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
+# Organoid: Pseudobulk (LIMMA) - 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
 ```{r load-treatment-data, cache=FALSE}
 # ── Load treatment limma results ──────────────────────────────────────────────
 treat_limma_files <- list.files("/home/hhampson/Results/Organoid Limma Treatment",
@@ -1531,7 +1599,7 @@ for (ct in names(treat_gene_tables)) {
 }
 ```
 
-## Organoid: Single Cell (NEBULA) - 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
+# Organoid: Single Cell (NEBULA) - 30mM vs 15mM (Adj. Group) {background-color="#a53860"}
 ```{r load-nebula-treatment}
 
 nebula_trt_files <- list.files(
@@ -1566,11 +1634,11 @@ if (length(gsea_rds_files_trt) > 0) {
     setNames(gsub("^NEBULA_30vs15mM_(.*)_Reactome\\.rds$", "\\1",
                   basename(gsea_rds_files_trt)))
   cat("Loaded", length(nebula_trt_gsea_list), "treatment GSEA result(s) from disk\n")
-
+  
 } else {
   cat("No saved GSEA found — running now\n")
   nebula_trt_gsea_list <- list()
-
+  
   for (ct in unique(nebula_trt_all$cell_type)) {
     cat("Running GSEA for:", ct, "\n")
     df_ct  <- nebula_trt_all |> dplyr::filter(cell_type == ct)
@@ -1597,19 +1665,17 @@ if (length(gsea_rds_files_trt) > 0) {
 
 ```{r nebula-trt-volcano-gsea-loop}
 knitr::opts_current$set(fig.width = 20, fig.height = 8, out.width = "100%")
-
 nebula_trt_gene_tables <- list()
-
 for (ct in unique(nebula_trt_all$cell_type)) {
   cat("\n\n## ", gsub("_", " ", ct), " — NEBULA Treatment\n\n", sep = "")
-
+  
   df_ct <- nebula_trt_all |> dplyr::filter(cell_type == ct)
-
+  
   if (all(is.na(df_ct[[trt_pval_col]]))) {
     cat("No treatment results for", ct, "\n\n")
     next
   }
-
+  
   # ── Volcano ──────────────────────────────────────────────────────────────
   df_volc <- df_ct |>
     dplyr::mutate(
@@ -1623,11 +1689,11 @@ for (ct in unique(nebula_trt_all$cell_type)) {
         TRUE ~ "NS"
       )
     )
-
+  
   top_up   <- df_volc |> dplyr::filter(logFC > 0) |> dplyr::slice_min(pval, n = 10)
   top_down <- df_volc |> dplyr::filter(logFC < 0) |> dplyr::slice_min(pval, n = 10)
   to_label <- dplyr::bind_rows(top_up, top_down)
-
+  
   p_volc <- ggplot(df_volc, aes(x = logFC, y = neg_log10p, color = direction)) +
     geom_point(alpha = 0.5, size = 1) +
     ggrepel::geom_label_repel(
@@ -1655,11 +1721,13 @@ for (ct in unique(nebula_trt_all$cell_type)) {
       plot.title      = element_text(face = "bold", size = 11),
       plot.subtitle   = element_text(size = 8, color = "grey50")
     )
-
+  
   # ── GSEA bar ─────────────────────────────────────────────────────────────
   if (!is.null(nebula_trt_gsea_list[[ct]]) &&
       nrow(nebula_trt_gsea_list[[ct]]) > 0) {
-    p_gsea <- make_gsea_bar(nebula_trt_gsea_list[[ct]], ct, n_show = 20) +
+    gsea_trunc <- nebula_trt_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    p_gsea <- make_gsea_bar(gsea_trunc, ct, n_show = 20) +
       labs(title = "Reactome GSEA")
     nebula_trt_gene_tables[[ct]] <- extract_top_genes(
       nebula_trt_gsea_list[[ct]], ct, n_show = 20
@@ -1670,22 +1738,22 @@ for (ct in unique(nebula_trt_all$cell_type)) {
                label = "No GSEA results", size = 4, color = "grey50") +
       theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
 }
 ```
 
-## NEBULA Treatment GSEA Leading Edge Genes {background-color="#a53860"}
+# NEBULA Treatment GSEA Leading Edge Genes {background-color="#a53860"}
 ```{r nebula-trt-gsea-tables}
 for (ct in names(nebula_trt_gene_tables)) {
   if (is.null(nebula_trt_gene_tables[[ct]]) ||
       nrow(nebula_trt_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", gsub("_", " ", ct),
       " — Treatment Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- nebula_trt_gene_tables[[ct]] |>
     kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
     kableExtra::kable_styling(
@@ -1693,13 +1761,13 @@ for (ct in names(nebula_trt_gene_tables)) {
       bootstrap_options = c("striped", "hover", "condensed")
     ) |>
     kableExtra::column_spec(4, width = "40em")
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
 ```
 
-## Organoid: Treatment — Single-Cell vs. Pseudobulk Comparison {background-color="#a53860"}
+# Organoid: Treatment — Single-Cell vs. Pseudobulk Comparison {background-color="#a53860"}
 ```{r nebula-trt-comparison-loop}
 knitr::opts_current$set(fig.width = 22, fig.height = 14, out.width = "100%")
 
@@ -1710,41 +1778,41 @@ shared_trt_cts <- intersect(
 
 for (ct in shared_trt_cts) {
   cat("\n\n## ", gsub("_", " ", ct), " — Treatment: limma vs. NEBULA\n\n", sep = "")
-
+  
   # ── limma data ────────────────────────────────────────────────────────────
   df_limma <- treat_results_all |> dplyr::filter(cell_type == ct)
-
+  
   # ── NEBULA data ───────────────────────────────────────────────────────────
-  df_nebula <- nebula_trt_all |>
-    dplyr::filter(cell_type == ct) |>
-    dplyr::rename(
-      P.Value   = p_value,
-      adj.P.Val = fdr,
-      logFC     = logFC,
-      gene      = .data[[gene_col_trt]]
-    )
-
+  df_nebula <- nebula_trt_all |> dplyr::filter(cell_type == ct)
+  
+  if (trt_pval_col != "P.Value")   df_nebula <- df_nebula |> dplyr::rename(P.Value   = all_of(trt_pval_col))
+  if (trt_fdr_col  != "adj.P.Val") df_nebula <- df_nebula |> dplyr::rename(adj.P.Val = all_of(trt_fdr_col))
+  if (trt_logfc_col != "logFC")    df_nebula <- df_nebula |> dplyr::rename(logFC     = all_of(trt_logfc_col))
+  # if (gene_col_trt  != "gene")     df_nebula <- df_nebula |> dplyr::rename(gene      = all_of(gene_col_trt))
+  
   # ── Volcanos ──────────────────────────────────────────────────────────────
   p_limma_vol <- make_volcano(
     df_limma, ct,
     cell_counts_df = treat_cell_counts
   ) +
-    labs(title = "Pseudobulk (limma)",
+    labs(title    = "Pseudobulk (limma)",
          subtitle = paste0("Genes: ", format(nrow(df_limma), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   p_nebula_vol <- make_volcano(
     df_nebula, ct,
     cell_counts_df = data.frame(cell_type = ct, n_cells = df_nebula$Cells[1])
   ) +
-    labs(title = "Single-Cell (NEBULA)",
+    labs(title    = "Single-Cell (NEBULA)",
          subtitle = paste0("Genes: ", format(nrow(df_nebula), big.mark = ","),
                            "  |  Cells: ", format(df_nebula$Cells[1], big.mark = ","),
                            "  |  Color = FDR < 0.05"))
-
+  
   # ── GSEA bars ─────────────────────────────────────────────────────────────
   p_limma_gsea <- if (ct %in% names(treat_gsea_list)) {
-    make_gsea_bar(treat_gsea_list[[ct]], ct, n_show = 15) +
+    gsea_trunc <- treat_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Pseudobulk (limma)")
   } else {
     ggplot() +
@@ -1753,10 +1821,12 @@ for (ct in shared_trt_cts) {
       theme_void() +
       labs(title = "GSEA — Pseudobulk (limma)")
   }
-
+  
   p_nebula_gsea <- if (!is.null(nebula_trt_gsea_list[[ct]]) &&
-                        nrow(nebula_trt_gsea_list[[ct]]) > 0) {
-    make_gsea_bar(nebula_trt_gsea_list[[ct]], ct, n_show = 15) +
+                       nrow(nebula_trt_gsea_list[[ct]]) > 0) {
+    gsea_trunc <- nebula_trt_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   } else {
     ggplot() +
@@ -1765,10 +1835,10 @@ for (ct in shared_trt_cts) {
       theme_void() +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   }
-
+  
   # ── 2x2 layout: volcanos top, GSEA bottom ────────────────────────────────
   combined <- (p_limma_vol | p_nebula_vol) /
-              (p_limma_gsea | p_nebula_gsea) +
+    (p_limma_gsea | p_nebula_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — 30mM vs. 15mM"),
@@ -1778,14 +1848,15 @@ for (ct in shared_trt_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
 ```
 
-# Aim 2: T2D-Specific Glucose Response in Organoids {background-color="#a53860" color="white"}
-## Organoid: Pseudobulk (LIMMA) — Interaction (T2D × Glucose) {background-color="#a53860"}
+
+# Aim 2: T2D-Specific Glucose Response in Organoids {background-color="#a53860"}
+# Organoid: Pseudobulk (LIMMA) — Interaction (T2D × Glucose) {background-color="#a53860"}
 ```{r load-interaction-data}
 int_dir <- "/home/hhampson/Results/Organoid_Interaction"
 
@@ -1815,17 +1886,17 @@ int_cell_counts <- read.csv(file.path(int_dir, "cell_counts_per_celltype_interac
 
 ```{r limma-int-volcano-gsea-loop}
 knitr::opts_current$set(fig.width = 20, fig.height = 8, out.width = "100%")
-
 int_gene_tables <- list()
-
 for (ct in unique(int_results_all$cell_type)) {
   cat("\n\n## ", ct, " — Pseudobulk Interaction\n\n", sep = "")
-
+  
   df_ct  <- int_results_all |> dplyr::filter(cell_type == ct)
   p_volc <- make_volcano(df_ct, ct, cell_counts_df = int_cell_counts)
-
+  
   if (ct %in% names(int_gsea_list)) {
-    p_gsea <- make_gsea_bar(int_gsea_list[[ct]], ct, n_show = 20)
+    gsea_trunc <- int_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    p_gsea <- make_gsea_bar(gsea_trunc, ct, n_show = 20)
     int_gene_tables[[ct]] <- extract_top_genes(int_gsea_list[[ct]], ct, n_show = 20)
   } else {
     p_gsea <- ggplot() +
@@ -1833,20 +1904,20 @@ for (ct in unique(int_results_all$cell_type)) {
                size = 4, color = "grey50") +
       theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
 }
 ```
 
-## Pseudobulk Interaction GSEA Leading Edge Genes {background-color="#a53860"}
+# Pseudobulk Interaction GSEA Leading Edge Genes {background-color="#a53860"}
 ```{r limma-int-gsea-tables}
 for (ct in names(int_gene_tables)) {
   if (is.null(int_gene_tables[[ct]]) || nrow(int_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", ct, " — Interaction Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- tryCatch({
     int_gene_tables[[ct]] |>
       kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
@@ -1859,13 +1930,13 @@ for (ct in names(int_gene_tables)) {
       kableExtra::kable_styling(font_size = 14,
                                 bootstrap_options = c("striped", "hover", "condensed"))
   })
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
 ```
 
-## Pseudobulk Interaction EMM Heatmaps {background-color="#a53860"}
+# Pseudobulk Interaction EMM Heatmaps {background-color="#a53860"}
 ```{r limma-int-emm-heatmaps, fig.width=10, fig.height=8}
 col_annot <- data.frame(
   Group     = c("LC", "LC", "T2D", "T2D"),
@@ -1879,13 +1950,13 @@ annot_colors <- list(
 
 for (ct in names(hm_list)) {
   cat("\n\n## ", gsub("_", " ", ct), " — Pseudobulk EMM Heatmap\n\n", sep = "")
-
+  
   hm_mat    <- as.matrix(hm_list[[ct]])
   hm_scaled <- t(scale(t(hm_mat)))
   col_order <- intersect(c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM"),
                          colnames(hm_scaled))
   hm_scaled <- hm_scaled[, col_order]
-
+  
   tryCatch({
     p_hm <- pheatmap::pheatmap(
       hm_scaled,
@@ -1904,12 +1975,12 @@ for (ct in names(hm_list)) {
     grid::grid.newpage()
     grid::grid.draw(p_hm$gtable)
   }, error = function(e) message("Heatmap error for ", ct, ": ", e$message))
-
+  
   cat("\n\n")
 }
 ```
 
-## Organoid: Single-Cell (NEBULA) — Interaction (T2D × Glucose) {background-color="#a53860"}
+# Organoid: Single-Cell (NEBULA) — Interaction (T2D × Glucose) {background-color="#a53860"}
 ```{r load-nebula-interaction}
 nebula_int_files <- list.files(
   "/home/hhampson/Results/Interaction Model NEBULA Organoid",
@@ -1938,7 +2009,7 @@ cat("Interaction columns detected:\n",
 ```{r run-or-load-nebula-int-gsea}
 out_dir        <- "/home/hhampson/Results/Interaction Model NEBULA Organoid"
 gsea_rds_files <- list.files(out_dir, pattern = "_interaction_Reactome\\.rds$",
-                              full.names = TRUE)
+                             full.names = TRUE)
 
 if (length(gsea_rds_files) > 0) {
   nebula_int_gsea_list <- purrr::map(gsea_rds_files, readRDS) |>
@@ -1947,7 +2018,7 @@ if (length(gsea_rds_files) > 0) {
 } else {
   cat("No saved GSEA found — running now\n")
   nebula_int_gsea_list <- list()
-
+  
   for (ct in unique(nebula_int_all$cell_type)) {
     cat("Running GSEA for:", ct, "\n")
     df_ct  <- nebula_int_all |> dplyr::filter(cell_type == ct)
@@ -1974,14 +2045,14 @@ nebula_int_gene_tables <- list()
 
 for (ct in unique(nebula_int_all$cell_type)) {
   cat("\n\n## ", gsub("_", " ", ct), " — NEBULA Interaction\n\n", sep = "")
-
+  
   df_ct <- nebula_int_all |> dplyr::filter(cell_type == ct)
-
+  
   if (is.na(int_logfc_col) || all(is.na(df_ct[[int_pval_col]]))) {
     cat("No interaction results for", ct, "\n\n")
     next
   }
-
+  
   df_volc <- df_ct |>
     dplyr::mutate(
       logFC      = .data[[int_logfc_col]],
@@ -1994,11 +2065,11 @@ for (ct in unique(nebula_int_all$cell_type)) {
         TRUE ~ "NS"
       )
     )
-
+  
   top_up   <- df_volc |> dplyr::filter(logFC > 0) |> dplyr::slice_min(pval, n = 10)
   top_down <- df_volc |> dplyr::filter(logFC < 0) |> dplyr::slice_min(pval, n = 10)
   to_label <- dplyr::bind_rows(top_up, top_down)
-
+  
   p_volc <- ggplot(df_volc, aes(x = logFC, y = neg_log10p, color = direction)) +
     geom_point(alpha = 0.5, size = 1) +
     ggrepel::geom_label_repel(
@@ -2021,7 +2092,7 @@ for (ct in unique(nebula_int_all$cell_type)) {
     theme(legend.position = "bottom",
           plot.title      = element_text(face = "bold", size = 11),
           plot.subtitle   = element_text(size = 8, color = "grey50"))
-
+  
   if (!is.null(nebula_int_gsea_list[[ct]]) &&
       nrow(nebula_int_gsea_list[[ct]]) > 0) {
     p_gsea <- make_gsea_bar(nebula_int_gsea_list[[ct]], ct, n_show = 20) +
@@ -2033,82 +2104,51 @@ for (ct in unique(nebula_int_all$cell_type)) {
       annotate("text", x = 0.5, y = 0.5, label = "No GSEA results",
                size = 4, color = "grey50") + theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
 }
 ```
 
-## NEBULA Interaction GSEA Leading Edge Genes {background-color="#a53860"}
+# NEBULA Interaction GSEA Leading Edge Genes {background-color="#a53860"}
 ```{r nebula-int-gsea-tables}
 for (ct in names(nebula_int_gene_tables)) {
   if (is.null(nebula_int_gene_tables[[ct]]) ||
       nrow(nebula_int_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", gsub("_", " ", ct),
       " — NEBULA Interaction Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- nebula_int_gene_tables[[ct]] |>
     kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
     kableExtra::kable_styling(font_size = 14,
                               bootstrap_options = c("striped", "hover", "condensed")) |>
     kableExtra::column_spec(4, width = "40em")
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
 ```
 
-## NEBULA Interaction EMM Heatmaps {background-color="#a53860"}
-```{r nebula-int-emm-heatmaps, fig.width=10, fig.height=8}
-for (ct in unique(nebula_int_all$cell_type)) {
+# NEBULA Interaction EMM Heatmaps {background-color="#a53860"}
+```{r nebula-int-emm-heatmaps, fig.width=10, fig.height=8, results='asis', cache=FALSE}
+# Load pre-computed EMM matrices
+emm_list <- readRDS("/home/hhampson/Results/Organoid_Interaction/nebula_int_emm_list.rds")
+
+for (ct in names(emm_list)) {
   cat("\n\n## ", gsub("_", " ", ct), " — NEBULA Interaction EMM\n\n", sep = "")
-
-  df_ct     <- nebula_int_all |> dplyr::filter(cell_type == ct)
-  top_genes <- df_ct |>
-    dplyr::filter(!is.na(.data[[int_fdr_col]])) |>
-    dplyr::slice_min(.data[[int_fdr_col]], n = 50) |>
-    dplyr::pull(.data[[gene_col]])
-
-  if (length(top_genes) < 2) { cat("Insufficient genes for", ct, "\n\n"); next }
-
-  ct_orig <- gsub("_", "/", ct)
-  so_sub  <- tryCatch(
-    subset(so_combined, cell_type_abbrev %in% c(ct, ct_orig)),
-    error = function(e) NULL
-  )
-  if (is.null(so_sub) || ncol(so_sub) == 0) { cat("Could not subset for", ct, "\n\n"); next }
-
-  top_genes_present <- intersect(top_genes, rownames(so_sub))
-  if (length(top_genes_present) < 2) { cat("Genes not found for", ct, "\n\n"); next }
-
-  DefaultAssay(so_sub) <- "RNA"
-  expr_mat <- as.matrix(
-    Seurat::GetAssayData(so_sub, layer = "data")[top_genes_present, , drop = FALSE]
-  )
-
-  meta <- so_sub@meta.data |>
-    dplyr::mutate(
-      cond = paste0(
-        dplyr::case_when(group %in% c("Type 2 Diabetes", "T2D") ~ "T2D", TRUE ~ "LC"),
-        "_",
-        dplyr::case_when(grepl("30", treatment) ~ "30mM", TRUE ~ "15mM")
-      )
-    )
-
-  emm_mat   <- sapply(unique(meta$cond), function(cc)
-    rowMeans(expr_mat[, rownames(meta)[meta$cond == cc], drop = FALSE]))
-  col_order <- intersect(c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM"), colnames(emm_mat))
-  emm_mat   <- emm_mat[, col_order, drop = FALSE]
+  
+  emm_mat   <- emm_list[[ct]]
   hm_scaled <- t(scale(t(emm_mat)))
-
+  col_order <- colnames(emm_mat)
+  
   col_annot <- data.frame(
-    Group     = c("LC", "LC", "T2D", "T2D"),
-    Treatment = c("15mM", "30mM", "15mM", "30mM"),
-    row.names = c("LC_15mM", "LC_30mM", "T2D_15mM", "T2D_30mM")
-  )[col_order, , drop = FALSE]
-
+    Group     = ifelse(grepl("T2D", col_order), "T2D", "LC"),
+    Treatment = ifelse(grepl("30",  col_order), "30mM", "15mM"),
+    row.names = col_order
+  )
+  
   tryCatch({
     p_hm <- pheatmap::pheatmap(
       hm_scaled,
@@ -2126,12 +2166,12 @@ for (ct in unique(nebula_int_all$cell_type)) {
     grid::grid.newpage()
     grid::grid.draw(p_hm$gtable)
   }, error = function(e) message("Heatmap error for ", ct, ": ", e$message))
-
+  
   cat("\n\n")
 }
 ```
 
-## Comparison Organoid: Interaction — Single-Cell vs. Pseudobulk  {background-color="#a53860"}
+# Comparison Organoid: Interaction — Single-Cell vs. Pseudobulk  {background-color="#a53860"}
 ```{r nebula-int-comparison-loop}
 knitr::opts_current$set(fig.width = 22, fig.height = 14, out.width = "100%")
 
@@ -2142,14 +2182,14 @@ shared_int_cts <- intersect(
 
 for (ct in shared_int_cts) {
   cat("\n\n## ", gsub("_", " ", ct), " — Interaction: limma vs. NEBULA\n\n", sep = "")
-
+  
   # ── limma volcano ──────────────────────────────────────────────────────────
   df_limma   <- int_results_all |> dplyr::filter(cell_type == ct)
   p_limma_vol <- make_volcano(df_limma, ct, cell_counts_df = int_cell_counts) +
     labs(title    = "Pseudobulk (limma)",
          subtitle = paste0("Genes: ", format(nrow(df_limma), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   # ── NEBULA volcano ─────────────────────────────────────────────────────────
   df_nebula <- nebula_int_all |>
     dplyr::filter(cell_type == ct) |>
@@ -2167,7 +2207,7 @@ for (ct in shared_int_cts) {
          subtitle = paste0("Genes: ", format(nrow(df_nebula), big.mark = ","),
                            "  |  Cells: ", format(df_nebula$Cells[1], big.mark = ","),
                            "  |  Color = FDR < 0.05"))
-
+  
   # ── limma GSEA ─────────────────────────────────────────────────────────────
   p_limma_gsea <- if (ct %in% names(int_gsea_list)) {
     make_gsea_bar(int_gsea_list[[ct]], ct, n_show = 15) +
@@ -2178,10 +2218,10 @@ for (ct in shared_int_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Pseudobulk (limma)")
   }
-
+  
   # ── NEBULA GSEA ────────────────────────────────────────────────────────────
   p_nebula_gsea <- if (!is.null(nebula_int_gsea_list[[ct]]) &&
-                        nrow(nebula_int_gsea_list[[ct]]) > 0) {
+                       nrow(nebula_int_gsea_list[[ct]]) > 0) {
     make_gsea_bar(nebula_int_gsea_list[[ct]], ct, n_show = 15) +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   } else {
@@ -2190,10 +2230,10 @@ for (ct in shared_int_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Single-Cell (NEBULA)")
   }
-
+  
   # ── 2x2 layout ─────────────────────────────────────────────────────────────
   combined <- (p_limma_vol | p_nebula_vol) /
-              (p_limma_gsea | p_nebula_gsea) +
+    (p_limma_gsea | p_nebula_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — T2D × Glucose Interaction"),
@@ -2203,34 +2243,11 @@ for (ct in shared_int_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
 ```
-
-# Sensitivity Analyses - Full Biopsy Cohort of T2D & LC
-
-## UMAPs - Organoid & Biopsy (Full Sample)
-
-:::: {.columns}
-::: {.column width="50%"}
-**Biopsy Subset**
-```{r}
-#| out-width: "100%"
-#| fig-align: center
-knitr::include_graphics("/home/hhampson/Results/umap_biopsy.png")
-```
-:::
-::: {.column width="50%"}
-**Biopsy Full Sample**
-```{r}
-#| out-width: "100%"
-#| fig-align: center
-knitr::include_graphics("/home/hhampson/Results/umap_biopsy_full.png")
-```
-:::
-::::
 
 # Sensitivity Analyses - Full Biopsy Cohort of T2D & LC {background-color="#a53860" color="white"}
 
@@ -2240,66 +2257,65 @@ knitr::include_graphics("/home/hhampson/Results/umap_biopsy_full.png")
 ::: {.column width="50%"}
 **Biopsy Subset**
 ```{r}
-img_raw <- s3$get_object(Bucket = "scrna", Key = "Kidney organoids/UMAP_celltype_biopsy.png")$Body
-img_b64 <- base64enc::base64encode(img_raw)
-knitr::raw_html(paste0('<img src="data:image/png;base64,', img_b64, '" style="width:100%;">'))
+#| out-width: "100%"
+knitr::include_graphics("/home/hhampson/Results/umap_biopsy.png")
 ```
 :::
 ::: {.column width="50%"}
 **Biopsy Full Sample**
 ```{r}
-img_raw <- readBin("/home/hhampson/Results/UMAP_celltype_biopsy_full.png", 
-                   what = "raw", n = file.info("/home/hhampson/Results/UMAP_celltype_biopsy_full.png")$size)
-img_b64 <- base64enc::base64encode(img_raw)
-knitr::raw_html(paste0('<img src="data:image/png;base64,', img_b64, '" style="width:100%;">'))
+#| out-width: "100%"
+knitr::include_graphics("/home/hhampson/Results/UMAP_celltype_biopsy_full.png")
 ```
 :::
 ::::
 
-## Biopsy Full: Pseudobulk (LIMMA) — T2D vs. LC {background-color="#a53860"}
+# Biopsy Full: Pseudobulk (LIMMA) — T2D vs. LC {background-color="#a53860"}
 ```{r load-biopsy-full-data}
 # ── Load full biopsy limma results ────────────────────────────────────────────
 biopsy_full_limma_files <- list.files(
-  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset",
-  pattern = "^Limma_Biopsy_T2DvsLC_.*\\.csv$",
+  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC_Full",
+  pattern = "^limma_biopsy_T2DvsLC_.*\\.csv$",
   full.names = TRUE
 )
-
 biopsy_full_results_all <- purrr::map_dfr(biopsy_full_limma_files, function(f) {
   df  <- read.csv(f)
-  ct  <- gsub("^Limma_Biopsy_T2DvsLC_(.*)\\.csv$", "\\1", basename(f))
+  ct  <- gsub("^limma_biopsy_T2DvsLC_(.*)\\.csv$", "\\1", basename(f))
   df$cell_type <- ct
   df
-})
+}) |> dplyr::filter(cell_type != "allcelltypes")
 
 # ── Load full biopsy GSEA results ─────────────────────────────────────────────
 biopsy_full_gsea_files <- list.files(
-  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset",
+  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC_Full/GSEA",
   pattern = "^gsea_reactome_.*\\.csv$",
   full.names = TRUE
 )
 biopsy_full_gsea_list <- purrr::map(biopsy_full_gsea_files, read.csv) |>
-  setNames(gsub("^gsea_reactome_(.*)\\.csv$", "\\1", basename(biopsy_full_gsea_files)))
+  setNames(gsub("^gsea_reactome_biopsy_T2DvsLC_(.*)\\.csv$", "\\1",
+                basename(biopsy_full_gsea_files)))
+
+biopsy_full_gsea_list <- biopsy_full_gsea_list[names(biopsy_full_gsea_list) != "allcelltypes"]
 
 # ── Cell counts ───────────────────────────────────────────────────────────────
 biopsy_full_cell_counts <- read.csv(
-  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC/Full Dataset/cell_counts_per_celltype.csv"
+  "/home/hhampson/Results/Biopsy_Limma_T2DvsLC_Full/cell_counts_per_celltype_full.csv"
 )
 ```
 
 ```{r biopsy-full-limma-loop}
 knitr::opts_current$set(fig.width = 20, fig.height = 8, out.width = "100%")
-
 biopsy_full_gene_tables <- list()
-
 for (ct in unique(biopsy_full_results_all$cell_type)) {
   cat("\n\n## ", gsub("_", " ", ct), " — Biopsy Full Pseudobulk\n\n", sep = "")
-
+  
   df_ct  <- biopsy_full_results_all |> dplyr::filter(cell_type == ct)
   p_volc <- make_volcano(df_ct, ct, cell_counts_df = biopsy_full_cell_counts)
-
+  
   if (ct %in% names(biopsy_full_gsea_list)) {
-    p_gsea <- make_gsea_bar(biopsy_full_gsea_list[[ct]], ct, n_show = 20)
+    gsea_trunc <- biopsy_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    p_gsea <- make_gsea_bar(gsea_trunc, ct, n_show = 20)
     biopsy_full_gene_tables[[ct]] <- extract_top_genes(
       biopsy_full_gsea_list[[ct]], ct, n_show = 20
     )
@@ -2309,34 +2325,34 @@ for (ct in unique(biopsy_full_results_all$cell_type)) {
                size = 4, color = "grey50") +
       theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
 }
 ```
 
-## Biopsy Full Pseudobulk GSEA Leading Edge Genes {background-color="#a53860"}
+# Biopsy Full Pseudobulk GSEA Leading Edge Genes {background-color="#a53860"}
 ```{r biopsy-full-limma-gsea-tables}
 for (ct in names(biopsy_full_gene_tables)) {
   if (is.null(biopsy_full_gene_tables[[ct]]) ||
       nrow(biopsy_full_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", gsub("_", " ", ct),
       " — Biopsy Full Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- biopsy_full_gene_tables[[ct]] |>
     kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
     kableExtra::kable_styling(font_size = 14,
                               bootstrap_options = c("striped", "hover", "condensed")) |>
     kableExtra::column_spec(4, width = "40em")
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
 ```
 
-## Biopsy Full: Single-Cell (NEBULA) — T2D vs. LC {background-color="#a53860"}
+# Biopsy Full: Single-Cell (NEBULA) — T2D vs. LC {background-color="#a53860"}
 ```{r load-nebula-biopsy-full}
 nebula_bio_full_files <- list.files(
   "/home/hhampson/Results/Biopsy Full T2DvsLC NEBULA",
@@ -2353,7 +2369,7 @@ nebula_bio_full_all <- purrr::map_dfr(nebula_bio_full_files, function(f) {
 
 bio_full_logfc_col <- grep("^logFC_group", names(nebula_bio_full_all), value = TRUE)[1]
 bio_full_pval_col  <- grep("^p_group",     names(nebula_bio_full_all), value = TRUE)[1]
-bio_full_fdr_col   <- grep("^fdr_group",   names(nebula_bio_full_all), value = TRUE)[1]
+bio_full_fdr_col   <- grep("^fdr",   names(nebula_bio_full_all), value = TRUE)[1]
 gene_col_bio_full  <- if ("gene" %in% names(nebula_bio_full_all)) "gene" else "Gene"
 
 cat("Biopsy Full NEBULA columns detected:\n",
@@ -2375,11 +2391,11 @@ if (length(gsea_rds_files_bio_full) > 0) {
     setNames(gsub("_T2DvsLC_BiopsyFull_Reactome\\.rds$", "",
                   basename(gsea_rds_files_bio_full)))
   cat("Loaded", length(nebula_bio_full_gsea_list), "biopsy full GSEA result(s) from disk\n")
-
+  
 } else {
   cat("No saved GSEA found — running now\n")
   nebula_bio_full_gsea_list <- list()
-
+  
   for (ct in unique(nebula_bio_full_all$cell_type)) {
     cat("Running GSEA for:", ct, "\n")
     df_ct  <- nebula_bio_full_all |> dplyr::filter(cell_type == ct)
@@ -2406,19 +2422,17 @@ if (length(gsea_rds_files_bio_full) > 0) {
 
 ```{r nebula-bio-full-volcano-gsea-loop}
 knitr::opts_current$set(fig.width = 20, fig.height = 8, out.width = "100%")
-
 nebula_bio_full_gene_tables <- list()
-
 for (ct in unique(nebula_bio_full_all$cell_type)) {
   cat("\n\n## ", gsub("_", " ", ct), " — NEBULA Biopsy Full\n\n", sep = "")
-
+  
   df_ct <- nebula_bio_full_all |> dplyr::filter(cell_type == ct)
-
+  
   if (is.na(bio_full_logfc_col) || all(is.na(df_ct[[bio_full_pval_col]]))) {
     cat("No results for", ct, "\n\n")
     next
   }
-
+  
   df_volc <- df_ct |>
     dplyr::mutate(
       logFC      = .data[[bio_full_logfc_col]],
@@ -2431,11 +2445,11 @@ for (ct in unique(nebula_bio_full_all$cell_type)) {
         TRUE ~ "NS"
       )
     )
-
+  
   top_up   <- df_volc |> dplyr::filter(logFC > 0) |> dplyr::slice_min(pval, n = 10)
   top_down <- df_volc |> dplyr::filter(logFC < 0) |> dplyr::slice_min(pval, n = 10)
   to_label <- dplyr::bind_rows(top_up, top_down)
-
+  
   p_volc <- ggplot(df_volc, aes(x = logFC, y = neg_log10p, color = direction)) +
     geom_point(alpha = 0.5, size = 1) +
     ggrepel::geom_label_repel(
@@ -2448,6 +2462,7 @@ for (ct in unique(nebula_bio_full_all$cell_type)) {
     scale_color_manual(
       values = c("Up" = pal$brown_red, "Down" = pal$ink_black, "NS" = "grey70")
     ) +
+    coord_cartesian(xlim = c(-10, 10)) +
     labs(
       x        = "log2 Fold Change",
       y        = "-log10(P-value)",
@@ -2461,10 +2476,12 @@ for (ct in unique(nebula_bio_full_all$cell_type)) {
     theme(legend.position = "bottom",
           plot.title      = element_text(face = "bold", size = 11),
           plot.subtitle   = element_text(size = 8, color = "grey50"))
-
+  
   if (!is.null(nebula_bio_full_gsea_list[[ct]]) &&
       nrow(nebula_bio_full_gsea_list[[ct]]) > 0) {
-    p_gsea <- make_gsea_bar(nebula_bio_full_gsea_list[[ct]], ct, n_show = 20) +
+    gsea_trunc <- nebula_bio_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    p_gsea <- make_gsea_bar(gsea_trunc, ct, n_show = 20) +
       labs(title = "Reactome GSEA")
     nebula_bio_full_gene_tables[[ct]] <- extract_top_genes(
       nebula_bio_full_gsea_list[[ct]], ct, n_show = 20
@@ -2475,45 +2492,43 @@ for (ct in unique(nebula_bio_full_all$cell_type)) {
                size = 4, color = "grey50") +
       theme_void()
   }
-
+  
   combined <- p_volc + p_gsea + plot_layout(widths = c(1, 1.5))
   print(combined)
   cat("\n\n")
 }
 ```
 
-## Biopsy Full NEBULA GSEA Leading Edge Genes {background-color="#a53860"}
+# Biopsy Full NEBULA GSEA Leading Edge Genes {background-color="#a53860"}
 ```{r nebula-bio-full-gsea-tables}
 for (ct in names(nebula_bio_full_gene_tables)) {
   if (is.null(nebula_bio_full_gene_tables[[ct]]) ||
       nrow(nebula_bio_full_gene_tables[[ct]]) == 0) next
-
+  
   cat("\n\n## ", gsub("_", " ", ct),
       " — Biopsy Full NEBULA Leading Edge {.scrollable}\n\n", sep = "")
-
+  
   tbl <- nebula_bio_full_gene_tables[[ct]] |>
     kableExtra::kbl(escape = FALSE, align = c("l", "r", "r", "l")) |>
     kableExtra::kable_styling(font_size = 14,
                               bootstrap_options = c("striped", "hover", "condensed")) |>
     kableExtra::column_spec(4, width = "40em")
-
+  
   cat(as.character(tbl))
   cat("\n\n")
 }
 ```
 
-## Biopsy Full: Single-Cell vs. Pseudobulk Comparison {background-color="#a53860"}
+# Biopsy Full: Single-Cell vs. Pseudobulk Comparison {background-color="#a53860"}
 ```{r nebula-bio-full-comparison-loop}
 knitr::opts_current$set(fig.width = 22, fig.height = 14, out.width = "100%")
-
 shared_bio_full_cts <- intersect(
   unique(biopsy_full_results_all$cell_type),
   unique(nebula_bio_full_all$cell_type)
 )
-
 for (ct in shared_bio_full_cts) {
   cat("\n\n## ", gsub("_", " ", ct), " — Biopsy Full: limma vs. NEBULA\n\n", sep = "")
-
+  
   df_limma  <- biopsy_full_results_all |> dplyr::filter(cell_type == ct)
   df_nebula <- nebula_bio_full_all |>
     dplyr::filter(cell_type == ct) |>
@@ -2523,13 +2538,13 @@ for (ct in shared_bio_full_cts) {
       logFC     = .data[[bio_full_logfc_col]],
       gene      = .data[[gene_col_bio_full]]
     )
-
+  
   p_limma_vol <- make_volcano(df_limma, ct,
                               cell_counts_df = biopsy_full_cell_counts) +
     labs(title    = "Pseudobulk (limma)",
          subtitle = paste0("Genes: ", format(nrow(df_limma), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   p_nebula_vol <- make_volcano(
     df_nebula, ct,
     cell_counts_df = data.frame(cell_type = ct, n_cells = df_nebula$Cells[1])
@@ -2537,10 +2552,13 @@ for (ct in shared_bio_full_cts) {
     labs(title    = "Single-Cell (NEBULA)",
          subtitle = paste0("Genes: ", format(nrow(df_nebula), big.mark = ","),
                            "  |  Cells: ", format(df_nebula$Cells[1], big.mark = ","),
-                           "  |  Color = FDR < 0.05"))
-
+                           "  |  Color = FDR < 0.05")) +
+    coord_cartesian(xlim = c(-5, 5))
+  
   p_limma_gsea <- if (ct %in% names(biopsy_full_gsea_list)) {
-    make_gsea_bar(biopsy_full_gsea_list[[ct]], ct, n_show = 15) +
+    gsea_trunc <- biopsy_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Pseudobulk (limma)")
   } else {
     ggplot() +
@@ -2548,10 +2566,12 @@ for (ct in shared_bio_full_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Pseudobulk (limma)")
   }
-
+  
   p_nebula_gsea <- if (!is.null(nebula_bio_full_gsea_list[[ct]]) &&
-                        nrow(nebula_bio_full_gsea_list[[ct]]) > 0) {
-    make_gsea_bar(nebula_bio_full_gsea_list[[ct]], ct, n_show = 15) +
+                       nrow(nebula_bio_full_gsea_list[[ct]]) > 0) {
+    gsea_trunc <- nebula_bio_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Single-Cell (NEBULA)")
   } else {
     ggplot() +
@@ -2559,9 +2579,9 @@ for (ct in shared_bio_full_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Single-Cell (NEBULA)")
   }
-
+  
   combined <- (p_limma_vol | p_nebula_vol) /
-              (p_limma_gsea | p_nebula_gsea) +
+    (p_limma_gsea | p_nebula_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — Biopsy Full T2D vs. LC"),
@@ -2571,25 +2591,23 @@ for (ct in shared_bio_full_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
 ```
 
-## Single-Cell Comparison: Biopsy Full vs. Biopsy Subset {background-color="#a53860"}
+# Single-Cell Comparison: Biopsy Full vs. Biopsy Subset {background-color="#a53860"}
 ```{r nebula-bio-subset-vs-full-loop}
 knitr::opts_current$set(fig.width = 22, fig.height = 14, out.width = "100%")
-
 shared_nebula_cts <- intersect(
   unique(nebula_bio_all$cell_type),
   unique(nebula_bio_full_all$cell_type)
 )
-
 for (ct in shared_nebula_cts) {
   cat("\n\n## ", gsub("_", " ", ct),
       " — NEBULA: Subset vs. Full Biopsy\n\n", sep = "")
-
+  
   df_sub  <- nebula_bio_all |>
     dplyr::filter(cell_type == ct) |>
     dplyr::mutate(
@@ -2606,26 +2624,30 @@ for (ct in shared_nebula_cts) {
       logFC     = .data[[bio_full_logfc_col]],
       gene      = .data[[gene_col_bio_full]]
     )
-
+  
   p_sub_vol <- make_volcano(
     df_sub, ct,
     cell_counts_df = data.frame(cell_type = ct, n_cells = df_sub$Cells[1])
   ) +
     labs(title    = "NEBULA — Biopsy Subset",
          subtitle = paste0("Genes: ", format(nrow(df_sub), big.mark = ","),
-                           "  |  Cells: ", format(df_sub$Cells[1], big.mark = ",")))
-
+                           "  |  Cells: ", format(df_sub$Cells[1], big.mark = ","))) +
+    coord_cartesian(xlim = c(-5, 5))
+  
   p_full_vol <- make_volcano(
     df_full, ct,
     cell_counts_df = data.frame(cell_type = ct, n_cells = df_full$Cells[1])
   ) +
     labs(title    = "NEBULA — Biopsy Full",
          subtitle = paste0("Genes: ", format(nrow(df_full), big.mark = ","),
-                           "  |  Cells: ", format(df_full$Cells[1], big.mark = ",")))
-
+                           "  |  Cells: ", format(df_full$Cells[1], big.mark = ","))) +
+    coord_cartesian(xlim = c(-5, 5))
+  
   p_sub_gsea <- if (!is.null(nebula_bio_gsea_list[[ct]]) &&
-                     nrow(nebula_bio_gsea_list[[ct]]) > 0) {
-    make_gsea_bar(nebula_bio_gsea_list[[ct]], ct, n_show = 15) +
+                    nrow(nebula_bio_gsea_list[[ct]]) > 0) {
+    gsea_trunc <- nebula_bio_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Biopsy Subset")
   } else {
     ggplot() +
@@ -2633,10 +2655,12 @@ for (ct in shared_nebula_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Biopsy Subset")
   }
-
+  
   p_full_gsea <- if (!is.null(nebula_bio_full_gsea_list[[ct]]) &&
-                      nrow(nebula_bio_full_gsea_list[[ct]]) > 0) {
-    make_gsea_bar(nebula_bio_full_gsea_list[[ct]], ct, n_show = 15) +
+                     nrow(nebula_bio_full_gsea_list[[ct]]) > 0) {
+    gsea_trunc <- nebula_bio_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Biopsy Full")
   } else {
     ggplot() +
@@ -2644,9 +2668,9 @@ for (ct in shared_nebula_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Biopsy Full")
   }
-
+  
   combined <- (p_sub_vol | p_full_vol) /
-              (p_sub_gsea | p_full_gsea) +
+    (p_sub_gsea | p_full_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — NEBULA: Subset vs. Full Biopsy"),
@@ -2656,13 +2680,13 @@ for (ct in shared_nebula_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
 ```
 
-## Pseudobulk Comparison: Biopsy Full vs. Biopsy Subset {background-color="#a53860"}
+# Pseudobulk Comparison: Biopsy Full vs. Biopsy Subset {background-color="#a53860"}
 ```{r limma-bio-subset-vs-full-loop}
 knitr::opts_current$set(fig.width = 22, fig.height = 14, out.width = "100%")
 
@@ -2674,22 +2698,24 @@ shared_limma_cts <- intersect(
 for (ct in shared_limma_cts) {
   cat("\n\n## ", gsub("_", " ", ct),
       " — limma: Subset vs. Full Biopsy\n\n", sep = "")
-
+  
   df_sub  <- biopsy_results_all      |> dplyr::filter(cell_type == ct)
   df_full <- biopsy_full_results_all |> dplyr::filter(cell_type == ct)
-
+  
   p_sub_vol <- make_volcano(df_sub,  ct, cell_counts_df = biopsy_cell_counts) +
     labs(title    = "Pseudobulk — Biopsy Subset",
          subtitle = paste0("Genes: ", format(nrow(df_sub), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   p_full_vol <- make_volcano(df_full, ct, cell_counts_df = biopsy_full_cell_counts) +
     labs(title    = "Pseudobulk — Biopsy Full",
          subtitle = paste0("Genes: ", format(nrow(df_full), big.mark = ","),
                            "  |  Color = adj. P < 0.05"))
-
+  
   p_sub_gsea <- if (ct %in% names(biopsy_gsea_list)) {
-    make_gsea_bar(biopsy_gsea_list[[ct]], ct, n_show = 15) +
+    gsea_trunc <- biopsy_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Biopsy Subset")
   } else {
     ggplot() +
@@ -2697,9 +2723,11 @@ for (ct in shared_limma_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Biopsy Subset")
   }
-
+  
   p_full_gsea <- if (ct %in% names(biopsy_full_gsea_list)) {
-    make_gsea_bar(biopsy_full_gsea_list[[ct]], ct, n_show = 15) +
+    gsea_trunc <- biopsy_full_gsea_list[[ct]] |>
+      dplyr::mutate(pathway = stringr::str_trunc(pathway, width = 50, ellipsis = "..."))
+    make_gsea_bar(gsea_trunc, ct, n_show = 15) +
       labs(title = "GSEA — Biopsy Full")
   } else {
     ggplot() +
@@ -2707,9 +2735,9 @@ for (ct in shared_limma_cts) {
                size = 4, color = "grey50") +
       theme_void() + labs(title = "GSEA — Biopsy Full")
   }
-
+  
   combined <- (p_sub_vol | p_full_vol) /
-              (p_sub_gsea | p_full_gsea) +
+    (p_sub_gsea | p_full_gsea) +
     plot_layout(heights = c(1, 1.4)) +
     plot_annotation(
       title    = paste0(gsub("_", " ", ct), " — limma: Subset vs. Full Biopsy"),
@@ -2719,7 +2747,7 @@ for (ct in shared_limma_cts) {
         plot.subtitle = element_text(size = 10, color = "grey50")
       )
     )
-
+  
   print(combined)
   cat("\n\n")
 }
