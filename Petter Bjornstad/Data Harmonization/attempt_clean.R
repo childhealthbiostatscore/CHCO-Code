@@ -112,7 +112,7 @@ attempt_031425 <- attempt_031425_raw %>%
                 emu_3_acr_mgmmol = as.character(emu_3_acr_mgmmol),
                 emu_urine_acr_mean_pooled = as.character(emu_urine_acr_mean_pooled),
                 emu_urine_acr_mean = as.numeric(emu_urine_acr_mean),
-                acr_u = as.character(emu_urine_acr_mean))
+                acr_u = as.numeric(emu_urine_acr_mean) * 8.84)
 
 dict <- read_excel(attempt_file, sheet = "Data Dictionary", na = c("NA", "")) %>%
   dplyr::select(Variable_Name, Label) %>%
@@ -201,6 +201,9 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
   fill(., .direction = "downup") %>% ungroup() %>%
   ungroup() %>% rowwise() %>%
   dplyr::mutate(height = coalesce(height_m * 100, egfr_height_m * 100),
+                waistcm = waist_m * 100,
+                hipcm = hip_m * 100,
+                waist_hip_ratio = waist_to_hip_ratio,
                 randomization_time= format(randomization_time, "%H:%M"), 
                 across(where(is.logical), ~ ifelse(.x, "Yes", "No")),
                 sex = case_when(sex == 1 ~ "Male", sex == 2 ~ "Female",
@@ -213,12 +216,12 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 microalbumin_urine24h_mgL = microalbumin_urine24h * 1000,
                 creatinine_urine24h_gL = creatinine_urine24h * 0.11312,
                 # uaer_24 = microalbumin_urine24h_mgL / creatinine_urine24h_gL,
-                mri_r2_cortex_l = case_when(!is.na(mri_r2_cortex_l) ~ as.numeric(mri_r2_cortex_l)),
-                mri_r2_cortex_r = case_when(!is.na(mri_r2_cortex_l) ~ as.numeric(mri_r2_cortex_r)),
-                mri_r2_kidney_l = case_when(!is.na(mri_r2_cortex_l) ~ as.numeric(mri_r2_kidney_l)),
-                mri_r2_kidney_r = case_when(!is.na(mri_r2_cortex_l) ~ as.numeric(mri_r2_kidney_r)),
-                avg_c_r2 = mean(c(mri_r2_cortex_l, mri_r2_cortex_r)),
-                avg_k_r2  = mean(c(mri_r2_kidney_l, mri_r2_kidney_r)),
+                bold_l_bl_cortex = coalesce(as.numeric(mri_r2_cortex_l), bold_l_bl_cortex),
+                bold_r_bl_cortex = coalesce(as.numeric(mri_r2_cortex_r), bold_r_bl_cortex),
+                bold_l_bl_kidney = coalesce(as.numeric(mri_r2_kidney_l), bold_l_bl_kidney),
+                bold_r_bl_kidney = coalesce(as.numeric(mri_r2_kidney_r), bold_r_bl_kidney),
+                avg_c_r2 = mean(c(bold_l_bl_cortex, bold_r_bl_cortex)),
+                avg_k_r2 = mean(c(bold_l_bl_kidney, bold_r_bl_kidney)),
                 emu_1_albumin_mgl = case_when(grepl("<", emu_1_albumin_mgl) ~ "2.5",
                                               T ~ emu_1_albumin_mgl),
                 emu_1_albumin_mgl = as.numeric(emu_1_albumin_mgl), 
@@ -232,6 +235,31 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 emu_3_albumin_mgl = as.numeric(emu_3_albumin_mgl), 
                 emu_3_acr_mgmmol = emu_3_albumin_mgl/emu_3_creatinine_umoll*1000,
                 emu_urine_acr_mean = mean(c(emu_1_acr_mgmmol, emu_2_acr_mgmmol, emu_3_acr_mgmmol)),
+                acr_u = emu_urine_acr_mean * 8.84,
+                microalbumin_u = mean(c(emu_1_albumin_mgl, emu_2_albumin_mgl, emu_3_albumin_mgl), na.rm = TRUE),
+                creatinine_u = mean(c(emu_1_creatinine_umoll, emu_2_creatinine_umoll, emu_3_creatinine_umoll), na.rm = TRUE) / 88.4194,
+                emu_1_acr_u         = emu_1_acr_mgmmol * 8.84,
+                emu_1_microalbumin_u = emu_1_albumin_mgl,
+                emu_1_creatinine_u  = emu_1_creatinine_umoll / 88.4194,
+                emu_1_date          = date_emu_1,
+                emu_2_acr_u         = emu_2_acr_mgmmol * 8.84,
+                emu_2_microalbumin_u = emu_2_albumin_mgl,
+                emu_2_creatinine_u  = emu_2_creatinine_umoll / 88.4194,
+                emu_2_date          = date_emu_2,
+                emu_3_acr_u         = emu_3_acr_mgmmol * 8.84,
+                emu_3_microalbumin_u = emu_3_albumin_mgl,
+                emu_3_creatinine_u  = emu_3_creatinine_umoll / 88.4194,
+                emu_3_date          = date_emu_3,
+                diabetes_dx_date = as.Date(date_t1d_diagnosis, format = "%m/%d/%y"),
+                famhx_t1d       = fam_hx_t1d,
+                fam_t1d         = fam_hx_t1d_family,
+                famhx_htn       = fam_hx_hypertension,
+                fam_htn         = fam_hx_htn_family,
+                famhx_hyperlipid = fam_hx_dyslipidemia,
+                fam_hyperlipid  = fam_hx_dyslipidemia_family,
+                u24_na  = as.numeric(sodium_urine24h) * 1000000,
+                u24_vl  = as.numeric(urine24h_volume_24h_litres) * 1000,
+                u24_mab = as.numeric(microalbumin_urine24h) * as.numeric(urine24h_volume_24h_litres) * 1000000,
                 subject_id = as.character(subject_id),
                 age = coalesce(age, age_baseline, egfr_age),
                 creatinine_s = coalesce(creatinine_blood_local / 88.42, egfr_creatinine_serum_mgdl, egfr_creatinine_serum_umoll / 88.42),
@@ -239,6 +267,16 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 sbp = coalesce(sbp_mmhg, sbp),
                 dbp = coalesce(dbp_mmhg),
                 hba1c = hba1c_percent,
+                cgm_type  = bgm_cgm_device,
+                pltct     = plt_local,
+                sodium_s  = sodium_blood_local,
+                bun       = bun_local * 2.8011,
+                cholesterol   = cholesterol_serum_mmoll,
+                hdl           = hdl_serum_mmoll * 38.67,
+                ldl           = ldl_serum_mmoll * 38.67,
+                triglycerides = triglycerides_serum_mmoll * 88.5745,
+                ca_base       = calcium_serum_mmoll * 4.0078,
+                c00009        = phosphate_serum_mmoll,
                 hct = coalesce(hct_ll, hct_percent_us/100),
                 date_visit = coalesce(date_visit, date)) %>% ungroup() %>%
   dplyr::mutate(
@@ -282,8 +320,13 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                    .by = c(subject_id, visit)) %>%
   # filter(visit %in% c("baseline", "4_months_post")) %>%
   dplyr::select(-any_of(c("age_baseline", "sbp_mmhg", "dbp_mmhg", "hct_ll", "hct_percent_us", "date",
-                          "height_m", "egfr_age", "egfr_sex", "egfr_height_m",
+                          "height_m", "waist_m", "hip_m", "waist_to_hip_ratio",
+                          "egfr_age", "egfr_sex", "egfr_height_m",
                           "creatinine_blood_local", "egfr_creatinine_serum_mgdl", "egfr_creatinine_serum_umoll",
+                          "plt_local", "sodium_blood_local",
+                          "mri_r2_cortex_l", "mri_r2_cortex_r", "mri_r2_kidney_l", "mri_r2_kidney_r",
+                          "cholesterol_serum_mmoll", "hdl_serum_mmoll", "ldl_serum_mmoll",
+                          "triglycerides_serum_mmoll", "calcium_serum_mmoll", "phosphate_serum_mmoll",
                           "cystatin_c_serum_mgl", "egfr_cystatin_c_serum_mgl"))) %>%
   dplyr::rename(record_id = subject_id,
                 date = date_visit,
@@ -291,7 +334,8 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 bmi = bmi_kgm2,
                 temp = body_temp_celsius,
                 pulse = heart_rate_bpm,
-                diabetes_dx_duration = t1d_duration)
+                diabetes_dx_duration = t1d_duration,
+                gfr_raw_plasma = mgfr_si)
 
 date_cols <- grep("(^date$|_date$|^date_|_date_)", names(merged_data), value = TRUE)
 time_cols <- grep("(^time$|time$|^time_|_time_)", names(merged_data), value = TRUE)
@@ -309,6 +353,17 @@ merged_data[time_cols] <- lapply(merged_data[time_cols], function(x) {
     x  # leave as-is if not numeric
   }
 })
+
+# Calculate diabetes_duration in years from dx date and visit date
+merged_data <- merged_data %>%
+  mutate(
+    diabetes_duration = as.numeric(difftime(
+      as.Date(date, format = "%m/%d/%y"),
+      as.Date(diabetes_dx_date, format = "%m/%d/%y"),
+      units = "days"
+    )) / 365.25,
+    diabetes_duration = coalesce(diabetes_duration, as.numeric(diabetes_dx_duration))
+  )
 
 # remove columns that are all NAs
 merged_data <- merged_data[, colSums(!is.na(merged_data)) > 0]
@@ -338,6 +393,36 @@ egfr_result <- read.csv(tmp, check.names = FALSE)[egfr_cols]
 merged_data <- cbind(merged_data, egfr_result)
 
 merged_data$group <- "Type 1 Diabetes"
+
+# Populate MRN for Denver participants from id_linkage_matrix
+id_linkage <- read.csv(file.path(root_path, "Data Harmonization/id_linkage_matrix.csv"),
+                       na.strings = c("", "NA"), check.names = FALSE) %>%
+  dplyr::select(mrn, record_id = ATTEMPT) %>%
+  filter(!is.na(record_id)) %>%
+  mutate(record_id = as.character(record_id),
+         mrn = as.character(mrn))
+
+merged_data <- merged_data %>%
+  left_join(id_linkage, by = "record_id")
+
+# Create procedure rows
+mri_cols <- c("bold_l_bl_cortex", "bold_r_bl_cortex",
+              "bold_l_bl_kidney", "bold_r_bl_kidney",
+              "avg_c_r2", "avg_k_r2")
+
+labs_rows <- merged_data %>%
+  mutate(procedure = case_when(visit == "screening" ~ "screening",
+                               grepl("Unscheduled", visit, ignore.case = TRUE) ~ NA_character_,
+                               TRUE ~ "labs"),
+         across(any_of(mri_cols), ~ NA_real_))
+
+bold_mri_rows <- merged_data %>%
+  filter(if_any(any_of(mri_cols), ~ !is.na(.x)),
+         !grepl("Unscheduled", visit, ignore.case = TRUE)) %>%
+  mutate(procedure = "bold_mri")
+
+merged_data <- bind_rows(labs_rows, bold_mri_rows) %>%
+  arrange(record_id, visit, procedure)
 
 # merge and save
 save(merged_data, file = file.path(root_path, "ATTEMPT/Data Clean/ATTEMPT_AC.RData"))
