@@ -1,0 +1,1135 @@
+---
+title: "PFAS_data cleaning"
+author: "Savanah leidholt & Hailey Hampson"
+date: "2026-03-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(warn = -1)
+```
+
+```{r}
+#load libraries
+
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+library(ggeffects)
+library(patchwork)
+library(gWQS)
+library(corrplot)
+library(gt)
+library(table1)
+#install.packages("lme4")
+library(lme4)
+```
+#---------------------------------------------------
+# 1. inputting all directories and storage locations
+#---------------------------------------------------
+```{r}
+#Directories
+# computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } else if (user == "shivaniramesh") {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } else {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  }
+}
+```
+
+#------------------------------
+#load functions & Data
+#------------------------------
+
+```{r}
+source(file.path(git_path, "Panther PFAS/Functions.R"))
+
+dat <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
+lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+```
+
+#-------------------------------------
+#formatting Data identical to Hailey's
+#-------------------------------------
+```{r}
+pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFOA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
+dat_collapsed1 <- dat %>%
+  filter(study=="PANTHER") %>% 
+  filter(visit=="baseline" | visit=="screening") %>% 
+  # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
+  # dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi,race,ethnicity,race_ethnicity, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  # group_by(record_id, visit) %>%
+  # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id)) %>% 
+  mutate(visit="baseline_screening") %>% 
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"))
+dat_collapsed2 <- dat %>%
+  filter(study=="PANTHER") %>% 
+  filter(visit=="year_1" | visit=="year_2") %>% 
+  # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
+  # dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, race,ethnicity, race_ethnicity, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  # group_by(record_id, visit) %>%
+  # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>% 
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"))
+```
+
+#----------------------------------------
+#combine metadata & extract baseline pfas
+#----------------------------------------
+```{r}
+meta <- rbind(dat_collapsed1,dat_collapsed2)
+meta <- meta %>% 
+  dplyr::select(-all_of(pfas))
+
+pfas_dat <- dat %>% 
+  filter(study=="PANTHER") %>% 
+  filter(visit=="baseline") %>% 
+  dplyr::select("record_id",all_of(pfas)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id)) %>% 
+  filter(!is.na(N.EtFOSAA)) #91 participants with baseline pfas data
+```
+
+#-------------------------------------
+#Create limit of detection table (lod)
+#-------------------------------------
+```{r}
+#Impute PFAS Data
+t_lod <- t(lod)
+colnames(t_lod) <- t_lod[1,]
+t_lod <- as.data.frame(t_lod)
+t_lod <- t_lod[-1,]
+lod <- t_lod
+rm(t_lod)
+lod <- lod %>% 
+  mutate(across(everything(), ~as.numeric(.)))
+colnames(lod) <- str_replace_all(colnames(lod),"-",".")
+```
+
+
+#-------------------------------------
+#imputation function below LOD
+#-------------------------------------
+```{r}
+
+impute_pfas_lod <- function(pfas_dat, lod, pfas_vars, threshold = 2/3) {
+  n_participants <- length(unique(pfas_dat$record_id))
+  pfas_to_impute <- c()
+  for (pf in pfas_vars) {
+    if (!(pf %in% names(lod))) next
+    prop_below <- sum(pfas_dat[[pf]] < lod[[pf]], na.rm = TRUE) / n_participants
+    if (prop_below < threshold) {
+      pfas_to_impute <- c(pfas_to_impute, pf)
+    }
+  }
+  pfas_imputed <- pfas_dat %>%
+    dplyr::select(record_id, all_of(pfas_to_impute))
+  for (pf in pfas_to_impute) {
+    pfas_imputed[[pf]] <- ifelse(
+      pfas_imputed[[pf]] < lod[[pf]],
+      lod[[pf]] / sqrt(2),
+      pfas_imputed[[pf]]
+    )
+  }
+  return(list(
+    imputed_data = pfas_imputed,
+    pfas_used = pfas_to_impute
+  ))
+}
+
+pfas_results <- impute_pfas_lod(
+  pfas_dat = pfas_dat,
+  lod = lod,
+  pfas_vars = pfas
+)
+
+pfas_imputed <- pfas_results$imputed_data
+pfas_to_impute <- pfas_results$pfas_used
+```
+
+#-------------------------------
+#merge PFAS & baseline metadata
+#-------------------------------
+```{r}
+meta_baseline <- meta %>% 
+  filter(visit=="baseline_screening")
+
+dat <- tidylog::left_join(
+  pfas_imputed,
+  meta_baseline,
+  by="record_id"
+)
+
+dat_long <- meta %>%
+  left_join(pfas_imputed, by="record_id")
+
+dat_long <- dat_long %>%
+  mutate(
+    time_numeric = case_when(
+      visit=="baseline_screening" ~ 0,
+      visit=="year_1" ~ 1,
+      visit=="year_2" ~ 2
+    )
+  )
+```
+
+
+```{r}
+dat <- dat %>%
+  mutate(
+    microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u),
+    acr_u=ifelse(acr_u>2367,NA,acr_u)
+  )
+
+dat_long <- dat_long %>%
+  mutate(
+    microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u),
+    acr_u=ifelse(acr_u>2367,NA,acr_u)
+  )
+```
+
+
+
+#-------------------------------
+#Baseline participante metadata
+#-------------------------------
+```{r}
+#Particpants 
+table1(~age+sex+bmi+hba1c+hct+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat)
+```
+```{r}
+table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+
+       PFHxS+PFOA+PFOS+PFPeAS | group,
+       data=dat,
+       render.continuous = render.geometric)
+```
+
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+pfas_group_dat <- dat %>%
+  dplyr::select(record_id, group, sex, all_of(pfas_vars))
+
+table(pfas_group_dat$group)
+table(pfas_group_dat$sex)
+
+pfas_group_dat <- pfas_group_dat %>%
+  mutate(across(all_of(pfas_vars), log))
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0(pfas, " ~ group + sex + group:sex")
+  )
+  model <- aov(m0, data = pfas_group_dat)
+  cat("\n----------------------\n")
+  cat("PFAS:", pfas, "\n")
+  print(summary(model))
+
+}
+
+```
+```{r}
+TukeyHSD(model,"group")
+```
+```{r}
+for (pfas in pfas_vars) {
+  p <- ggplot(dat, aes(x=group, y=.data[[pfas]], fill=sex)) +
+    geom_boxplot() +
+    theme_bw() +
+    labs(
+      title=paste("PFAS Distribution:",pfas),
+      x="Group",
+      y="PFAS concentration"
+    )
+
+  print(p)
+
+}
+```
+
+
+
+##---------------------------------------
+## PFAS and Baseline Kidney Associations
+##---------------------------------------
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("acr_u ~ ",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y=acr_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and ACRu",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="ACRu"
+    )
+  
+  print(p)
+
+}
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("microalbumin_u~ ",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y=microalbumin_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Microalbuminuria adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="microalbumin_u"
+    )
+  
+  print(p)
+}
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("eGFR_CKiD_U25_avg~ ",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= eGFR_CKiD_U25_avg))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and eGFR_CKiD_U25_avg adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="eGFR_CKiD_U25_avg"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("deltapf~ ",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= deltapf))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Renal Clearance adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="deltapf"
+      )
+  
+  print(p)
+    
+  
+}
+```
+
+
+##--------------------------------------------
+## PFAS & Baseline Metabolic Associations
+##--------------------------------------------
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("dexa_fat_kg~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= dexa_fat_kg))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and fat mass adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="dexa_fat_kg"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("dexa_lean_kg~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= dexa_lean_kg))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and lean mass adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="dexa_lean_kg"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("mm_si~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= mm_si))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Insulin Sensitivity adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="mm_si"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("mm_ir~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= mm_ir))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Insulin Resistance adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="mm_ir"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("mm_di~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= mm_di))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Insulin Secretion Capacity adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="mm_di"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+##--------------------------------------------
+## PFAS & Baseline Hormonal Associations
+##--------------------------------------------
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("igf_1~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= igf_1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and igf_1 adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="igf_1"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("bl_dheas~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= bl_dheas))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and DHEA-S adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="bl_dheas"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("bl_estrad~",pfas," + age + sex"))
+  m1 <- lm(m0,dat=dat)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= bl))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Estradiol Blood Concentrations adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="bl_estrad"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+
+
+```{r}
+ggplot(dat_long,aes(time_numeric,acr_u))+
+
+  geom_point(aes(color=factor(visit)),alpha=0.6)+
+  geom_path(aes(group=record_id),alpha=0.2)+
+  geom_smooth(method="lm",color="red4",se=FALSE)+
+
+  theme_minimal()+
+  labs(
+    title="ACRu Levels Over Time",
+    x="Time",
+    y="ACRu"
+  )
+```
+
+
+
+
+#---------------------------------
+#Creating Follow up Data-sets
+#---------------------------------
+```{r}
+#Folowoup Year 1
+#"bl_estrad","bl_tot_test" --not in dataset 
+dat_followup1 <- dat_long %>% 
+  filter(visit=="year_1") %>% 
+  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg","eGFR_fas_cr", "mm_si","mm_ir","mm_di","dexa_lean_kg","dexa_fat_kg", "igf_1", "bl_dheas")) %>% 
+  dplyr::rename(microalbumin_u_yr1=microalbumin_u,
+                acr_u_yr1=acr_u,
+                eGFR_CKiD_U25_avg_yr1=eGFR_CKiD_U25_avg,
+                eGRF_fas_cr_y1=eGFR_fas_cr,
+                mm_si_yr1 = mm_si,
+                mm_ir_yr1 = mm_ir,
+                mm_di_yr1 = mm_di,
+                dexa_lean_kg_yr1 = dexa_lean_kg, 
+                dexa_fat_kg_yr1 = dexa_fat_kg, 
+                igf_1_yr1 = igf_1, 
+                bl_dheas_yr1 = bl_dheas)
+dat_all <- left_join(dat,dat_followup1,by="record_id")
+```
+
+##----------------------------------------------------
+## PFAS & Year 1 Followup Renal Clearance Associations
+##----------------------------------------------------
+```{r}
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("acr_u_yr1 ~ ",pfas," + age + sex + acr_u")
+  )
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,
+              aes(x=.data[[pfas]],y=acr_u_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Baseline PFAS vs ACRu at 1 Year",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="ACRu Year 1"
+    )
+
+  print(p)
+
+}
+```
+
+```{r}
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("microalbumin_u_yr1 ~ ",pfas," + age + sex + acr_u")
+  )
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,
+              aes(x=.data[[pfas]],y=microalbumin_u_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Baseline PFAS vs microalbumin at 1 Year",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="Microalbuminuria Year 1"
+    )
+
+  print(p)
+
+}
+
+
+```
+
+```{r}
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("eGFR_CKiD_U25_avg_yr1 ~ ",pfas," + age + sex + eGFR_CKiD_U25_avg")
+  )
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,
+              aes(x=.data[[pfas]],y=eGFR_CKiD_U25_avg_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Baseline PFAS vs eGFR_CKiD_U25_avg at 1 Year",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="eGFR_CKiD_U25_avg Year 1"
+    )
+
+  print(p)
+
+}
+```
+
+```{r}
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("eGRF_fas_cr_y1 ~ ",pfas," + age + sex + eGFR_fas_cr")
+  )
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,
+              aes(x=.data[[pfas]],y=eGRF_fas_cr_y1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Baseline PFAS vs eGFR_fas_cr_y1 at 1 Year",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="eGFR_fas_cr_y1 Year 1"
+    )
+
+  print(p)
+
+}
+```
+
+##--------------------------------------------
+## PFAS & Year 1 Metabolic Associations
+##--------------------------------------------
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("dexa_fat_kg_yr1~",pfas," + age + sex + dexa_fat_kg"))
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,aes(x=.data[[pfas]],y= dexa_fat_kg_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and Fat Mass Adj. for Age & Sex & Baseline DXA",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="dexa_fat_kg_yr1"
+      )
+  
+  print(p)
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("dexa_lean_kg_yr1~",pfas," + age + sex+dexa_lean_kg"))
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,aes(x=.data[[pfas]],y= dexa_lean_kg_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and lean mass adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="dexa_lean_kg_yr1"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+
+```{r}
+#pfas_vars <- c(
+#"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+#"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+#)
+
+#for (pfas in pfas_vars) {
+#  m0 <- as.formula(paste0("mm_si_yr1~",pfas," + age + sex + mm_si_yr1"))
+ # m1 <- lm(m0,dat=dat_all)
+  #beta <- summary(m1)$coef[2,1]
+  #pval <- summary(m1)$coef[2,4]
+  #p <- ggplot(dat_all,aes(x=.data[[pfas]],y= mm_si_yr1))+
+   # geom_point()+
+    #geom_smooth(method="lm",se=FALSE)+
+    #theme_bw()+
+    #labs(
+     # title="Association between PFAS and Insuline Sensitivity adj. for Age & Sex",
+      #subtitle=paste0("Beta=",round(beta,3),
+       #               " p=",round(pval,3)),
+      #x=pfas,
+      #y="mm_si_yr1"
+      #)
+  
+  #print(p)
+    
+  
+  #}
+```
+
+```{r}
+#pfas_vars <- c(
+#"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+#"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+#)
+
+#for (pfas in pfas_vars) {
+ # m0 <- as.formula(paste0("mm_ir_yr1~",pfas," + age + sex+mm_ir"))
+  #m1 <- lm(m0,dat=dat_all)
+  #beta <- summary(m1)$coef[2,1]
+  #pval <- summary(m1)$coef[2,4]
+  #p <- ggplot(dat_all,aes(x=.data[[pfas]],y= mm_ir_yr1))+
+   # geom_point()+
+    #geom_smooth(method="lm",se=FALSE)+
+    #theme_bw()+
+    #labs(
+     # title="Association between PFAS and Insulin Resistance adj. for Age & Sex",
+      #subtitle=paste0("Beta=",round(beta,3),
+       #               " p=",round(pval,3)),
+      #x=pfas,
+      #y="mm_ir_yr1"
+      #)
+  
+  #print(p)
+    
+  
+  #}
+```
+
+```{r}
+#pfas_vars <- c(
+#"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+#"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+#)
+
+#for (pfas in pfas_vars) {
+ # m0 <- as.formula(paste0("mm_di_yr1~",pfas," + age + sex + mm_di"))
+  #m1 <- lm(m0,dat=dat_all)
+  #beta <- summary(m1)$coef[2,1]
+  #pval <- summary(m1)$coef[2,4]
+  #p <- ggplot(dat_all,aes(x=.data[[pfas]],y= mm_di_yr1))+
+   # geom_point()+
+    #geom_smooth(method="lm",se=FALSE)+
+    #theme_bw()+
+    #labs(
+     # title="Association between PFAS and Insulin Secretion Capacity adj. for Age & Sex",
+      #subtitle=paste0("Beta=",round(beta,3),
+       #               " p=",round(pval,3)),
+      #x=pfas,
+      #y="mm_di_yr1"
+      #)
+  
+  #print(p)
+    
+  
+  #}
+```
+
+##--------------------------------------------
+## PFAS & Year 1 Hormonal Associations
+##--------------------------------------------
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("igf_1_yr1~",pfas," + age + sex + igf_1"))
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,aes(x=.data[[pfas]],y= igf_1_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and igf_1_yr1 adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="igf_1_yr1"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+```{r}
+pfas_vars <- c(
+"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("bl_dheas_yr1~",pfas," + age + sex + bl_dheas"))
+  m1 <- lm(m0,dat=dat_all)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all,aes(x=.data[[pfas]],y= bl_dheas_yr1))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and DHEA-S adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="bl_dheas_yr1"
+      )
+  
+  print(p)
+    
+  
+  }
+```
+
+
+
+
+```{r}
+#--------------------------------------
+#Create Year 2 follow-up dataset
+#--------------------------------------
+
+dat_followup2 <- dat_long %>% 
+  filter(visit=="year_2") %>% 
+  dplyr::select(record_id,
+                microalbumin_u,
+                acr_u,
+                eGFR_CKiD_U25_avg) %>% 
+  dplyr::rename(
+    microalbumin_u_yr2 = microalbumin_u,
+    acr_u_yr2 = acr_u,
+    eGFR_CKiD_U25_avg_yr2 = eGFR_CKiD_U25_avg
+  )
+
+
+
+# join to baseline dataset
+dat_all2 <- left_join(dat_all, dat_followup2, by="record_id")
+
+dat_all2 <- dat_all2 %>%
+  mutate(
+    acr_u_yr2 = ifelse(acr_u_yr2 > 2367, NA, acr_u_yr2)
+  )
+```
+
+
+
+```{r}
+## ---------------------------------------------------------
+## Baseline PFAS Predicting Year 2 ACRu
+## ---------------------------------------------------------
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("acr_u_yr2 ~ ",pfas," + age + sex + acr_u")
+  )
+  m1 <- lm(m0, dat = dat_all2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all2,
+              aes(x=.data[[pfas]], y=acr_u_yr2)) +
+    geom_point() +
+    geom_smooth(method="lm", se=FALSE) +
+    theme_bw() +
+    labs(
+      title="Baseline PFAS vs ACRu at 2 Years",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="ACRu Year 2"
+    )
+
+  print(p)
+
+}
+```
+```{r}
+## ---------------------------------------------------------
+## Baseline PFAS Predicting Year 2 eGFR
+## ---------------------------------------------------------
+
+for (pfas in pfas_vars) {
+  m0 <- as.formula(
+    paste0("eGFR_CKiD_U25_avg_yr2 ~ ",pfas," + age + sex + eGFR_CKiD_U25_avg")
+  )
+  m1 <- lm(m0, dat = dat_all2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  p <- ggplot(dat_all2,
+              aes(x=.data[[pfas]], y=eGFR_CKiD_U25_avg_yr2)) +
+    geom_point() +
+    geom_smooth(method="lm", se=FALSE) +
+    theme_bw() +
+    labs(
+      title="Baseline PFAS vs eGFR_CKiD_U25_avg at 2 Years",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="eGFR_CKiD_U25_avg_yr2"
+    )
+
+  print(p)
+
+}
+```
+
+```{r}
+model_pfas <- lmer(
+  acr_u ~ time_numeric + PFOS + age + sex + group +
+  (1|record_id),
+  data = dat_long
+)
+
+summary(model_pfas)
+```
+
+```{r}
+wqs_model <- gwqs(
+  acr_u ~ wqs + age + sex,
+  mix_name = pfas_vars,
+  data = dat,
+  q = 4,
+  validation = 0.6,
+  b = 1000,
+  family = "gaussian"
+)
+
+summary(wqs_model)
+```
