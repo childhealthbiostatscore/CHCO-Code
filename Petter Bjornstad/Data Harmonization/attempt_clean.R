@@ -338,12 +338,10 @@ merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
                 gfr_raw_plasma = mgfr_si)
 
 date_cols <- grep("(^date$|_date$|^date_|_date_)", names(merged_data), value = TRUE)
-# diabetes_dx_date is already a Date object (days since epoch), not a Unix timestamp (seconds)
-# — exclude it from the Unix timestamp loop and format it separately
+
 date_cols <- setdiff(date_cols, "diabetes_dx_date")
 time_cols <- grep("(^time$|time$|^time_|_time_)", names(merged_data), value = TRUE)
 
-# Convert numeric Unix timestamps to formatted date strings
 merged_data[date_cols] <- lapply(merged_data[date_cols], function(x) {
   format(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"), "%m/%d/%y")
 })
@@ -351,15 +349,13 @@ merged_data[date_cols] <- lapply(merged_data[date_cols], function(x) {
 merged_data$diabetes_dx_date <- format(as.Date(merged_data$diabetes_dx_date, origin = "1970-01-01"), "%m/%d/%y")
 
 merged_data[time_cols] <- lapply(merged_data[time_cols], function(x) {
-  # Only convert if numeric
   if (is.numeric(x)) {
     format(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"), "%H:%M")
   } else {
-    x  # leave as-is if not numeric
+    x  
   }
 })
 
-# Calculate diabetes_duration in years from dx date and visit date
 merged_data <- merged_data %>%
   mutate(
     diabetes_duration = as.numeric(difftime(
@@ -399,7 +395,6 @@ merged_data <- cbind(merged_data, egfr_result)
 
 merged_data$group <- "Type 1 Diabetes"
 
-# Populate MRN for Denver participants from id_linkage_matrix
 id_linkage <- read.csv(file.path(root_path, "Data Harmonization/id_linkage_matrix.csv"),
                        na.strings = c("", "NA"), check.names = FALSE) %>%
   dplyr::select(mrn, record_id = ATTEMPT) %>%
@@ -410,7 +405,6 @@ id_linkage <- read.csv(file.path(root_path, "Data Harmonization/id_linkage_matri
 merged_data <- merged_data %>%
   left_join(id_linkage, by = "record_id")
 
-# Create procedure rows
 mri_cols <- c("bold_l_bl_cortex", "bold_r_bl_cortex",
               "bold_l_bl_kidney", "bold_r_bl_kidney",
               "avg_c_r2", "avg_k_r2")

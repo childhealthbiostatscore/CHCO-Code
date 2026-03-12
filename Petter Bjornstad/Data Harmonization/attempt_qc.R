@@ -4,7 +4,6 @@
 library(dplyr)
 library(tidyr)
 
-# ── Variable lists ────────────────────────────────────────────────────────────
 egfr_vars    <- c("age", "height", "creatinine_s", "cystatin_c_s")
 anthro_vars  <- c("waistcm", "hipcm", "waist_hip_ratio")
 blood_vars   <- c("hba1c", "cholesterol", "hdl", "ldl", "triglycerides",
@@ -28,7 +27,6 @@ all_numeric_vars <- c(egfr_vars, anthro_vars, blood_vars, bold_vars,
                       emu_vars, u24_vars, egfr_eq_vars)
 all_expected     <- c(all_numeric_vars, cat_vars, "diabetes_dx_date")
 
-# ── 1. Variable presence check ───────────────────────────────────────────────
 cat("=== VARIABLE PRESENCE CHECK ===\n")
 missing_vars <- all_expected[!all_expected %in% names(merged_data)]
 if (length(missing_vars) == 0) {
@@ -39,7 +37,6 @@ if (length(missing_vars) == 0) {
   cat("\n")
 }
 
-# ── 2. Duplicates ────────────────────────────────────────────────────────────
 cat("=== DUPLICATES (record_id x visit) ===\n")
 dups <- merged_data %>% count(record_id, visit) %>% filter(n > 1)
 if (nrow(dups) == 0) {
@@ -50,7 +47,6 @@ if (nrow(dups) == 0) {
   cat("\n")
 }
 
-# ── 3. Visits per subject ────────────────────────────────────────────────────
 cat("=== VISITS PER SUBJECT ===\n")
 print(table(count(merged_data, record_id)$n))
 missing_baseline <- merged_data %>%
@@ -59,7 +55,6 @@ missing_baseline <- merged_data %>%
   filter(!has_baseline)
 cat(nrow(missing_baseline), "subject(s) missing a baseline visit\n\n")
 
-# ── 4. Categorical variable checks ───────────────────────────────────────────
 cat("=== group ===\n")
 print(table(merged_data$group, useNA = "ifany"))
 cat("\n=== ethnicity ===\n")
@@ -71,7 +66,6 @@ print(table(merged_data$sex, useNA = "ifany"))
 unexpected_sex <- merged_data %>% filter(!sex %in% c("Male", "Female") | is.na(sex))
 cat(nrow(unexpected_sex), "row(s) with unexpected/missing sex values\n\n")
 
-# ── 5. Missingness summary ───────────────────────────────────────────────────
 cat("=== MISSINGNESS SUMMARY ===\n")
 present_numeric <- all_numeric_vars[all_numeric_vars %in% names(merged_data)]
 miss_summary <- merged_data %>%
@@ -82,7 +76,6 @@ miss_summary <- merged_data %>%
 print(miss_summary, n = Inf)
 cat("\n")
 
-# ── 6. Range summary ─────────────────────────────────────────────────────────
 cat("=== RANGE SUMMARY ===\n")
 range_summary <- merged_data %>%
   summarise(across(all_of(present_numeric), list(
@@ -98,7 +91,6 @@ range_summary <- merged_data %>%
 print(range_summary, n = Inf)
 cat("\n")
 
-# ── 7. Unit conversion spot checks ───────────────────────────────────────────
 cat("=== UNIT CONVERSION SPOT CHECKS ===\n")
 spot_checks <- list(
   "creatinine_s (expect ~0.5-1.5 mg/dL)"   = merged_data$creatinine_s,
@@ -117,7 +109,6 @@ for (label in names(spot_checks)) {
 }
 
 
-# ── 8. Post-harmonization fill QC (run on `clean` after data_harmonization_with_soma.R) ──
 # Checks that mrn, dob, screen_date, and study IDs are filled for all Denver ATTEMPT rows
 if (exists("clean")) {
   cat("=== HARMONIZED DATASET FILL QC (Denver ATTEMPT rows) ===\n")
@@ -162,12 +153,10 @@ if (exists("clean")) {
 }
 
 
-# ── 9. Raw vs harmonized data QC ─────────────────────────────────────────────
 if (exists("clean")) {
   cat("=== RAW vs HARMONIZED DATA QC ===\n\n")
   attempt_clean <- clean %>% filter(study == "ATTEMPT")
 
-  # 9a. Record ID coverage
   cat("--- Record ID coverage ---\n")
   raw_ids  <- unique(merged_data$record_id)
   harm_ids <- unique(attempt_clean$record_id)
@@ -181,12 +170,10 @@ if (exists("clean")) {
   if (length(extra_in_harm) > 0) print(extra_in_harm)
   cat("\n")
 
-  # 9b. Procedure distribution
   cat("--- Procedure distribution in harmonized ATTEMPT rows ---\n")
   print(table(attempt_clean$procedure, attempt_clean$visit, useNA = "ifany"))
   cat("\n")
 
-  # 9c. MRI data in bold_mri rows
   cat("--- MRI data check (bold_mri rows) ---\n")
   bold_rows <- attempt_clean %>% filter(procedure == "bold_mri")
   cat(nrow(bold_rows), "bold_mri rows\n")
@@ -203,7 +190,6 @@ if (exists("clean")) {
                      ~ sum(!is.na(.)))) %>% print()
   cat("\n")
 
-  # 9d. Key lab variables in labs/screening rows
   cat("--- Key lab variables in labs/screening rows ---\n")
   key_labs <- c("creatinine_s", "hba1c", "acr_u", "age", "height", "weight")
   attempt_clean %>%
@@ -213,14 +199,12 @@ if (exists("clean")) {
     print()
   cat("\n")
 
-  # 9e. Row counts per visit: raw vs harmonized
   cat("--- Row counts per visit: raw vs harmonized ---\n")
   raw_counts  <- merged_data %>% count(visit, name = "n_raw")
   harm_counts <- attempt_clean %>% count(visit, procedure, name = "n_harmonized")
   print(left_join(harm_counts, raw_counts, by = "visit"))
   cat("\n")
 
-  # 9f. Non-missing count per variable: raw vs harmonized
   cat("--- Non-missing count per variable: raw vs harmonized ---\n")
   shared_vars <- intersect(names(merged_data), names(attempt_clean))
   shared_vars <- shared_vars[!shared_vars %in% c("record_id", "visit", "procedure", "study")]
@@ -244,7 +228,6 @@ if (exists("clean")) {
   print(filter(var_comparison, n_raw > 0), n = Inf)
   cat("\n")
 
-  # 9g. Pass-through variable check (non-renamed variables)
   cat("--- Pass-through variable check (non-renamed/converted variables) ---\n")
   passthrough_vars <- list(
     compliance        = c("compliance_percent", "ondrug_days", "drugstoppage_days",
@@ -305,4 +288,5 @@ if (exists("clean")) {
 }
 
 cat("=== QC COMPLETE ===\n")
+
 
