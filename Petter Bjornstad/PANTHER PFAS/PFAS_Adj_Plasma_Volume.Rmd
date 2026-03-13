@@ -28,6 +28,7 @@ library(gt)
 library(table1)
 library(lme4)
 library(ggpubr)
+library(pheatmap)
 ```
 #---------------------------------------------------
 # 1. inputting all directories and storage locations
@@ -183,7 +184,7 @@ pfas_results <- impute_pfas_lod(
 
 pfas_imputed <- pfas_results$imputed_data
 pfas_to_impute <- pfas_results$pfas_used
-
+pfas_imputed
 
 ```
 #-------------------------------
@@ -212,6 +213,19 @@ dat_long <- dat_long %>%
   )
 ```
 
+#-------------------------------------
+#looking at PFAS Correlation Structure
+#-------------------------------------
+```{r}
+pfas_cor <- cor(dat_long2[pfas_vars], use="pairwise.complete.obs")
+
+
+pheatmap(
+  pfas_cor,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE
+)
+```
 #----------------------------------
 #Make adj. for total plasma volume
 #----------------------------------
@@ -234,6 +248,8 @@ dat2 <- dat %>%
       .names = "{.col}_total_ng"
     )
   ) 
+
+#saveRDS("/")
 
 dat_long2<- dat_long %>%
   mutate(
@@ -1148,7 +1164,7 @@ dev.off()
 ```
 
 ```{r}
-pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Metabolic Associations/Lean_Mass_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
+#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Metabolic Associations/Lean_Mass_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_lean_kg_yr2~",pfas," + age + sex+dexa_lean_kg"))
@@ -1175,7 +1191,7 @@ dev.off()
 ## PFAS & Year 2 Hormonal Associations
 ##--------------------------------------------
 ```{r}
-pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Hormonal Associations/IGF1_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
+#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Hormonal Associations/IGF1_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("igf_1_yr2~",pfas," + age + sex + igf_1"))
@@ -1199,7 +1215,7 @@ dev.off()
 ```
 
 ```{r}
-pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Hormonal Associations/DHEAS_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
+#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Hormonal Associations/DHEAS_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("bl_dheas_yr2~",pfas," + age + sex + bl_dheas"))
@@ -1225,26 +1241,59 @@ for (pfas in pfas_vars) {
 dev.off()
 ```
 
+#-------------------------------------------------
+#mixed effect models incorporating all timpepoints
+#-------------------------------------------------
 ```{r}
-model_pfas <- lmer(
-  acr_u ~ time_numeric + PFOS + age + sex + group +
-  (1|record_id),
-  data = dat_long
-)
+for(pfas in pfas_vars){
 
-summary(model_pfas)
+  m0 <- as.formula(paste0("acr_u ~ ",pfas,"*time_numeric + age + sex + (1|record_id)")
+  )
+  m1 <- lmer(m0, data=dat_long2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,5]
+  p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= acr_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and uACR at Year 2 adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="acr_u"
+      )
+  
+  print(p)
+
+  print(summary(model))
+}
 ```
 
+#-------------------------------
+#sex specific endocrine biology
+#------------------------------
 ```{r}
-wqs_model <- gwqs(
-  acr_u ~ wqs + age + sex,
-  mix_name = pfas_vars,
-  data = dat,
-  q = 4,
-  validation = 0.6,
-  b = 1000,
-  family = "gaussian"
-)
+for (pfas in pfas_vars) {
 
-summary(wqs_model)
+  m0 <- as.formula(paste0("acr_u ~ ",pfas,"*sex + age"))
+  m1 <- lm(m0, data=dat_long2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= acr_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=FALSE)+
+    theme_bw()+
+    labs(
+      title="Association between PFAS and uACR at Year 2 adj. for Age & Sex",
+      subtitle=paste0("Beta=",round(beta,3),
+                      " p=",round(pval,3)),
+      x=pfas,
+      y="acr_u"
+      )
+  
+  print(p)
+  print(summary(m1))
+}
 ```
+
