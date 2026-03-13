@@ -45,6 +45,7 @@ knitr::opts_knit$set(root.dir = home_dir)
 
 ```{r, include=FALSE}
 load("./Metabolomic data/plasma.Rdata")
+load("./Metabolomic data/plasma_ceramides.Rdata")
 
 # load comorbidity data
 load("./Clinical data/comorb.Rdata")
@@ -56,6 +57,13 @@ load("./Clinical data/TODAY/baserisk.Rdata")
 plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
 base <- plasma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 base <- base %>% arrange(Date.Drawn)
+
+# take only base plasma ceramides
+plasma_ceramides$Date.Drawn <- as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
+base_ceramides <- plasma_ceramides %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base_ceramides <- base_ceramides %>% arrange(Date.Drawn)
+names(base_ceramides) <- c("releaseid","Date.Drawn","C14.uM","C16.uM","C18.uM","C20.uM","C22.uM","C24.uM")
+base<- merge(base, base_ceramides,by="releaseid",all.x=T,all.y=F)
 
 # merge in complication data
 base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
@@ -95,7 +103,7 @@ base_log <- base %>% modify_if(is_seq(names(.)), log)
 base_log_scale <- base_log
 predictors <- colnames(base_log[seq])
 for (i in 1:length(predictors)) {
-  base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])])
+  base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])],na.rm=T)
 }
 
 # now we need to change the format of the variable names
@@ -103,13 +111,11 @@ temp <- str_replace_all(colnames(base_log_scale[,seq]),"/","_")
 colnames(base_log_scale)[seq] <- temp
 temp <- str_replace_all(colnames(base_log_scale[,seq]),"-","_")
 colnames(base_log_scale)[seq] <- temp
-temp <- str_replace_all(colnames(base_log_scale[,seq]),"3","Three")
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"3_","Three_")
 colnames(base_log_scale)[seq] <- temp
-temp <- str_replace_all(colnames(base_log_scale[,seq]),"2","Two")
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"2_","Two_")
 colnames(base_log_scale)[seq] <- temp
 temp <- str_replace_all(colnames(base_log_scale[,seq]),"\\(s\\)","s")
-colnames(base_log_scale)[seq] <- temp
-temp <- str_replace_all(colnames(base_log_scale[,seq]),"5","Five")
 colnames(base_log_scale)[seq] <- temp
 ```
 

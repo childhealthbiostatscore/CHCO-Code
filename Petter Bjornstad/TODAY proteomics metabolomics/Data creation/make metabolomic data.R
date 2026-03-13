@@ -3,15 +3,15 @@ library(berryFunctions)
 library(stringr)
 library(openxlsx)
 
-if(Sys.info()["sysname"] == "Windows"){
-  home_dir = "E:/Petter Bjornstad/TODAY subaward"
-} else if (Sys.info()["sysname"] == "Linux"){
-  home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-} else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward"
-}
+# if(Sys.info()["sysname"] == "Windows"){
+#   home_dir = "E:/Petter Bjornstad/TODAY subaward"
+# } else if (Sys.info()["sysname"] == "Linux"){
+#   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# } else if (Sys.info()["sysname"] == "Darwin"){
+#   home_dir = "/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward"
+# }
 
-home_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+home_dir = paste0("/Users/",Sys.info()["user"],"/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward")
 
 setwd(home_dir)
 
@@ -78,6 +78,15 @@ lead_plasma_oa_2025 <- openxlsx::read.xlsx("./Metabolomic data/200251008_TODAY_L
 lead_plasma_oa_2025$Sample.Name <- gsub("_Plasma", "", lead_plasma_oa_2025$File.Name)
 lead_plasma <- merge(lead_plasma,lead_plasma_oa_2025,by="Sample.Name")
 
+# read in NIDDK plasma ceramides (march 2026)
+niddk_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_NIDDK_Plasma_Cearmides_Final.xlsx", sheet = "TODAY_NIDDK_Plasma_Cearmides_Fi",
+                                           startRow = 2,colNames = TRUE)
+#remove HC (healthy controls) and last row which is a key
+niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[-nrow(niddk_plasma_ceramides_2026),]
+niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[- grep("HC_", niddk_plasma_ceramides_2026$Filename),]
+# read in LEAD plasma ceramides (march 2026)
+lead_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_LEAD_Plasma_Ceramides_Final.xlsx", sheet = "TODAY_LEAD_Plasma_Ceramides",
+                                         startRow = 2,colNames = TRUE)
 
 ######################
 # link IDs and merge #
@@ -121,7 +130,23 @@ lead_plasma$current_label <- NA
 nih_plasma$Sample.Name <- as.character(nih_plasma$Sample.Name)
 plasma <- bind_rows(nih_plasma,lead_plasma)
 
+# add new plasma ceramides 2026
+# NIDDK 2026
+niddk_plasma_ceramides_2026$current_label <- gsub("_Plasma","", niddk_plasma_ceramides_2026$Filename)
+niddk_plasma_ceramides_2026 <- merge(niddk_plasma_ceramides_2026,ids_niddk,by="current_label",all.x = T, all.y = F) 
+# LEAD 2026
+lead_plasma_ceramides_2026$Sample.Name<-lead_plasma_ceramides_2026$Filename
+lead_plasma_ceramides_2026$Sample.Name[lead_plasma_ceramides_2026$Sample.Name=="6565369"]<-"65_65369"
+  
+lead_plasma_ceramides_2026 <- merge(lead_plasma_ceramides_2026,ids_lead,by="Sample.Name",all.x = T, all.y = F)
+plasma_ceramides <- bind_rows(niddk_plasma_ceramides_2026,lead_plasma_ceramides_2026)
+plasma_ceramides<-plasma_ceramides[,c("releaseid","Date.Drawn",
+                                      "C14(d18:1/14:0).in.uM","C16(d18:1/16:0).in.uM","C18(d18:1/18:0).in.uM",
+                                      "C20(d18:1/20:0).in.uM","C22(d18:1/22:0).in.uM","C24(d18:1/24:0).in.uM")]
+
 # Save
 # save(urine,file = "./Metabolomic data/urine.Rdata")
-# save(plasma,file = "./Metabolomic data/plasma.Rdata")
-write.csv(plasma, file = "./Metabolomic data/today_plasma_metabolomics.csv", row.names = F, na = "")
+save(plasma,file = "./Metabolomic data/plasma.Rdata")
+save(plasma_ceramides,file = "./Metabolomic data/plasma_ceramides.Rdata")
+
+# write.csv(plasma, file = "./Metabolomic data/today_plasma_metabolomics.csv", row.names = F, na = "")
