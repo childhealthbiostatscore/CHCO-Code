@@ -31,6 +31,8 @@ library(gt)
 library(table1)
 #install.packages("lme4")
 library(lme4)
+#install.packages("ggpubr")
+library(ggpubr)
 ```
 #---------------------------------------------------
 # 1. inputting all directories and storage locations
@@ -228,14 +230,71 @@ dat_long <- dat_long %>%
 #-------------------------------
 ```{r}
 #Particpants 
-table1(~age+sex+bmi+hba1c+hct+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat)
+table1(~age+sex+bmi+hba1c+hct+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+eGFR_CKiD_U25_avg+dexa_lean_kg+dexa_fat_kg+igf_1+bl_dheas|group,data=dat)
 ```
+
 ```{r}
 table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+
        PFHxS+PFOA+PFOS+PFPeAS | group,
        data=dat,
        render.continuous = render.geometric)
 ```
+
+
+
+```{r}
+for (pfas in pfas_vars) {
+  # ANOVA
+  m0 <- as.formula(paste0(pfas, " ~ group + sex + group:sex"))
+  model <- aov(m0, data = pfas_group_dat)
+
+  # Tukey test
+  tk <- TukeyHSD(model, "group")
+
+  tk_df <- as.data.frame(tk$group)
+  tk_df$comparison <- rownames(tk_df)
+
+  # split group1-group2
+  tk_df <- tk_df %>%
+    mutate(
+      group1 = sub("-.*", "", comparison),
+      group2 = sub(".*-", "", comparison),
+      p.adj = `p adj`
+    ) %>%
+    filter(p.adj < 0.05)
+
+  # add y positions for annotation
+  if (nrow(tk_df) > 0) {
+    tk_df$y.position <- max(pfas_group_dat[[pfas]], na.rm = TRUE) * 
+      seq(1.05, 1.2, length.out = nrow(tk_df))
+  }
+
+  p <- ggplot(pfas_group_dat,
+              aes(x = group, y = .data[[pfas]], fill = sex)) +
+    geom_boxplot() +
+    theme_bw() +
+    labs(
+      title = paste("PFAS Distribution:", pfas),
+      x = "Group",
+      y = "Log PFAS concentration"
+    )
+
+  if (nrow(tk_df) > 0) {
+    p <- p + stat_pvalue_manual(
+      tk_df,
+      label = "p.adj",
+      xmin = "group1",
+      xmax = "group2",
+      y.position = "y.position"
+    )
+  }
+
+  print(p)
+}
+
+```
+
+
 ```{r}
 pfas_vars <- c(
 "N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
@@ -251,6 +310,7 @@ table(pfas_group_dat$sex)
 pfas_group_dat <- pfas_group_dat %>%
   mutate(across(all_of(pfas_vars), log))
 
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0(pfas, " ~ group + sex + group:sex")
@@ -263,32 +323,32 @@ for (pfas in pfas_vars) {
 }
 
 ```
+
 ```{r}
-TukeyHSD(model,"group")
-```
-```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/PFAS_group_concentrations.pdf",
+    width = 8, height = 6)
+
 for (pfas in pfas_vars) {
-  p <- ggplot(dat, aes(x=group, y=.data[[pfas]], fill=sex)) +
+  
+  p <- ggplot(dat, aes(x = group, y = .data[[pfas]], fill = sex)) +
     geom_boxplot() +
     theme_bw() +
     labs(
-      title=paste("PFAS Distribution:",pfas),
-      x="Group",
-      y="PFAS concentration"
+      title = paste("PFAS Distribution:", pfas),
+      x = "Group",
+      y = "PFAS concentration"
     )
 
-  print(p)
-
+  print(p)  # each print creates a new page in the PDF
 }
+
+dev.off()
 ```
 ##---------------------------------------
 ## PFAS and Baseline Kidney Associations
 ##---------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Kidney Associations/uACR_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("acr_u ~ ",pfas," + age + sex"))
@@ -308,16 +368,12 @@ for (pfas in pfas_vars) {
     )
   
   print(p)
-
 }
 dev.off()
 ```
-```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
 
+```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Kidney Associations/microalbumin_urine_PFAS_baseline.pdf", width = 8, height = 6)
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("microalbumin_u~ ",pfas," + age + sex"))
   m1 <- lm(m0,dat=dat)
@@ -337,14 +393,11 @@ for (pfas in pfas_vars) {
   
   print(p)
 }
-
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Kidney Associations/eGFR_CKiD_U25_avg_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("eGFR_CKiD_U25_avg~ ",pfas," + age + sex"))
@@ -364,47 +417,38 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
-
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Kidney Associations/eGFR_fas_cr_PFAS_baseline.pdf", width = 8, height = 6)
 for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("deltapf~ ",pfas," + age + sex"))
+  m0 <- as.formula(paste0("eGFR_fas_cr~ ",pfas," + age + sex"))
   m1 <- lm(m0,dat=dat)
   beta <- summary(m1)$coef[2,1]
   pval <- summary(m1)$coef[2,4]
-  p <- ggplot(dat,aes(x=.data[[pfas]],y= deltapf))+
+  p <- ggplot(dat,aes(x=.data[[pfas]],y= eGFR_fas_cr))+
     geom_point()+
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Association between PFAS and Renal Clearance adj. for Age & Sex",
+      title="Association between PFAS and eGFR_fas_cr adj. for Age & Sex",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
-      y="deltapf"
+      y="eGFR_fas_cr"
       )
   
   print(p)
-    
-  
 }
+dev.off()
 ```
 ##--------------------------------------------
 ## PFAS & Baseline Metabolic Associations
 ##--------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Metabolic Associations/Fat_mass_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_fat_kg~",pfas," + age + sex"))
@@ -416,7 +460,7 @@ for (pfas in pfas_vars) {
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Association between PFAS and fat mass adj. for Age & Sex",
+      title="Association between PFAS and Fat Mass adj. for Age & Sex",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
@@ -424,16 +468,12 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Metabolic Associations/Lean_mass_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_lean_kg~",pfas," + age + sex"))
@@ -445,7 +485,7 @@ for (pfas in pfas_vars) {
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Association between PFAS and lean mass adj. for Age & Sex",
+      title="Association between PFAS and Lean Mass adj. for Age & Sex",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
@@ -453,16 +493,12 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Metabolic Associations/Insulin_Sensitivity_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("mm_si~",pfas," + age + sex"))
@@ -482,17 +518,13 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
-
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Metabolic Associations/Insulin_Resistance_PFAS_baseline.pdf", width = 8, height = 6)
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("mm_ir~",pfas," + age + sex"))
   m1 <- lm(m0,dat=dat)
@@ -511,16 +543,12 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Metabolic Associations/Insulin_Secretion_Capacity_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("mm_di~",pfas," + age + sex"))
@@ -540,18 +568,14 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 ##--------------------------------------------
 ## PFAS & Baseline Hormonal Associations
 ##--------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Hormonal Associations/IGF1_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("igf_1~",pfas," + age + sex"))
@@ -571,18 +595,14 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
 ##"bl_estrad","bl_tot_test" --not in dataset 
 
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Baseline Associations/Hormonal Associations/DHEAS_PFAS_baseline.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("bl_dheas~",pfas," + age + sex"))
@@ -602,9 +622,8 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  
-  }
+}
+dev.off()
 ```
 
 ```{r}
@@ -620,6 +639,9 @@ ggplot(dat_long,aes(time_numeric,acr_u))+
     x="Time",
     y="ACRu"
   )
+
+ggsave("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/uACR_over_time.pdf", width = 8, height = 6)
+dev.off()
 ```
 #---------------------------------
 #Creating Follow up Data-sets
@@ -647,6 +669,8 @@ dat_all <- left_join(dat,dat_followup1,by="record_id")
 ## PFAS & Year 1 Followup Renal Clearance Associations
 ##----------------------------------------------------
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Kidney Associations/uACR_PFAS_yr1.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("acr_u_yr1 ~ ",pfas," + age + sex + acr_u")
@@ -668,11 +692,13 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Kidney Associations/Microalbumin_PFAS_yr1.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("microalbumin_u_yr1 ~ ",pfas," + age + sex + microalbumin_u")
@@ -694,11 +720,14 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Kidney Associations/eGFR_CKiD_U25_avg_PFAS_yr1.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("eGFR_CKiD_U25_avg_yr1 ~ ",pfas," + age + sex + eGFR_CKiD_U25_avg")
@@ -720,11 +749,14 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Kidney Associations/eGFR_fas_cr_PFAS_yr1.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("eGRF_fas_cr_y1 ~ ",pfas," + age + sex + eGFR_fas_cr")
@@ -746,8 +778,8 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+dev.off()
 ```
 
 ##--------------------------------------------------
@@ -755,10 +787,7 @@ for (pfas in pfas_vars) {
 ## no data for mm_si, mm_di, or mm_ir at year 1 mark
 ##--------------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Metabolic Associations/Fat_Mass_PFAS_yr1.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_fat_kg_yr1~",pfas," + age + sex + dexa_fat_kg"))
@@ -778,14 +807,12 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Metabolic Associations/Lean_Mass_PFAS_yr1.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_lean_kg_yr1~",pfas," + age + sex+dexa_lean_kg"))
@@ -797,7 +824,7 @@ for (pfas in pfas_vars) {
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Association between PFAS and lean mass at Year 1 adj. for Age & Sex",
+      title="Association between PFAS and Lean Mass at Year 1 adj. for Age & Sex",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
@@ -805,16 +832,15 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-  }
+}
+
+dev.off()
 ```
 ##--------------------------------------------
 ## PFAS & Year 1 Hormonal Associations
 ##--------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Hormonal Associations/IGF1_PFAS_yr1.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("igf_1_yr1~",pfas," + age + sex + igf_1"))
@@ -834,14 +860,12 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 1 Associations/Hormonal Associations/DHEAS_PFAS_yr1.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("bl_dheas_yr1~",pfas," + age + sex + bl_dheas"))
@@ -861,8 +885,8 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-    
-  }
+}
+dev.off()
 ```
 
 ```{r}
@@ -896,6 +920,8 @@ dat_all2 <- dat_all2 %>%
 ## PFAS & Year 1 Followup Renal Clearance Associations
 ##----------------------------------------------------
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney Associations/uACR_PFAS_yr2.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("acr_u_yr2 ~ ",pfas," + age + sex + acr_u")
@@ -917,11 +943,14 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney Associations/Microalbumin_PFAS_yr2.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("microalbumin_u_yr2 ~ ",pfas," + age + sex + microalbumin_u")
@@ -935,7 +964,7 @@ for (pfas in pfas_vars) {
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Baseline PFAS vs microalbumin at Year 2",
+      title="Baseline PFAS vs Microalbumin at Year 2",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
@@ -943,11 +972,14 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney Associations/eGFR_CKiD_U25_avg_PFAS_yr2.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("eGFR_CKiD_U25_avg_yr2 ~ ",pfas," + age + sex + eGFR_CKiD_U25_avg")
@@ -969,11 +1001,14 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ```{r}
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney Associations/eGFR_fas_cr_PFAS_yr2.pdf", width = 8, height = 6)
+
 for (pfas in pfas_vars) {
   m0 <- as.formula(
     paste0("eGRF_fas_cr_yr2 ~ ",pfas," + age + sex + eGFR_fas_cr")
@@ -995,8 +1030,9 @@ for (pfas in pfas_vars) {
     )
 
   print(p)
-
 }
+
+dev.off()
 ```
 
 ##--------------------------------------------------
@@ -1004,10 +1040,7 @@ for (pfas in pfas_vars) {
 ## no data for mm_si, mm_di, or mm_ir at year 1 mark
 ##--------------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Metabolic Associations/Fat_Mass_PFAS_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_fat_kg_yr2~",pfas," + age + sex + dexa_fat_kg"))
@@ -1025,16 +1058,13 @@ for (pfas in pfas_vars) {
       x=pfas,
       y="dexa_fat_kg_yr2"
       )
-  
   print(p)
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Metabolic Associations/Lean_Mass_PFAS_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("dexa_lean_kg_yr2~",pfas," + age + sex+dexa_lean_kg"))
@@ -1046,7 +1076,7 @@ for (pfas in pfas_vars) {
     geom_smooth(method="lm",se=FALSE)+
     theme_bw()+
     labs(
-      title="Association between PFAS and lean mass adj. for Age & Sex",
+      title="Association between PFAS and Lean Mass adj. for Age & Sex",
       subtitle=paste0("Beta=",round(beta,3),
                       " p=",round(pval,3)),
       x=pfas,
@@ -1054,16 +1084,14 @@ for (pfas in pfas_vars) {
       )
   
   print(p)
-  }
+}
+dev.off()
 ```
 ##--------------------------------------------
 ## PFAS & Year 2 Hormonal Associations
 ##--------------------------------------------
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Hormonal Associations/IGF1_PFAS_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("igf_1_yr2~",pfas," + age + sex + igf_1"))
@@ -1081,16 +1109,13 @@ for (pfas in pfas_vars) {
       x=pfas,
       y="igf_1_yr2"
       )
-  
   print(p)
-  }
+}
+dev.off()
 ```
 
 ```{r}
-pfas_vars <- c(
-"N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
-"PFHps","PFHxS","PFOA","PFOS","PFPeAS"
-)
+pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Hormonal Associations/DHEAS_PFAS_yr2.pdf", width = 8, height = 6)
 
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("bl_dheas_yr2~",pfas," + age + sex + bl_dheas"))
@@ -1111,7 +1136,9 @@ for (pfas in pfas_vars) {
   
   print(p)
     
-  }
+}
+
+dev.off()
 ```
 
 ```{r}
