@@ -28,15 +28,16 @@ library(stringr)
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
 
 knitr::opts_chunk$set(echo = FALSE)
-if(Sys.info()["sysname"] == "Windows"){
-  home_dir = "E:/Petter Bjornstad/TODAY subaward"
-} else if (Sys.info()["sysname"] == "Linux"){
-  home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-} else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Volumes/som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-}
+# if(Sys.info()["sysname"] == "Windows"){
+#   home_dir = "E:/Petter Bjornstad/TODAY subaward"
+# } else if (Sys.info()["sysname"] == "Linux"){
+#   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# } else if (Sys.info()["sysname"] == "Darwin"){
+#   home_dir = "/Volumes/som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# }
+#3/13/2026: KM updated to point to OneDrive: (should work for any user if using mac? confirm this is how OneDrive is mapped to Laura's computer too)
+home_dir = paste0("/Users/",Sys.info()["user"],"/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward")
 knitr::opts_knit$set(root.dir = home_dir)
-setwd(home_dir)
 ```
 
 ```{r, include=FALSE}
@@ -47,6 +48,9 @@ load("./Clinical data/comorb.Rdata")
 
 # load baseline risk factors
 load("./Clinical data/TODAY/baserisk.Rdata")
+
+# load CKM outcomes
+dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
 # take only the baseline samples
 urine$Date.Drawn <- as.Date(urine$Date.Drawn,format = "%m/%d/%Y")
@@ -61,6 +65,14 @@ base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
 
 # merge in baseline risk factors
 base <- merge(base, baserisk, by="releaseid",all.x=T, all.y=F)
+
+# merge in CKM outcomes
+dat.ckm$releaseid<-dat.ckm$RELEASEID
+base <- merge(base, dat.ckm[,c("releaseid",
+                               "CKM_syn_base","CKM_max",
+                               "progress_CKM","days_to_first_ckm_prog",
+                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
 
 # identify columns corresponding to proteins
 #is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
@@ -231,6 +243,45 @@ for (i in 1:length(predictors)) {
 results_glyc_a1c$adj.p.value <- p.adjust(results_glyc_a1c$p.value, "fdr")
 results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$p.value),] 
 
+# CKM progression
+results_ckm_prog <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, progress_CKM)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog <- rbind(results_ckm_prog,tidymod)
+}
+results_ckm_prog$adj.p.value <- p.adjust(results_ckm_prog$p.value, "fdr")
+results_ckm_prog <- results_ckm_prog[order(results_ckm_prog$p.value),] 
+
+# CKM progression stage 3
+results_ckm_prog3 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog3 <- rbind(results_ckm_prog3,tidymod)
+}
+results_ckm_prog3$adj.p.value <- p.adjust(results_ckm_prog3$p.value, "fdr")
+results_ckm_prog3 <- results_ckm_prog3[order(results_ckm_prog3$p.value),] 
+
+# CKM progression stage 4
+results_ckm_prog4 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog4 <- rbind(results_ckm_prog4,tidymod)
+}
+results_ckm_prog4$adj.p.value <- p.adjust(results_ckm_prog4$p.value, "fdr")
+results_ckm_prog4 <- results_ckm_prog4[order(results_ckm_prog4$p.value),] 
+
 # write all results to file
 wb <- createWorkbook()
 addWorksheet(wb,"MAC CPH")
@@ -253,6 +304,12 @@ addWorksheet(wb,"GLYC CPH")
 writeData(wb,"GLYC CPH",result_GLYC,rowNames = F)
 addWorksheet(wb,"GLYC with A1c CPH")
 writeData(wb,"GLYC with A1c CPH",results_glyc_a1c,rowNames = F)
+addWorksheet(wb,"CKM progression")
+writeData(wb,"CKM progression",results_ckm_prog,rowNames = F)
+addWorksheet(wb,"CKM progression stage 3")
+writeData(wb,"CKM progression stage 3",results_ckm_prog3,rowNames = F)
+addWorksheet(wb,"CKM progression stage 4")
+writeData(wb,"CKM progression stage 4",results_ckm_prog4,rowNames = F)
 saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY urine metabolomics Cox models scaled baseline adjusted.xlsx",overwrite = TRUE)
 
 
