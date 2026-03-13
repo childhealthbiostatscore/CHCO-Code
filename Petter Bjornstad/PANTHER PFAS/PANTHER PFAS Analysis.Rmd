@@ -67,7 +67,7 @@ dat_collapsed1 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="baseline" | visit=="screening") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi,race,ethnicity,race_ethnicity, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi,race,ethnicity,race_ethnicity, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u,erpf_bsa_plasma,erpf_bsa_plasma_urine,eGFR_CKiD_U25_avg,mm_si,pah_clear_bsa,avg_k_r2,avg_c_r2) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -84,7 +84,7 @@ dat_collapsed2 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="year_1" | visit=="year_2") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, race,ethnicity, race_ethnicity, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, race,ethnicity, race_ethnicity, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u,erpf_bsa_plasma,erpf_bsa_plasma_urine,eGFR_CKiD_U25_avg,mm_si,pah_clear_bsa,avg_k_r2,avg_c_r2) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -106,6 +106,39 @@ pfas_dat <- dat %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id)) %>% 
   filter(!is.na(N.EtFOSAA)) #91 participants with baseline pfas data
+rm(dat_collapsed1,dat_collapsed2,dat_followup1,dat_followup2)
+
+#Formatted imputed pfas data
+pfas_imputed <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/PFAS_Data_Imputed_11_03.rds")
+
+#Format metadata
+# meta <- dat_collapsed
+dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
+
+#Particpants 
+dat_baseline <- dat %>% 
+  filter(visit=="baseline_screening")
+table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat_baseline)
+# saveRDS(dat_baseline,fs::path(dir.dat,"panther_pfas_baseline_12_17.rds"))
+
+#Folowoup Year 1
+dat_followup1 <- dat %>% 
+  filter(visit=="year_1") %>% 
+  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
+  dplyr::rename(microalbumin_u_yr1=microalbumin_u,
+                acr_u_yr1=acr_u,
+                eGFR_CKiD_U25_avg_yr1=eGFR_CKiD_U25_avg)
+
+#Followup Year 2
+dat_followup2 <- dat %>% 
+  filter(visit=="year_2") %>% 
+  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
+  dplyr::rename(microalbumin_u_yr2=microalbumin_u,
+                acr_u_yr2=acr_u,
+                eGFR_CKiD_U25_avg_yr2=eGFR_CKiD_U25_avg)
+
+dat_all <- tidylog::left_join(dat_baseline,dat_followup1,by="record_id")
+dat_all <- tidylog::left_join(dat_all,dat_followup2,by="record_id")
 ```
 
 ##c. Impute PFAS Data
@@ -176,38 +209,38 @@ pfas_dat <- dat %>%
 
 #Save formatted and imputed pfas data
 # saveRDS(pfas_imputed,fs::path(dir.dat,"PFAS_Data_Imputed_12_17.rds"))
-pfas_imputed <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/PFAS_Data_Imputed_11_03.rds")
+# pfas_imputed <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/PFAS_Data_Imputed_11_03.rds")
 # pfas_to_impute
 table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFOA+PFBS+PFHps+PFHxS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
-#Format metadata
-# meta <- dat_collapsed
-dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
-
-#Particpants 
-dat_baseline <- dat %>% 
-  filter(visit=="baseline_screening")
-table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat_baseline)
-# saveRDS(dat_baseline,fs::path(dir.dat,"panther_pfas_baseline_12_17.rds"))
-
-#Folowoup Year 1
-dat_followup1 <- dat %>% 
-  filter(visit=="year_1") %>% 
-  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
-  dplyr::rename(microalbumin_u_yr1=microalbumin_u,
-                acr_u_yr1=acr_u,
-                eGFR_CKiD_U25_avg_yr1=eGFR_CKiD_U25_avg)
-
-#Followup Year 2
-dat_followup2 <- dat %>% 
-  filter(visit=="year_2") %>% 
-  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
-  dplyr::rename(microalbumin_u_yr2=microalbumin_u,
-                acr_u_yr2=acr_u,
-                eGFR_CKiD_U25_avg_yr2=eGFR_CKiD_U25_avg)
-
-dat_all <- tidylog::left_join(dat_baseline,dat_followup1,by="record_id")
-dat_all <- tidylog::left_join(dat_all,dat_followup2,by="record_id")
+# #Format metadata
+# # meta <- dat_collapsed
+# dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
+# 
+# #Particpants 
+# dat_baseline <- dat %>% 
+#   filter(visit=="baseline_screening")
+# table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat_baseline)
+# # saveRDS(dat_baseline,fs::path(dir.dat,"panther_pfas_baseline_12_17.rds"))
+# 
+# #Folowoup Year 1
+# dat_followup1 <- dat %>% 
+#   filter(visit=="year_1") %>% 
+#   dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
+#   dplyr::rename(microalbumin_u_yr1=microalbumin_u,
+#                 acr_u_yr1=acr_u,
+#                 eGFR_CKiD_U25_avg_yr1=eGFR_CKiD_U25_avg)
+# 
+# #Followup Year 2
+# dat_followup2 <- dat %>% 
+#   filter(visit=="year_2") %>% 
+#   dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
+#   dplyr::rename(microalbumin_u_yr2=microalbumin_u,
+#                 acr_u_yr2=acr_u,
+#                 eGFR_CKiD_U25_avg_yr2=eGFR_CKiD_U25_avg)
+# 
+# dat_all <- tidylog::left_join(dat_baseline,dat_followup1,by="record_id")
+# dat_all <- tidylog::left_join(dat_all,dat_followup2,by="record_id")
 
 table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
@@ -284,7 +317,7 @@ dev.off()
 pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_microalbumin_plots_no_outlier.pdf", width = 8, height = 6)
 #Baseline Analysis
 pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-                    "PFHps", "PFHxS", "PFOS", "PFPeAS")
+               "PFHps", "PFHxS", "PFOS", "PFPeAS")
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0("microalbumin_u~",pfas,"+age+sex"))
   m1 <- lm(m0,dat=dat_baseline2)
@@ -427,7 +460,7 @@ dev.off()
 pdf("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/PFAS & IR in Panther/Results/Baseline_Microalbuminuria_PFAS.pdf", width = 8, height = 6)
 #Baseline Analysis
 pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-                    "PFHps", "PFHxS", "PFOS", "PFPeAS")
+               "PFHps", "PFHxS", "PFOS", "PFPeAS")
 for (pfas in pfas_vars) {
   m0 <- as.formula(paste0(pfas,"~microalbumin_u","+age+sex"))
   m1 <- lm(m0,dat=dat_baseline2)
@@ -643,93 +676,159 @@ dev.off()
 
 #4.Changes over time in the outcomes by group
 ```{r}
-#Renal Clearance
-#	erpf_bsa_plasma	BSA indexed ERPF from plasma clearance (mL/min/1.73m^2)	mL/min/1.73m^2		renal_clearance		
-# erpf_bsa_plasma_urine	BSA indexed ERPF from plasma and urine clearance (mL/min/1.73m^2)	mL/min/1.73m^2		renal_clearance		
-# erpf_raw_plasma	ERPF from plasma clearance	mL/min		renal_clearance		
-# erpf_raw_plasma_urine	ERPF from plasma and urine clearance	mL/min		renal_clearance
+outcome_vars <- c("erpf_bsa_plasma","erpf_bsa_plasma_urine","eGFR_CKiD_U25_avg",
+                  "mm_si","pah_clear_bsa","acr_u","avg_c_r2","avg_k_r2")
 
-#GFR
+label(dat$avg_c_r2) <- "Average Cortical R2*"
+label(dat$avg_k_r2) <- "Average Kidney R2* "
+label(dat$erpf_bsa_plasma)      <- "BSA indexed ERPF from plasma clearance (mL/min/1.73m\u00b2)"
+label(dat$erpf_bsa_plasma_urine)<- "BSA indexed ERPF from plasma and urine clearance (mL/min/1.73m\u00b2)"
+label(dat$eGFR_CKiD_U25_avg)   <- "eGFR from CKiD U25 equation (mL/min/1.73m\u00b2)"
+label(dat$mm_si)                <- "Insulin sensitivity (\u03bcU/mL)\u207b\u00b9\u00b7min\u207b\u00b9"
+label(dat$pah_clear_bsa)        <- "BSA Normalized PAH Clearance (Plasma) (mL/min/1.73m\u00b2)"
+label(dat$acr_u)                <- "Urine Albumin-Creatinine Ratio (mg/g)"
 
-outcome_vars <- c("ERPF, GFR, Insulin Sensitivity, Renal Perfusion, renal oxygenation, adj. for baseline ACRu")
-# ^ swap in whatever your actual outcome variable names are
+group_var    <- "group"
+group_colors <- c("#C2185B", "#E8634A", "#F5A623")
 
-# ── Define group variable and colors ─────────────────────────────────────────
-group_var <- "group"   # your disease group column name
-group_colors <- c("steelblue", "tomato", "forestgreen")  # one per group level
+# Output directory for figures
+fig_dir <- fs::path(dir.dat, "PANTHER/Results/PFAS Results/figures")
+fs::dir_create(fig_dir)
 
-# ── Loop over each outcome variable ──────────────────────────────────────────
-plot_list <- list()
+outlier_log <- list()
+plot_list   <- list()
+fig_paths   <- list()  # track saved PNG paths
 
+# ── Identify baseline-only variables ─────────────────────────────────────────
+baseline_only_vars <- outcome_vars[sapply(outcome_vars, function(var) {
+  dat %>%
+    filter(!is.na(.data[[var]])) %>%
+    pull(visit) %>%
+    unique() %>%
+    setdiff("baseline_screening") %>%
+    length() == 0
+})]
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
 for (var in outcome_vars) {
   
-  # Step 1: Summary — mean + 95% CI per visit per group
-  summary_df <- dat_long %>%
-    filter(!is.na(.data[[var]]), !is.na(.data[[group_var]])) %>%
-    group_by(visit, .data[[group_var]]) %>%
-    summarise(
-      mean_val = mean(.data[[var]], na.rm = TRUE),
-      se_val   = sd(.data[[var]], na.rm = TRUE) / sqrt(n()),
-      n        = n(),
-      t_crit   = qt(0.975, df = n - 1),
-      ci_lo    = mean_val - t_crit * se_val,
-      ci_hi    = mean_val + t_crit * se_val,
-      .groups  = "drop"
-    ) %>%
-    rename(group = .data[[group_var]])
+  var_label        <- if (!is.null(label(dat[[var]]))) label(dat[[var]]) else var
+  is_baseline_only <- var %in% baseline_only_vars
   
-  # Step 2: Individual-level data
-  indiv_df <- dat_long %>%
-    filter(!is.na(.data[[var]]), !is.na(.data[[group_var]])) %>%
-    rename(group = .data[[group_var]])
+  # ── Outlier removal ──────────────────────────────────────────────────────────
+  dat_var  <- dat %>%
+    filter(!is.na(.data[[var]]), !is.na(.data[[group_var]]))
   
-  # Step 3: Build plot
-  p <- ggplot() +
-    # Individual trajectories
-    geom_line(data = indiv_df,
-              aes(x = visit, y = .data[[var]], 
-                  group = record_id, color = group),
-              alpha = 0.2, linewidth = 0.35) +
-    geom_point(data = indiv_df,
-               aes(x = visit, y = .data[[var]], color = group),
-               alpha = 0.2, size = 0.7) +
-    # Group mean + 95% CI
-    geom_line(data = summary_df,
-              aes(x = visit, y = mean_val, 
-                  group = group, color = group),
-              linewidth = 1.2) +
-    geom_point(data = summary_df,
-               aes(x = visit, y = mean_val, color = group),
-               size = 3) +
-    geom_errorbar(data = summary_df,
-                  aes(x = visit, ymin = ci_lo, ymax = ci_hi, color = group),
-                  width = 0.15, linewidth = 0.9) +
-    scale_color_manual(values = group_colors, name = "Group") +
-    labs(
-      x       = "Visit",
-      y       = var,
-      title   = paste("Longitudinal trajectories:", var),
-      caption = "Faint lines: individual trajectories  |  Bold: mean ± 95% CI"
-    ) +
-    theme_bw(base_size = 12) +
-    theme(
-      legend.position   = "bottom",
-      plot.title        = element_text(face = "bold"),
-      strip.background  = element_rect(fill = "grey92")
-    )
+  mean_val <- mean(dat_var[[var]], na.rm = TRUE)
+  sd_val   <- sd(dat_var[[var]],   na.rm = TRUE)
+  
+  outliers <- dat_var %>%
+    filter(abs(.data[[var]] - mean_val) > 3 * sd_val) %>%
+    select(record_id, visit, all_of(group_var), all_of(var)) %>%
+    mutate(variable = var, var_label = var_label)
+  
+  if (nrow(outliers) > 0) outlier_log[[var]] <- outliers
+  
+  dat_clean <- dat_var %>%
+    filter(abs(.data[[var]] - mean_val) <= 3 * sd_val) %>%
+    dplyr::rename(group = all_of(group_var))
+  
+  # ── Baseline N per group (for facet strip labels only) ───────────────────────
+  n_df <- dat_clean %>%
+    filter(visit == "baseline_screening") %>%
+    dplyr::count(group) %>%
+    mutate(n_label = paste0(group, "\nn = ", n))
+  
+  n_lookup <- setNames(n_df$n_label, n_df$group)
+  
+  # ── Footnote ─────────────────────────────────────────────────────────────────
+  footnote <- if (var %in% names(outlier_log)) {
+    ol <- outlier_log[[var]]
+    paste0("Outlier(s) removed: ",
+           paste(paste0(ol$record_id, " (", ol[[group_var]],
+                        ", value = ", round(ol[[var]], 2), ")"),
+                 collapse = "; "))
+  } else NULL
+  
+  # ── Build plot ────────────────────────────────────────────────────────────────
+  if (is_baseline_only) {
+    
+    dat_base <- dat_clean %>% filter(visit == "baseline_screening")
+    
+    p <- ggplot(dat_base, aes(x = group, y = .data[[var]], color = group)) +
+      geom_boxplot(outlier.shape = NA, width = 0.5, linewidth = 0.8) +
+      geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+      scale_color_manual(values = group_colors, name = "Group") +
+      scale_x_discrete(labels = n_lookup) +
+      labs(x = NULL, y = var,
+           title   = paste("Baseline distribution:", var_label),
+           caption = footnote) +
+      theme_bw(base_size = 12) +
+      theme(legend.position = "none",
+            plot.title   = element_text(face = "bold"),
+            plot.caption = element_text(color = "firebrick", size = 9))
+    
+  } else {
+    
+    summary_df <- dat_clean %>%
+      group_by(visit, group) %>%
+      summarise(
+        mean_val = mean(.data[[var]], na.rm = TRUE),
+        se_val   = sd(.data[[var]], na.rm = TRUE) / sqrt(n()),
+        n        = n(),
+        t_crit   = qt(0.975, df = n - 1),
+        ci_lo    = mean_val - t_crit * se_val,
+        ci_hi    = mean_val + t_crit * se_val,
+        .groups  = "drop"
+      )
+    
+    p <- ggplot() +
+      geom_line(data = dat_clean,
+                aes(x = visit, y = .data[[var]], group = record_id, color = group),
+                alpha = 0.25, linewidth = 0.35) +
+      geom_point(data = dat_clean,
+                 aes(x = visit, y = .data[[var]], color = group),
+                 alpha = 0.25, size = 0.7) +
+      geom_line(data = summary_df,
+                aes(x = visit, y = mean_val, group = group, color = group),
+                linewidth = 1.4) +
+      geom_point(data = summary_df,
+                 aes(x = visit, y = mean_val, color = group),
+                 size = 3) +
+      geom_errorbar(data = summary_df,
+                    aes(x = visit, ymin = ci_lo, ymax = ci_hi, color = group),
+                    width = 0.15, linewidth = 0.9) +
+      scale_color_manual(values = group_colors, name = "Group") +
+      facet_wrap(~ group, nrow = 1,
+                 labeller = labeller(group = n_lookup)) +
+      labs(x = "Visit", y = var,
+           # title   = paste("Longitudinal trajectories:", var_label),
+           caption = paste0(
+             "Faint lines: individual trajectories  |  Bold: mean \u00b1 95% CI",
+             if (!is.null(footnote)) paste0("\n", footnote) else ""
+           )) +
+      theme_bw(base_size = 12) +
+      theme(legend.position  = "none",
+            plot.title       = element_text(face = "bold"),
+            strip.text       = element_text(face = "bold"),
+            strip.background = element_rect(fill = "grey92"),
+            plot.caption     = element_text(
+              color = ifelse(!is.null(footnote), "firebrick", "grey40"),
+              size  = 9))
+  }
   
   plot_list[[var]] <- p
   
+  # ── Save PNG ──────────────────────────────────────────────────────────────────
+  fig_path <- fs::path(fig_dir, paste0(var, ".png"))
+  ggsave(fig_path, plot = p, width = 10, height = 5, dpi = 300)
+  fig_paths[[var]] <- fig_path
 }
 
-# ── View plots individually ───────────────────────────────────────────────────
-plot_list[["hba1c"]]          # view one by name
-plot_list[[1]]                # or by index
+# ── Save outlier log and fig_paths for Quarto ─────────────────────────────────
+saveRDS(outlier_log, fs::path(fig_dir, "outlier_log.rds"))
+saveRDS(fig_paths,   fs::path(fig_dir, "fig_paths.rds"))
 
-# ── Or print all to a PDF ─────────────────────────────────────────────────────
-pdf("longitudinal_outcomes.pdf", width = 8, height = 5)
-for (p in plot_list) print(p)
-dev.off()
 
 ```
 
@@ -737,11 +836,686 @@ dev.off()
 ##a. Cross sectional analysis baseline, adj. baseline ACRu, age, sex & group - scatterplots & tables
 ```{r}
 
+##a. Cross sectional analysis baseline - scatterplots & tables
+# ── Baseline PFAS Association Plots ──────────────────────────────────────────
 
+dat_baseline <- dat %>% filter(visit == "baseline_screening")
+
+# ── Log transform and scale PFAS ─────────────────────────────────────────────
+pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS",
+               "PFHps", "PFHxS", "PFOA", "PFOS", "PFPeAS")
+
+dat_baseline <- dat_baseline %>%
+  mutate(across(all_of(pfas_vars), ~ scale(log(.))[,1], .names = "{.col}_ln_scaled"))
+
+pfas_vars_log_scale <- paste0(pfas_vars, "_ln_scaled")
+
+outcome_vars <- c("erpf_bsa_plasma", "erpf_bsa_plasma_urine", "eGFR_CKiD_U25_avg",
+                  "mm_si", "pah_clear_bsa", "acr_u", "avg_c_r2", "avg_k_r2")
+
+# ── Output directory ──────────────────────────────────────────────────────────
+out_dir <- fs::path(dir.results, "PANTHER/Results/PFAS Results")
+fs::dir_create(out_dir)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+remove_outliers_baseline <- function(df, outcome_var) {
+  m  <- mean(df[[outcome_var]], na.rm = TRUE)
+  s  <- sd(df[[outcome_var]],   na.rm = TRUE)
+  removed <- df %>%
+    filter(abs(.data[[outcome_var]] - m) > 3 * s) %>%
+    pull(record_id)
+  clean <- df %>% filter(abs(.data[[outcome_var]] - m) <= 3 * s)
+  list(data = clean, removed = removed)
+}
+
+get_label <- function(df, var) {
+  lbl <- attr(df[[var]], "label")
+  if (!is.null(lbl) && nchar(lbl) > 0) lbl else var
+}
+
+# ── Model specifications ──────────────────────────────────────────────────────
+models <- list(
+  crude       = list(covars = NULL,            suffix = "crude"),
+  adj_age_sex = list(covars = c("age", "sex"), suffix = "adj_age_sex"),
+  adj_group   = list(covars = "group",         suffix = "adj_group")
+)
+
+# ── Step 1: Collect all raw p-values first (needed for FDR) ──────────────────
+cs_results_raw <- list()
+
+for (model_name in names(models)) {
+  covars <- models[[model_name]]$covars
+  suffix <- models[[model_name]]$suffix
+  
+  for (outcome in outcome_vars) {
+    outcome_label <- get_label(dat_baseline, outcome)
+    
+    ol_result <- remove_outliers_baseline(
+      dat_baseline %>% filter(!is.na(.data[[outcome]])), outcome
+    )
+    dat_clean   <- ol_result$data
+    removed_ids <- ol_result$removed
+    
+    for (pfas in pfas_vars_log_scale) {
+      pfas_raw  <- gsub("_ln_scaled", "", pfas)
+      dat_plot  <- dat_clean %>% filter(!is.na(.data[[pfas]]))
+      
+      formula_str <- if (!is.null(covars)) {
+        paste0(outcome, " ~ ", pfas, " + ", paste(covars, collapse = " + "))
+      } else {
+        paste0(outcome, " ~ ", pfas)
+      }
+      
+      m1   <- lm(as.formula(formula_str), data = dat_plot)
+      beta <- round(coef(summary(m1))[pfas, "Estimate"], 3)
+      pval <- coef(summary(m1))[pfas, "Pr(>|t|)"]
+      
+      cs_results_raw[[paste(suffix, outcome, pfas_raw, sep = "_")]] <- data.frame(
+        model         = suffix,
+        outcome       = outcome,
+        outcome_label = outcome_label,
+        pfas          = pfas_raw,
+        beta          = beta,
+        pval          = pval,
+        n             = nrow(dat_plot),
+        removed       = ifelse(length(removed_ids) > 0,
+                               paste(removed_ids, collapse = ", "), "None"),
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+}
+
+# ── Step 2: Apply FDR correction within each model ───────────────────────────
+cs_results_df <- bind_rows(cs_results_raw) %>%
+  arrange(model, outcome, pfas) %>%
+  group_by(model) %>%
+  mutate(
+    fdr      = p.adjust(pval, method = "fdr"),
+    pval_fmt = ifelse(pval < 0.001, "<0.001", as.character(round(pval, 3))),
+    fdr_fmt  = ifelse(fdr  < 0.001, "<0.001", as.character(round(fdr,  3))),
+    sig      = fdr < 0.05
+  ) %>%
+  ungroup()
+
+# Save
+saveRDS(cs_results_df, fs::path(out_dir, "cs_results.rds"))
+write.csv(cs_results_df, fs::path(out_dir, "cs_results.csv"), row.names = FALSE)
+message("Cross-sectional results: ", nrow(cs_results_df), " rows, ",
+        sum(cs_results_df$sig, na.rm = TRUE), " FDR-significant")
+
+# ── Step 3: Regenerate plots with FDR-adjusted p-values on subtitle ───────────
+for (model_name in names(models)) {
+  covars <- models[[model_name]]$covars
+  suffix <- models[[model_name]]$suffix
+  
+  model_dir <- fs::path(out_dir, suffix)
+  fs::dir_create(model_dir)
+  
+  for (outcome in outcome_vars) {
+    outcome_label <- get_label(dat_baseline, outcome)
+    
+    ol_result   <- remove_outliers_baseline(
+      dat_baseline %>% filter(!is.na(.data[[outcome]])), outcome
+    )
+    dat_clean   <- ol_result$data
+    removed_ids <- ol_result$removed
+    
+    n_total  <- nrow(dat_clean %>% filter(!is.na(.data[[outcome]])))
+    footnote <- if (length(removed_ids) > 0) {
+      paste0("n = ", n_total, "  |  Outlier(s) removed: ",
+             paste(removed_ids, collapse = ", "))
+    } else {
+      paste0("n = ", n_total)
+    }
+    
+    for (pfas in pfas_vars_log_scale) {
+      pfas_raw   <- gsub("_ln_scaled", "", pfas)
+      pfas_label <- paste0(pfas_raw, " (log-scaled)")
+      
+      dat_plot <- dat_clean %>% filter(!is.na(.data[[pfas]]))
+      
+      # Pull pre-computed beta, pval, fdr for this combination
+      # res <- cs_results_df %>%
+      #   filter(model == suffix, outcome == outcome, pfas == pfas_raw)
+      res <- cs_results_df %>%
+        filter(model == .env$suffix, 
+               outcome == .env$outcome, 
+               pfas == .env$pfas_raw)
+      
+      beta     <- res$beta
+      pval_fmt <- res$pval_fmt
+      fdr_fmt  <- res$fdr_fmt
+      is_sig   <- res$sig
+      
+      p <- ggplot(dat_plot, aes(x = .data[[pfas]], y = .data[[outcome]])) +
+        geom_point(aes(color = group), alpha = 0.6, size = 1.2) +
+        geom_smooth(method = "lm", se = TRUE,
+                    color     = "black",
+                    fill      = "grey80",
+                    alpha     = 0.2,
+                    linewidth = 0.9) +
+        scale_color_manual(values = group_colors, name = "Group") +
+        labs(
+          title    = outcome_label,
+          subtitle = paste0(
+            "\u03b2 = ", beta,
+            "  |  p = ", pval_fmt,
+            "  |  FDR = ", fdr_fmt,
+            if (is_sig) "  \u2605" else "",   # star if FDR significant
+            if (!is.null(covars))
+              paste0("\nAdjusted for: ", paste(covars, collapse = ", "))
+            else ""
+          ),
+          x       = pfas_label,
+          y       = outcome,
+          caption = footnote
+        ) +
+        theme_bw(base_size = 12) +
+        theme(
+          plot.title    = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(
+            size  = 9.5,
+            color = ifelse(is_sig, "#C2185B", "grey30")   # pink if significant
+          ),
+          plot.caption     = element_text(
+            size  = 8,
+            color = ifelse(length(removed_ids) > 0, "firebrick", "grey50")
+          ),
+          legend.position  = "bottom",
+          panel.grid.minor = element_blank()
+        )
+      
+      fname <- paste0(pfas_raw, "_", outcome, "_", suffix, ".png")
+      ggsave(fs::path(model_dir, fname),
+             plot = p, width = 6, height = 5, dpi = 300)
+    }
+  }
+  message("Done plots: ", suffix)
+}
 ```
 
 ##b. Linear mixed model for baseline pfas and longitudinal primary outcomes, adj. baseline acru, age, sex & group - scatterplots & tables
+###i. Models
 ```{r}
+# Longitudinal outcome vars (exclude baseline-only)
+outcome_vars_long <- setdiff(outcome_vars, baseline_only_vars)
+outcome_vars_long <- setdiff(outcome_vars_long, "acr_u")
 
+# ── Add log-scaled AND standardized PFAS to dat ───────────────────────────────
+# (standardizing already happens via scale(), so ln_scaled = log + standardized)
+dat <- dat %>%
+  mutate(across(all_of(pfas_vars), ~ scale(log(.))[,1], .names = "{.col}_ln_scaled"))
+
+pfas_vars_log_scale <- paste0(pfas_vars, "_ln_scaled")
+
+# ── Build dat_long ────────────────────────────────────────────────────────────
+dat_long <- dat %>%
+  mutate(visit_num = case_when(
+    visit == "baseline_screening" ~ 0,
+    visit == "year_1"             ~ 1,
+    visit == "year_2"             ~ 2
+  ))
+
+# Baseline ACR (time-invariant)
+acr_baseline <- dat %>%
+  filter(visit == "baseline_screening") %>%
+  dplyr::select(record_id, acr_u_baseline = acr_u)
+
+dat_long <- dat_long %>%
+  left_join(acr_baseline, by = "record_id")
+
+# ── Standardize outcomes AFTER outlier removal would be ideal but we do it  ───
+# globally here for simplicity — betas will be in SD units
+dat_long <- dat_long %>%
+  mutate(across(all_of(outcome_vars_long), ~ scale(.)[,1],
+                .names = "{.col}_z"))
+
+outcome_vars_long_z <- paste0(outcome_vars_long, "_z")
+
+# ── Model specifications ──────────────────────────────────────────────────────
+models_lme <- list(
+  crude           = list(covars = NULL,                                suffix = "crude"),
+  adj_acr         = list(covars = "acr_u_baseline",                    suffix = "adj_acr_u"),
+  adj_age_sex_acr = list(covars = c("age", "sex", "acr_u_baseline"),   suffix = "adj_age_sex_acr"),
+  adj_group_acr   = list(covars = c("group", "acr_u_baseline"),        suffix = "adj_group_acr")
+)
+
+# ── Output directory ──────────────────────────────────────────────────────────
+lme_dir <- fs::path(dir.results, "PANTHER/Results/PFAS Results/longitudinal_lme")
+fs::dir_create(lme_dir)
+
+lme_results <- list()
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+for (model_name in names(models_lme)) {
+  
+  covars <- models_lme[[model_name]]$covars
+  suffix <- models_lme[[model_name]]$suffix
+  
+  for (outcome in outcome_vars_long) {
+    
+    outcome_z     <- paste0(outcome, "_z")       # standardized version for model
+    outcome_label <- get_label(dat, outcome)     # label from original variable
+    
+    # ── Outlier removal on ORIGINAL scale before standardization ─────────────
+    # (outliers already baked into _z since scale() was applied to full data)
+    # Flag outliers using original variable
+    dat_out <- dat_long %>%
+      filter(!is.na(.data[[outcome]]), !is.na(visit_num))
+    
+    m_out <- mean(dat_out[[outcome]], na.rm = TRUE)
+    s_out <- sd(dat_out[[outcome]],   na.rm = TRUE)
+    
+    removed_ids <- dat_out %>%
+      filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
+      pull(record_id) %>% unique()
+    
+    dat_out <- dat_out %>%
+      filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    
+    for (pfas in pfas_vars_log_scale) {
+      
+      pfas_raw <- gsub("_ln_scaled", "", pfas)
+      
+      dat_model <- dat_out %>%
+        filter(!is.na(.data[[pfas]]), !is.na(.data[[outcome_z]]))
+      
+      if (!is.null(covars)) {
+        dat_model <- dat_model %>%
+          filter(if_all(all_of(covars), ~ !is.na(.)))
+      }
+      
+      n_subj <- dat_model %>% pull(record_id) %>% n_distinct()
+      n_obs  <- nrow(dat_model)
+      
+      # ── Formula uses outcome_z (standardized) ─────────────────────────────
+      fixed_covars <- if (!is.null(covars)) paste("+", paste(covars, collapse = " + ")) else ""
+      formula_str  <- paste0(
+        outcome_z, " ~ ", pfas, " + visit_num + ", pfas, ":visit_num",
+        fixed_covars,
+        " + (1 + visit_num | record_id)"
+      )
+      
+      m1 <- tryCatch(
+        lmer(as.formula(formula_str), data = dat_model, REML = TRUE),
+        error = function(e) {
+          lmer(as.formula(gsub("1 \\+ visit_num", "1", formula_str)),
+               data = dat_model, REML = TRUE)
+        }
+      )
+      
+      coef_tbl         <- as.data.frame(coef(summary(m1)))
+      interaction_term <- paste0(pfas, ":visit_num")
+      
+      beta_main <- round(coef_tbl[pfas, "Estimate"], 3)
+      pval_main <- coef_tbl[pfas, "Pr(>|t|)"]
+      beta_int  <- round(coef_tbl[interaction_term, "Estimate"], 3)
+      pval_int  <- coef_tbl[interaction_term, "Pr(>|t|)"]
+      
+      lme_results[[paste(model_name, outcome, pfas, sep = "_")]] <- data.frame(
+        model         = model_name,
+        outcome       = outcome,
+        outcome_label = outcome_label,
+        pfas          = pfas_raw,
+        beta_main     = beta_main,
+        pval_main     = pval_main,
+        beta_int      = beta_int,
+        pval_int      = pval_int,
+        n_subj        = n_subj,
+        n_obs         = n_obs
+      )
+    }
+  }
+  message("Done LME: ", suffix)
+}
+
+# ── Save results ──────────────────────────────────────────────────────────────
+lme_results_df <- bind_rows(lme_results) %>%
+  arrange(model, outcome, pfas) %>%
+  mutate(
+    pval_main_fmt = ifelse(pval_main < 0.001, "<0.001", as.character(round(pval_main, 3))),
+    pval_int_fmt  = ifelse(pval_int  < 0.001, "<0.001", as.character(round(pval_int,  3)))
+  )
+
+saveRDS(lme_results_df, fs::path(lme_dir, "lme_results.rds"))
+write.csv(lme_results_df, fs::path(lme_dir, "lme_results.csv"), row.names = FALSE)
+
+message("Results saved to: ", lme_dir)
 
 ```
+
+```{r}
+library(lme4)
+library(lmerTest)
+
+# Longitudinal outcome vars (exclude baseline-only)
+outcome_vars_long <- setdiff(outcome_vars, baseline_only_vars)
+outcome_vars_long <- setdiff(outcome_vars_long, "acr_u") 
+
+# ── Add log-scaled PFAS to dat (needed for dat_long) ─────────────────────────
+dat <- dat %>%
+  mutate(across(all_of(pfas_vars), ~ scale(log(.))[,1], .names = "{.col}_ln_scaled"))
+
+# visit_num for LME
+dat_long <- dat %>%
+  mutate(visit_num = case_when(
+    visit == "baseline_screening" ~ 0,
+    visit == "year_1"             ~ 1,
+    visit == "year_2"             ~ 2
+  ))
+
+# Baseline ACR (time-invariant) — pull from baseline rows
+acr_baseline <- dat %>%
+  filter(visit == "baseline_screening") %>%
+  dplyr::select(record_id, acr_u_baseline = acr_u)
+
+dat_long <- dat_long %>%
+  left_join(acr_baseline, by = "record_id")
+
+# ── Model specifications ──────────────────────────────────────────────────────
+models_lme <- list(
+  crude           = list(covars = NULL,                                suffix = "crude"),
+  adj_acr         = list(covars = "acr_u_baseline",                    suffix = "adj_acr_u"),
+  adj_age_sex_acr = list(covars = c("age", "sex", "acr_u_baseline"),   suffix = "adj_age_sex_acr"),
+  adj_group_acr   = list(covars = c("group", "acr_u_baseline"),        suffix = "adj_group_acr")
+)
+
+# ── Output directory ──────────────────────────────────────────────────────────
+lme_dir <- fs::path(dir.results, "PANTHER/Results/PFAS Results/longitudinal_lme")
+fs::dir_create(lme_dir)
+
+# Standardize outcome variables so betas are comparable across outcomes
+dat_long <- dat_long %>%
+  mutate(across(all_of(outcome_vars_long), ~ scale(.)[,1],
+                .names = "{.col}_z"))
+
+# Update outcome_vars_long to use standardized versions
+outcome_vars_long_z <- paste0(outcome_vars_long, "_z")
+
+lme_results <- list()
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+for (model_name in names(models_lme)) {
+  
+  covars <- models_lme[[model_name]]$covars
+  suffix <- models_lme[[model_name]]$suffix
+  
+  model_dir <- fs::path(lme_dir, suffix)
+  fs::dir_create(model_dir)
+  
+  for (outcome in outcome_vars_long) {
+    
+    outcome_label <- get_label(dat, outcome)
+    
+    # ── Outlier removal (per outcome across all visits) ───────────────────────
+    dat_out   <- dat_long %>% filter(!is.na(.data[[outcome]]), !is.na(visit_num))
+    m_out     <- mean(dat_out[[outcome]], na.rm = TRUE)
+    s_out     <- sd(dat_out[[outcome]],   na.rm = TRUE)
+    removed_ids <- dat_out %>%
+      filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
+      pull(record_id) %>% unique()
+    dat_out <- dat_out %>%
+      filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    
+    for (pfas in pfas_vars_log_scale) {
+      
+      pfas_raw   <- gsub("_ln_scaled", "", pfas)
+      
+      dat_model <- dat_out %>%
+        filter(!is.na(.data[[pfas]]), !is.na(.data[[outcome]]))
+      
+      if (!is.null(covars)) {
+        dat_model <- dat_model %>%
+          filter(if_all(all_of(covars), ~ !is.na(.)))
+      }
+      
+      n_subj <- dat_model %>% pull(record_id) %>% n_distinct()
+      n_obs  <- nrow(dat_model)
+      
+      footnote <- paste0(
+        "n = ", n_subj, " subjects, ", n_obs, " observations",
+        if (length(removed_ids) > 0)
+          paste0("  |  Outlier subject(s) removed: ", paste(removed_ids, collapse = ", "))
+        else ""
+      )
+      
+      # ── Formula ───────────────────────────────────────────────────────────
+      fixed_covars <- if (!is.null(covars)) paste("+", paste(covars, collapse = " + ")) else ""
+      formula_str  <- paste0(
+        outcome, " ~ ", pfas, " + visit_num + ", pfas, ":visit_num",
+        fixed_covars,
+        " + (1 + visit_num | record_id)"
+      )
+      
+      # Fit — fall back to random intercept only if singular
+      m1 <- tryCatch(
+        lmer(as.formula(formula_str), data = dat_model, REML = TRUE),
+        error = function(e) {
+          lmer(as.formula(gsub("1 \\+ visit_num", "1", formula_str)),
+               data = dat_model, REML = TRUE)
+        }
+      )
+      
+      coef_tbl         <- as.data.frame(coef(summary(m1)))
+      interaction_term <- paste0(pfas, ":visit_num")
+      
+      beta_main <- round(coef_tbl[pfas, "Estimate"], 3)
+      pval_main <- coef_tbl[pfas, "Pr(>|t|)"]
+      plab_main <- ifelse(pval_main < 0.001, "p < 0.001", paste0("p = ", round(pval_main, 3)))
+      
+      beta_int  <- round(coef_tbl[interaction_term, "Estimate"], 3)
+      pval_int  <- coef_tbl[interaction_term, "Pr(>|t|)"]
+      plab_int  <- ifelse(pval_int < 0.001, "p < 0.001", paste0("p = ", round(pval_int, 3)))
+      
+      # Store
+      lme_results[[paste(model_name, outcome, pfas, sep = "_")]] <- data.frame(
+        model         = model_name,
+        outcome       = outcome,
+        outcome_label = outcome_label,
+        pfas          = pfas_raw,
+        beta_main     = beta_main,
+        pval_main     = pval_main,
+        beta_int      = beta_int,
+        pval_int      = pval_int,
+        n_subj        = n_subj,
+        n_obs         = n_obs
+      )
+    }
+  }
+  message("Done LME: ", suffix)
+}
+
+# ── Save results ──────────────────────────────────────────────────────────────
+lme_results_df <- bind_rows(lme_results) %>%
+  arrange(model, outcome, pfas) %>%
+  lme_results_df <- bind_rows(lme_results) %>%
+  arrange(model, outcome, pfas) %>%
+  # FDR correction within each model, adjusting for n_pfas x n_outcomes tests
+  group_by(model) %>%
+  mutate(
+    fdr_main = p.adjust(pval_main, method = "fdr"),
+    fdr_int  = p.adjust(pval_int,  method = "fdr")
+  ) %>%
+  ungroup() %>%
+  mutate(
+    pval_main_fmt = ifelse(pval_main < 0.001, "<0.001", as.character(round(pval_main, 3))),
+    pval_int_fmt  = ifelse(pval_int  < 0.001, "<0.001", as.character(round(pval_int,  3))),
+    fdr_main_fmt  = ifelse(fdr_main  < 0.001, "<0.001", as.character(round(fdr_main,  3))),
+    fdr_int_fmt   = ifelse(fdr_int   < 0.001, "<0.001", as.character(round(fdr_int,   3))),
+    sig_main      = fdr_main < 0.05,
+    sig_int       = fdr_int  < 0.05
+  )
+
+saveRDS(lme_results_df, fs::path(lme_dir, "lme_results.rds"))
+write.csv(lme_results_df, fs::path(lme_dir, "lme_results.csv"), row.names = FALSE)
+
+message("Results saved to: ", lme_dir)
+```
+###ii. Display results
+```{r}
+# ── Heatmap of PFAS-outcome associations across visits ────────────────────────
+library(ggplot2)
+library(tidyr)
+
+# Choose which model to visualize — change as needed
+model_to_plot <- "crude"  # or "adj_age_sex_acr", "adj_group_acr" etc.
+
+heatmap_df <- lme_results_df %>%
+  filter(model == model_to_plot) %>%
+  mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int * 1,
+    beta_visit2 = beta_main + beta_int * 2
+  ) %>%
+  select(pfas, outcome, beta_visit0, beta_visit1, beta_visit2,
+         pval_main, pval_int) %>%
+  pivot_longer(
+    cols      = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to  = "visit",
+    values_to = "beta"
+  ) %>%
+  mutate(
+    visit = factor(visit,
+                   levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+                   labels = c("Baseline", "Year 1", "Year 2")),
+    # significance markers based on most relevant p-value per visit
+    sig = case_when(
+      visit == "Baseline" & pval_main < 0.001 ~ "***",
+      visit == "Baseline" & pval_main < 0.01  ~ "**",
+      visit == "Baseline" & pval_main < 0.05  ~ "*",
+      visit != "Baseline" & pval_int  < 0.001 ~ "***",
+      visit != "Baseline" & pval_int  < 0.01  ~ "**",
+      visit != "Baseline" & pval_int  < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    # Clean up labels
+    pfas    = gsub("_ln_scaled", "", pfas),
+    outcome = factor(outcome,
+                     levels = outcome_vars_long,
+                     labels = sapply(outcome_vars_long, get_label, df = dat))
+  )
+
+# Symmetric color scale centered at 0
+beta_limit <- max(abs(heatmap_df$beta), na.rm = TRUE)
+
+p_heatmap <- ggplot(heatmap_df,
+                    aes(x = pfas, y = outcome, fill = beta)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sig), size = 3.5, vjust = 0.75, color = "black") +
+  scale_fill_gradient2(
+    low      = "#2166AC",   # blue = negative association
+    mid      = "white",
+    high     = "#B2182B",   # red = positive association
+    midpoint = 0,
+    limits   = c(-beta_limit, beta_limit),
+    name     = "\u03b2 coefficient"
+  ) +
+  facet_wrap(~ visit, nrow = 1) +
+  labs(
+    title    = paste0("PFAS-Outcome Associations Across Visits (", model_to_plot, ")"),
+    subtitle = "Baseline: main effect \u03b2  |  Year 1 & 2: \u03b2 main + \u03b2 interaction \u00d7 visit\n* p<0.05  ** p<0.01  *** p<0.001 (main effect at baseline; interaction term at Year 1/2)",
+    x        = "PFAS",
+    y        = NULL,
+    caption  = "Blue = negative association, Red = positive association"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(size = 8.5, color = "grey30"),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y      = element_text(size = 9),
+    strip.text       = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey92"),
+    legend.position  = "right",
+    panel.grid       = element_blank()
+  )
+
+# Save
+ggsave(fs::path(lme_dir, paste0("heatmap_", model_to_plot, ".png")),
+       plot   = p_heatmap,
+       width  = 14,
+       height = 6,
+       dpi    = 300)
+
+# ── Save one heatmap per model ────────────────────────────────────────────────
+for (mod in unique(lme_results_df$model)) {
+  
+  heatmap_df_mod <- lme_results_df %>%
+    filter(model == mod) %>%
+    mutate(
+      beta_visit0 = beta_main,
+      beta_visit1 = beta_main + beta_int * 1,
+      beta_visit2 = beta_main + beta_int * 2
+    ) %>%
+    select(pfas, outcome, beta_visit0, beta_visit1, beta_visit2,
+           pval_main, pval_int) %>%
+    pivot_longer(
+      cols      = c(beta_visit0, beta_visit1, beta_visit2),
+      names_to  = "visit",
+      values_to = "beta"
+    ) %>%
+    mutate(
+      visit = factor(visit,
+                     levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+                     labels = c("Baseline", "Year 1", "Year 2")),
+      sig = case_when(
+        visit == "Baseline" & pval_main < 0.001 ~ "***",
+        visit == "Baseline" & pval_main < 0.01  ~ "**",
+        visit == "Baseline" & pval_main < 0.05  ~ "*",
+        visit != "Baseline" & pval_int  < 0.001 ~ "***",
+        visit != "Baseline" & pval_int  < 0.01  ~ "**",
+        visit != "Baseline" & pval_int  < 0.05  ~ "*",
+        TRUE ~ ""
+      ),
+      pfas    = gsub("_ln_scaled", "", pfas),
+      outcome = factor(outcome,
+                       levels = outcome_vars_long,
+                       labels = sapply(outcome_vars_long, get_label, df = dat))
+    )
+  
+  beta_limit_mod <- max(abs(heatmap_df_mod$beta), na.rm = TRUE)
+  
+  p_mod <- ggplot(heatmap_df_mod,
+                  aes(x = pfas, y = outcome, fill = beta)) +
+    geom_tile(color = "white", linewidth = 0.4) +
+    geom_text(aes(label = sig), size = 3.5, vjust = 0.75, color = "black") +
+    scale_fill_gradient2(
+      low      = "#2166AC",
+      mid      = "white",
+      high     = "#B2182B",
+      midpoint = 0,
+      limits   = c(-beta_limit_mod, beta_limit_mod),
+      name     = "\u03b2 coefficient"
+    ) +
+    facet_wrap(~ visit, nrow = 1) +
+    labs(
+      title    = paste0("PFAS-Outcome Associations Across Visits (", mod, ")"),
+      subtitle = "Baseline: main effect \u03b2  |  Year 1 & 2: \u03b2 main + \u03b2 interaction \u00d7 visit\n* p<0.05  ** p<0.01  *** p<0.001",
+      x        = "PFAS",
+      y        = NULL,
+      caption  = "Blue = negative association, Red = positive association"
+    ) +
+    theme_bw(base_size = 11) +
+    theme(
+      plot.title       = element_text(face = "bold", size = 12),
+      plot.subtitle    = element_text(size = 8.5, color = "grey30"),
+      axis.text.x      = element_text(angle = 45, hjust = 1, size = 9),
+      axis.text.y      = element_text(size = 9),
+      strip.text       = element_text(face = "bold"),
+      strip.background = element_rect(fill = "grey92"),
+      legend.position  = "right",
+      panel.grid       = element_blank()
+    )
+  
+  ggsave(fs::path(lme_dir, paste0("heatmap_", mod, ".png")),
+         plot   = p_mod,
+         width  = 14,
+         height = 6,
+         dpi    = 300)
+  
+  message("Heatmap saved: ", mod)
+}
+
+```
+
