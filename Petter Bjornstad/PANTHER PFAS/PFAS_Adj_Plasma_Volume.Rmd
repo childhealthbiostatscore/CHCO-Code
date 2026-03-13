@@ -29,7 +29,6 @@ library(table1)
 library(lme4)
 library(ggpubr)
 library(pheatmap)
-library(lmerTest)
 ```
 #---------------------------------------------------
 # 1. inputting all directories and storage locations
@@ -1251,236 +1250,398 @@ dev.off()
 #mixed effect models incorporating all timpepoints
 #-------------------------------------------------
 ```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared #Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney #Associations/uACR_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(
-    paste0("acr_u ~ ", pfas, " * time_numeric + age + sex + (1|record_id)")
+# Prepare longitudinal modeling data
+dat_lmm <- dat_long2 %>%
+  mutate(
+    visit = factor(
+      visit,
+      levels = c("baseline_screening", "year_1", "year_2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sex = factor(sex),
+    group = factor(group),
+    log_acr_u = log1p(acr_u),
+    log_microalbumin_u = log1p(microalbumin_u)
   )
-  m1 <- lmer(m0, data = dat_long2)
-  coef_tab <- coef(summary(m1))
-  # main PFAS effect
-  term_main <- pfas
-  beta_main <- coef_tab[term_main, "Estimate"]
-  pval_main <- coef_tab[term_main, "Pr(>|t|)"]
 
-  # PFAS x time interaction
-  term_int <- paste0(pfas, ":time_numeric")
-  beta_int <- coef_tab[term_int, "Estimate"]
-  pval_int <- coef_tab[term_int, "Pr(>|t|)"]
+# PFAS exposures
+pfas_vars <- c(
+  "N.MeFOSAA_total_ng","PFDA_total_ng","PFHpA_total_ng","PFNA_total_ng","PFBS_total_ng",
+  "PFHps_total_ng","PFHxS_total_ng","PFOA_total_ng","PFOS_total_ng","PFPeAS_total_ng"
+)
 
-  p <- ggplot(dat_long2, aes(x = .data[[pfas]], y = acr_u)) +
-    geom_point() +
-    geom_smooth(method = "lm", se = FALSE) +
+# Outcomes to model
+outcome_vars <- c(
+  "log_acr_u",
+  "log_microalbumin_u",
+  "eGFR_CKiD_U25_avg",
+  "dexa_lean_kg",
+  "dexa_fat_kg",
+  "igf_1",
+  "bl_dheas"
+)
+```
+#---------------------------------------
+# Mixed model function
+#---------------------------------------
+```{r}
+run_lmm_set <- function(data, outcome, exposures, covars = c("age", "sex", "group")) {
+
+  model_results <- lapply(exposures, function(exp) {
+    rhs_terms <- c(
+      exp,
+      "visit",
+      paste0(exp, ":visit"),
+      covars
+    )
+    form <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs_terms, collapse = " + "), " + (1 | record_id)")
+    )
+    mod <- lmer(form, data = data, REML = FALSE)
+    tidy_fixed <- broom.mixed::tidy(mod, effects = "fixed") %>%
+      mutate(
+        outcome = outcome,
+        exposure = exp,
+        model_formula = paste(deparse(form), collapse = " ")
+      )
+    glance_fit <- broom.mixed::glance(mod) %>%
+      mutate(
+        outcome = outcome,
+        exposure = exp
+      )
+    list(
+      model = mod,
+      tidy = tidy_fixed,
+      glance = glance_fit
+    )
+  })
+
+  return(model_results)
+}
+
+```
+
+#----------------
+# Run  models
+#----------------
+```{r}
+all_lmm_results <- lapply(outcome_vars, function(outcome) {
+  run_lmm_set(
+    data = dat_lmm,
+    outcome = outcome,
+    exposures = pfas_vars
+  )
+})
+
+names(all_lmm_results) <- outcome_vars
+```
+#---------------------------------------
+# 4. Build final fixed-effects results table
+#---------------------------------------
+```{r}
+final_lmm_table <- bind_rows(
+  lapply(all_lmm_results, function(outcome_list) {
+    bind_rows(lapply(outcome_list, `[[`, "tidy"))
+  })
+) %>%
+  mutate(
+    outcome_clean = case_when(
+      outcome == "log_acr_u" ~ "uACR (log1p)",
+      outcome == "log_microalbumin_u" ~ "Microalbuminuria (log1p)",
+      outcome == "eGFR_CKiD_U25_avg" ~ "eGFR_CKiD_U25_avg",
+      outcome == "dexa_lean_kg" ~ "DEXA Lean Mass (kg)",
+      outcome == "dexa_fat_kg" ~ "DEXA Fat Mass (kg)",
+      outcome == "igf_1" ~ "IGF-1",
+      outcome == "bl_dheas" ~ "DHEA-S",
+      TRUE ~ outcome
+    ),
+    term_type = case_when(
+      term == exposure ~ "PFAS main effect",
+      str_detect(term, paste0("^", exposure, ":visit")) ~ "PFAS x visit interaction",
+      term == "(Intercept)" ~ "Intercept",
+      term == "visitYear 1" ~ "Visit main effect",
+      term == "visitYear 2" ~ "Visit main effect",
+      term %in% c("age", "sexMale", "sexFemale", "groupLean Control", "groupObese Control", "groupType 2 Diabetes") ~ "Covariate",
+      TRUE ~ "Other"
+    )
+  )
+
+# FDR correction across all tests
+final_lmm_table <- final_lmm_table %>%
+  mutate(
+    p_fdr = p.adjust(p.value, method = "fdr")
+  )
+
+#---------------------------------------
+# 5. Build focused interaction results table
+#---------------------------------------
+
+interaction_table <- final_lmm_table %>%
+  filter(str_detect(term, ":visit")) %>%
+  arrange(outcome_clean, exposure, p.value)
+
+write_csv(
+  interaction_table,
+  "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/final_mixed_effects_interactions_only.csv"
+)
+
+#---------------------------------------
+# 6. Optional: model fit summary table
+#---------------------------------------
+
+model_fit_table <- bind_rows(
+  lapply(all_lmm_results, function(outcome_list) {
+    bind_rows(lapply(outcome_list, `[[`, "glance"))
+  })
+)
+
+write_csv(
+  model_fit_table,
+  "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/final_mixed_effects_model_fit_table.csv"
+)
+```
+
+```{r}
+library(ggeffects)
+library(patchwork)
+
+plot_lmm_trajectory <- function(model, data, exposure, outcome, outcome_label = outcome) {
+  
+  qs <- quantile(data[[exposure]], probs = c(0.25, 0.50, 0.75), na.rm = TRUE)
+  qs_round <- signif(qs, 3)
+
+  pred <- ggpredict(
+    model,
+    terms = c(
+      "visit",
+      paste0(exposure, " [", paste(qs, collapse = ","), "]")
+    )
+  )
+
+  pred_df <- as.data.frame(pred)
+
+  pred_df$exposure_level <- factor(
+    pred_df$group,
+    levels = unique(pred_df$group),
+    labels = c(
+      paste0("Low (25th: ", qs_round[1], ")"),
+      paste0("Mid (50th: ", qs_round[2], ")"),
+      paste0("High (75th: ", qs_round[3], ")")
+    )
+  )
+
+  p <- ggplot(pred_df, aes(x = x, y = predicted, color = exposure_level, group = exposure_level)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 2.6) +
+    geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
     theme_bw() +
     labs(
-      title = paste("Association between", pfas, "and uACR over time"),
-      subtitle = paste0(
-        "Main beta=", round(beta_main, 3),
-        ", p=", signif(pval_main, 3),
-        " | Interaction beta=", round(beta_int, 3),
-        ", p=", signif(pval_int, 3)
-      ),
-      x = pfas,
-      y = "acr_u"
+      title = paste(outcome_label, "trajectory by", exposure),
+      x = "Visit",
+      y = outcome_label,
+      color = paste(exposure, "level")
     )
 
-  print(p)
-  print(summary(m1))
+  return(p)
 }
 ```
 
 ```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared #Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney #Associations/Microalbumin_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
+outcome_label_map <- c(
+  log_acr_u = "Predicted log1p(uACR)",
+  log_microalbumin_u = "Predicted log1p(Microalbuminuria)",
+  eGFR_CKiD_U25_avg = "Predicted eGFR_CKiD_U25_avg",
+  dexa_lean_kg = "Predicted DEXA Lean Mass (kg)",
+  dexa_fat_kg = "Predicted DEXA Fat Mass (kg)",
+  igf_1 = "Predicted IGF-1",
+  bl_dheas = "Predicted DHEA-S"
+)
 
-for (pfas in pfas_vars) {
-  m0 <- as.formula(
-    paste0("microalbumin_u ~ ",pfas," *time_numeric + age + sex + (1|record_id)")
-  )
-  m1 <- lmer(m0,dat=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,
-              aes(x=.data[[pfas]],y=microalbumin_u))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Baseline PFAS vs Microalbumin at Year 2",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="Microalbuminuria"
-    )
+pdf(
+  "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/final_model_based_trajectory_plots.pdf",
+  width = 9,
+  height = 6
+)
 
-  print(p)
-}
-
-dev.off()
-```
-
-```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared #Drive/Savanah Leidholt/PFAS/Results/Year 2 Associations/Kidney #Associations/eGFR_CKiD_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(
-    paste0("eGFR_CKiD_U25_avg ~ ",pfas," *time_numeric + age + sex + (1|record_id)")
-  )
-  m1 <- lmer(m0, dat = dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,
-              aes(x=.data[[pfas]], y=eGFR_CKiD_U25_avg)) +
-    geom_point() +
-    geom_smooth(method="lm", se=FALSE) +
-    theme_bw() +
-    labs(
-      title="Baseline PFAS vs eGFR_CKiD_U25_avg at 2 Years",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="eGFR_CKiD_U25_avg"
-    )
-
-  print(p)
-}
-
-dev.off()
-```
-
-##--------------------------------------------------
-## PFAS & Year 2 Metabolic Associations
-## no data for mm_si, mm_di, or mm_ir at year 1 mark
-##--------------------------------------------------
-```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah #Leidholt/PFAS/Results/Year 2 Associations/Metabolic Associations/Fat_Mass_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("dexa_fat_kg~",pfas," *time_numeric + age + sex + (1|record_id)"))
-  m1 <- lmer(m0,dat=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= dexa_fat_kg))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Association between PFAS and Fat Mass Adj. for Age & Sex & Baseline DXA",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="dexa_fat_kg"
-      )
-  print(p)
-}
-dev.off()
-```
-
-```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Metabolic Associations/Lean_Mass_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("dexa_lean_kg~",pfas," *time_numeric + age + sex + (1|record_id)"))
-  m1 <- lmer(m0,dat=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= dexa_lean_kg))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Association between PFAS and Lean Mass adj. for Age & Sex",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="dexa_lean_kg"
-      )
-  
-  print(p)
-}
-dev.off()
-```
-##--------------------------------------------
-## PFAS & Year 2 Hormonal Associations
-##--------------------------------------------
-```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Hormonal Associations/IGF1_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("igf_1~",pfas," *time_numeric + age + sex + (1|record_id)"))
-  m1 <- lmer(m0,dat=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= igf_1))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Association between PFAS and igf_1 at Year 2 adj. for Age & Sex",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="igf_1"
-      )
-  print(p)
-}
-dev.off()
-```
-
-```{r}
-#pdf("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/Year 2 #Associations/Hormonal Associations/DHEAS_PFAS_bl_adj_yr2.pdf", width = 8, height = 6)
-
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("bl_dheas~",pfas," *time_numeric + age + sex + (1|record_id)"))
-  m1 <- lmer(m0,dat=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,5]
-  p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= bl_dheas))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Association between PFAS and DHEA-S at Year 2 adj. for Age & Sex",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="bl_dheas"
-      )
-  
-  print(p)
+for (outcome in names(all_lmm_results)) {
+  for (res in all_lmm_results[[outcome]]) {
     
+    exposure_name <- res$tidy$exposure[1]
+    
+    p <- plot_lmm_trajectory(
+      model = res$model,
+      data = dat_lmm,
+      exposure = exposure_name,
+      outcome = outcome,
+      outcome_label = outcome_label_map[[outcome]]
+    )
+    
+    print(p)
+  }
 }
 
 dev.off()
 ```
-
-
-
-
-#-------------------------------
-#sex specific endocrine biology
-#------------------------------
 ```{r}
-for (pfas in pfas_vars) {
-
-  m0 <- as.formula(paste0("acr_u ~ ",pfas,"*sex + age"))
-  m1 <- lm(m0, data=dat_long2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-p <- ggplot(dat_long2,aes(x=.data[[pfas]],y= acr_u))+
-    geom_point()+
-    geom_smooth(method="lm",se=FALSE)+
-    theme_bw()+
-    labs(
-      title="Association between PFAS and uACR at Year 2 adj. for Age & Sex",
-      subtitle=paste0("Beta=",round(beta,3),
-                      " p=",round(pval,3)),
-      x=pfas,
-      y="acr_u"
-      )
+plot_raw_trajectory_quartiles <- function(long_data, baseline_data, exposure, outcome, outcome_label = outcome) {
   
+  quart_dat <- baseline_data %>%
+    dplyr::select(record_id, all_of(exposure)) %>%
+    distinct() %>%
+    mutate(
+      exposure_q = ntile(.data[[exposure]], 4),
+      exposure_q = factor(
+        exposure_q,
+        levels = 1:4,
+        labels = c("Q1 Lowest", "Q2", "Q3", "Q4 Highest")
+      )
+    ) %>%
+    dplyr::select(record_id, exposure_q)
+
+  dat_plot <- long_data %>%
+    left_join(quart_dat, by = "record_id") %>%
+    filter(!is.na(exposure_q), !is.na(.data[[outcome]])) %>%
+    mutate(
+      visit = factor(
+        visit,
+        levels = c("Baseline", "Year 1", "Year 2")
+      )
+    )
+
+  p <- ggplot(dat_plot, aes(x = visit, y = .data[[outcome]])) +
+    geom_line(aes(group = record_id), alpha = 0.10, color = "grey70") +
+    stat_summary(
+      aes(color = exposure_q, group = exposure_q),
+      fun = mean,
+      geom = "line",
+      linewidth = 1.3
+    ) +
+    stat_summary(
+      aes(color = exposure_q, group = exposure_q),
+      fun = mean,
+      geom = "point",
+      size = 2.5
+    ) +
+    theme_bw() +
+    labs(
+      title = paste("Observed", outcome_label, "by baseline", exposure, "quartile"),
+      x = "Visit",
+      y = outcome_label,
+      color = paste(exposure, "quartile")
+    )
+
+  return(p)
+}
+```
+
+```{r}
+raw_outcomes <- c(
+  "acr_u",
+  "microalbumin_u",
+  "eGFR_CKiD_U25_avg",
+  "dexa_lean_kg",
+  "dexa_fat_kg",
+  "igf_1",
+  "bl_dheas"
+)
+
+raw_outcome_labels <- c(
+  acr_u = "uACR",
+  microalbumin_u = "Microalbuminuria",
+  eGFR_CKiD_U25_avg = "eGFR_CKiD_U25_avg",
+  dexa_lean_kg = "DEXA Lean Mass (kg)",
+  dexa_fat_kg = "DEXA Fat Mass (kg)",
+  igf_1 = "IGF-1",
+  bl_dheas = "DHEA-S"
+)
+
+pdf(
+  "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/final_raw_trajectory_quartile_plots.pdf",
+  width = 9,
+  height = 6
+)
+
+for (outcome in raw_outcomes) {
+  for (pfas in pfas_vars) {
+    
+    p <- plot_raw_trajectory_quartiles(
+      long_data = dat_lmm,
+      baseline_data = dat2,
+      exposure = pfas,
+      outcome = outcome,
+      outcome_label = raw_outcome_labels[[outcome]]
+    )
+    
+    print(p)
+  }
+}
+
+dev.off()
+```
+```{r}
+plot_combined_trajectory <- function(model, long_data, baseline_data, exposure, outcome, outcome_label = outcome) {
+  
+  # quartiles from baseline
+  quart_dat <- baseline_data %>%
+    dplyr::select(record_id, all_of(exposure)) %>%
+    distinct() %>%
+    mutate(
+      exposure_q = ntile(.data[[exposure]], 4),
+      exposure_q = factor(
+        exposure_q,
+        levels = 1:4,
+        labels = c("Q1 Lowest", "Q2", "Q3", "Q4 Highest")
+      )
+    ) %>%
+    dplyr::select(record_id, exposure_q)
+
+  dat_plot <- long_data %>%
+    left_join(quart_dat, by = "record_id") %>%
+    filter(!is.na(exposure_q), !is.na(.data[[outcome]]))
+
+  qs <- quantile(long_data[[exposure]], probs = c(0.25, 0.50, 0.75), na.rm = TRUE)
+
+  pred <- ggpredict(
+    model,
+    terms = c(
+      "visit",
+      paste0(exposure, " [", paste(qs, collapse = ","), "]")
+    )
+  )
+
+  pred_df <- as.data.frame(pred)
+  pred_df$exposure_level <- factor(
+    pred_df$group,
+    levels = unique(pred_df$group),
+    labels = c("Low", "Mid", "High")
+  )
+
+  p <- ggplot() +
+    geom_line(
+      data = dat_plot,
+      aes(x = visit, y = .data[[outcome]], group = record_id),
+      alpha = 0.08,
+      color = "grey70"
+    ) +
+    geom_line(
+      data = pred_df,
+      aes(x = x, y = predicted, color = exposure_level, group = exposure_level),
+      linewidth = 1.4
+    ) +
+    geom_point(
+      data = pred_df,
+      aes(x = x, y = predicted, color = exposure_level, group = exposure_level),
+      size = 2.5
+    ) +
+    theme_bw() +
+    labs(
+      title = paste(outcome_label, "trajectory by", exposure),
+      x = "Visit",
+      y = outcome_label,
+      color = paste(exposure, "level")
+    )
+
   print(p)
-  print(summary(m1))
 }
 ```
 
