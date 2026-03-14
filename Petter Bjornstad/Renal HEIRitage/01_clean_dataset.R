@@ -40,16 +40,16 @@ Sys.setenv(
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 
 harm_dat_collapsed <- harm_dat %>%
-  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
+  dplyr::mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
   group_by(record_id, visit) %>%
   fill(date, .direction = "updown") %>% ungroup() %>%
-  group_by(mrn, kit_id) %>% 
-  fill(c(lv_cardiac_index, lv_cardiac_output, 
-         lv_hr, lv_myo_thickness_dias,
-         lv_myo_thickness_total, lv_stroke_volume,
-         lved_mass, lvedv, lvef, lves_mass, 
-         lvesv, rv_cardiac_index, rv_cardiac_output, 
-         rv_hr, rv_stroke_volume, rvedv, rvef, rvesv), .direction = "updown") %>% ungroup() %>%
+  # group_by(mrn, kit_id) %>% 
+  # fill(c(lv_cardiac_index, lv_cardiac_output, 
+  #        lv_hr, lv_myo_thickness_dias,
+  #        lv_myo_thickness_total, lv_stroke_volume,
+  #        lved_mass, lvedv, lvef, lves_mass, 
+  #        lvesv, rv_cardiac_index, rv_cardiac_output, 
+  #        rv_hr, rv_stroke_volume, rvedv, rvef, rvesv), .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
@@ -132,8 +132,8 @@ harm_dat_collapsed <- harm_dat %>%
                 dkd_group_30_hc = case_when(group == "Lean Control" ~ "HC",
                                             T ~ dkd_group_30),
                 dkd_group_100_hc = case_when(group == "Lean Control" ~ "HC",
-                                      T ~ dkd_group_100)
-  )
+                                      T ~ dkd_group_100),
+                kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)))
 
 # RH/RH2 subset
 rh_rh2_croc_panther_unique <- harm_dat_collapsed %>% 
