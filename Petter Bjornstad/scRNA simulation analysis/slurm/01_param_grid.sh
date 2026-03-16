@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=scD3_param_grid
-#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/output/01_param_grid_%j.out"
-#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/error/01_param_grid_%j.err"
+#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/01_param_grid/output/01_param_grid_%j.out"
+#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/01_param_grid/error/01_param_grid_%j.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -15,8 +15,6 @@
 BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis"
 SCRIPT_DIR="${BASE_DIR}/R"
 N_REPS=50
-
-mkdir -p "${BASE_DIR}/logs/output" "${BASE_DIR}/logs/error"
 
 # Load Apptainer module (matches your known-working pattern)
 module load apptainer  # or module load singularity

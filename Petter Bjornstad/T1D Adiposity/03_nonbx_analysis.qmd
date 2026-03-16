@@ -1,0 +1,122 @@
+---
+title: "02_nonbx_analysis"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+library(enrichR)
+library(stringr)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+t1d_hc_dat <- s3readRDS(object = "data_clean/t1d_hc_clinical_data.csv", 
+                        bucket = "t1d.adiposity",
+                        region = "")
+```
+
+# Data availability by cohort
+```{r}
+# interested in knowing availability of 
+# - mGFR
+# - RPF (where available)
+# - Gomez parameters (where available)
+# - RVR
+# - mpMRI (ASL, BOLD, ADC, TKV)
+# - HbA1c
+# - AIDs/pumps vs. MDI
+# - CGM metrics, total daily insulin dose (where available)
+# - SBP, DBP
+# - PWV (ATTEMPT only)
+
+t1d_hc_dat %>%
+  dplyr::mutate(
+    mgfr_avail    = !is.na(gfr_raw_plasma),
+    rpf_avail     = !is.na(erpf_raw_plasma),
+    gomez_avail   = if_any(c(ff, cm, pg, glomerular_pressure, rbf, re, ra), ~ !is.na(.)),
+    rvr_avail     = !is.na(rvr),
+    asl_avail     = !is.na(avg_pcascl),
+    adc_avail     = !is.na(avg_c_adc),
+    r2_avail      = !is.na(avg_c_r2),
+    tkv_avail     = if_any(c(total_kidney_volume_ml, total_kidney_volume_ml_manual), ~ !is.na(.)),
+    hba1c_avail   = !is.na(hba1c),
+    aids_pumps_mdi_avail = if_any(c(insulin_pump_timepoint, insulin_med_timepoint,
+                                insulin_injections_timepoint), ~ !is.na(.)),
+    cgm_avail     = cgm_yn == "Yes",
+    bp_avail      = if_all(c(sbp, dbp), ~ !is.na(.)),
+    pwv_avail     = if_any(c(starts_with("pwv"), PWV), ~ !is.na(.))
+  ) %>%
+  group_by(bmi_obesity, study) %>%
+  summarise(n = n(),
+            across(ends_with("avail"), sum, na.rm = TRUE), .groups = "drop")
+```
+
+# Descriptive table
+```{r}
+summary(arsenal::tableby(bmi_obesity ~ 
+                           age + sex + group + study + weight + height + 
+                           bmi + bmip + hba1c + kwt(acr_u, "Nmiss", "medianq1q3") +
+                           sbp + dbp,
+                 data = t1d_hc_dat))
+
+summary(arsenal::tableby(bmi_obesity ~ 
+                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                           ff + cm + pg + glomerular_pressure + rbf + re + ra + rvr,
+                 data = t1d_hc_dat))
+
+summary(arsenal::tableby(bmi_obesity ~ 
+                           avg_pcascl + avg_c_adc + avg_c_r2 + 
+                           total_kidney_volume_ml + total_kidney_volume_ml_manual,
+                 data = t1d_hc_dat))
+```
+
+# Outcomes to compare across groups
+- mGFR
+- RPF (where available)
+- Gomez parameters (where available)
+- RVR
+- mpMRI (ASL, BOLD, ADC, TKV)
+- HbA1c
+- AIDs/pumps vs. MDI
+- CGM metrics, total daily insulin dose (where available)
+- SBP, DBP
+- PWV (ATTEMPT only)
+
+```{r}
+# hba1c as example
+t1d_hc_dat %>%
+  filter(!is.na(bmi_obesity)) %>%
+  ggplot(aes(x = bmi_obesity, y = hba1c)) + 
+  geom_boxplot()
+```
+
+

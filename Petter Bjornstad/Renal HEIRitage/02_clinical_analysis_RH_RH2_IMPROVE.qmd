@@ -77,10 +77,13 @@ rh_rh2_croc_panther_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data
 rh_rh2_croc_improve_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_improve_unique.csv")) %>%
   mutate(kit_id = gsub("Kl", "KL", kit_id))
 rh_rh2_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_unique.csv"))
-bx_meta <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset_meta.rds", bucket = "scrna", region = "")
+bx_meta <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset_meta.rds", bucket = "scrna", region = "") %>%
+  mutate(kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)))
 
 bx_subset <- rh_rh2_croc_improve_unique %>%
   filter(kit_id %in% bx_meta$kit_id)
+
+unique(bx_meta$kit_id)[unique(bx_meta$kit_id) %nin% unique(bx_subset$kit_id)]
 ```
 
 # MRI Parameters
@@ -122,14 +125,15 @@ summary(arsenal::tableby(dkd_group_30_hc ~ age + sex + kwt(acr_u, "medianq1q3") 
                          data=bx_subset),
         total = F)
 
-bx_subset$group_glp1 <- ifelse(bx_subset$epic_glp1ra_1 == "Yes", "T2D+", ifelse(bx_subset$epic_glp1ra_1 == "No" & bx_subset$group == "Type 2 Diabetes", "T2D-", "HC"))
+bx_subset$group_glp1 <- ifelse(bx_subset$epic_glp1ra_1 == "Yes", "T2D+", 
+                               ifelse(bx_subset$epic_glp1ra_1 == "No" & bx_subset$group == "Type 2 Diabetes", "T2D-", 
+                                      "HC"))
 summary(arsenal::tableby(group_glp1 ~ age + sex + kwt(acr_u, "medianq1q3") + 
                            eGFR_CKD_epi + bmi + diabetes_duration  + hba1c + epic_glp1ra_1 + sglt2i_ever, 
                          data=subset(bx_subset, group != "Obese Control")),
         total = F)
 # subset(bx_subset, epic_glp1ra_1 == "Yes")$record_id
 # subset(bx_subset, epic_sglti2_1 == "Yes")$record_id
-bx_subset$sglt2i_ever
 ```
 
 ```{r}
