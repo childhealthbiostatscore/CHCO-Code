@@ -10,15 +10,28 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
+# File containing array IDs to rerun (one per line)
+ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_33794735.txt"
+
+################################################################################
+# Self-submission: if not inside a SLURM array task, submit ourselves
+################################################################################
+if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
+    N_JOBS=$(wc -l < "${ID_FILE}")
+    echo "OOM 256GB resubmission: ${N_JOBS} jobs from ${ID_FILE}"
+    sbatch --array=1-${N_JOBS}%50 "$0"
+    exit 0
+fi
+
+################################################################################
+# Array task execution
+################################################################################
 BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis"
 SCRIPT_DIR="${BASE_DIR}/R"
 N_CORES=4
 
 # Failure log
 FAIL_LOG="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_oom256_${SLURM_ARRAY_JOB_ID}.txt"
-
-# File containing array IDs to rerun (one per line)
-ID_FILE="mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_33794735.txt"
 
 # Get the PARAM_ID for this task from the ID file
 # SLURM_ARRAY_TASK_ID is the line number (1-indexed)
