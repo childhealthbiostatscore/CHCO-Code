@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=scD3_fit_ref
-#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/output/00_fit_reference_%j.out"
-#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis/logs/error/00_fit_reference_%j.err"
+#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/00_fit_reference/output/00_fit_reference_%j.out"
+#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/00_fit_reference/error/00_fit_reference_%j.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -17,9 +17,6 @@ N_CORES=8
 # Project directories (quoted because of spaces)
 BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/scRNA simulation analysis"
 SCRIPT_DIR="${BASE_DIR}/R"
-
-# Ensure log dirs exist
-mkdir -p "${BASE_DIR}/logs/output" "${BASE_DIR}/logs/error"
 
 # Load Apptainer module
 module load apptainer  # or module load singularity

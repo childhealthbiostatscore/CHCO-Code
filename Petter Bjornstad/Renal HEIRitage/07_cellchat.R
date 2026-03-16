@@ -6,6 +6,8 @@ library(dplyr)
 library(CellChat)
 library(ComplexHeatmap)
 library(circlize)
+library(reshape2)
+library(ggalluvial)
 
 # specify user information
 user <- Sys.info()[["user"]]
@@ -50,25 +52,14 @@ data.input <- GetAssayData(pb90_subset, assay = "RNA", layer = "data")
 meta <- pb90_subset@meta.data
 
 # Create CellChat object
-cellchat <- createCellChat(object = data.input, meta = meta, group.by = "KPMP_celltype_general")
+cellchat <- createCellChat(object = data.input, meta = meta, 
+                           group.by = "KPMP_celltype_general")
+groupSize <- as.numeric(table(cellchat@idents))
 
 # Set the ligand-receptor interaction database
-# Use human database (change to mouse if needed with "Mouse")
-CellChatDB <- CellChatDB.human
-
-# Show available categories in the database
-showDatabaseCategory(CellChatDB)
-
-# IMPORTANT: Use all categories to include metabolic interactions
-# The "Metabolic" category contains metabolic signaling
-CellChatDB.use <- CellChatDB  # Use full database
-
-# Alternatively, if you want to focus on specific categories:
-# CellChatDB.use <- subsetDB(CellChatDB, search = c("Secreted Signaling", "ECM-Receptor", 
-#                                                    "Cell-Cell Contact", "Metabolic"))
-
+# Use human database
 # Set the database in CellChat object
-cellchat@DB <- CellChatDB.use
+cellchat@DB <- CellChatDB.human
 
 # Preprocessing the expression data
 # Identify overexpressed genes and interactions
@@ -98,50 +89,92 @@ cellchat <- computeCommunProbPathway(cellchat)
 # Calculate aggregated cell-cell communication network
 cellchat <- aggregateNet(cellchat)
 
-# Analyze metabolic signaling specifically
-# Extract metabolic interactions
-metabolic_pathways <- searchPair(signaling = "metabolic", 
-                                 pairLR.use = cellchat@LR$LRsig, 
-                                 key = "pathway_name", 
-                                 matching.exact = FALSE, 
-                                 pair.only = FALSE)
-
-# Get all available signaling pathways
-all_pathways <- cellchat@netP$pathways
-
-# Identify which pathways are metabolic
-metabolic_pathway_names <- grep("metabolic|glycolysis|lipid|amino acid|nucleotide|vitamin", 
-                                all_pathways, 
-                                ignore.case = TRUE, 
-                                value = TRUE)
-
-print(paste("Metabolic pathways identified:", paste(metabolic_pathway_names, collapse = ", ")))
-
-# Visualization Section
-# 1. Overall communication network
+# visualize the aggregated cell-cell communication network
 groupSize <- as.numeric(table(cellchat@idents))
 
-# Visualize number of interactions
-pdf("cellchat_interaction_counts.pdf", width = 8, height = 8)
-netVisual_circle(cellchat@net$count, 
-                 vertex.weight = groupSize, 
-                 weight.scale = TRUE, 
-                 label.edge = FALSE, 
-                 title.name = "Number of interactions")
-dev.off()
 
-# Visualize interaction strength/weight
-pdf("cellchat_interaction_strength.pdf", width = 8, height = 8)
-netVisual_circle(cellchat@net$weight, 
-                 vertex.weight = groupSize, 
-                 weight.scale = TRUE, 
-                 label.edge = FALSE, 
-                 title.name = "Interaction strength")
-dev.off()
+# import cellchat saved below
+cellchat <- s3readRDS(bucket = "scrna",
+                      object = "Projects/CKD/RH_RH2/data_clean/cellchat_pb90_subset.rds",
+                      region = "")
 
-# 2. Analyze autocrine vs paracrine signaling
+# circle plots showing the total number of interactions between celltypes
+temp_file <- tempfile(fileext = ".png")
+png(temp_file, 
+    width = 3000, height = 3000, res = 600, bg = "transparent")
+par(mar = c(0, 0, 1.5, 0), xpd = TRUE)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, 
+                 label.edge = F, title.name = "Number of interactions")
+dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CKD/RH_RH2/Results/Figures/CellChat/cellchat_circle_plots_n_interactions.png",
+  bucket = "scrna",
+  region = ""
+)
+
+# circle plots showing which interactions are strongest
+temp_file <- tempfile(fileext = ".png")
+png(temp_file, 
+    width = 3000, height = 3000, res = 600, bg = "transparent")
+par(mar = c(0, 0, 1.5, 0), xpd = TRUE)
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, 
+                 label.edge = F, title.name = "Interaction weights/strength")
+dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CKD/RH_RH2/Results/Figures/CellChat/cellchat_circle_plots_interactions_weights.png",
+  bucket = "scrna",
+  region = ""
+)
+
+# circle plots of strength of interactions by cell type
+mat <- cellchat@net$weight
+for (i in 1:nrow(mat)) {
+  cell_name <- rownames(mat)[i]
+  
+  # Signals sent from cell type i
+  mat_sent <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat_sent[i, ] <- mat[i, ]
+  
+  temp_file <- tempfile(fileext = ".png")
+  png(temp_file, 
+      width = 3000, height = 3000, res = 600, bg = "transparent")
+  par(mar = c(0, 0, 1.5, 0), xpd = TRUE)
+  netVisual_circle(mat_sent, vertex.weight = groupSize, weight.scale = T, 
+                   edge.weight.max = max(mat), 
+                   title.name = paste0("Signals sent from ", cell_name))
+  dev.off()
+  put_object(
+    file = temp_file,
+    object = paste0("Projects/CKD/RH_RH2/Results/Figures/CellChat/cellchat_circle_plots_sent_wt_", cell_name, ".png"),
+    bucket = "scrna",
+    region = ""
+  )
+  
+  # Signals received by cell type i
+  mat_recv <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat_recv[, i] <- mat[, i]
+  
+  temp_file <- tempfile(fileext = ".png")
+  png(temp_file, 
+      width = 3000, height = 3000, res = 600, bg = "transparent")
+  par(mar = c(0, 0, 1.5, 0), xpd = TRUE)
+  netVisual_circle(mat_recv, vertex.weight = groupSize, weight.scale = T, 
+                   edge.weight.max = max(mat), 
+                   title.name = paste0("Signals received by ", cell_name))
+  dev.off()
+  put_object(
+    file = temp_file,
+    object = paste0("Projects/CKD/RH_RH2/Results/Figures/CellChat/cellchat_circle_plots_rcvd_wt_", cell_name, ".png"),
+    bucket = "scrna",
+    region = ""
+  )
+}
+
+# Analyze autocrine vs paracrine signaling
 # Create matrix to identify autocrine (diagonal) vs paracrine (off-diagonal)
-interaction_matrix <- cellchat@net$count
+interaction_matrix <- cellchat@net$weight
 
 # Extract autocrine interactions (diagonal elements)
 autocrine_interactions <- diag(interaction_matrix)
@@ -167,151 +200,67 @@ autocrine_df <- data.frame(
 )
 
 # Create visualization for autocrine vs paracrine
-library(reshape2)
-autocrine_df_long <- melt(autocrine_df, id.vars = "cell_type")
+autocrine_df_long <- autocrine_df %>%
+  dplyr::mutate(cell_type = gsub("_", "/", cell_type),
+                                     n = autocrine + paracrine_sent + paracrine_received) %>%
+  arrange(desc(n)) %>%
+  dplyr::mutate(cell_type = factor(cell_type, levels = unique(cell_type))) %>%
+  dplyr::select(-n) %>%
+  melt(id.vars = "cell_type") %>%
+  dplyr::mutate(variable = case_when(variable == "autocrine" ~ "Autocrine",
+                                     variable == "paracrine_sent" ~ "Paracrine Sent",
+                                     variable == "paracrine_received" ~ "Paracrine Rcvd"))
+  
 
-pdf("autocrine_vs_paracrine_barplot.pdf", width = 10, height = 6)
-ggplot(autocrine_df_long, aes(x = cell_type, y = value, fill = variable)) +
+p <- ggplot(autocrine_df_long, aes(x = cell_type, y = value, fill = variable)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Autocrine vs Paracrine Signaling by Cell Type",
-       x = "Cell Type", y = "Number of Interactions") +
-  scale_fill_manual(values = c("autocrine" = "#FF6B6B", 
-                               "paracrine_sent" = "#4ECDC4", 
-                               "paracrine_received" = "#45B7D1"))
-dev.off()
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank(),
+        text = element_text(size = 15),
+        legend.position = c(0.8, 0.7)) +
+  labs(x = NULL, y = "Weight of Interactions",
+       fill = "Interaction type") +
+  scale_fill_manual(values = c("Autocrine" = "#e63946", 
+                               "Paracrine Sent" = "#a8dadc", 
+                               "Paracrine Rcvd" = "#457b9d"))
 
-# 3. Focus on metabolic signaling pathways
-if(length(metabolic_pathway_names) > 0) {
-  pdf("metabolic_signaling_heatmap.pdf", width = 10, height = 8)
-  for(pathway in metabolic_pathway_names) {
-    tryCatch({
-      netVisual_heatmap(cellchat, 
-                        signaling = pathway, 
-                        color.heatmap = "Reds",
-                        title.name = paste("Metabolic pathway:", pathway))
-    }, error = function(e) {
-      print(paste("Could not plot", pathway, ":", e$message))
-    })
-  }
-  dev.off()
-}
+s3write_using_region(p, FUN = ggsave,
+                     object = "Projects/CKD/RH_RH2/Results/Figures/CellChat/bar_interaction_strength.png", 
+                     bucket = "scrna",
+                     region = "",
+                     width = 8, height = 5)
 
-# 4. Identify major signaling sources and targets
+# Identify major signaling sources and targets
 # Calculate centrality scores
 cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
 
 # Visualize dominant senders and receivers
-pdf("signaling_roles_heatmap.pdf", width = 10, height = 6)
-ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing", 
-                                         title = "Outgoing signaling patterns")
-ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming", 
-                                         title = "Incoming signaling patterns")
-ht1 + ht2
-dev.off()
+netAnalysis_signalingRole_ggplot(cellchat, pattern = "outgoing",
+                                 color.heatmap = "#e76f51",
+                                 filepath = "Projects/CKD/RH_RH2/Results/Figures/CellChat/outgoing_signal_patterns.png", 
+                                 bucket = "scrna",
+                                 height = 18, width = 10)
 
-# 5. Analyze specific metabolic interactions in detail
-# Get detailed information about metabolic signaling
-metabolic_communications <- subsetCommunication(cellchat, 
-                                                grep("metabolic|glycolysis|lipid", 
-                                                     cellchat@LR$LRsig$pathway_name, 
-                                                     ignore.case = TRUE))
+netAnalysis_signalingRole_ggplot(cellchat, pattern = "incoming",
+                                 color.heatmap = "#4f772d",
+                                 filepath = "Projects/CKD/RH_RH2/Results/Figures/CellChat/incoming_signal_patterns.png", 
+                                 bucket = "scrna",
+                                 height = 18, width = 10)
 
-if(nrow(metabolic_communications) > 0) {
-  write.csv(metabolic_communications, "metabolic_communications_detailed.csv", row.names = FALSE)
-  
-  # Visualize top metabolic interactions
-  pdf("top_metabolic_interactions.pdf", width = 12, height = 8)
-  top_metabolic <- metabolic_communications %>%
-    group_by(source, target) %>%
-    summarise(total_prob = sum(prob, na.rm = TRUE)) %>%
-    arrange(desc(total_prob)) %>%
-    head(20)
-  
-  ggplot(top_metabolic, aes(x = reorder(paste(source, "->", target), total_prob), 
-                            y = total_prob, fill = source)) +
-    geom_bar(stat = "identity") +
-    coord_flip() +
-    theme_minimal() +
-    labs(title = "Top 20 Metabolic Signaling Interactions",
-         x = "Cell Type Interaction", 
-         y = "Total Communication Probability")
-  dev.off()
-}
 
-# 6. Identify communication patterns
+# Identify communication patterns
 # Identify global communication patterns
 cellchat <- identifyCommunicationPatterns(cellchat, pattern = "outgoing", k = 3)
 cellchat <- identifyCommunicationPatterns(cellchat, pattern = "incoming", k = 3)
 
 # Visualize communication patterns
-pdf("communication_patterns.pdf", width = 12, height = 5)
 netAnalysis_river(cellchat, pattern = "outgoing")
 netAnalysis_river(cellchat, pattern = "incoming")
-dev.off()
 
-# 7. Compare metabolic vs non-metabolic signaling
-all_communications <- subsetCommunication(cellchat)
-all_communications$is_metabolic <- grepl("metabolic|glycolysis|lipid|amino acid|nucleotide", 
-                                         all_communications$pathway_name, 
-                                         ignore.case = TRUE)
-
-signaling_summary <- all_communications %>%
-  group_by(source, target, is_metabolic) %>%
-  summarise(
-    n_interactions = n(),
-    mean_prob = mean(prob, na.rm = TRUE),
-    total_prob = sum(prob, na.rm = TRUE)
-  )
-
-# Plot comparison
-pdf("metabolic_vs_canonical_signaling.pdf", width = 10, height = 6)
-ggplot(signaling_summary, aes(x = source, y = target, size = total_prob)) +
-  geom_point(aes(color = is_metabolic), alpha = 0.6) +
-  scale_size_continuous(range = c(1, 10)) +
-  scale_color_manual(values = c("FALSE" = "#3498db", "TRUE" = "#e74c3c"),
-                     labels = c("Canonical", "Metabolic")) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Metabolic vs Canonical Cell-Cell Communication",
-       x = "Source Cell Type", y = "Target Cell Type",
-       size = "Total Probability", color = "Signaling Type")
-dev.off()
-
-# 8. Save CellChat object for future use
-saveRDS(cellchat, file = "cellchat_pb90_subset_analysis.rds")
-
-# 9. Generate comprehensive report
-sink("cellchat_analysis_summary.txt")
-cat("=== CellChat Analysis Summary ===\n\n")
-cat("Total number of cells:", nrow(meta), "\n")
-cat("Cell types analyzed:", paste(unique(cellchat@idents), collapse = ", "), "\n\n")
-
-cat("=== Interaction Statistics ===\n")
-cat("Total interactions detected:", sum(cellchat@net$count), "\n")
-cat("Total autocrine interactions:", total_autocrine, "\n")
-cat("Total paracrine interactions:", total_paracrine, "\n")
-cat("Ratio autocrine/paracrine:", round(total_autocrine/total_paracrine, 3), "\n\n")
-
-cat("=== Metabolic Signaling ===\n")
-cat("Metabolic pathways identified:", length(metabolic_pathway_names), "\n")
-cat("Metabolic pathway names:", paste(metabolic_pathway_names, collapse = ", "), "\n")
-if(nrow(metabolic_communications) > 0) {
-  cat("Total metabolic interactions:", nrow(metabolic_communications), "\n")
-  cat("Proportion of metabolic interactions:", 
-      round(nrow(metabolic_communications)/nrow(all_communications) * 100, 2), "%\n")
-}
-
-cat("\n=== Top Signaling Pathways ===\n")
-pathway_counts <- table(all_communications$pathway_name)
-top_pathways <- sort(pathway_counts, decreasing = TRUE)[1:10]
-for(i in 1:length(top_pathways)) {
-  cat(names(top_pathways)[i], ":", top_pathways[i], "interactions\n")
-}
-sink()
-
-print("CellChat analysis complete! Check the generated PDF files and summary text file.")
-
-# Optional: Interactive visualization with CellChat's Shiny app
-# cellchat <- runCellChatApp(cellchat)
+# Save CellChat object for future use
+s3saveRDS(cellchat,
+          bucket = "scrna",
+          object = "Projects/CKD/RH_RH2/data_clean/cellchat_pb90_subset.rds",
+          region = "",
+          multipart = T)

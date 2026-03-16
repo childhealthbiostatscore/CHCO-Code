@@ -214,6 +214,15 @@ n_subjects    <- length(unique(new_covariate$subject_id))
 message(sprintf("  Cells: %d  |  Subjects: %d (%d per arm x 2 arms)",
                 n_cells_total, n_subjects, params$n_subjects_per_arm))
 
+# Per-subject cell counts (attach to params for downstream diagnostics)
+cells_per_subject <- table(new_covariate$subject_id)
+params$n_cells_total    <- n_cells_total
+params$cells_per_subject <- list(setNames(as.integer(cells_per_subject),
+                                          names(cells_per_subject)))
+params$cells_min        <- min(cells_per_subject)
+params$cells_median     <- median(as.integer(cells_per_subject))
+params$cells_max        <- max(cells_per_subject)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. GROUND TRUTH: ASSIGN DE GENES AND TRUE INTERACTION EFFECTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +239,7 @@ truth_df <- data.frame(
   gene          = hvg_genes,
   is_de         = seq_len(n_genes) %in% de_idx,
   beta_int_true = beta_int_true,
+  log2FC_true   = beta_int_true / log(2),   # convert natural log -> log2 for bias
   stringsAsFactors = FALSE
 )
 
@@ -482,8 +492,10 @@ extract_nebula_stats <- function(fit_neb) {
                    colnames(summ), value = TRUE)
   if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
   pval_col <- sub("^logFC_", "p_", lfc_col[1])
+  # NEBULA reports logFC on natural log scale; convert to log2 for consistency
+  # with DESeq2/edgeR/Wilcoxon/MAST (all report log2FC)
   tidy_join(gene  = gene_vec,
-            logfc = summ[[lfc_col[1]]],
+            logfc = summ[[lfc_col[1]]] / log(2),
             pval  = summ[[pval_col]])
 }
 
@@ -673,8 +685,9 @@ so_sim <- CreateSeuratObject(
   meta.data = new_covariate,
   min.cells = 0, min.features = 0
 )
-
-options(future.globals.maxSize = 2 * 1024^3)
+# Increase future.globals.maxSize to avoid error when NormalizeData exports
+# large objects to parallel workers (default 500 MiB is too small for big sims)
+options(future.globals.maxSize = 2 * 1024^3)  # 2 GiB
 so_sim <- NormalizeData(so_sim, verbose = FALSE)
 
 # Subset to POST cells only; set identity to treatment group
