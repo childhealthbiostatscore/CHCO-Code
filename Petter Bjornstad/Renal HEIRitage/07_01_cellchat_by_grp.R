@@ -39,6 +39,7 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 pb90_subset <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
                          bucket = "scrna", region = "")
 
