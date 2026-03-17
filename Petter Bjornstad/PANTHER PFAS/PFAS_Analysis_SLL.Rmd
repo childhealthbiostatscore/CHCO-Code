@@ -1117,6 +1117,107 @@ for (pfas in pfas_vars) {
 dev.off()
 ```
 
+
+```{r}
+source(file.path(git_path, "Panther PFAS/Functions.R"))
+
+dat <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
+lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+```
+#-------------------------------------
+#formatting Data identical to Hailey's
+#-------------------------------------
+
+
+
+```{r}
+# =========================================================
+# PFAS + kidney/metabolic/hormonal analysis workflow
+# Using pre-cleaned longitudinal dataset: dat_lmm.rds
+# =========================================================
+
+# -------------------------
+# 1. Read cleaned data
+# -------------------------
+dat_lmm <- readRDS(file.path(dir.dat2, "dat_lmm.rds"))
+
+# -------------------------
+# 2. Define variables
+# -------------------------
+
+# Baseline PFAS exposures
+pfas_vars <- c(
+  "N.MeFOSAA_total_ng", "PFDA_total_ng", "PFHpA_total_ng", "PFNA_total_ng", "PFBS_total_ng",
+  "PFHps_total_ng", "PFHxS_total_ng", "PFOA_total_ng", "PFOS_total_ng", "PFPeAS_total_ng"
+)
+
+# Outcomes with longitudinal data
+outcome_vars <- c(
+  "log_acr_u",
+  "log_microalbumin_u",
+  "eGFR_CKiD_U25_avg",
+  "dexa_lean_kg",
+  "dexa_fat_kg",
+  "igf_1",
+  "bl_dheas"
+)
+
+# Baseline-only outcomes
+baseline_only_outcomes <- c(
+  "mm_si",
+  "mm_ir",
+  "mm_di"
+)
+
+# All baseline outcomes
+baseline_outcomes <- c(outcome_vars, baseline_only_outcomes)
+
+# -------------------------
+# 3. Prepare longitudinal dataset
+# -------------------------
+dat_lmm2 <- dat_lmm %>%
+  mutate(
+    record_id = as.character(record_id),
+    sex = factor(sex),
+    group = factor(group),
+    visit_f = factor(visit, levels = c("Baseline", "Year 1", "Year 2")),
+    )
+
+# -------------------------
+# 4. Create baseline PFAS and baseline ACRu variables
+# -------------------------
+# Rename baseline PFAS so they are clearly "baseline exposure" variables
+baseline_pfas <- dat_lmm2 %>%
+  filter(visit == "Baseline") %>%
+  select(record_id, all_of(pfas_vars)) %>%
+  rename_with(~ paste0("bl_", .x), all_of(pfas_vars))
+
+# Rename baseline log ACRu for use as an adjustment covariate
+baseline_acru <- dat_lmm2 %>%
+  filter(visit == "Baseline") %>%
+  select(record_id, log_acr_u) %>%
+  rename(bl_log_acr_u = log_acr_u)
+
+# Join baseline exposure/covariate values onto all visits
+dat_lmm2 <- dat_lmm2 %>%
+  left_join(baseline_pfas, by = "record_id") %>%
+  left_join(baseline_acru, by = "record_id")
+
+# Define renamed baseline PFAS variables
+bl_pfas_vars <- paste0("bl_", pfas_vars)
+
+# Baseline-only dataset for cross-sectional analyses
+dat_bl <- dat_lmm2 %>%
+  filter(visit == "Baseline")
+
+# Quick checks
+table(dat_lmm2$visit_f, useNA = "ifany")
+table(dat_lmm2$group, useNA = "ifany")
+table(dat_lmm2$visit_f, dat_lmm2$group, useNA = "ifany")
+```
+
+
+
 ```{r}
 model_pfas <- lmer(
   acr_u ~ time_numeric + PFOS + age + sex + group +
