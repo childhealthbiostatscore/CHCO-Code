@@ -81,7 +81,7 @@ lead_plasma <- merge(lead_plasma,lead_plasma_oa_2025,by="Sample.Name")
 # read in NIDDK plasma ceramides (march 2026)
 niddk_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_NIDDK_Plasma_Cearmides_Final.xlsx", sheet = "TODAY_NIDDK_Plasma_Cearmides_Fi",
                                            startRow = 2,colNames = TRUE)
-#remove HC (healthy controls) and last row which is a key
+#remove last row (not data) and HC rows (healthy controls) 
 niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[-nrow(niddk_plasma_ceramides_2026),]
 niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[- grep("HC_", niddk_plasma_ceramides_2026$Filename),]
 # read in LEAD plasma ceramides (march 2026)
@@ -137,16 +137,24 @@ niddk_plasma_ceramides_2026 <- merge(niddk_plasma_ceramides_2026,ids_niddk,by="c
 # LEAD 2026
 lead_plasma_ceramides_2026$Sample.Name<-lead_plasma_ceramides_2026$Filename
 lead_plasma_ceramides_2026$Sample.Name[lead_plasma_ceramides_2026$Sample.Name=="6565369"]<-"65_65369"
-  
 lead_plasma_ceramides_2026 <- merge(lead_plasma_ceramides_2026,ids_lead,by="Sample.Name",all.x = T, all.y = F)
+
 plasma_ceramides <- bind_rows(niddk_plasma_ceramides_2026,lead_plasma_ceramides_2026)
 plasma_ceramides<-plasma_ceramides[,c("releaseid","Date.Drawn",
                                       "C14(d18:1/14:0).in.uM","C16(d18:1/16:0).in.uM","C18(d18:1/18:0).in.uM",
                                       "C20(d18:1/20:0).in.uM","C22(d18:1/22:0).in.uM","C24(d18:1/24:0).in.uM")]
+#merge plasma with plasma ceramides
+plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
+plasma_ceramides$Date.Drawn<-as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
+
+plasma_all<-merge(plasma,plasma_ceramides,by=c("releaseid","Date.Drawn"),all=T)
 
 # Save
-# save(urine,file = "./Metabolomic data/urine.Rdata")
-save(plasma,file = "./Metabolomic data/plasma.Rdata")
-save(plasma_ceramides,file = "./Metabolomic data/plasma_ceramides.Rdata")
+save(urine,file = "./Metabolomic data/urine.Rdata")
+save(plasma_all,file = "./Metabolomic data/plasma_all.Rdata")
+
+# save(plasma,file = "./Metabolomic data/plasma.Rdata")
+# save(plasma_ceramides,file = "./Metabolomic data/plasma_ceramides.Rdata")
 
 # write.csv(plasma, file = "./Metabolomic data/today_plasma_metabolomics.csv", row.names = F, na = "")
+

@@ -44,8 +44,8 @@ knitr::opts_knit$set(root.dir = home_dir)
 ```
 
 ```{r, include=FALSE}
-load("./Metabolomic data/plasma.Rdata")
-load("./Metabolomic data/plasma_ceramides.Rdata")
+# load plasma data
+load("./Metabolomic data/plasma_all.Rdata")
 
 # load comorbidity data
 load("./Clinical data/comorb.Rdata")
@@ -53,23 +53,27 @@ load("./Clinical data/comorb.Rdata")
 # load baseline risk factors
 load("./Clinical data/TODAY/baserisk.Rdata")
 
-# take only the baseline samples
-plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
-base <- plasma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
-base <- base %>% arrange(Date.Drawn)
+# load CKM outcomes
+dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
-# take only base plasma ceramides
-plasma_ceramides$Date.Drawn <- as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
-base_ceramides <- plasma_ceramides %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
-base_ceramides <- base_ceramides %>% arrange(Date.Drawn)
-names(base_ceramides) <- c("releaseid","Date.Drawn","C14.uM","C16.uM","C18.uM","C20.uM","C22.uM","C24.uM")
-base<- merge(base, base_ceramides,by="releaseid",all.x=T,all.y=F)
+plasma_all$Date.Drawn <- as.Date(plasma_all$Date.Drawn,format = "%m/%d/%Y")
+base <- plasma_all %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base <- base %>% arrange(Date.Drawn)
+base<-data.frame(base)
 
 # merge in complication data
 base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
 
 # merge in baseline risk factors
 base <- merge(base, baserisk, by="releaseid",all.x=T, all.y=F)
+
+# merge in CKM outcomes
+dat.ckm$releaseid<-dat.ckm$RELEASEID
+base <- merge(base, dat.ckm[,c("releaseid",
+                               "CKM_syn_base","CKM_max",
+                               "progress_CKM","days_to_first_ckm_prog",
+                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
 
 # identify columns corresponding to proteins
 #is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
@@ -78,22 +82,12 @@ seq <- is_seq(names(base))
 
 # convert to numeric
 base[,seq] <- apply(base[,seq],2,as.numeric)
-
+metabolites<-base[,seq]
 # are there proteins with low variability?
-no_var = caret::nearZeroVar(base[,seq])
-base <- base[,-no_var]
+no_var = caret::nearZeroVar(metabolites)
+no_var_names<-names(metabolites[,no_var])
 
-#columns with only missing values
-all_na_cols <- names(base)[colSums(is.na(base)) == nrow(base)]
-base <- base[,-which(colnames(base)%in%all_na_cols)]
-
-
-# other metabolites have zero variance
-base <- base %>% select(!Adenine.in.uM)
-base <- base %>% select(!`DL-Homocystine.in.uM`)
-base <- base %>% select(!Sulpiride.in.uM)
-base <- base %>% select(!Nicotinic_acid.in.uM)
-base <- base %>% select(!Quinolinic.Acid.in.uM)
+base <- base[,-which(colnames(base)%in%no_var_names)]
 seq <- is_seq(names(base))
 
 # log transform
@@ -252,6 +246,45 @@ for (i in 1:length(predictors)) {
 results_glyc_a1c$adj.p.value <- p.adjust(results_glyc_a1c$p.value, "fdr")
 results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$p.value),] 
 
+# CKM progression
+results_ckm_prog <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, progress_CKM)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog <- rbind(results_ckm_prog,tidymod)
+}
+results_ckm_prog$adj.p.value <- p.adjust(results_ckm_prog$p.value, "fdr")
+results_ckm_prog <- results_ckm_prog[order(results_ckm_prog$p.value),] 
+
+# CKM progression stage 3
+results_ckm_prog3 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog3 <- rbind(results_ckm_prog3,tidymod)
+}
+results_ckm_prog3$adj.p.value <- p.adjust(results_ckm_prog3$p.value, "fdr")
+results_ckm_prog3 <- results_ckm_prog3[order(results_ckm_prog3$p.value),] 
+
+# CKM progression stage 4
+results_ckm_prog4 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",predictors[i],"+HbA1c+bmi+si_1_ins0")
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  results_ckm_prog4 <- rbind(results_ckm_prog4,tidymod)
+}
+results_ckm_prog4$adj.p.value <- p.adjust(results_ckm_prog4$p.value, "fdr")
+results_ckm_prog4 <- results_ckm_prog4[order(results_ckm_prog4$p.value),] 
+
 # write all results to file
 wb <- createWorkbook()
 addWorksheet(wb,"MAC CPH")
@@ -274,7 +307,13 @@ addWorksheet(wb,"GLYC CPH")
 writeData(wb,"GLYC CPH",result_GLYC,rowNames = F)
 addWorksheet(wb,"GLYC with A1c CPH")
 writeData(wb,"GLYC with A1c CPH",results_glyc_a1c,rowNames = F)
-saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_testKM.xlsx",overwrite = TRUE)
+addWorksheet(wb,"CKM progression")
+writeData(wb,"CKM progression",results_ckm_prog,rowNames = F)
+addWorksheet(wb,"CKM progression stage 3")
+writeData(wb,"CKM progression stage 3",results_ckm_prog3,rowNames = F)
+addWorksheet(wb,"CKM progression stage 4")
+writeData(wb,"CKM progression stage 4",results_ckm_prog4,rowNames = F)
+saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_03162026.xlsx",overwrite = TRUE)
 
 
 ```
