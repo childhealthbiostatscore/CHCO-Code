@@ -223,25 +223,27 @@ head(GetAssayData(pb90_subset, layer = "data")[, 1:5])    # Normalized data
 genes <- sample(rownames(pb90_subset), 100)
 
 # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
-par(mfrow = c(2, 3))
-
-# Loop over each randomly selected gene
-for (g in genes) {
-  
-  # Plot a histogram of the expression values for gene 'g'
-  # using normalized expression values from the "data" slot
-  hist(GetAssayData(pb90_subset, layer = "data")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Normalized Expression")     # Label for x-axis
-  
-  # using raw counts expression values from the "counts" slot
-  hist(GetAssayData(pb90_subset, layer = "counts")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Raw Counts Expression")     # Label for x-axis
-}
+# par(mfrow = c(2, 3))
+# 
+# # Loop over each randomly selected gene
+# for (g in genes) {
+#   
+#   # Plot a histogram of the expression values for gene 'g'
+#   # using normalized expression values from the "data" slot
+#   hist(GetAssayData(pb90_subset, layer = "data")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Normalized Expression")     # Label for x-axis
+#   
+#   # using raw counts expression values from the "counts" slot
+#   hist(GetAssayData(pb90_subset, layer = "counts")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Raw Counts Expression")     # Label for x-axis
+# }
 
 # Save Seurat object for downstream analysis
-s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
+          bucket = "scrna", region = "",
+          multipart = TRUE)
 
 # Subset Seurat object into general cell types and save
 for (cell in names(celltype_groups)) {
@@ -253,7 +255,8 @@ for (cell in names(celltype_groups)) {
   
 }
 
-pb90_subset <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+pb90_subset <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
+                         bucket = "scrna", region = "")
 
 length(unique(pb90_subset$kit_id))
 

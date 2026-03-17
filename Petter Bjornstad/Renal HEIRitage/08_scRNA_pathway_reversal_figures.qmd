@@ -12,6 +12,7 @@ library(jsonlite)
 library(ggplot2)
 library(ggforce)
 library(enrichR)
+library(stringr)
 ```
 
 ```{r}
@@ -451,15 +452,17 @@ compute_reactome_enrichment <- function(rev_combined, celltype_groups) {
 # ---------------------------------------------------------------------------
 # Plot Reactome dot plots
 # ---------------------------------------------------------------------------
-plot_reactome_dotplots <- function(rev_reactome_df, output_dir, file_prefix, min_celltypes = 5,
+plot_reactome_dotplots <- function(rev_reactome_df, output_dir, file_prefix, 
+                                   min_celltypes = 5, min_genes = 5,
                                    subset_celltypes = NULL,
                                    sup_width = 12, sup_height = 5,
                                    enh_width = 7, enh_height = 3) {
   rev_sig <- rev_reactome_df %>%
     filter(P.value < 0.05) %>%
     group_by(Term, bg) %>%
-    dplyr::mutate(n = n()) %>%
-    filter(n > min_celltypes)
+    dplyr::mutate(n = n(),
+                  length = str_count(Genes, ";") + 1) %>%
+    filter(n > min_celltypes & length > min_genes) 
 
   # Suppressed
   p1 <- rev_sig %>% filter(bg == "Suppressed") %>%
@@ -632,7 +635,7 @@ plot_deg_butterfly <- function(sig_df_summary, analysis_type_filter, ct_names, o
     labs(x = "Number of DE genes", y = NULL, fill = NULL) +
     theme(legend.position = "top", panel.background = element_blank(), text = element_text(size = 15),
           axis.text.y = element_blank(), axis.ticks.y = element_blank())
-  ggsave(output_file, plot = p)
+  ggsave(output_file, plot = p, width = 7, height = 7)
   p
 }
 
@@ -833,7 +836,7 @@ rev_reactome_df_adj <- compute_reactome_enrichment(t2d_glp_rev_combined_adj, cel
 
 rev_reactome_sig_adj <- plot_reactome_dotplots(
   rev_reactome_df_adj, t2d_adj_output_dir, "rev_adj",
-  min_celltypes = 1,
+  min_celltypes = 1, min_genes = 4,
   subset_celltypes = c("EC", "Immune", "VSMC_P_FIB")
 )
 ```

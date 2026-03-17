@@ -260,11 +260,11 @@ harm_meta_data2 <- read.csv(temp_file)
 #   dplyr::rename(cell_type = putative_assignment) %>% 
 #   mutate(cell_type=str_to_lower(str_replace_all(cell_type," ","_")))
 
-# # Download Reactome GMT
-# temp_file <- tempfile(fileext = ".gmt")
-# s3$download_file("gsea", "gmt_files/c2.cp.reactome.v2024.1.Hs.symbols.gmt", temp_file)
-# reactome_sets <- gmtPathways(temp_file)
-# cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
+# Download Reactome GMT
+temp_file <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c2.cp.reactome.v2024.1.Hs.symbols.gmt", temp_file)
+reactome_sets <- gmtPathways(temp_file)
+cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
 
 # Output directory
 dir.gsea <- "/home/hhampson/Results/GSEA_T2DvsLC_Reactome"
@@ -2201,13 +2201,13 @@ ggsave("/home/hhampson/Results/DE_genes_by_celltype_barplot_treatment_adjusted.p
 ### iii. GSEA 
 #### a. Reactome
 ```{r}
-# celltypes <- unique(so_combined$cell_type_abbrev)
-celltypes <- cell_type_order
+celltypes <- unique(so_combined$cell_type_abbrev)
+# celltypes <- cell_type_order
 
 for (cell_name in celltypes) {
   cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
-  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", 
-                                 cell_name_clean, "_unadjusted_2000.csv"))
+  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_T2DvsLC_", 
+                                 cell_name_clean, "_treatment_adjusted_2000.csv"))
   
   if (!file.exists(input_file)) {
     cat("File not found:", input_file, "\n")
@@ -2218,7 +2218,7 @@ for (cell_name in celltypes) {
   full_results <- read.csv(input_file)
   
   # Create ranked gene list
-  rankings <- full_results$logFC
+  rankings <- full_results$logFC_group
   names(rankings) <- full_results$gene
   rankings <- sort(rankings, decreasing = TRUE)
   
@@ -8275,8 +8275,8 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze
-# celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
-celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
+celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
+# celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
 
 # Loop through each cell type
 for (cell_name in celltypes) {
@@ -8791,7 +8791,7 @@ cat("\n=== PDF Complete ===\n")
 ```
 
 ###iv. Pseudobulk
-###Biopsy: Limma-voom Pseudobulk — T2D vs LC
+####Biopsy: Limma-voom Pseudobulk — T2D vs LC
 #####DEGs + GSEA
 ######Sub-Sample - T2D & LC Oragnoid Match
 ```{r}
@@ -8803,11 +8803,11 @@ dir.create(dir_results_biopsy, recursive = TRUE, showWarnings = FALSE)
 dir.create(dir_gsea_biopsy, recursive = TRUE, showWarnings = FALSE)
 
 # ── Reactome gene sets ────────────────────────────────────────────────────────
-reactome_df <- msigdbr(species = "Homo sapiens", category = "C2", subcollection = "CP:REACTOME")
+reactome_df <- msigdbr(species = "Homo sapiens", collection = "C2", subcollection = "CP:REACTOME")
 reactome_pathways <- split(reactome_df$gene_symbol, reactome_df$gs_name)
 
 # ── Cell types ────────────────────────────────────────────────────────────────
-celltypes <- unique(so_kpmp_sc$celltype2)
+celltypes <- unique(so_kpmp_sc$celltype_LR)[-15]
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 results_list_biopsy <- list()
@@ -8819,7 +8819,7 @@ for (ct in celltypes) {
   message("Processing biopsy: ", ct)
   
   # ── 1. Subset to cell type ─────────────────────────────────────────────────
-  so_ct <- subset(so_kpmp_sc, celltype2 == ct)
+  so_ct <- subset(so_kpmp_sc, celltype_LR == ct)
   DefaultAssay(so_ct) <- "RNA"
   
   # check both groups present
@@ -8978,7 +8978,7 @@ if (length(gsea_list_biopsy) > 0) {
 
 message("Biopsy limma analysis complete! Results saved to ", dir_results_biopsy)
 
-biopsy_cell_counts <- table(so_kpmp_sc$celltype2) %>%
+biopsy_cell_counts <- table(so_kpmp_sc$celltype_LR) %>%
   as.data.frame() %>%
   setNames(c("cell_type", "n_cells"))
 
@@ -8989,7 +8989,7 @@ write.csv(biopsy_cell_counts, "/home/hhampson/Results/Biopsy_Limma_T2DvsLC/cell_
 ######Full Sample - T2D & LC
 ```{r}
 
-biopsy_cell_counts <- table(so_biopsy$celltype2) %>%
+biopsy_cell_counts <- table(so_biopsy$celltype_LR) %>%
   as.data.frame() %>%
   setNames(c("cell_type", "n_cells"))
 
@@ -9007,7 +9007,7 @@ reactome_df <- msigdbr(species = "Homo sapiens", category = "C2", subcollection 
 reactome_pathways <- split(reactome_df$gene_symbol, reactome_df$gs_name)
 
 # ── Cell types ────────────────────────────────────────────────────────────────
-celltypes <- unique(so_kpmp_sc$celltype2)
+celltypes <- unique(so_kpmp_sc$celltype_LR)[-15]
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 results_list_biopsy <- list()
@@ -9019,7 +9019,7 @@ for (ct in celltypes) {
   message("Processing biopsy: ", ct)
   
   # ── 1. Subset to cell type ─────────────────────────────────────────────────
-  so_ct <- subset(so_kpmp_sc, celltype2 == ct)
+  so_ct <- subset(so_kpmp_sc, celltype_LR == ct)
   DefaultAssay(so_ct) <- "RNA"
   
   # check both groups present
@@ -9178,7 +9178,7 @@ if (length(gsea_list_biopsy) > 0) {
 
 message("Biopsy limma analysis complete! Results saved to ", dir_results_biopsy)
 
-biopsy_cell_counts <- table(so_kpmp_sc$celltype2) %>%
+biopsy_cell_counts <- table(so_kpmp_sc$celltype_LR) %>%
   as.data.frame() %>%
   setNames(c("cell_type", "n_cells"))
 
