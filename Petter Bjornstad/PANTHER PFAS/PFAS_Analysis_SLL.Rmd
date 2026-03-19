@@ -30,13 +30,10 @@ library(corrplot)
 library(gt)
 library(table1)
 library(stringr)
-#install.packages("lme4")
-library(lme4)
-#install.packages("ggpubr")
 library(ggpubr)
 ```
 #---------------------------------------------------
-# 1. inputting all directories and storage locations
+# inputting all directories and storage locations
 #---------------------------------------------------
 ```{r}
 #Directories
@@ -67,6 +64,7 @@ lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS 
 ```
 
 ```{r}
+
 pfas_all <- c(
   "N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFOA",
   "PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFDoS","PFHps","PFHxS","PFNS",
@@ -119,7 +117,7 @@ outcome_label_map <- c(
   pah_clear_bsa = "PAH clearance",
   #kidney oxygenation
   avg_c_r2 = "Cortical R2",
-  avg_k_r2= "Medullary/Whole kidney",
+  avg_k_r2= "Kidney R2",
   #metabolism
   dexa_lean_kg = "DEXA Lean Mass (kg)",
   dexa_fat_kg = "DEXA Fat Mass (kg)",
@@ -199,7 +197,6 @@ get_outcome_label <- function(outcome) {
   dplyr::recode(outcome, !!!outcome_label_map, .default = outcome)
 }
 ```
-
 #--------------------------------
 #building analysis dataset
 #--------------------------------
@@ -218,7 +215,6 @@ dat_full <- dat_raw %>%
 
 meta <- bind_rows(dat_base, dat_full)
 ```
-
 #---------------------------------
 #Baseline PFAS VALUES & Dataframe
 #---------------------------------
@@ -311,6 +307,8 @@ dat_long <- meta_nopfas %>%
       TRUE ~ NA_real_
     )
   )
+
+
 ```
 
 #--------------------------------------------------
@@ -335,8 +333,32 @@ dat_long <- dat_long %>%
     log_acr_u_bl = log1p(acr_u_bl)
   )
 
-#PFAS transform by natural log
+#Creating column of total pfas burden and then log transforming all PFAS data
 pfas_bl_vars <- paste0(pfas_vars, "_bl")
+
+dat_baseline <- dat_baseline %>%
+  mutate(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
+    total_pfas_bl = ifelse(
+      n_pfas_nonmiss == 0,
+      NA_real_,
+      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+    ),
+    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+  ) %>%
+  select(-n_pfas_nonmiss)
+
+dat_long <- dat_long %>%
+  mutate(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
+    total_pfas_bl = ifelse(
+      n_pfas_nonmiss == 0,
+      NA_real_,
+      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+    ),
+    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+  ) %>%
+  select(-n_pfas_nonmiss)
 
 dat_baseline <- dat_baseline %>%
   mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
@@ -367,26 +389,296 @@ table1(
   render.continuous = render.geometric
 )
 ```
+#---------------------------------------------------
+# Baseline group comparison function outside of PFAS
+#---------------------------------------------------
+```{r}
+run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
+  
+  rhs <- c("group", covars)
+  form <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
+  
+  model_data <- data %>%
+    dplyr::select(all.vars(form)) %>%
+    tidyr::drop_na()
+  
+  fit <- lm(form, data = model_data)
+  
+  # omnibus test for group
+  group_rows <- broom::tidy(stats::anova(fit)) %>%
+    dplyr::filter(term == "group") %>%
+    dplyr::mutate(
+      outcome = outcome,
+      n = nrow(model_data)
+    )
+  
+  # pairwise Tukey-adjusted comparisons
+  emm <- emmeans::emmeans(fit, ~ group)
+  pairwise_tbl <- summary(
+    pairs(emm, adjust = "tukey"),
+    infer = TRUE
+  ) %>%
+    as.data.frame() %>%
+    dplyr::mutate(
+      outcome = outcome,
+      n = nrow(model_data)
+    )
+  
+  list(
+    model = fit,
+    omnibus = group_rows,
+    emmeans = as.data.frame(summary(emm)),
+    pairwise = pairwise_tbl
+  )
+}
+```
 
-##---------------------------------------
-## Baseline PFAS Cross-Sectional Analysis
-##---------------------------------------
+#-----------------------------------
+# baseline outcome differences by group
+#-----------------------------------
+```{r}
+baseline_group_outcome_results <- lapply(
+  baseline_model_outcomes,
+  function(outcome) {
+    run_baseline_group_model(
+      data = dat_baseline,
+      outcome = outcome,
+      covars = c("age", "sex")
+    )
+  }
+)
+names(baseline_group_outcome_results) <- baseline_model_outcomes
+
+baseline_group_outcome_omnibus <- bind_rows(
+  lapply(baseline_group_outcome_results, `[[`, "omnibus")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_outcome_label),
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    p_fmt = fmt_p(p.value),
+    p_fdr_fmt = fmt_p(p_fdr)
+  )
+
+baseline_group_outcome_pairwise <- bind_rows(
+  lapply(baseline_group_outcome_results, `[[`, "pairwise")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_outcome_label),
+    p_fmt = fmt_p(p.value)
+  )
+
+baseline_group_outcome_omnibus
+baseline_group_outcome_pairwise
+```
+#-----------------------------------
+# Plot baseline outcome by group
+#-----------------------------------
+```{r}
+plot_baseline_group_boxplot <- function(data,
+                                        outcome,
+                                        results_list,
+                                        y_label = NULL) {
+  
+  plot_data <- data %>%
+    dplyr::select(group, sex, age, all_of(outcome)) %>%
+    tidyr::drop_na()
+  
+  pair_tbl <- results_list[[outcome]]$pairwise %>%
+    dplyr::mutate(
+      group1 = stringr::str_trim(stringr::word(contrast, 1, sep = " - ")),
+      group2 = stringr::str_trim(stringr::word(contrast, 2, sep = " - "))
+    )
+  
+  # y positions for significance bars
+  y_max <- max(plot_data[[outcome]], na.rm = TRUE)
+  y_min <- min(plot_data[[outcome]], na.rm = TRUE)
+  y_step <- 0.08 * (y_max - y_min)
+  
+  pair_tbl <- pair_tbl %>%
+    dplyr::mutate(
+      y.position = y_max + seq_len(n()) * y_step,
+      p_label = dplyr::case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE ~ "ns"
+      )
+    )
+  
+  omnibus_p <- results_list[[outcome]]$omnibus$p.value[1]
+  
+  ggplot(plot_data, aes(x = group, y = .data[[outcome]], fill = group)) + 
+    scale_fill_viridis_d(option = "C") +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 2) +
+    ggpubr::stat_pvalue_manual(
+      pair_tbl,
+      label = "p_label",
+      xmin = "group1",
+      xmax = "group2",
+      y.position = "y.position",
+      tip.length = 0.01,
+      hide.ns = TRUE
+    ) +
+    theme_bw() +
+    labs(
+      title = paste("Baseline", get_outcome_label(outcome), "by group"),
+      subtitle = paste0("Omnibus group p = ", fmt_p(omnibus_p), "; pairwise p adjusted by Tukey"),
+      x = "Group",
+      y = ifelse(is.null(y_label), get_outcome_label(outcome), y_label)
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold")
+    )
+}
+```
+
+```{r}
+for (outcome in baseline_model_outcomes) {
+  print(
+    plot_baseline_group_boxplot(
+      data = dat_baseline,
+      outcome = outcome,
+      results_list = baseline_group_outcome_results
+    )
+  )
+}
+```
+#-----------------------------------
+# Question 5: PFAS differences by group
+#-----------------------------------
+```{r}
+pfas_group_vars <- c(log2_pfas_bl_vars, "log2_total_pfas_bl")
+
+baseline_group_pfas_results <- lapply(
+  pfas_group_vars,
+  function(outcome) {
+    run_baseline_group_model(
+      data = dat_baseline,
+      outcome = outcome,
+      covars = c("age", "sex")
+    )
+  }
+)
+names(baseline_group_pfas_results) <- pfas_group_vars
+
+baseline_group_pfas_omnibus <- bind_rows(
+  lapply(baseline_group_pfas_results, `[[`, "omnibus")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_pfas_label),
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    p_fmt = fmt_p(p.value),
+    p_fdr_fmt = fmt_p(p_fdr)
+  )
+
+baseline_group_pfas_pairwise <- bind_rows(
+  lapply(baseline_group_pfas_results, `[[`, "pairwise")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_pfas_label),
+    p_fmt = fmt_p(p.value)
+  )
+
+baseline_group_pfas_omnibus
+baseline_group_pfas_pairwise
+```
+
+```{r}
+plot_baseline_pfas_group_boxplot <- function(data,
+                                             exposure,
+                                             results_list) {
+  
+  plot_data <- data %>%
+    dplyr::select(group, sex, age, all_of(exposure)) %>%
+    tidyr::drop_na()
+  
+  pair_tbl <- results_list[[exposure]]$pairwise %>%
+    dplyr::mutate(
+      group1 = stringr::str_trim(stringr::word(contrast, 1, sep = " - ")),
+      group2 = stringr::str_trim(stringr::word(contrast, 2, sep = " - "))
+    )
+  
+  y_max <- max(plot_data[[exposure]], na.rm = TRUE)
+  y_min <- min(plot_data[[exposure]], na.rm = TRUE)
+  y_step <- 0.08 * (y_max - y_min)
+  
+  pair_tbl <- pair_tbl %>%
+    dplyr::mutate(
+      y.position = y_max + seq_len(n()) * y_step,
+      p_label = dplyr::case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE ~ "ns"
+      )
+    )
+  
+  omnibus_p <- results_list[[exposure]]$omnibus$p.value[1]
+  
+  ggplot(plot_data, aes(x = group, y = .data[[exposure]], fill = group)) +
+    scale_fill_viridis_d(option = "C") +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 2) +
+    ggpubr::stat_pvalue_manual(
+      pair_tbl,
+      label = "p_label",
+      xmin = "group1",
+      xmax = "group2",
+      y.position = "y.position",
+      tip.length = 0.01,
+      hide.ns = TRUE
+    ) +
+    theme_bw() +
+    labs(
+      title = paste("Baseline", get_pfas_label(exposure), "by group"),
+      subtitle = paste0("Omnibus group p = ", fmt_p(omnibus_p), "; pairwise p adjusted by Tukey"),
+      x = "Group",
+      y = get_pfas_label(exposure)
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold")
+    )
+}
+```
+
+```{r}
+for (pfas in pfas_group_vars) {
+  print(
+    plot_baseline_pfas_group_boxplot(
+      data = dat_baseline,
+      exposure = pfas,
+      results_list = baseline_group_pfas_results
+    )
+  )
+}
+```
+
+#------------------------------------------------
+# Model 1: Baseline PFAS Cross-Sectional Analysis
+#------------------------------------------------
 ```{r}
 run_baseline_pfas_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
-
+  
   rhs <- c(exposure, "age", "sex", "group")
   if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
-    rhs <- c(rhs, "log_acr_u_bl")
+   rhs <- c(rhs, "log_acr_u_bl")
   }
+  
   m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
+  
   model_data <- data %>%
-    select(all.vars(m0)) %>%
-    drop_na()
+    dplyr::select(all.vars(m0)) %>%
+    tidyr::drop_na()
+  
   m1 <- lm(m0, data = model_data)
+  
   list(
     model = m1,
     tidy = broom::tidy(m1) %>%
-      mutate(
+      dplyr::mutate(
         analysis = "baseline_cross_sectional",
         outcome = outcome,
         exposure = exposure,
@@ -403,9 +695,52 @@ baseline_results_list <- lapply(baseline_model_outcomes, function(outcome) {
   })
 })
 
-baseline_results <- bind_rows(
-  lapply(baseline_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
+baseline_results <- dplyr::bind_rows(
+  lapply(baseline_results_list, function(x) dplyr::bind_rows(lapply(x, `[[`, "tidy")))
 )
+```
+
+##-----------------------------------
+##Baseline Results Tables
+##-----------------------------------
+```{r}
+baseline_pfas_only <- baseline_results %>%
+  dplyr::mutate(
+    exposure_clean = stringr::str_replace_all(exposure, "`", "")
+  ) %>%
+  dplyr::filter(term %in% c(exposure, exposure_clean)) %>%
+  dplyr::group_by(analysis, outcome) %>%
+  dplyr::mutate(
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    sig_fdr = p_fdr < 0.05,
+    p_fmt = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
+    p_fdr_fmt = ifelse(p_fdr < 0.001, "<0.001", sprintf("%.3f", p_fdr))
+  ) %>%
+  dplyr::ungroup()
+
+baseline_results_final <- baseline_results %>%
+  dplyr::left_join(
+    baseline_pfas_only %>%
+      dplyr::select(analysis, outcome, exposure, term, p_fdr, sig_fdr, p_fdr_fmt),
+    by = c("analysis", "outcome", "exposure", "term")
+  )
+
+baseline_table <- baseline_results_final %>%
+  dplyr::filter(term %in% c(exposure, stringr::str_replace_all(exposure, "`", ""))) %>%
+  dplyr::mutate(
+    estimate_ci = paste0(
+      round(estimate, 3), " (",
+      round(estimate - 1.96 * std.error, 3), ", ",
+      round(estimate + 1.96 * std.error, 3), ")"
+    ),
+    p_fmt = fmt_p(p.value)
+  ) %>%
+  dplyr::select(
+    analysis, outcome, exposure, estimate, std.error, statistic, p.value,
+    p_fdr, sig_fdr, estimate_ci, p_fmt, p_fdr_fmt
+  )
+
+baseline_table
 ```
 
 ```{r}
@@ -413,37 +748,57 @@ plot_baseline_pfas_set <- function(data,
                                    outcome,
                                    exposures = log2_pfas_bl_vars,
                                    adjust_acr = TRUE,
+                                   results_tbl = baseline_results_final,
                                    save_pdf = FALSE,
                                    out_dir = dir.results) {
-
+  
   plot_list <- vector("list", length(exposures))
   names(plot_list) <- exposures
-
+  
   for (i in seq_along(exposures)) {
     exposure <- exposures[i]
+    
     rhs <- c(exposure, "age", "sex", "group")
     if (adjust_acr && outcome != "log_acr_u") {
       rhs <- c(rhs, "log_acr_u_bl")
     }
+    
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "))
     )
-
+    
     plot_data <- data %>%
       dplyr::select(all.vars(m0), group) %>%
       tidyr::drop_na()
-
+    
     if (nrow(plot_data) == 0) {
       plot_list[[i]] <- NULL
       next
     }
-
+    
     m1 <- lm(m0, data = plot_data)
+    
     est_row <- broom::tidy(m1) %>%
       dplyr::filter(term == exposure)
-
+    
+    fdr_row <- results_tbl %>%
+      dplyr::mutate(exposure_clean = stringr::str_replace_all(exposure, "`", "")) %>%
+      dplyr::filter(
+        outcome == !!outcome,
+        exposure %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", "")) |
+          exposure_clean %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", "")),
+        term %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", ""))
+      ) %>%
+      dplyr::slice(1)
+    
     pred_df <- as.data.frame(ggeffects::ggpredict(m1, terms = exposure))
-
+    
+    subtitle_txt <- paste0(
+      "Beta = ", round(est_row$estimate, 3),
+      "; p = ", fmt_p(est_row$p.value),
+      "; FDR p = ", fmt_p(fdr_row$p_fdr)
+    )
+    
     p <- ggplot(plot_data, aes(x = .data[[exposure]], y = .data[[outcome]], color = group)) +
       geom_point(alpha = 0.7, size = 2) +
       geom_line(
@@ -462,20 +817,17 @@ plot_baseline_pfas_set <- function(data,
       theme_bw() +
       labs(
         title = paste(get_outcome_label(outcome), "vs", get_pfas_label(exposure)),
-        subtitle = paste0(
-          "Beta = ", round(est_row$estimate, 3),
-          "; p = ", fmt_p(est_row$p.value)
-        ),
+        subtitle = subtitle_txt,
         x = get_pfas_label(exposure),
         y = get_outcome_label(outcome),
         color = "Group"
       )
-
+    
     plot_list[[i]] <- p
   }
-
+  
   plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-
+  
   if (save_pdf && length(plot_list) > 0) {
     pdf(
       file.path(out_dir, paste0("baseline_", outcome, "_all_pfas.pdf")),
@@ -487,7 +839,7 @@ plot_baseline_pfas_set <- function(data,
     }
     dev.off()
   }
-
+  
   return(plot_list)
 }
 ```
@@ -504,28 +856,13 @@ plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg")
 plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1")
 ```
 
-```{r}
-baseline_table <- baseline_results %>%
-  filter(term == exposure) %>%
-  mutate(
-    estimate_ci = paste0(
-      round(estimate,3), " (",
-      round(estimate - 1.96*std.error,3), ", ",
-      round(estimate + 1.96*std.error,3), ")"
-    ),
-    p_fmt = fmt_p(p.value)
-  )
-
-baseline_table
-```
 
 #--------------------------------------------
 # Model 2: changes over time by group
 #--------------------------------------------
 ```{r}
 run_group_time_lmm <- function(data, outcome, adjust_acr = TRUE) {
-  
-  rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
+  rhs <- c("visit_f:group", "age", "sex")
   
   if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
     rhs <- c(rhs, "log_acr_u_bl")
@@ -563,6 +900,8 @@ names(group_time_results_list) <- group_time_outcomes
 group_time_results <- bind_rows(
   lapply(group_time_results_list, `[[`, "tidy")
 )
+
+group_time_results
 ```
 
 ```{r}
@@ -577,13 +916,11 @@ plot_group_time_set <- function(data,
   
   for (i in seq_along(outcomes)) {
     outcome <- outcomes[i]
-    
     rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
     
     if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
       rhs <- c(rhs, "log_acr_u_bl")
     }
-    
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
     )
@@ -596,7 +933,6 @@ plot_group_time_set <- function(data,
       plot_list[[i]] <- NULL
       next
     }
-    
     m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
     
     pred_df <- as.data.frame(
@@ -621,7 +957,7 @@ plot_group_time_set <- function(data,
       geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
       theme_bw() +
       labs(
-        title = paste("Predicted", get_outcome_label(outcome), "over time by group"),
+        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
         subtitle = subtitle_text,
         x = "Visit",
         y = get_outcome_label(outcome),
@@ -826,9 +1162,128 @@ plot_longitudinal_pfas_set(data = dat_long, outcome = "igf_1")
 plot_longitudinal_pfas_set(data = dat_long, outcome = "bl_dheas")
 ```
 
+#-----------------------------------
+#Heatmap of longitudinal outcomes
+#-----------------------------------
+```{r}
+heatmap_longitudinal_df <- longitudinal_results %>%
+  group_by(outcome, exposure) %>%
+  summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    
+    beta_int_y1 = estimate[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure)))
+    ][1],
+    pval_int_y1 = p.value[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure)))
+    ][1],
+    
+    beta_int_y2 = estimate[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure)))
+    ][1],
+    pval_int_y2 = p.value[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure)))
+    ][1],
+    .groups = "drop"
+  ) %>%
+  mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int_y1,
+    beta_visit2 = beta_main + beta_int_y2
+  ) %>%
+  select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_int_y1, pval_int_y2
+  ) %>%
+  pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  mutate(
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = case_when(
+      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.05  ~ "*",
+      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.001 ~ "***",
+      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.01  ~ "**",
+      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.05  ~ "*",
+      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.001 ~ "***",
+      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.01  ~ "**",
+      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = log2_pfas_bl_vars,
+      labels = sapply(log2_pfas_bl_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
+```
 
+```{r}
+heatmap_longitudinal_df <- heatmap_longitudinal_df %>%
+  group_by(visit) %>%
+  mutate(beta_z = as.numeric(scale(beta))) %>%
+  ungroup()
+```
 
+```{r}
+z_limit <- max(abs(heatmap_longitudinal_df$beta_z), na.rm = TRUE)
 
+p_longitudinal_heatmap <- ggplot(
+  heatmap_longitudinal_df,
+  aes(x = exposure, y = outcome, fill = beta_z)
+) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sig), size = 3.5, vjust = 0.75, color = "black") +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-z_limit, z_limit),
+    name = "Z-score"
+  ) +
+  facet_wrap(~ visit, nrow = 1) +
+  labs(
+    title = "Baseline PFAS associations with longitudinal outcomes",
+    subtitle = paste0(
+      "Tiles show standardized model effect sizes within visit panels.",
+      "\nBaseline: PFAS main effect; Year 1 and Year 2: PFAS main effect + PFAS×visit interaction.",
+      "\n* p<0.05  ** p<0.01  *** p<0.001"
+    ),
+    x = "Baseline PFAS",
+    y = NULL,
+    caption = "Blue = negative association; Red = positive association"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 8.5, color = "grey30"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y = element_text(size = 9),
+    strip.text = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey92"),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
 
-
-
+p_longitudinal_heatmap
+```
