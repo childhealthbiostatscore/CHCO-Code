@@ -18,6 +18,8 @@ library(fgsea)
 library(msigdbr)
 library(tidyverse)
 library(stringr)
+library(purrr)
+library(Hmisc)
 
 # --- S3 setup ---
 user <- Sys.info()[["user"]]
@@ -95,7 +97,7 @@ clean_pathway_names <- function(pathways) {
   cleaned <- gsub("^HALLMARK_", "", cleaned)
   cleaned <- gsub("_", " ", cleaned)
   cleaned <- tools::toTitleCase(tolower(cleaned))
-
+  
   uppercase_words <- c(
     "\\bI\\b", "\\bIi\\b", "\\bIii\\b", "\\bIv\\b", "\\bV\\b", "\\bVi\\b",
     "\\bVii\\b", "\\bViii\\b", "\\bIx\\b", "\\bX\\b",
@@ -107,19 +109,19 @@ clean_pathway_names <- function(pathways) {
     "\\bRos\\b", "\\bRns\\b", "\\bNo\\b", "\\bNos\\b", "\\bInos\\b", "\\bEnos\\b", "\\bNnos\\b",
     "\\Mapk\\b"
   )
-
+  
   for (pattern in uppercase_words) {
     word <- gsub("\\\\b", "", pattern)
     replacement <- toupper(word)
     cleaned <- gsub(pattern, replacement, cleaned, ignore.case = TRUE)
   }
-
+  
   cleaned <- gsub("\\bOf\\b", "of", cleaned)
   cleaned <- gsub("\\bBy\\b", "by", cleaned)
   cleaned <- gsub("\\bThe\\b", "the", cleaned)
   cleaned <- gsub("^the", "The", cleaned)
   cleaned <- gsub("\\bO Linked\\b", "O-Linked", cleaned, ignore.case = TRUE)
-
+  
   return(cleaned)
 }
 
@@ -162,7 +164,7 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "through" = "via",
     "and" = "&"
   )
-
+  
   aggressive_replacements <- c(
     " the " = " ",
     " in " = " ",
@@ -170,7 +172,7 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     " to " = "\u2192",
     " from " = "\u2190"
   )
-
+  
   molecule_replacements <- c(
     "Natural Killer" = "NK",
     "Tumor Necrosis Factor" = "TNF",
@@ -190,39 +192,39 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "Amino Acid" = "AA",
     "Fatty Acid" = "FA"
   )
-
+  
   apply_replacements <- function(text, replacements) {
     for (pattern in names(replacements)) {
       text <- gsub(pattern, replacements[pattern], text, ignore.case = FALSE)
     }
     return(text)
   }
-
+  
   step6_truncated <- rep(FALSE, length(pathway_names))
-
+  
   shortened <- sapply(seq_along(pathway_names), function(i) {
     pathway <- pathway_names[i]
     if (is.na(pathway)) return(NA)
-
+    
     result <- apply_replacements(pathway, molecule_replacements)
     result <- apply_replacements(result, word_replacements)
-
+    
     if (nchar(result) > max_length && aggressive) {
       result <- apply_replacements(result, aggressive_replacements)
     }
-
+    
     if (nchar(result) > max_length) {
       result <- gsub(" \\([^)]+\\)", "", result)
     }
-
+    
     if (nchar(result) > max_length) {
       step6_truncated[i] <<- TRUE
       result <- paste0(substr(result, 1, max_length - 3), "...")
     }
-
+    
     return(result)
   })
-
+  
   return(list(
     shortened = shortened,
     step6_truncated = step6_truncated
@@ -427,39 +429,39 @@ make_volcano <- function(data, p_col, fc, title = NULL,
 # =============================================================================
 run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
                               test_name, cohort_text,
-                               pathways = hallmark_sets,
-                               reference = "hallmark",
-                               top_n = 20,
-                               max_pathway_length = 45,
-                               caption_width = 70,
-                               p_threshold = 0.05,
-                               min_x_limit = 3,
-                               low_color = "#89c2d9",
-                               mid_color = "white",
-                               high_color = "#ee7674",
-                               show_truncated_in_caption = TRUE) {
-
+                              pathways = hallmark_sets,
+                              reference = "hallmark",
+                              top_n = 20,
+                              max_pathway_length = 45,
+                              caption_width = 70,
+                              p_threshold = 0.05,
+                              min_x_limit = 3,
+                              low_color = "#89c2d9",
+                              mid_color = "white",
+                              high_color = "#ee7674",
+                              show_truncated_in_caption = TRUE) {
+  
   if (!logfc_col %in% names(df) || !pval_col %in% names(df)) return(NULL)
-
+  
   # Create ranked gene list (signed -log10 p-value)
   df <- df %>%
     dplyr::filter(!is.na(.data[[logfc_col]]) & !is.na(.data[[pval_col]]) & .data[[pval_col]] > 0) %>%
     dplyr::mutate(rank_stat = sign(.data[[logfc_col]]) * -log10(.data[[pval_col]]))
-
+  
   gene_ranks <- setNames(df$rank_stat, df$Gene)
   gene_ranks <- sort(gene_ranks, decreasing = TRUE)
   gene_ranks <- gene_ranks[!duplicated(names(gene_ranks))]
-
+  
   if (length(gene_ranks) < 10) return(NULL)
-
+  
   # Run fgsea
   fgsea_res <- tryCatch(
     fgsea(pathways = pathways, stats = gene_ranks, minSize = 15, maxSize = 500),
     error = function(e) { message(e$message); NULL }
   )
-
+  
   if (is.null(fgsea_res) || nrow(fgsea_res) == 0) return(NULL)
-
+  
   # Top pathways by p-value
   top_pathways <- fgsea_res %>%
     dplyr::arrange(pval) %>%
@@ -468,13 +470,13 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
       leadingEdge_size = lengths(leadingEdge),
       leadingEdge_fraction = leadingEdge_size / size
     )
-
+  
   # Shorten and clean pathway names
   shorten_result <- shorten_pathway_names(top_pathways$pathway, max_length = max_pathway_length)
-
+  
   # Append leading edge fraction percentage
   shorten_result$shortened <- paste0(shorten_result$shortened, " (", round(top_pathways$leadingEdge_fraction * 100), "%)")
-
+  
   top_pathways <- top_pathways %>%
     dplyr::mutate(
       was_step6_truncated = shorten_result$step6_truncated,
@@ -482,13 +484,13 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
       clean_pathway = clean_pathway_names(shortened_pathway),
       neg_log_p = -log10(pval)
     )
-
+  
   # Build caption
   base_caption <- paste0("Cell type: ", gsub("_", " ", cell_name),
                          " | Model: ", test_name,
                          " | Cohort: ", cohort_text,
-                          " | Reference: ", toupper(reference))
-
+                         " | Reference: ", toupper(reference))
+  
   if (show_truncated_in_caption) {
     truncated_pathways <- top_pathways %>%
       dplyr::filter(was_step6_truncated) %>%
@@ -497,7 +499,7 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
         full_clean_wrapped = str_wrap(full_clean, width = caption_width, indent = 0, exdent = 4)
       ) %>%
       dplyr::select(clean_pathway, full_clean_wrapped)
-
+    
     if (nrow(truncated_pathways) > 0) {
       truncated_text <- paste(
         apply(truncated_pathways, 1, function(x) {
@@ -512,11 +514,11 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
   } else {
     full_caption <- base_caption
   }
-
+  
   # Set factor levels for plotting order
   top_pathways$clean_pathway <- factor(top_pathways$clean_pathway,
-                                        levels = rev(top_pathways$clean_pathway))
-
+                                       levels = rev(top_pathways$clean_pathway))
+  
   # Determine x-axis limits
   if (!is.null(min_x_limit)) {
     actual_max <- max(top_pathways$neg_log_p, na.rm = TRUE)
@@ -535,8 +537,8 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
               fontface = "bold",
               color = "#2b2b2b") +
     scale_fill_gradient2(low = low_color, mid = mid_color, high = high_color,
-                          midpoint = 0,
-                          guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+                         midpoint = 0,
+                         guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
     theme_minimal() +
     theme(panel.grid = element_blank(),
           plot.title = element_text(hjust = 0.5, face = "bold"),
@@ -553,14 +555,14 @@ run_gsea_and_plot <- function(df, logfc_col, pval_col, cell_name,
          fill = "NES",
          caption = full_caption,
          title = cell_name)
-
+  
   # Apply x-axis limits
   if (!is.null(min_x_limit)) {
     p <- p + scale_x_continuous(limits = c(0, x_upper_limit), expand = c(0, 0))
   } else {
     p <- p + scale_x_continuous(expand = expansion(mult = c(0, 0)))
   }
-
+  
   return(p)
 }
 
@@ -711,11 +713,249 @@ make_gsea_lollipop <- function(df, logfc_col, pval_col, cell_name,
   return(p)
 }
 
-# Summarize all runs
-meta_compiled
+# =============================================================================
+# DEG BUTTERFLY PLOT FUNCTION
+# =============================================================================
+# sig_type: "pval" counts genes with raw p < 0.05; "fdr" counts genes with FDR < 0.05
+plot_deg_butterfly <- function(sig_df_summary, analysis_type_filter, ct_names, output_file,
+                               sig_type = "pval") {
+  count_cols <- if (sig_type == "fdr") c("Positive_fdr", "Negative_fdr") else c("Positive", "Negative")
+  
+  sig_df_clean <- sig_df_summary %>%
+    filter(analysis_type == analysis_type_filter) %>%
+    dplyr::rename(Pos = !!count_cols[1], Neg = !!count_cols[2]) %>%
+    dplyr::mutate(Total = Pos + Neg) %>%
+    arrange(desc(Total)) %>%
+    pivot_longer(cols = c(Pos, Neg), names_to = "Direction", values_to = "Count") %>%
+    dplyr::mutate(
+      Direction = ifelse(Direction == "Neg", "Negative", "Positive"),
+      Count = ifelse(Direction == "Negative", -Count, Count),
+      celltype = factor(celltype, levels = rev(unique(celltype)))
+    )
+  
+  sig_label <- ifelse(sig_type == "fdr", "FDR < 0.05", "p < 0.05")
+  
+  p <- sig_df_clean %>%
+    filter(celltype %in% ct_names) %>%
+    ggplot(aes(x = Count, y = celltype, fill = Direction)) +
+    geom_col(width = 0.7) +
+    geom_vline(xintercept = 0, color = "white", linewidth = 0.6) +
+    geom_text(aes(label = celltype, x = 0), size = 4) +
+    scale_x_continuous(labels = abs, expand = expansion(mult = c(0.01, 0.01))) +
+    scale_fill_manual(values = c("Negative" = "#c0d6df", "Positive" = "#f4978e")) +
+    labs(x = paste0("Number of DE genes (", sig_label, ")"), y = NULL, fill = NULL,
+         title = analysis_type_filter) +
+    theme(legend.position = "top", panel.background = element_blank(), text = element_text(size = 15),
+          axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold"))
+  ggsave(output_file, plot = p, width = 7, height = 7, bg = "transparent")
+  p
+}
 
 # =============================================================================
-# MAIN LOOP: Generate figures for each analysis-celltype combination
+# FILTER METADATA: exclude low cell counts, "Other" celltype, and underpowered runs
+# =============================================================================
+
+# --- Helper: parse "Group1: N1; Group2: N2" strings into named numeric vectors ---
+parse_group_counts <- function(count_str) {
+  parts <- strsplit(count_str, ";")[[1]]
+  vals <- sapply(parts, function(p) {
+    kv <- strsplit(trimws(p), ":\\s*")[[1]]
+    setNames(as.numeric(kv[2]), trimws(kv[1]))
+  })
+  return(vals)
+}
+
+# --- Compute per-row QC metrics: min subjects per group & min avg cells/subject ---
+cat("Computing per-run QC metrics (min subjects/group, min avg cells/subject)...\n")
+meta_compiled <- meta_compiled %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    min_subjects_per_group = {
+      counts <- parse_group_counts(n_samples_per_group)
+      min(counts)
+    },
+    min_avg_cells_per_subject = {
+      n_samp <- parse_group_counts(n_samples_per_group)
+      n_cell <- parse_group_counts(n_cells_per_group)
+      # Match by position (groups are in same order)
+      avg_cps <- n_cell / n_samp
+      min(avg_cps)
+    },
+    min_cells_per_group = {
+      n_cell <- parse_group_counts(n_cells_per_group)
+      min(n_cell)
+    }
+  ) %>%
+  dplyr::ungroup()
+
+# --- Apply filters ---
+n_before <- nrow(meta_compiled)
+
+meta_compiled <- meta_compiled %>%
+  dplyr::filter(
+    total_cells >= 1000,
+    celltype != "Other",
+    min_subjects_per_group >= 5,
+    min_avg_cells_per_subject >= 20,
+    min_cells_per_group >= 500
+  )
+
+n_after <- nrow(meta_compiled)
+n_removed <- n_before - n_after
+
+cat(sprintf("QC filtering: %d -> %d combinations (%d removed)\n", n_before, n_after, n_removed))
+cat(sprintf("  Filters applied: total_cells >= 1000, celltype != 'Other',\n"))
+cat(sprintf("                   min_subjects_per_group >= 5, min_avg_cells_per_subject >= 20,\n"))
+cat(sprintf("                   min_cells_per_group >= 500\n"))
+
+if (nrow(meta_compiled) == 0) {
+  cat("No combinations remain after filtering. Exiting.\n")
+  quit(save = "no", status = 0)
+}
+
+# =============================================================================
+# PHASE 1: BUTTERFLY SCAN — run first to survey DEG counts across cell types
+# =============================================================================
+cat("\n=== Phase 1: Scanning DEG counts for butterfly plots ===\n")
+deg_summary_list <- list()
+
+for (i in seq_len(nrow(meta_compiled))) {
+  row <- meta_compiled[i, ]
+  analysis_type <- row$analysis_type
+  celltype <- row$celltype
+  s3_key <- row$s3_results_key
+  pval_col <- row$pval_column
+  logfc_col <- row$logfc_column
+  
+  cat(sprintf("  [%d/%d] Scanning %s - %s\n", i, nrow(meta_compiled), analysis_type, celltype))
+  
+  df <- tryCatch(
+    s3readRDS(object = s3_key, bucket = bucket, region = ""),
+    error = function(e) {
+      message(paste("    Error reading results:", e$message))
+      NULL
+    }
+  )
+  if (is.null(df)) next
+  
+  # Determine FDR column
+  fdr_candidates <- grep("p_.*_fdr$|padj|q_value|^fdr$", names(df), value = TRUE)
+  fdr_col <- if (length(fdr_candidates) > 0) fdr_candidates[1] else NULL
+  
+  # Count DEGs at p < 0.05
+  sig_pval <- df %>%
+    dplyr::filter(!is.na(.data[[pval_col]]) & !is.na(.data[[logfc_col]]) & .data[[pval_col]] < 0.05)
+  
+  pos_pval <- sum(sig_pval[[logfc_col]] > 0, na.rm = TRUE)
+  neg_pval <- sum(sig_pval[[logfc_col]] < 0, na.rm = TRUE)
+  
+  # Count DEGs at FDR < 0.05
+  pos_fdr <- 0
+  neg_fdr <- 0
+  if (!is.null(fdr_col) && fdr_col %in% names(df)) {
+    sig_fdr <- df %>%
+      dplyr::filter(!is.na(.data[[fdr_col]]) & !is.na(.data[[logfc_col]]) & .data[[fdr_col]] < 0.05)
+    pos_fdr <- sum(sig_fdr[[logfc_col]] > 0, na.rm = TRUE)
+    neg_fdr <- sum(sig_fdr[[logfc_col]] < 0, na.rm = TRUE)
+  }
+  
+  # Determine resolution group from celltype_variable column in metadata
+  ct_var <- row$celltype_variable
+  resolution <- dplyr::case_when(
+    ct_var == "KPMP_celltype"          ~ "high_res",
+    ct_var == "KPMP_celltype_general"  ~ "low_res",
+    ct_var == "KPMP_celltype_general2" ~ "low_res2",
+    TRUE                               ~ "other"
+  )
+  
+  deg_summary_list[[length(deg_summary_list) + 1]] <- data.frame(
+    analysis_type = analysis_type,
+    celltype = celltype,
+    celltype_variable = ct_var,
+    resolution = resolution,
+    Positive = pos_pval, Negative = neg_pval,
+    Positive_fdr = pos_fdr, Negative_fdr = neg_fdr,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Generate butterfly plots (pval and FDR) for each analysis type × resolution
+if (length(deg_summary_list) > 0) {
+  deg_summary_df <- bind_rows(deg_summary_list)
+  
+  # Create subdirectories for each resolution
+  for (res in unique(deg_summary_df$resolution)) {
+    dir.create(file.path(results_dir, "Results/Figures/Butterfly", res),
+               recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  # Save summary CSV for inspection
+  write.csv(deg_summary_df,
+            file.path(results_dir, "Results/Figures/Butterfly/deg_summary.csv"),
+            row.names = FALSE)
+  cat(sprintf("  DEG summary saved: deg_summary.csv (%d rows)\n", nrow(deg_summary_df)))
+  
+  # Get unique analysis_type × resolution combinations
+  combos <- deg_summary_df %>%
+    dplyr::distinct(analysis_type, resolution)
+  
+  cat(sprintf("\n  Generating butterfly plots for %d analysis × resolution combinations...\n",
+              nrow(combos)))
+  
+  for (j in seq_len(nrow(combos))) {
+    at  <- combos$analysis_type[j]
+    res <- combos$resolution[j]
+    at_norm <- tolower(gsub("[/ ]+", "_", at))
+    
+    # Subset to this analysis_type + resolution
+    sub_df <- deg_summary_df %>%
+      dplyr::filter(analysis_type == at, resolution == res)
+    ct_names <- unique(sub_df$celltype)
+    
+    # p-value butterfly — only if any cell type has significant DEGs
+    has_pval_sig <- any((sub_df$Positive + sub_df$Negative) > 0)
+    if (has_pval_sig) {
+      tryCatch({
+        plot_deg_butterfly(sub_df,
+                           analysis_type_filter = at,
+                           ct_names = ct_names,
+                           output_file = file.path(results_dir, "Results/Figures/Butterfly", res,
+                                                   paste0(at_norm, "_butterfly_pval.png")),
+                           sig_type = "pval")
+        cat(sprintf("    %s [%s] (pval)\n", at, res))
+      }, error = function(e) {
+        message(sprintf("    Error: %s [%s] (pval): %s", at, res, e$message))
+      })
+    } else {
+      cat(sprintf("    %s [%s] (pval) — skipped, no significant DEGs\n", at, res))
+    }
+    
+    # FDR butterfly — only if any cell type has FDR-significant DEGs
+    has_fdr_sig <- any((sub_df$Positive_fdr + sub_df$Negative_fdr) > 0)
+    if (has_fdr_sig) {
+      tryCatch({
+        plot_deg_butterfly(sub_df,
+                           analysis_type_filter = at,
+                           ct_names = ct_names,
+                           output_file = file.path(results_dir, "Results/Figures/Butterfly", res,
+                                                   paste0(at_norm, "_butterfly_fdr.png")),
+                           sig_type = "fdr")
+        cat(sprintf("    %s [%s] (fdr)\n", at, res))
+      }, error = function(e) {
+        message(sprintf("    Error: %s [%s] (fdr): %s", at, res, e$message))
+      })
+    } else {
+      cat(sprintf("    %s [%s] (fdr) — skipped, no FDR-significant DEGs\n", at, res))
+    }
+  }
+}
+
+cat("\n=== Phase 1 complete. Review butterfly plots to decide which analyses to focus on. ===\n")
+cat("=== Phase 2: Generating per-celltype figures (volcano, GSEA, lollipop) ===\n\n")
+
+# =============================================================================
+# PHASE 2: MAIN LOOP — Generate per-celltype figures
 # =============================================================================
 for (i in seq_len(nrow(meta_compiled))) {
   row <- meta_compiled[i, ]
@@ -724,10 +964,10 @@ for (i in seq_len(nrow(meta_compiled))) {
   s3_key <- row$s3_results_key
   pval_col <- row$pval_column
   logfc_col <- row$logfc_column
-
+  
   cell_norm <- tolower(gsub("/", "_", celltype))
   cat(sprintf("[%d/%d] %s - %s\n", i, nrow(meta_compiled), analysis_type, celltype))
-
+  
   # Read processed results from S3
   df <- tryCatch(
     s3readRDS(object = s3_key, bucket = bucket, region = ""),
@@ -736,16 +976,15 @@ for (i in seq_len(nrow(meta_compiled))) {
       NULL
     }
   )
-
   if (is.null(df)) {
     n_error <- n_error + 1
     next
   }
-
+  
   # Determine FDR column
   fdr_candidates <- grep("p_.*_fdr$|padj|q_value|^fdr$", names(df), value = TRUE)
   fdr_col <- if (length(fdr_candidates) > 0) fdr_candidates[1] else NULL
-
+  
   # Determine formula text for caption (extract from analysis_type)
   formula_text <- sub("^~", "~ ", row$formula_used)  # If available in metadata; NULL otherwise
   test_group <- sub(".*?([A-Z].*)", "\\1", gsub("_", " ", row$pval_column))
@@ -776,56 +1015,64 @@ for (i in seq_len(nrow(meta_compiled))) {
            plot = vp_pval, width = 7, height = 5, dpi = 300, bg = "transparent")
   }
   
-  # --- Volcano plot (FDR) ---
-  vp_fdr <- make_volcano(df, p_col = pval_col, fc = logfc_col,
-                         sig_type = "fdr", fdr_col = fdr_col,
-                         cell_type = celltype,
-                         test_name = test_name,
-                         formula_text = formula_text,
-                         cohort_text = cohort,
-                         positive_text = paste0("Positive with ", test_group),
-                         negative_text = paste0("Negative with ", test_group))
-  if (!is.null(vp_fdr)) {
-    ggsave(file.path(results_dir, "Results/Figures/Volcano Plots/fdr",
-                     paste0(analysis_type, "_", cell_norm, "_fdr.png")),
-           plot = vp_fdr, width = 7, height = 5, dpi = 300, bg = "transparent")
+  # --- Volcano plot (FDR) — skip if no FDR-significant DEGs ---
+  fdr_row <- deg_summary_df %>%
+    dplyr::filter(analysis_type == !!analysis_type, celltype == !!celltype) %>%
+    dplyr::slice(1)
+  has_fdr_sig <- nrow(fdr_row) > 0 && (fdr_row$Positive_fdr + fdr_row$Negative_fdr) > 0
+  
+  if (has_fdr_sig) {
+    vp_fdr <- make_volcano(df, p_col = pval_col, fc = logfc_col,
+                           sig_type = "fdr", fdr_col = fdr_col,
+                           cell_type = celltype,
+                           test_name = test_name,
+                           formula_text = formula_text,
+                           cohort_text = cohort,
+                           positive_text = paste0("Positive with ", test_group),
+                           negative_text = paste0("Negative with ", test_group))
+    if (!is.null(vp_fdr)) {
+      ggsave(file.path(results_dir, "Results/Figures/Volcano Plots/fdr",
+                       paste0(analysis_type, "_", cell_norm, "_fdr.png")),
+             plot = vp_fdr, width = 7, height = 5, dpi = 300, bg = "transparent")
+    }
   }
-
+  
   # --- GSEA (styled after plot_gsea_results) ---
   gsea_plot <- run_gsea_and_plot(df, logfc_col, pval_col,
-                                  cell_name = celltype,
+                                 cell_name = celltype,
                                  test_name = test_name,
                                  cohort_text = cohort,
-                                  pathways = hallmark_sets,
-                                  reference = "hallmark")
-
+                                 pathways = hallmark_sets,
+                                 reference = "hallmark")
   if (!is.null(gsea_plot)) {
     ggsave(file.path(results_dir, "Results/Figures/Pathways",
                      paste0("hallmark_", analysis_type, "_", cell_norm, "_gsea.png")),
            plot = gsea_plot, width = 10, height = 7, dpi = 300, bg = "transparent")
   }
-
+  
   # --- GSEA lollipop (styled after panther_baseline_manuscript.qmd) ---
   lollipop_plot <- make_gsea_lollipop(df, logfc_col, pval_col,
-                                       cell_name = celltype,
+                                      cell_name = celltype,
                                       test_name = test_name,
                                       cohort_text = cohort,
-                                       pathways = hallmark_sets,
-                                       reference = "hallmark")
-
+                                      pathways = hallmark_sets,
+                                      reference = "hallmark")
   if (!is.null(lollipop_plot)) {
     ggsave(file.path(results_dir, "Results/Figures/Pathways Lollipop",
                      paste0("hallmark_", analysis_type, "_", cell_norm, "_lollipop.png")),
            plot = lollipop_plot, width = 10, dpi = 300, bg = "transparent")
   }
-
+  
   n_success <- n_success + 1
 }
 
 cat("\n=== Figure generation summary ===\n")
-cat(sprintf("  Total in metadata: %d\n", nrow(meta_compiled)))
+cat(sprintf("  Total in metadata (after filtering): %d\n", nrow(meta_compiled)))
 cat(sprintf("  Successfully processed: %d\n", n_success))
 cat(sprintf("  Failed to read from S3: %d\n", n_error))
 cat(sprintf("  Unique analysis types: %d / 94\n", n_distinct(meta_compiled$analysis_type)))
 cat(sprintf("  Unique cell types: %d\n", n_distinct(meta_compiled$celltype)))
+cat(sprintf("  Butterfly plots: %d (pval) + %d (fdr)\n",
+            if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0,
+            if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0))
 cat("\nFigure generation complete!\n")
