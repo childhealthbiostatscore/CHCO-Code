@@ -110,10 +110,14 @@ s3saveRDS(pb90_attempt_subset,
           multipart = T)
 
 table((pb90_attempt_subset@meta.data %>%
-         distinct(record_id, visit, .keep_all = T))$dxa_obesity)
+         distinct(record_id, visit, .keep_all = T))$dxa_obesity,
+      (pb90_attempt_subset@meta.data %>%
+         distinct(record_id, visit, .keep_all = T))$group)
 
 table((pb90_attempt_subset@meta.data %>%
-         distinct(record_id, visit, .keep_all = T))$bmi_obesity)
+         distinct(record_id, visit, .keep_all = T))$bmi_obesity,
+      (pb90_attempt_subset@meta.data %>%
+         distinct(record_id, visit, .keep_all = T))$group)
 
 table((pb90_attempt_subset@meta.data %>%
          distinct(record_id, visit, .keep_all = T))$group)
