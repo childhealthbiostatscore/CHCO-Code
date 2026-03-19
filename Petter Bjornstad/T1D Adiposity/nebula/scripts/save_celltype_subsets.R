@@ -51,6 +51,23 @@ celltype_groups <- list(
   Other = c("non-specific")
 )
 
+# Add KPMP_celltype_general if not present
+map_celltype_to_general <- function(celltype, celltype_groups) {
+  for (group_name in names(celltype_groups)) {
+    if (celltype %in% celltype_groups[[group_name]]) {
+      return(group_name)
+    }
+  }
+  return("Other")
+}
+
+if (!"KPMP_celltype_general" %in% colnames(pb90_attempt@meta.data)) {
+  cat("Adding KPMP_celltype_general...\n")
+  pb90_attempt$KPMP_celltype_general <- sapply(pb90_attempt$KPMP_celltype,
+                                        map_celltype_to_general,
+                                        celltype_groups = celltype_groups)
+}
+
 # Save KPMP_celltype subsets
 cat("\n--- Saving KPMP_celltype subsets ---\n")
 kpmp_types <- unique(pb90_attempt$KPMP_celltype)

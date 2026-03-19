@@ -176,7 +176,7 @@ for (analysis in analysis_types) {
 }
 
 # Write config file
-config_dir <- "config"
+config_dir <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula/config"
 if (!dir.exists(config_dir)) dir.create(config_dir, recursive = TRUE)
 
 config_file <- file.path(config_dir, "job_config.txt")

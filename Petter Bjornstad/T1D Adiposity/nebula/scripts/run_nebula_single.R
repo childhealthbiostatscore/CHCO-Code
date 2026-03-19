@@ -907,7 +907,7 @@ config <- analysis_config[[analysis_type]]
 cat(sprintf("\nLoading cell type-specific data for %s...\n", celltype_group_input))
 
 # Try to load pre-saved cell type subset first
-subset_file <- paste0("data_clean/subset/t1d_adiposity/t1d_adiposity_subset_",
+subset_file <- paste0("data_clean/subset/t1d_adiposity_subset_",
                        gsub("/", "_", celltype_group_input), ".rds")
 
 pb90_subset_clean <- tryCatch({
