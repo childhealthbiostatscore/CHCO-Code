@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
 #SBATCH --partition=cpu-g2          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
-#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula_parallel/logs/output/nebula_%A_%a.out"
-#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula_parallel/logs/error/nebula_%A_%a.err"
+#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/output/nebula_%A_%a.out"
+#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/error/nebula_%A_%a.err"
 
 # Load Apptainer module
 module load apptainer
@@ -16,7 +16,7 @@ module load apptainer
 CONTAINER="/mmfs1/gscratch/togo/YC_scRNA.sif"
 
 # Set the base directory for your project
-BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula_parallel"
+BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula"
 
 # Change to base directory
 cd "${BASE_DIR}"

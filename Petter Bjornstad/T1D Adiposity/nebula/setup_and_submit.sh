@@ -6,7 +6,7 @@
 # and submit the SLURM array.
 # =============================================================================
 
-BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula_parallel"
+BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity/nebula"
 
 echo "Setting up T1D Adiposity NEBULA pipeline..."
 echo "Base directory: ${BASE_DIR}"
@@ -14,8 +14,8 @@ echo "Base directory: ${BASE_DIR}"
 # Create directory structure
 mkdir -p "${BASE_DIR}/scripts"
 mkdir -p "${BASE_DIR}/config"
-mkdir -p "${BASE_DIR}/logs/output"
-mkdir -p "${BASE_DIR}/logs/error"
+mkdir -p "/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/output"
+mkdir -p "/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/error"
 
 echo "Directory structure created."
 
