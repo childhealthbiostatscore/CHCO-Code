@@ -1,13 +1,13 @@
 #!/usr/bin/env Rscript
 # =============================================================================
 # Generate job_config_adj_age_sex.txt for T1D Adiposity NEBULA array jobs
-# Age + Sex adjusted categorical comparisons ONLY
+# Age + Sex adjusted models (categorical + continuous)
 # =============================================================================
 # Run this locally to generate the config file before submitting SLURM jobs.
 # Output: config/job_config_adj_age_sex.txt (tab-delimited: analysis_type celltype celltype_var)
 # =============================================================================
 
-# All age+sex adjusted categorical analysis types (must match names in run_nebula_single.R)
+# All age+sex adjusted analysis types (must match names in run_nebula_single.R)
 analysis_types <- c(
   # ---- Categorical: BMI-defined within T1D (adjusted for age + sex) ----
   "T1D_normal_vs_overweight_bmi_adj_age_sex",
@@ -24,7 +24,41 @@ analysis_types <- c(
   # ---- Categorical: HC vs T1D (DXA-defined, adjusted for age + sex) ----
   "HC_vs_T1D_normal_dxa_adj_age_sex",
   "HC_vs_T1D_overweight_dxa_adj_age_sex",
-  "HC_vs_T1D_obese_dxa_adj_age_sex"
+  "HC_vs_T1D_obese_dxa_adj_age_sex",
+  
+  # ---- Continuous: T1D only (adjusted for age + sex) ----
+  "cont_bmi_t1d_adj_age_sex",
+  "cont_dexa_body_fat_t1d_adj_age_sex",
+  "cont_dexa_bone_mineral_density_t1d_adj_age_sex",
+  "cont_dexa_fat_kg_t1d_adj_age_sex",
+  "cont_dexa_lean_mass_t1d_adj_age_sex",
+  "cont_dexa_lean_kg_t1d_adj_age_sex",
+  "cont_dexa_ag_ratio_t1d_adj_age_sex",
+  "cont_dexa_est_vat_t1d_adj_age_sex",
+  "cont_dexa_trunk_kg_t1d_adj_age_sex",
+  "cont_dexa_trunk_mass_t1d_adj_age_sex",
+  # ---- Continuous: All subjects (adjusted for age + sex, no group) ----
+  "cont_bmi_all_adj_age_sex",
+  "cont_dexa_body_fat_all_adj_age_sex",
+  "cont_dexa_bone_mineral_density_all_adj_age_sex",
+  "cont_dexa_fat_kg_all_adj_age_sex",
+  "cont_dexa_lean_mass_all_adj_age_sex",
+  "cont_dexa_lean_kg_all_adj_age_sex",
+  "cont_dexa_ag_ratio_all_adj_age_sex",
+  "cont_dexa_est_vat_all_adj_age_sex",
+  "cont_dexa_trunk_kg_all_adj_age_sex",
+  "cont_dexa_trunk_mass_all_adj_age_sex",
+  # ---- Continuous: All subjects (adjusted for group + age + sex) ----
+  "cont_bmi_all_adj_group_age_sex",
+  "cont_dexa_body_fat_all_adj_group_age_sex",
+  "cont_dexa_bone_mineral_density_all_adj_group_age_sex",
+  "cont_dexa_fat_kg_all_adj_group_age_sex",
+  "cont_dexa_lean_mass_all_adj_group_age_sex",
+  "cont_dexa_lean_kg_all_adj_group_age_sex",
+  "cont_dexa_ag_ratio_all_adj_group_age_sex",
+  "cont_dexa_est_vat_all_adj_group_age_sex",
+  "cont_dexa_trunk_kg_all_adj_group_age_sex",
+  "cont_dexa_trunk_mass_all_adj_group_age_sex"
 )
 
 # KPMP_celltype (specific cell types)

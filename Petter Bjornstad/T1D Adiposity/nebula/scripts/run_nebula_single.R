@@ -1016,6 +1016,231 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass:groupType 1 Diabetes",
     logfc_col = "logFC_dexa_trunk_mass:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_trunk_mass", file_suffix = "int_dexa_trunk_mass"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - T1D ONLY, ADJUSTED FOR AGE + SEX
+  # =========================================================================
+  
+  cont_bmi_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi)",
+    continuous_var = "bmi", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_t1d_adj_age_sex", file_suffix = "cont_bmi_t1d_adj_age_sex"
+  ),
+  cont_dexa_body_fat_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_t1d_adj_age_sex", file_suffix = "cont_dexa_body_fat_t1d_adj_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_t1d_adj_age_sex", file_suffix = "cont_dexa_bmd_t1d_adj_age_sex"
+  ),
+  cont_dexa_fat_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_fat_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_lean_mass_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_t1d_adj_age_sex", file_suffix = "cont_dexa_lean_mass_t1d_adj_age_sex"
+  ),
+  cont_dexa_lean_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_lean_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_ag_ratio_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_t1d_adj_age_sex", file_suffix = "cont_dexa_ag_ratio_t1d_adj_age_sex"
+  ),
+  cont_dexa_est_vat_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_t1d_adj_age_sex", file_suffix = "cont_dexa_est_vat_t1d_adj_age_sex"
+  ),
+  cont_dexa_trunk_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_trunk_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_trunk_mass_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_t1d_adj_age_sex", file_suffix = "cont_dexa_trunk_mass_t1d_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR AGE + SEX (no group)
+  # =========================================================================
+  
+  cont_bmi_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(bmi)",
+    continuous_var = "bmi", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_all_adj_age_sex", file_suffix = "cont_bmi_all_adj_age_sex"
+  ),
+  cont_dexa_body_fat_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_all_adj_age_sex", file_suffix = "cont_dexa_body_fat_all_adj_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_all_adj_age_sex", file_suffix = "cont_dexa_bmd_all_adj_age_sex"
+  ),
+  cont_dexa_fat_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_all_adj_age_sex", file_suffix = "cont_dexa_fat_kg_all_adj_age_sex"
+  ),
+  cont_dexa_lean_mass_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_all_adj_age_sex", file_suffix = "cont_dexa_lean_mass_all_adj_age_sex"
+  ),
+  cont_dexa_lean_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_all_adj_age_sex", file_suffix = "cont_dexa_lean_kg_all_adj_age_sex"
+  ),
+  cont_dexa_ag_ratio_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_all_adj_age_sex", file_suffix = "cont_dexa_ag_ratio_all_adj_age_sex"
+  ),
+  cont_dexa_est_vat_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_all_adj_age_sex", file_suffix = "cont_dexa_est_vat_all_adj_age_sex"
+  ),
+  cont_dexa_trunk_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_all_adj_age_sex", file_suffix = "cont_dexa_trunk_kg_all_adj_age_sex"
+  ),
+  cont_dexa_trunk_mass_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_all_adj_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR GROUP + AGE + SEX
+  # =========================================================================
+  
+  cont_bmi_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(bmi)",
+    continuous_var = "bmi", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_all_adj_group_age_sex", file_suffix = "cont_bmi_all_adj_group_age_sex"
+  ),
+  cont_dexa_body_fat_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_all_adj_group_age_sex", file_suffix = "cont_dexa_body_fat_all_adj_group_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_all_adj_group_age_sex", file_suffix = "cont_dexa_bmd_all_adj_group_age_sex"
+  ),
+  cont_dexa_fat_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_fat_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_lean_mass_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_lean_mass_all_adj_group_age_sex"
+  ),
+  cont_dexa_lean_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_lean_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_ag_ratio_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_all_adj_group_age_sex", file_suffix = "cont_dexa_ag_ratio_all_adj_group_age_sex"
+  ),
+  cont_dexa_est_vat_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_all_adj_group_age_sex", file_suffix = "cont_dexa_est_vat_all_adj_group_age_sex"
+  ),
+  cont_dexa_trunk_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_trunk_mass_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_group_age_sex"
   )
 )
 

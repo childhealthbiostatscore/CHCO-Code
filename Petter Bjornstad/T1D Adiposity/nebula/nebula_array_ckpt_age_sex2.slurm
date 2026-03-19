@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=t1d_adip_nebula_adj_age_sex
-#SBATCH --array=1-1000%100           # up to run 2268
+#SBATCH --array=1001-2000%100           # up to run 2268
 #SBATCH --time=03:00:00             # 3 hours per job (with buffer)
 #SBATCH --mem=200G                  # Memory per job
 #SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
