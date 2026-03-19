@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=t1d_adip_nebula
-#SBATCH --array=1-5546%20           # 94 analyses x 59 cell types = 5546 jobs, max 20 concurrent
+#SBATCH --job-name=t1d_adip_nebula_adj_age_sex
+#SBATCH --array=2001-2268%100           # up to run 2268
 #SBATCH --time=03:00:00             # 3 hours per job (with buffer)
 #SBATCH --mem=200G                  # Memory per job
 #SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
-#SBATCH --partition=cpu-g2          # Adjust to your partition
+#SBATCH --partition=ckpt          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
 #SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/output/nebula_%A_%a.out"
 #SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/error/nebula_%A_%a.err"
@@ -22,7 +22,7 @@ BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity
 cd "${BASE_DIR}"
 
 # Get the job parameters from config file
-CONFIG_FILE="${BASE_DIR}/config/job_config.txt"
+CONFIG_FILE="${BASE_DIR}/config/job_config_adj_age_sex.txt"
 JOB_PARAMS=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${CONFIG_FILE}")
 
 # Parse run name, cell type, and cell type variable (tab-delimited)

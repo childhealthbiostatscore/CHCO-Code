@@ -93,11 +93,11 @@ map_celltype_to_general <- function(celltype, celltype_groups) {
 # For interaction: continuous_var * group (tests whether association differs by disease group)
 
 analysis_config <- list(
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS (BMI-defined)
   # =========================================================================
-
+  
   # 1. T1D Normal vs T1D Overweight (BMI)
   T1D_normal_vs_overweight_bmi = list(
     analysis_mode = "categorical",
@@ -106,7 +106,7 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityOverweight", logfc_col = "logFC_bmi_obesityOverweight",
     s3_subdir = "T1D_normal_vs_overweight_bmi", file_suffix = "t1d_norm_ow_bmi"
   ),
-
+  
   # 2. T1D Non-obese vs T1D Obese (BMI)
   T1D_nonobese_vs_obese_bmi = list(
     analysis_mode = "categorical",
@@ -116,7 +116,7 @@ analysis_config <- list(
     s3_subdir = "T1D_nonobese_vs_obese_bmi", file_suffix = "t1d_nonob_ob_bmi",
     needs_binary_bmi = TRUE
   ),
-
+  
   # 3. T1D Normal vs T1D Obese excluding Overweight (BMI)
   T1D_normal_vs_obese_bmi = list(
     analysis_mode = "categorical",
@@ -125,11 +125,11 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_bmi", file_suffix = "t1d_norm_ob_bmi"
   ),
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS (DXA-defined)
   # =========================================================================
-
+  
   # 4. T1D Normal vs T1D Overweight (DXA)
   T1D_normal_vs_overweight_dxa = list(
     analysis_mode = "categorical",
@@ -138,7 +138,7 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityOverweight", logfc_col = "logFC_dxa_obesityOverweight",
     s3_subdir = "T1D_normal_vs_overweight_dxa", file_suffix = "t1d_norm_ow_dxa"
   ),
-
+  
   # 5. T1D Non-obese vs T1D Obese (DXA)
   T1D_nonobese_vs_obese_dxa = list(
     analysis_mode = "categorical",
@@ -148,7 +148,7 @@ analysis_config <- list(
     s3_subdir = "T1D_nonobese_vs_obese_dxa", file_suffix = "t1d_nonob_ob_dxa",
     needs_binary_dxa = TRUE
   ),
-
+  
   # 6. T1D Normal vs T1D Obese excluding Overweight (DXA)
   T1D_normal_vs_obese_dxa = list(
     analysis_mode = "categorical",
@@ -157,11 +157,11 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_dxa", file_suffix = "t1d_norm_ob_dxa"
   ),
-
+  
   # =========================================================================
   # HC vs T1D COMPARISONS (BMI-defined)
   # =========================================================================
-
+  
   # 7. HC vs T1D Normal weight (BMI)
   HC_vs_T1D_normal_bmi = list(
     analysis_mode = "categorical",
@@ -170,7 +170,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_normal_bmi", file_suffix = "hc_t1d_norm_bmi"
   ),
-
+  
   # 8. HC vs T1D Overweight (BMI)
   HC_vs_T1D_overweight_bmi = list(
     analysis_mode = "categorical",
@@ -179,7 +179,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_overweight_bmi", file_suffix = "hc_t1d_ow_bmi"
   ),
-
+  
   # 9. HC vs T1D Obese (BMI)
   HC_vs_T1D_obese_bmi = list(
     analysis_mode = "categorical",
@@ -188,11 +188,11 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_bmi", file_suffix = "hc_t1d_ob_bmi"
   ),
-
+  
   # =========================================================================
   # HC vs T1D COMPARISONS (DXA-defined)
   # =========================================================================
-
+  
   # 7d. HC vs T1D Normal weight (DXA)
   HC_vs_T1D_normal_dxa = list(
     analysis_mode = "categorical",
@@ -201,7 +201,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_normal_dxa", file_suffix = "hc_t1d_norm_dxa"
   ),
-
+  
   # 8d. HC vs T1D Overweight (DXA)
   HC_vs_T1D_overweight_dxa = list(
     analysis_mode = "categorical",
@@ -210,7 +210,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_overweight_dxa", file_suffix = "hc_t1d_ow_dxa"
   ),
-
+  
   # 9d. HC vs T1D Obese (DXA)
   HC_vs_T1D_obese_dxa = list(
     analysis_mode = "categorical",
@@ -219,11 +219,11 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_dxa", file_suffix = "hc_t1d_ob_dxa"
   ),
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (BMI-defined, T1D within-group)
   # =========================================================================
-
+  
   T1D_normal_vs_overweight_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Normal', 'Overweight')",
@@ -232,7 +232,7 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityOverweight", logfc_col = "logFC_bmi_obesityOverweight",
     s3_subdir = "T1D_normal_vs_overweight_bmi_adj_age", file_suffix = "t1d_norm_ow_bmi_adj_age"
   ),
-
+  
   T1D_nonobese_vs_obese_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity)",
@@ -242,7 +242,7 @@ analysis_config <- list(
     s3_subdir = "T1D_nonobese_vs_obese_bmi_adj_age", file_suffix = "t1d_nonob_ob_bmi_adj_age",
     needs_binary_bmi = TRUE
   ),
-
+  
   T1D_normal_vs_obese_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Normal', 'Obese')",
@@ -251,11 +251,11 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_bmi_adj_age", file_suffix = "t1d_norm_ob_bmi_adj_age"
   ),
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (DXA-defined, T1D within-group)
   # =========================================================================
-
+  
   T1D_normal_vs_overweight_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Normal', 'Overweight')",
@@ -264,7 +264,7 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityOverweight", logfc_col = "logFC_dxa_obesityOverweight",
     s3_subdir = "T1D_normal_vs_overweight_dxa_adj_age", file_suffix = "t1d_norm_ow_dxa_adj_age"
   ),
-
+  
   T1D_nonobese_vs_obese_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
@@ -274,7 +274,7 @@ analysis_config <- list(
     s3_subdir = "T1D_nonobese_vs_obese_dxa_adj_age", file_suffix = "t1d_nonob_ob_dxa_adj_age",
     needs_binary_dxa = TRUE
   ),
-
+  
   T1D_normal_vs_obese_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Normal', 'Obese')",
@@ -283,11 +283,11 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_dxa_adj_age", file_suffix = "t1d_norm_ob_dxa_adj_age"
   ),
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (HC vs T1D, BMI-defined)
   # =========================================================================
-
+  
   HC_vs_T1D_normal_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Normal'))",
@@ -296,7 +296,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_normal_bmi_adj_age", file_suffix = "hc_t1d_norm_bmi_adj_age"
   ),
-
+  
   HC_vs_T1D_overweight_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Overweight'))",
@@ -305,7 +305,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_overweight_bmi_adj_age", file_suffix = "hc_t1d_ow_bmi_adj_age"
   ),
-
+  
   HC_vs_T1D_obese_bmi_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Obese'))",
@@ -314,11 +314,11 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_bmi_adj_age", file_suffix = "hc_t1d_ob_bmi_adj_age"
   ),
-
+  
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (HC vs T1D, DXA-defined)
   # =========================================================================
-
+  
   HC_vs_T1D_normal_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Normal'))",
@@ -327,7 +327,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_normal_dxa_adj_age", file_suffix = "hc_t1d_norm_dxa_adj_age"
   ),
-
+  
   HC_vs_T1D_overweight_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Overweight'))",
@@ -336,7 +336,7 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_overweight_dxa_adj_age", file_suffix = "hc_t1d_ow_dxa_adj_age"
   ),
-
+  
   HC_vs_T1D_obese_dxa_adj_age = list(
     analysis_mode = "categorical",
     subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Obese'))",
@@ -345,11 +345,137 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_dxa_adj_age", file_suffix = "hc_t1d_ob_dxa_adj_age"
   ),
-
+  
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (BMI-defined, T1D within-group)
+  # =========================================================================
+  
+  T1D_normal_vs_overweight_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Normal', 'Overweight')",
+    group_var = "bmi_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi_obesityOverweight", logfc_col = "logFC_bmi_obesityOverweight",
+    s3_subdir = "T1D_normal_vs_overweight_bmi_adj_age_sex", file_suffix = "t1d_norm_ow_bmi_adj_age_sex"
+  ),
+  
+  T1D_nonobese_vs_obese_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity)",
+    group_var = "bmi_obese_binary", ref_level = "Non_Obese",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi_obese_binaryObese", logfc_col = "logFC_bmi_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_bmi_adj_age_sex", file_suffix = "t1d_nonob_ob_bmi_adj_age_sex",
+    needs_binary_bmi = TRUE
+  ),
+  
+  T1D_normal_vs_obese_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Normal', 'Obese')",
+    group_var = "bmi_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
+    s3_subdir = "T1D_normal_vs_obese_bmi_adj_age_sex", file_suffix = "t1d_norm_ob_bmi_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (DXA-defined, T1D within-group)
+  # =========================================================================
+  
+  T1D_normal_vs_overweight_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Normal', 'Overweight')",
+    group_var = "dxa_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_dxa_obesityOverweight", logfc_col = "logFC_dxa_obesityOverweight",
+    s3_subdir = "T1D_normal_vs_overweight_dxa_adj_age_sex", file_suffix = "t1d_norm_ow_dxa_adj_age_sex"
+  ),
+  
+  T1D_nonobese_vs_obese_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_obese_binary", ref_level = "Non_Obese",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_dxa_obese_binaryObese", logfc_col = "logFC_dxa_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_dxa_adj_age_sex", file_suffix = "t1d_nonob_ob_dxa_adj_age_sex",
+    needs_binary_dxa = TRUE
+  ),
+  
+  T1D_normal_vs_obese_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Normal', 'Obese')",
+    group_var = "dxa_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
+    s3_subdir = "T1D_normal_vs_obese_dxa_adj_age_sex", file_suffix = "t1d_norm_ob_dxa_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (HC vs T1D, BMI-defined)
+  # =========================================================================
+  
+  HC_vs_T1D_normal_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Normal'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_normal_bmi_adj_age_sex", file_suffix = "hc_t1d_norm_bmi_adj_age_sex"
+  ),
+  
+  HC_vs_T1D_overweight_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Overweight'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_overweight_bmi_adj_age_sex", file_suffix = "hc_t1d_ow_bmi_adj_age_sex"
+  ),
+  
+  HC_vs_T1D_obese_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity == 'Obese'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_obese_bmi_adj_age_sex", file_suffix = "hc_t1d_ob_bmi_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (HC vs T1D, DXA-defined)
+  # =========================================================================
+  
+  HC_vs_T1D_normal_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Normal'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_normal_dxa_adj_age_sex", file_suffix = "hc_t1d_norm_dxa_adj_age_sex"
+  ),
+  
+  HC_vs_T1D_overweight_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Overweight'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_overweight_dxa_adj_age_sex", file_suffix = "hc_t1d_ow_dxa_adj_age_sex"
+  ),
+  
+  HC_vs_T1D_obese_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity == 'Obese'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_obese_dxa_adj_age_sex", file_suffix = "hc_t1d_ob_dxa_adj_age_sex"
+  ),
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - T1D ONLY (unadjusted)
   # =========================================================================
-
+  
   cont_bmi_t1d = list(
     analysis_mode = "continuous",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi)",
@@ -420,11 +546,11 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_t1d", file_suffix = "cont_dexa_trunk_mass_t1d"
   ),
-
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, UNADJUSTED
   # =========================================================================
-
+  
   cont_bmi_all = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(bmi)",
@@ -495,11 +621,11 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all", file_suffix = "cont_dexa_trunk_mass_all"
   ),
-
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR GROUP
   # =========================================================================
-
+  
   cont_bmi_all_adj = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(bmi)",
@@ -570,11 +696,11 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all_adj_group", file_suffix = "cont_dexa_trunk_mass_all_adj"
   ),
-
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - T1D ONLY, ADJUSTED FOR AGE
   # =========================================================================
-
+  
   cont_bmi_t1d_adj_age = list(
     analysis_mode = "continuous",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi)",
@@ -645,11 +771,11 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_t1d_adj_age", file_suffix = "cont_dexa_trunk_mass_t1d_adj_age"
   ),
-
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR AGE (no group)
   # =========================================================================
-
+  
   cont_bmi_all_adj_age = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(bmi)",
@@ -720,11 +846,11 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all_adj_age", file_suffix = "cont_dexa_trunk_mass_all_adj_age"
   ),
-
+  
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR GROUP + AGE
   # =========================================================================
-
+  
   cont_bmi_all_adj_group_age = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(bmi)",
@@ -795,13 +921,13 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all_adj_group_age", file_suffix = "cont_dexa_trunk_mass_all_adj_group_age"
   ),
-
+  
   # =========================================================================
   # INTERACTION MODELS - continuous_var * group (HC vs T1D)
   # Tests whether the association of each adiposity variable with gene
   # expression differs between HC and T1D
   # =========================================================================
-
+  
   interaction_bmi = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(bmi) & !is.na(group)",
@@ -810,7 +936,7 @@ analysis_config <- list(
     logfc_col = "logFC_bmi:groupType 1 Diabetes",
     s3_subdir = "interaction/bmi", file_suffix = "int_bmi"
   ),
-
+  
   interaction_dexa_body_fat = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_body_fat) & !is.na(group)",
@@ -819,7 +945,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_body_fat:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_body_fat", file_suffix = "int_dexa_body_fat"
   ),
-
+  
   interaction_dexa_bone_mineral_density = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_bone_mineral_density) & !is.na(group)",
@@ -828,7 +954,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_bone_mineral_density:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_bone_mineral_density", file_suffix = "int_dexa_bmd"
   ),
-
+  
   interaction_dexa_fat_kg = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_fat_kg) & !is.na(group)",
@@ -837,7 +963,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_fat_kg:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_fat_kg", file_suffix = "int_dexa_fat_kg"
   ),
-
+  
   interaction_dexa_lean_mass = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_lean_mass) & !is.na(group)",
@@ -846,7 +972,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_lean_mass:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_lean_mass", file_suffix = "int_dexa_lean_mass"
   ),
-
+  
   interaction_dexa_lean_kg = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_lean_kg) & !is.na(group)",
@@ -855,7 +981,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_lean_kg:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_lean_kg", file_suffix = "int_dexa_lean_kg"
   ),
-
+  
   interaction_dexa_ag_ratio = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_ag_ratio) & !is.na(group)",
@@ -864,7 +990,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_ag_ratio:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_ag_ratio", file_suffix = "int_dexa_ag_ratio"
   ),
-
+  
   interaction_dexa_est_vat = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_est_vat) & !is.na(group)",
@@ -873,7 +999,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_est_vat:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_est_vat", file_suffix = "int_dexa_est_vat"
   ),
-
+  
   interaction_dexa_trunk_kg = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_trunk_kg) & !is.na(group)",
@@ -882,7 +1008,7 @@ analysis_config <- list(
     logfc_col = "logFC_dexa_trunk_kg:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_trunk_kg", file_suffix = "int_dexa_trunk_kg"
   ),
-
+  
   interaction_dexa_trunk_mass = list(
     analysis_mode = "interaction",
     subset_cond = "!is.na(dexa_trunk_mass) & !is.na(group)",
@@ -890,6 +1016,231 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass:groupType 1 Diabetes",
     logfc_col = "logFC_dexa_trunk_mass:groupType 1 Diabetes",
     s3_subdir = "interaction/dexa_trunk_mass", file_suffix = "int_dexa_trunk_mass"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - T1D ONLY, ADJUSTED FOR AGE + SEX
+  # =========================================================================
+  
+  cont_bmi_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi)",
+    continuous_var = "bmi", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_t1d_adj_age_sex", file_suffix = "cont_bmi_t1d_adj_age_sex"
+  ),
+  cont_dexa_body_fat_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_t1d_adj_age_sex", file_suffix = "cont_dexa_body_fat_t1d_adj_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_t1d_adj_age_sex", file_suffix = "cont_dexa_bmd_t1d_adj_age_sex"
+  ),
+  cont_dexa_fat_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_fat_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_lean_mass_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_t1d_adj_age_sex", file_suffix = "cont_dexa_lean_mass_t1d_adj_age_sex"
+  ),
+  cont_dexa_lean_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_lean_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_ag_ratio_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_t1d_adj_age_sex", file_suffix = "cont_dexa_ag_ratio_t1d_adj_age_sex"
+  ),
+  cont_dexa_est_vat_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_t1d_adj_age_sex", file_suffix = "cont_dexa_est_vat_t1d_adj_age_sex"
+  ),
+  cont_dexa_trunk_kg_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_t1d_adj_age_sex", file_suffix = "cont_dexa_trunk_kg_t1d_adj_age_sex"
+  ),
+  cont_dexa_trunk_mass_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_t1d_adj_age_sex", file_suffix = "cont_dexa_trunk_mass_t1d_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR AGE + SEX (no group)
+  # =========================================================================
+  
+  cont_bmi_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(bmi)",
+    continuous_var = "bmi", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_all_adj_age_sex", file_suffix = "cont_bmi_all_adj_age_sex"
+  ),
+  cont_dexa_body_fat_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_all_adj_age_sex", file_suffix = "cont_dexa_body_fat_all_adj_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_all_adj_age_sex", file_suffix = "cont_dexa_bmd_all_adj_age_sex"
+  ),
+  cont_dexa_fat_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_all_adj_age_sex", file_suffix = "cont_dexa_fat_kg_all_adj_age_sex"
+  ),
+  cont_dexa_lean_mass_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_all_adj_age_sex", file_suffix = "cont_dexa_lean_mass_all_adj_age_sex"
+  ),
+  cont_dexa_lean_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_all_adj_age_sex", file_suffix = "cont_dexa_lean_kg_all_adj_age_sex"
+  ),
+  cont_dexa_ag_ratio_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_all_adj_age_sex", file_suffix = "cont_dexa_ag_ratio_all_adj_age_sex"
+  ),
+  cont_dexa_est_vat_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_all_adj_age_sex", file_suffix = "cont_dexa_est_vat_all_adj_age_sex"
+  ),
+  cont_dexa_trunk_kg_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_all_adj_age_sex", file_suffix = "cont_dexa_trunk_kg_all_adj_age_sex"
+  ),
+  cont_dexa_trunk_mass_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_all_adj_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_age_sex"
+  ),
+  
+  # =========================================================================
+  # CONTINUOUS ASSOCIATIONS - ALL SUBJECTS, ADJUSTED FOR GROUP + AGE + SEX
+  # =========================================================================
+  
+  cont_bmi_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(bmi)",
+    continuous_var = "bmi", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi", logfc_col = "logFC_bmi",
+    s3_subdir = "continuous/bmi_all_adj_group_age_sex", file_suffix = "cont_bmi_all_adj_group_age_sex"
+  ),
+  cont_dexa_body_fat_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_all_adj_group_age_sex", file_suffix = "cont_dexa_body_fat_all_adj_group_age_sex"
+  ),
+  cont_dexa_bone_mineral_density_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_bone_mineral_density)",
+    continuous_var = "dexa_bone_mineral_density", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_bone_mineral_density", logfc_col = "logFC_dexa_bone_mineral_density",
+    s3_subdir = "continuous/dexa_bone_mineral_density_all_adj_group_age_sex", file_suffix = "cont_dexa_bmd_all_adj_group_age_sex"
+  ),
+  cont_dexa_fat_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_fat_kg)",
+    continuous_var = "dexa_fat_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_fat_kg", logfc_col = "logFC_dexa_fat_kg",
+    s3_subdir = "continuous/dexa_fat_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_fat_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_lean_mass_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_lean_mass_all_adj_group_age_sex"
+  ),
+  cont_dexa_lean_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_lean_kg)",
+    continuous_var = "dexa_lean_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_lean_kg", logfc_col = "logFC_dexa_lean_kg",
+    s3_subdir = "continuous/dexa_lean_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_lean_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_ag_ratio_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_all_adj_group_age_sex", file_suffix = "cont_dexa_ag_ratio_all_adj_group_age_sex"
+  ),
+  cont_dexa_est_vat_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_all_adj_group_age_sex", file_suffix = "cont_dexa_est_vat_all_adj_group_age_sex"
+  ),
+  cont_dexa_trunk_kg_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_kg_all_adj_group_age_sex"
+  ),
+  cont_dexa_trunk_mass_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(dexa_trunk_mass)",
+    continuous_var = "dexa_trunk_mass", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
+    s3_subdir = "continuous/dexa_trunk_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_group_age_sex"
   )
 )
 
@@ -907,8 +1258,8 @@ config <- analysis_config[[analysis_type]]
 cat(sprintf("\nLoading cell type-specific data for %s...\n", celltype_group_input))
 
 # Try to load pre-saved cell type subset first
-subset_file <- paste0("data_clean/subset/t1d_adiposity/t1d_adiposity_subset_",
-                       gsub("/", "_", celltype_group_input), ".rds")
+subset_file <- paste0("data_clean/subset/t1d_adiposity_subset_",
+                      gsub("/", "_", celltype_group_input), ".rds")
 
 pb90_subset_clean <- tryCatch({
   cat(sprintf("Looking for cell type subset: %s\n", subset_file))
@@ -921,14 +1272,14 @@ pb90_subset_clean <- tryCatch({
   obj <- s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds",
                    bucket = s3_bucket, region = "")
   cat(sprintf("Loaded full dataset with %d cells\n", ncol(obj)))
-
+  
   # Add KPMP_celltype_general if needed
   if (celltype_var == "KPMP_celltype_general" & !"KPMP_celltype_general" %in% colnames(obj@meta.data)) {
     obj$KPMP_celltype_general <- sapply(obj$KPMP_celltype,
-                                         map_celltype_to_general,
-                                         celltype_groups = celltype_groups)
+                                        map_celltype_to_general,
+                                        celltype_groups = celltype_groups)
   }
-
+  
   obj <- subset(obj, !!sym(celltype_var) == celltype_group_input)
   cat(sprintf("Subset to %s: %d cells\n", celltype_group_input, ncol(obj)))
   obj
@@ -1012,7 +1363,7 @@ if (!is.null(config$adjust_covariates)) {
   cat(sprintf("Removed %d cells with NA in covariates (%s): %d -> %d cells\n",
               n_before - n_after, paste(config$adjust_covariates, collapse = ", "),
               n_before, n_after))
-
+  
   # Re-check minimum cells after covariate NA removal
   if (n_after < 30) {
     cat(sprintf("SKIPPING: Too few cells (%d < 30) after covariate NA removal for %s - %s\n",
@@ -1026,12 +1377,12 @@ if (config$analysis_mode == "continuous") {
   cont_var <- config$continuous_var
   cov_meta <- pb90_celltype@meta.data
   has_value <- !is.na(cov_meta[[cont_var]])
-
+  
   # If adjusting for group, also ensure group is not NA
   if (isTRUE(config$adjust_group)) {
     has_value <- has_value & !is.na(cov_meta[["group"]])
   }
-
+  
   n_before <- ncol(pb90_celltype)
   pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[has_value])
   n_after <- ncol(pb90_celltype)
@@ -1039,7 +1390,7 @@ if (config$analysis_mode == "continuous") {
               n_before - n_after, cont_var,
               ifelse(isTRUE(config$adjust_group), " or group", ""),
               n_before, n_after))
-
+  
   # Check for sufficient variance in continuous variable
   unique_vals <- length(unique(pb90_celltype@meta.data[[cont_var]]))
   if (unique_vals < 3) {
@@ -1047,7 +1398,7 @@ if (config$analysis_mode == "continuous") {
                 cont_var, unique_vals, celltype_group_input))
     quit(save = "no", status = 0)
   }
-
+  
   # Scale continuous variable for numerical stability
   pb90_celltype@meta.data[[cont_var]] <- scale(pb90_celltype@meta.data[[cont_var]])[,1]
   cat(sprintf("Scaled %s (mean-centered, SD=1)\n", cont_var))
@@ -1058,13 +1409,13 @@ if (config$analysis_mode == "interaction") {
   cont_var <- config$continuous_var
   cov_meta <- pb90_celltype@meta.data
   has_value <- !is.na(cov_meta[[cont_var]]) & !is.na(cov_meta[["group"]])
-
+  
   n_before <- ncol(pb90_celltype)
   pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[has_value])
   n_after <- ncol(pb90_celltype)
   cat(sprintf("Removed %d cells with NA in %s or group: %d -> %d cells\n",
               n_before - n_after, cont_var, n_before, n_after))
-
+  
   # Check for sufficient variance in continuous variable
   unique_vals <- length(unique(pb90_celltype@meta.data[[cont_var]]))
   if (unique_vals < 3) {
@@ -1072,7 +1423,7 @@ if (config$analysis_mode == "interaction") {
                 cont_var, unique_vals, celltype_group_input))
     quit(save = "no", status = 0)
   }
-
+  
   # Scale continuous variable for numerical stability
   pb90_celltype@meta.data[[cont_var]] <- scale(pb90_celltype@meta.data[[cont_var]])[,1]
   cat(sprintf("Scaled %s (mean-centered, SD=1)\n", cont_var))
@@ -1127,10 +1478,10 @@ if (config$analysis_mode == "categorical") {
   group_var <- config$group_var
   cat(sprintf("\nGroup variable '%s' distribution (subjects):\n", group_var))
   print(table(subject_meta[[group_var]], useNA = "ifany"))
-
+  
   cat(sprintf("\nGroup variable '%s' distribution (cells):\n", group_var))
   print(table(pb90_celltype@meta.data[[group_var]], useNA = "ifany"))
-
+  
   if (!is.null(config$adjust_covariates)) {
     cat(sprintf("\nAdjusting for covariates: %s\n", paste(config$adjust_covariates, collapse = ", ")))
     for (cov in config$adjust_covariates) {
@@ -1176,19 +1527,19 @@ cat(sprintf("=============================================================\n\n")
 if (config$analysis_mode == "categorical") {
   group_var <- config$group_var
   pb90_celltype@meta.data[[group_var]] <- factor(pb90_celltype@meta.data[[group_var]])
-
+  
   if (!is.null(config$ref_level)) {
     pb90_celltype@meta.data[[group_var]] <- relevel(
       pb90_celltype@meta.data[[group_var]],
       ref = config$ref_level
     )
   }
-
+  
   # Check minimum group sizes
   group_counts <- pb90_celltype@meta.data %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(!!sym(group_var))
-
+  
   min_group <- min(group_counts$n)
   if (min_group < 2) {
     cat(sprintf("SKIPPING: A group has fewer than 2 subjects (min=%d) for %s - %s\n",
@@ -1196,7 +1547,7 @@ if (config$analysis_mode == "categorical") {
     print(group_counts)
     quit(save = "no", status = 0)
   }
-
+  
   # Build formula: ~ group_var [+ covariate1 + covariate2 ...]
   if (!is.null(config$adjust_covariates)) {
     formula_obj <- as.formula(paste("~", group_var, "+",
@@ -1205,17 +1556,17 @@ if (config$analysis_mode == "categorical") {
     formula_obj <- as.formula(paste("~", group_var))
   }
   cat(sprintf("Formula: %s\n", deparse(formula_obj)))
-
+  
 } else if (config$analysis_mode == "interaction") {
   # Interaction model: ~ continuous_var * group
   cont_var <- config$continuous_var
   pb90_celltype@meta.data[["group"]] <- factor(pb90_celltype@meta.data[["group"]])
-
+  
   # Check minimum group sizes for interaction
   group_counts <- pb90_celltype@meta.data %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(group)
-
+  
   min_group <- min(group_counts$n)
   if (min_group < 2) {
     cat(sprintf("SKIPPING: A group has fewer than 2 subjects (min=%d) for %s - %s\n",
@@ -1223,10 +1574,10 @@ if (config$analysis_mode == "categorical") {
     print(group_counts)
     quit(save = "no", status = 0)
   }
-
+  
   formula_obj <- as.formula(paste("~", cont_var, "* group"))
   cat(sprintf("Formula: %s\n", deparse(formula_obj)))
-
+  
 } else {
   # Continuous analysis
   cont_var <- config$continuous_var
@@ -1247,16 +1598,16 @@ if (config$analysis_mode == "categorical") {
 # =============================================================================
 if (config$analysis_mode == "categorical") {
   group_var_sym <- sym(group_var)
-
+  
   sample_counts <- pb90_celltype@meta.data %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(!!group_var_sym, name = "n_samples") %>%
     arrange(!!group_var_sym)
-
+  
   cell_counts <- pb90_celltype@meta.data %>%
     dplyr::count(!!group_var_sym, name = "n_cells") %>%
     arrange(!!group_var_sym)
-
+  
   counts_summary <- sample_counts %>%
     left_join(cell_counts, by = group_var)
 } else if (config$analysis_mode == "interaction") {
@@ -1265,11 +1616,11 @@ if (config$analysis_mode == "categorical") {
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(group, name = "n_samples") %>%
     arrange(group)
-
+  
   cell_counts <- pb90_celltype@meta.data %>%
     dplyr::count(group, name = "n_cells") %>%
     arrange(group)
-
+  
   counts_summary <- sample_counts %>%
     left_join(cell_counts, by = "group")
 } else {
@@ -1336,7 +1687,7 @@ if (config$analysis_mode == "categorical") {
     mutate(label = paste0(!!group_var_sym, ": ", n_samples)) %>%
     pull(label) %>%
     paste(collapse = "; ")
-
+  
   cells_per_group <- counts_summary %>%
     mutate(label = paste0(!!group_var_sym, ": ", n_cells)) %>%
     pull(label) %>%
@@ -1346,7 +1697,7 @@ if (config$analysis_mode == "categorical") {
     mutate(label = paste0(group, ": ", n_samples)) %>%
     pull(label) %>%
     paste(collapse = "; ")
-
+  
   cells_per_group <- counts_summary %>%
     mutate(label = paste0(group, ": ", n_cells)) %>%
     pull(label) %>%

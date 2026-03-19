@@ -6,7 +6,7 @@
 # This pre-splits the Seurat object by cell type so each array job
 # only needs to load a small subset instead of the full object.
 #
-# Saves to: s3://t1d.adiposity/data_clean/subset/t1d_adiposity/
+# Saves to: s3://t1d.adiposity/data_clean/subset/
 # =============================================================================
 
 library(aws.s3)
@@ -28,9 +28,9 @@ s3_bucket <- "t1d.adiposity"
 
 # Load the full Seurat object
 cat("Loading full Seurat object...\n")
-pb90 <- s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds",
+pb90_attempt <- s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds",
                   bucket = s3_bucket, region = "")
-cat(sprintf("Loaded: %d cells, %d genes\n", ncol(pb90), nrow(pb90)))
+cat(sprintf("Loaded: %d cells, %d genes\n", ncol(pb90_attempt), nrow(pb90_attempt)))
 
 # Cell type groupings for KPMP_celltype_general
 celltype_groups <- list(
@@ -61,27 +61,27 @@ map_celltype_to_general <- function(celltype, celltype_groups) {
   return("Other")
 }
 
-if (!"KPMP_celltype_general" %in% colnames(pb90@meta.data)) {
+if (!"KPMP_celltype_general" %in% colnames(pb90_attempt@meta.data)) {
   cat("Adding KPMP_celltype_general...\n")
-  pb90$KPMP_celltype_general <- sapply(pb90$KPMP_celltype,
+  pb90_attempt$KPMP_celltype_general <- sapply(pb90_attempt$KPMP_celltype,
                                         map_celltype_to_general,
                                         celltype_groups = celltype_groups)
 }
 
 # Save KPMP_celltype subsets
 cat("\n--- Saving KPMP_celltype subsets ---\n")
-kpmp_types <- unique(pb90$KPMP_celltype)
+kpmp_types <- unique(pb90_attempt$KPMP_celltype)
 cat(sprintf("Found %d unique KPMP_celltype values\n", length(kpmp_types)))
 
 for (ct in kpmp_types) {
   cat(sprintf("  Subsetting %s... ", ct))
-  sub <- subset(pb90, KPMP_celltype == ct)
+  sub <- subset(pb90_attempt, KPMP_celltype == ct)
   n <- ncol(sub)
   cat(sprintf("%d cells. ", n))
 
   # Use gsub to make filename safe (replace / with _)
   safe_name <- gsub("/", "_", ct)
-  s3_key <- paste0("data_clean/subset/t1d_adiposity/t1d_adiposity_subset_", safe_name, ".rds")
+  s3_key <- paste0("data_clean/subset/t1d_adiposity_subset_", safe_name, ".rds")
   s3saveRDS(sub, object = s3_key, bucket = s3_bucket, region = "", multipart = TRUE)
   cat(sprintf("Saved to %s\n", s3_key))
 
@@ -90,17 +90,17 @@ for (ct in kpmp_types) {
 
 # Save KPMP_celltype_general subsets
 cat("\n--- Saving KPMP_celltype_general subsets ---\n")
-general_types <- unique(pb90$KPMP_celltype_general)
+general_types <- unique(pb90_attempt$KPMP_celltype_general)
 cat(sprintf("Found %d unique KPMP_celltype_general values\n", length(general_types)))
 
 for (ct in general_types) {
   cat(sprintf("  Subsetting %s... ", ct))
-  sub <- subset(pb90, KPMP_celltype_general == ct)
+  sub <- subset(pb90_attempt, KPMP_celltype_general == ct)
   n <- ncol(sub)
   cat(sprintf("%d cells. ", n))
 
   safe_name <- gsub("/", "_", ct)
-  s3_key <- paste0("data_clean/subset/t1d_adiposity/t1d_adiposity_subset_", safe_name, ".rds")
+  s3_key <- paste0("data_clean/subset/t1d_adiposity_subset_", safe_name, ".rds")
   s3saveRDS(sub, object = s3_key, bucket = s3_bucket, region = "", multipart = TRUE)
   cat(sprintf("Saved to %s\n", s3_key))
 
