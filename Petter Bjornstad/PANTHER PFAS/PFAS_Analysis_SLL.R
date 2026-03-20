@@ -1,80 +1,1318 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+knitr::purl("PFAS_Analysis_SLL.Rmd", documentation = 0)
+
+#load libraries
+
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+library(ggeffects)
+library(patchwork)
+library(gWQS)
+library(corrplot)
+library(gt)
+library(table1)
+library(stringr)
+library(ggpubr)
+
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/unadjusted_pfas_results")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } 
+}
+
+source(file.path(git_path, "Panther PFAS/Functions.R"))
+
+dat_raw <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
+lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+
+
+pfas_all <- c(
+  "N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFOA",
+  "PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFDoS","PFHps","PFHxS","PFNS",
+  "PFOS","PFOSA","PFPeAS"
+)
+
+pfas_vars <- c(
+  "N.MeFOSAA","PFDA","PFHpA","PFNA","PFBS",
+  "PFHps","PFHxS","PFOA","PFOS","PFPeAS"
+)
+
+baseline_model_outcomes <- c(
+  "log_acr_u",
+  "log_microalbumin_u",
+  "eGFR_CKiD_U25_avg",
+  "erpf_bsa_plasma",
+  "avg_c_r2",
+  "avg_k_r2",
+  "bmi",
+  "pah_clear_bsa",
+  "dexa_lean_kg",
+  "dexa_fat_kg",
+  "igf_1",
+  "bl_dheas",
+  "mm_si",
+  "mm_ir",
+  "mm_di"
+)
+
+group_time_outcomes <- c(
+  "log_acr_u",
+  "log_microalbumin_u",
+  "eGFR_CKiD_U25_avg",
+  "erpf_bsa_plasma",
+  "pah_clear_bsa",
+  "avg_c_r2",
+  "avg_k_r2",
+  "bmi",
+  "dexa_lean_kg",
+  "dexa_fat_kg",
+  "igf_1",
+  "bl_dheas"
+)
+
+
+outcome_label_map <- c(
+  #kidney function
+  acr_u = "uACR",
+  log_acr_u = "log1p(uACR)",
+  microalbumin_u = "Microalbuminuria",
+  log_microalbumin_u = "log1p(Microalbuminuria)",
+  eGFR_CKiD_U25_avg = "eGFR",
+  erpf_bsa_plasma = "ERPF",
+  pah_clear_bsa = "PAH clearance",
+  #kidney oxygenation
+  avg_c_r2 = "Cortical R2",
+  avg_k_r2= "Kidney R2",
+  #metabolism
+  bmi = "Body Mass Index",
+  dexa_lean_kg = "DEXA Lean Mass (kg)",
+  dexa_fat_kg = "DEXA Fat Mass (kg)",
+  mm_si = "Insulin Sensitivity",
+  mm_ir = "Insulin Resistance",
+  mm_di = "Disposition Index",
+  #hormones
+  igf_1 = "IGF-1",
+  bl_dheas = "DHEA-S"
+)
+
+pfas_label_map <- c(
+  log2_N.MeFOSAA_bl = "log2(N-MeFOSAA)",
+  log2_PFDA_bl = "log2(PFDA)",
+  log2_PFHpA_bl = "log2(PFHpA)",
+  log2_PFNA_bl = "log2(PFNA)",
+  log2_PFBS_bl = "log2(PFBS)",
+  log2_PFHps_bl = "log2(PFHpS)",
+  log2_PFHxS_bl = "log2(PFHxS)",
+  log2_PFOA_bl = "log2(PFOA)",
+  log2_PFOS_bl = "log2(PFOS)",
+  log2_PFPeAS_bl = "log2(PFPeAS)"
+)
+
+
+collapse_visit <- function(data, by_vars) {
+  data %>%
+    summarise(
+      across(
+        where(is.character),
+        ~ if (all(is.na(.x))) NA_character_ else dplyr::last(na.omit(.x))
+      ),
+      across(
+        where(is.factor),
+        ~ if (all(is.na(.x))) NA else dplyr::last(na.omit(.x))
+      ),
+      across(
+        where(is.numeric),
+        ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+      ),
+      .by = all_of(by_vars)
+    )
+}
+
+make_race_ethnicity <- function(data) {
+  data %>%
+    mutate(
+      race_ethnicity_condensed = case_when(
+        race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+        race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+        ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+        TRUE ~ "Not Hispanic or Latino Other"
+      )
+    )
+}
+
+fmt_p <- function(p) {
+  case_when(
+    is.na(p) ~ NA_character_,
+    p < 0.001 ~ "<0.001",
+    TRUE ~ formatC(p, format = "f", digits = 3)
+  )
+}
+
+get_pfas_label <- function(x) {
+  dplyr::recode(x, !!!pfas_label_map, .default = x)
+}
+
+get_outcome_label <- function(outcome) {
+  dplyr::recode(outcome, !!!outcome_label_map, .default = outcome)
+}
+
+#baseline only
+dat_base <- dat_raw %>%
+  filter(study == "PANTHER", visit %in% c("baseline", "screening")) %>%
+  collapse_visit(by_vars = "record_id") %>%
+  mutate(visit = "baseline_screening") %>%
+  make_race_ethnicity()
+
+
+#all data
+dat_full <- dat_raw %>%
+  filter(study == "PANTHER", visit %in% c("year_1", "year_2")) %>%
+  collapse_visit(by_vars = c("record_id", "visit")) %>%
+  make_race_ethnicity()
+
+meta <- bind_rows(dat_base, dat_full)
+
+pfas_raw <- dat_raw %>%
+  filter(study == "PANTHER", visit == "baseline") %>%
+  select(record_id, all_of(pfas_all)) %>%
+  collapse_visit(by_vars = "record_id")
+
+lod <- lod_raw %>%
+  t() %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("row_id")
+
+colnames(lod) <- lod[1, ]
+lod <- lod[-1, , drop = FALSE] %>%
+  mutate(across(everything(), as.numeric))
+
+colnames(lod) <- str_replace_all(colnames(lod), "-", ".")
+
+impute_pfas_lod <- function(pfas_dat, lod, pfas_vars, threshold = 2/3) {
+  n_participants <- n_distinct(pfas_dat$record_id)
+
+  pfas_to_keep <- purrr::keep(pfas_vars, function(pf) {
+    pf %in% names(lod) &&
+      (sum(pfas_dat[[pf]] < lod[[pf]], na.rm = TRUE) / n_participants) < threshold
+  })
+
+  pfas_imputed <- pfas_dat %>%
+    select(record_id, all_of(pfas_to_keep))
+
+  for (pf in pfas_to_keep) {
+    pfas_imputed[[pf]] <- ifelse(
+      pfas_imputed[[pf]] < lod[[pf]],
+      lod[[pf]] / sqrt(2),
+      pfas_imputed[[pf]]
+    )
+  }
+
+  list(
+    imputed_data = pfas_imputed,
+    pfas_used = pfas_to_keep
+  )
+}
+
+pfas_results <- impute_pfas_lod(
+  pfas_dat = pfas_raw,
+  lod = lod,
+  pfas_vars = pfas_all
+)
+
+pfas_imputed <- pfas_results$imputed_data %>%
+  select(record_id, all_of(pfas_vars)) %>%
+  rename_with(~ paste0(.x, "_bl"), -record_id)
+
+#write_rds(x = pfas_imputed, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
+
+baseline_acru <- meta %>%
+  filter(visit == "baseline_screening") %>%
+  select(record_id, acr_u) %>%
+  rename(acr_u_bl = acr_u)
+
+meta_nopfas <- meta %>%
+  select(-any_of(pfas_all))
+
+dat_baseline <- meta_nopfas %>%
+  filter(visit == "baseline_screening") %>%
+  left_join(pfas_imputed, by = "record_id") %>%
+  left_join(baseline_acru, by = "record_id")
+
+dat_long <- meta_nopfas %>%
+  left_join(pfas_imputed, by = "record_id") %>%
+  left_join(baseline_acru, by = "record_id") %>%
+  mutate(
+    visit_f = factor(
+      visit,
+      levels = c("baseline_screening", "year_1", "year_2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    visit_num = case_when(
+      visit == "baseline_screening" ~ 0,
+      visit == "year_1" ~ 1,
+      visit == "year_2" ~ 2,
+      TRUE ~ NA_real_
+    )
+  )
+
+#write_rds(baseline_acru, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
+#write_rds(meta_nopfas,   file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
+#write_rds(dat_baseline,  file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
+#write_rds(dat_long,      file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
+
+
+dat_baseline <- dat_baseline %>%
+  mutate(
+    microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
+    acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_acr_u = log1p(acr_u),
+    log_microalbumin_u = log1p(microalbumin_u),
+    log_acr_u_bl = log1p(acr_u_bl)
+  )
+
+dat_long <- dat_long %>%
+  mutate(
+    microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
+    acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_acr_u = log1p(acr_u),
+    log_microalbumin_u = log1p(microalbumin_u),
+    log_acr_u_bl = log1p(acr_u_bl)
+  )
+
+#Creating column of total pfas burden and then log transforming all PFAS data
+pfas_bl_vars <- paste0(pfas_vars, "_bl")
+
+dat_baseline <- dat_baseline %>%
+  mutate(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
+    total_pfas_bl = ifelse(
+      n_pfas_nonmiss == 0,
+      NA_real_,
+      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+    ),
+    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+  ) %>%
+  select(-n_pfas_nonmiss)
+
+dat_long <- dat_long %>%
+  mutate(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
+    total_pfas_bl = ifelse(
+      n_pfas_nonmiss == 0,
+      NA_real_,
+      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+    ),
+    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+  ) %>%
+  select(-n_pfas_nonmiss)
+
+dat_baseline <- dat_baseline %>%
+  mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
+
+dat_long <- dat_long %>%
+  mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
+
+log2_pfas_bl_vars <- paste0("log2_", pfas_bl_vars)
+
+# data for correlation matrix
+pfas_corr_df <- dat_baseline %>%
+  dplyr::select(all_of(log2_pfas_bl_vars)) %>%
+  dplyr::rename_with(~ sapply(.x, get_pfas_label))
+
+# correlation matrix using pairwise complete observations
+pfas_corr_mat <- cor(
+  pfas_corr_df,
+  use = "pairwise.complete.obs",
+  method = "spearman"   # use "pearson" if you prefer linear correlation
+)
+
+pfas_corr_mat
+
+pfas_cor_tests <- expand.grid(
+  var1 = log2_pfas_bl_vars,
+  var2 = log2_pfas_bl_vars,
+  stringsAsFactors = FALSE
+) %>%
+  dplyr::filter(var1 < var2) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    test = list(
+      cor.test(
+        dat_baseline[[var1]],
+        dat_baseline[[var2]],
+        method = "spearman",
+        use = "pairwise.complete.obs",
+        exact = FALSE
+      )
+    ),
+    rho = test$estimate,
+    p_value = test$p.value
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    var1_label = sapply(var1, get_pfas_label),
+    var2_label = sapply(var2, get_pfas_label),
+    p_fdr = p.adjust(p_value, method = "fdr")
+  ) %>%
+  dplyr::select(var1_label, var2_label, rho, p_value, p_fdr)
+
+pfas_cor_tests
+
+cor_mtest <- function(mat, method = "spearman") {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  colnames(p.mat) <- colnames(mat)
+  rownames(p.mat) <- colnames(mat)
+  
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- suppressWarnings(
+        cor.test(mat[, i], mat[, j], method = method, exact = FALSE)
+      )
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  
+  p.mat
+}
+
+pfas_corr_df <- dat_baseline %>%
+  dplyr::select(all_of(log2_pfas_bl_vars)) %>%
+  dplyr::rename_with(~ sapply(.x, get_pfas_label))
+
+pfas_corr_mat <- cor(
+  pfas_corr_df,
+  use = "pairwise.complete.obs",
+  method = "spearman"
+)
+
+pfas_p_mat <- cor_mtest(pfas_corr_df, method = "spearman")
+
+pdf(file = file.path(dir.results, "pfas_correlation_plot.pdf"))
+
+corrplot::corrplot(
+  pfas_corr_mat,
+  method = "color",
+  type = "upper",
+  order = "hclust",
+  tl.col = "black",
+  tl.srt = 45,
+  col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+  p.mat = pfas_p_mat,
+  sig.level = c(0.001, 0.01, 0.05),
+  insig = "label_sig",
+  pch.col = "black",
+  pch.cex = 1.2,
+  mar = c(0, 0, 1, 0),
+  title = "Spearman correlation matrix of baseline log2-transformed PFAS"
+)
+
+table1(
+  ~ age + sex + bmi + race_ethnicity_condensed + hba1c + acr_u + 
+    microalbumin_u + eGFR_CKiD_U25_avg + avg_c_r2| group,
+  data = dat_baseline
+)
+
+table1(
+  ~ N.MeFOSAA_bl + PFDA_bl + PFHpA_bl + PFNA_bl +
+    PFBS_bl + PFHps_bl + PFHxS_bl + PFOA_bl +
+    PFOS_bl + PFPeAS_bl | group,
+  data = dat_baseline,
+  render.continuous = render.geometric
+)
+
+run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
+  
+  rhs <- c("group", covars)
+  form <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
+  
+  model_data <- data %>%
+    dplyr::select(all.vars(form)) %>%
+    tidyr::drop_na()
+  
+  fit <- lm(form, data = model_data)
+  
+  # omnibus test for group
+  group_rows <- broom::tidy(stats::anova(fit)) %>%
+    dplyr::filter(term == "group") %>%
+    dplyr::mutate(
+      outcome = outcome,
+      n = nrow(model_data)
+    )
+  
+  # pairwise Tukey-adjusted comparisons
+  emm <- emmeans::emmeans(fit, ~ group)
+  pairwise_tbl <- summary(
+    pairs(emm, adjust = "tukey"),
+    infer = TRUE
+  ) %>%
+    as.data.frame() %>%
+    dplyr::mutate(
+      outcome = outcome,
+      n = nrow(model_data)
+    )
+  
+  list(
+    model = fit,
+    omnibus = group_rows,
+    emmeans = as.data.frame(summary(emm)),
+    pairwise = pairwise_tbl
+  )
+}
+
+baseline_group_outcome_results <- lapply(
+  baseline_model_outcomes,
+  function(outcome) {
+    run_baseline_group_model(
+      data = dat_baseline,
+      outcome = outcome,
+      covars = c("age", "sex")
+    )
+  }
+)
+names(baseline_group_outcome_results) <- baseline_model_outcomes
+
+baseline_group_outcome_omnibus <- bind_rows(
+  lapply(baseline_group_outcome_results, `[[`, "omnibus")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_outcome_label),
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    p_fmt = fmt_p(p.value),
+    p_fdr_fmt = fmt_p(p_fdr)
+  )
+
+baseline_group_outcome_pairwise <- bind_rows(
+  lapply(baseline_group_outcome_results, `[[`, "pairwise")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_outcome_label),
+    p_fmt = fmt_p(p.value)
+  )
+
+baseline_group_outcome_omnibus
+baseline_group_outcome_pairwise
+
+plot_baseline_group_boxplot <- function(data,
+                                        outcome,
+                                        results_list,
+                                        y_label = NULL) {
+  
+  plot_data <- data %>%
+    dplyr::select(group, sex, age, all_of(outcome)) %>%
+    tidyr::drop_na()
+  
+  pair_tbl <- results_list[[outcome]]$pairwise %>%
+    dplyr::mutate(
+      group1 = stringr::str_trim(stringr::word(contrast, 1, sep = " - ")),
+      group2 = stringr::str_trim(stringr::word(contrast, 2, sep = " - "))
+    )
+  
+  # y positions for significance bars
+  y_max <- max(plot_data[[outcome]], na.rm = TRUE)
+  y_min <- min(plot_data[[outcome]], na.rm = TRUE)
+  y_step <- 0.08 * (y_max - y_min)
+  
+  pair_tbl <- pair_tbl %>%
+    dplyr::mutate(
+      y.position = y_max + seq_len(n()) * y_step,
+      p_label = dplyr::case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE ~ "ns"
+      )
+    )
+  
+  omnibus_p <- results_list[[outcome]]$omnibus$p.value[1]
+  
+  ggplot(plot_data, aes(x = group, y = .data[[outcome]], fill = group)) + 
+    scale_fill_viridis_d(option = "C") +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 2) +
+    ggpubr::stat_pvalue_manual(
+      pair_tbl,
+      label = "p_label",
+      xmin = "group1",
+      xmax = "group2",
+      y.position = "y.position",
+      tip.length = 0.01,
+      hide.ns = TRUE
+    ) +
+    theme_bw() +
+    labs(
+      title = paste("Baseline", get_outcome_label(outcome), "by group"),
+      subtitle = paste0("Omnibus group p = ", fmt_p(omnibus_p), "; pairwise p adjusted by Tukey"),
+      x = "Group",
+      y = ifelse(is.null(y_label), get_outcome_label(outcome), y_label)
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold")
+    )
+}
+
+pdf(file = file.path(dir.results, "group_outcomes.pdf"), width = 10, height = 8)
+
+for (outcome in baseline_model_outcomes) {
+  print(
+    plot_baseline_group_boxplot(
+      data = dat_baseline,
+      outcome = outcome,
+      results_list = baseline_group_outcome_results
+    )
+  )
+}
+
+pfas_group_vars <- c(log2_pfas_bl_vars, "log2_total_pfas_bl")
+
+baseline_group_pfas_results <- lapply(
+  pfas_group_vars,
+  function(outcome) {
+    run_baseline_group_model(
+      data = dat_baseline,
+      outcome = outcome,
+      covars = c("age", "sex")
+    )
+  }
+)
+names(baseline_group_pfas_results) <- pfas_group_vars
+
+baseline_group_pfas_omnibus <- bind_rows(
+  lapply(baseline_group_pfas_results, `[[`, "omnibus")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_pfas_label),
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    p_fmt = fmt_p(p.value),
+    p_fdr_fmt = fmt_p(p_fdr)
+  )
+
+baseline_group_pfas_pairwise <- bind_rows(
+  lapply(baseline_group_pfas_results, `[[`, "pairwise")
+) %>%
+  dplyr::mutate(
+    outcome_label = sapply(outcome, get_pfas_label),
+    p_fmt = fmt_p(p.value)
+  )
+
+baseline_group_pfas_omnibus
+baseline_group_pfas_pairwise
+plot_baseline_pfas_group_boxplot <- function(data,
+                                             exposure,
+                                             results_list) {
+  
+  plot_data <- data %>%
+    dplyr::select(group, sex, age, all_of(exposure)) %>%
+    tidyr::drop_na()
+  
+  pair_tbl <- results_list[[exposure]]$pairwise %>%
+    dplyr::mutate(
+      group1 = stringr::str_trim(stringr::word(contrast, 1, sep = " - ")),
+      group2 = stringr::str_trim(stringr::word(contrast, 2, sep = " - "))
+    )
+  
+  y_max <- max(plot_data[[exposure]], na.rm = TRUE)
+  y_min <- min(plot_data[[exposure]], na.rm = TRUE)
+  y_step <- 0.08 * (y_max - y_min)
+  
+  pair_tbl <- pair_tbl %>%
+    dplyr::mutate(
+      y.position = y_max + seq_len(n()) * y_step,
+      p_label = dplyr::case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE ~ "ns"
+      )
+    )
+  
+  omnibus_p <- results_list[[exposure]]$omnibus$p.value[1]
+  
+  ggplot(plot_data, aes(x = group, y = .data[[exposure]], fill = group)) +
+    scale_fill_viridis_d(option = "C") +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 2) +
+    ggpubr::stat_pvalue_manual(
+      pair_tbl,
+      label = "p_label",
+      xmin = "group1",
+      xmax = "group2",
+      y.position = "y.position",
+      tip.length = 0.01,
+      hide.ns = TRUE
+    ) +
+    theme_bw() +
+    labs(
+      title = paste("Baseline", get_pfas_label(exposure), "by group"),
+      subtitle = paste0("Omnibus group p = ", fmt_p(omnibus_p), "; pairwise p adjusted by Tukey"),
+      x = "Group",
+      y = get_pfas_label(exposure)
+    ) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold")
+    )
+}
+
+plots_by_group <- lapply(
+  pfas_group_vars,
+  function(pfas) {
+    plot_baseline_pfas_group_boxplot(
+      data = dat_baseline,
+      exposure = pfas,
+      results_list = baseline_group_pfas_results
+    )
+  }
+)
+
+outfile <- file.path(dir.results, "pfas_by_group.pdf")
+
+grDevices::pdf(outfile, width = 10, height = 8, onefile = TRUE)
+for (p in plots_by_group) {
+  print(p)
+}
+grDevices::dev.off()
+
+
+run_baseline_pfas_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
+  
+  rhs <- c(exposure, "age", "sex", "group")
+  if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
+   rhs <- c(rhs, "log_acr_u_bl")
+  }
+  
+  m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
+  
+  model_data <- data %>%
+    dplyr::select(all.vars(m0)) %>%
+    tidyr::drop_na()
+  
+  m1 <- lm(m0, data = model_data)
+  
+  list(
+    model = m1,
+    tidy = broom::tidy(m1) %>%
+      dplyr::mutate(
+        analysis = "baseline_cross_sectional",
+        outcome = outcome,
+        exposure = exposure,
+        model_formula = paste(deparse(m0), collapse = " ")
+      )
+  )
+}
+
+baseline_results_list <- lapply(baseline_model_outcomes, function(outcome) {
+  lapply(pfas_group_vars, function(exposure) {
+    run_baseline_pfas_lm(dat_baseline, outcome, exposure)
+  })
+})
+
+baseline_results <- dplyr::bind_rows(
+  lapply(baseline_results_list, function(x) dplyr::bind_rows(lapply(x, `[[`, "tidy")))
+)
+
+baseline_pfas_only <- baseline_results %>%
+  dplyr::mutate(
+    exposure_clean = stringr::str_replace_all(exposure, "`", "")
+  ) %>%
+  dplyr::filter(term %in% c(exposure, exposure_clean)) %>%
+  dplyr::group_by(analysis, outcome) %>%
+  dplyr::mutate(
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    sig_fdr = p_fdr < 0.05,
+    p_fmt = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
+    p_fdr_fmt = ifelse(p_fdr < 0.001, "<0.001", sprintf("%.3f", p_fdr))
+  ) %>%
+  dplyr::ungroup()
+
+baseline_results_final <- baseline_results %>%
+  dplyr::left_join(
+    baseline_pfas_only %>%
+      dplyr::select(analysis, outcome, exposure, term, p_fdr, sig_fdr, p_fdr_fmt),
+    by = c("analysis", "outcome", "exposure", "term")
+  )
+
+baseline_table <- baseline_results_final %>%
+  dplyr::filter(term %in% c(exposure, stringr::str_replace_all(exposure, "`", ""))) %>%
+  dplyr::mutate(
+    estimate_ci = paste0(
+      round(estimate, 3), " (",
+      round(estimate - 1.96 * std.error, 3), ", ",
+      round(estimate + 1.96 * std.error, 3), ")"
+    ),
+    p_fmt = fmt_p(p.value)
+  ) %>%
+  dplyr::select(
+    analysis, outcome, exposure, estimate, std.error, statistic, p.value,
+    p_fdr, sig_fdr, estimate_ci, p_fmt, p_fdr_fmt
+  )
+
+baseline_table
+
+plot_baseline_pfas_set <- function(data,
+                                   outcome,
+                                   exposures = pfas_group_vars,
+                                   adjust_acr = TRUE,
+                                   results_tbl = baseline_results_final,
+                                   save_pdf = FALSE,
+                                   out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(exposures))
+  names(plot_list) <- exposures
+  
+  for (i in seq_along(exposures)) {
+    exposure <- exposures[i]
+    
+    rhs <- c(exposure, "age", "sex", "group")
+    if (adjust_acr && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+    }
+    
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "))
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(all.vars(m0), group) %>%
+      tidyr::drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    
+    m1 <- lm(m0, data = plot_data)
+    
+    est_row <- broom::tidy(m1) %>%
+      dplyr::filter(term == exposure)
+    
+    fdr_row <- results_tbl %>%
+      dplyr::mutate(exposure_clean = stringr::str_replace_all(exposure, "`", "")) %>%
+      dplyr::filter(
+        outcome == !!outcome,
+        exposure %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", "")) |
+          exposure_clean %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", "")),
+        term %in% c(!!exposure, stringr::str_replace_all(!!exposure, "`", ""))
+      ) %>%
+      dplyr::slice(1)
+    
+    pred_df <- as.data.frame(ggeffects::ggpredict(m1, terms = exposure))
+    
+    subtitle_txt <- paste0(
+      "Beta = ", round(est_row$estimate, 3),
+      "; p = ", fmt_p(est_row$p.value),
+      "; FDR p = ", fmt_p(fdr_row$p_fdr)
+    )
+    
+    p <- ggplot(plot_data, aes(x = .data[[exposure]], y = .data[[outcome]], color = group)) +
+      geom_point(alpha = 0.7, size = 2) +
+      geom_line(
+        data = pred_df,
+        aes(x = x, y = predicted),
+        inherit.aes = FALSE,
+        linewidth = 1.1,
+        color = "black"
+      ) +
+      geom_ribbon(
+        data = pred_df,
+        aes(x = x, ymin = conf.low, ymax = conf.high),
+        inherit.aes = FALSE,
+        alpha = 0.2
+      ) +
+      theme_bw() +
+      labs(
+        title = paste(get_outcome_label(outcome), "vs", get_pfas_label(exposure)),
+        subtitle = subtitle_txt,
+        x = get_pfas_label(exposure),
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, paste0("baseline_", outcome, "_all_pfas.pdf")),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
+
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "pah_clear_bsa",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_c_r2",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_k_r2",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_fat_kg",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "bl_dheas",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_si",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_ir",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_di",save_pdf = T, out_dir = dir.results)
+
+run_group_time_lmm <- function(data, outcome, adjust_acr = TRUE) {
+  rhs <- c("visit_f:group", "age", "sex")
+  
+  if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+    rhs <- c(rhs, "log_acr_u_bl")
+  }
+  
+  m0 <- as.formula(
+    paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+  )
+  
+  model_data <- data %>%
+    select(record_id, all.vars(m0)) %>%
+    drop_na()
+  
+  m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
+  
+  list(
+    model = m1,
+    tidy = broom.mixed::tidy(m1, effects = "fixed") %>%
+      mutate(
+        analysis = "time_by_group",
+        outcome = outcome,
+        model_formula = paste(deparse(m0), collapse = " ")
+      )
+  )
+}
+
+
+group_time_results_list <- lapply(group_time_outcomes, function(outcome) {
+  run_group_time_lmm(dat_long, outcome)
+})
+names(group_time_results_list) <- group_time_outcomes
+
+group_time_results <- bind_rows(
+  lapply(group_time_results_list, `[[`, "tidy")
+)
+
+group_time_results
+
+plot_group_time_set <- function(data,
+                                outcomes = group_time_outcomes,
+                                adjust_acr = TRUE,
+                                save_pdf = FALSE,
+                                out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
+    
+    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+    }
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      select(record_id, all.vars(m0)) %>%
+      drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C")+
+      theme_bw() +
+      labs(
+        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
+
+plot_group_time_set(data = dat_long,outcome = group_time_outcomes, save_pdf = T, out_dir = dir.results)
+
+
+run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
+  
+  rhs <- c(exposure, "visit_f", paste0(exposure, ":visit_f"), "age", "sex", "group")
+  
+  if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+    rhs <- c(rhs, "log_acr_u_bl")
+  }
+  
+  m0 <- as.formula(
+    paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+  )
+  
+  model_data <- data %>%
+    select(record_id, all.vars(m0)) %>%
+    drop_na()
+  
+  m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
+  
+  list(
+    model = m1,
+    tidy = broom.mixed::tidy(m1, effects = "fixed") %>%
+      mutate(
+        analysis = "baseline_pfas_longitudinal",
+        outcome = outcome,
+        exposure = exposure,
+        model_formula = paste(deparse(m0), collapse = " ")
+      )
+  )
+}
+
+longitudinal_results_list <- lapply(group_time_outcomes, function(outcome) {
+  lapply(pfas_group_vars, function(exposure) {
+    run_baseline_pfas_lmm(dat_long, outcome, exposure)
+  })
+})
+names(longitudinal_results_list) <- group_time_outcomes
+
+longitudinal_results <- bind_rows(
+  lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
+)
+
+longitudinal_results
+longitudinal_results <- bind_rows(
+  lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
+)
+
+longitudinal_results_fdr <- longitudinal_results %>%
+  mutate(
+    term_type = case_when(
+      term == exposure ~ "main",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure))) ~ "int_y1",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure))) ~ "int_y2",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(outcome, term_type) %>%
+  mutate(
+    p_fdr = ifelse(!is.na(term_type), p.adjust(p.value, method = "fdr"), NA_real_),
+    sig_fdr = case_when(
+      !is.na(p_fdr) & p_fdr < 0.001 ~ "***",
+      !is.na(p_fdr) & p_fdr < 0.01  ~ "**",
+      !is.na(p_fdr) & p_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    )
+  ) %>%
+  ungroup()
+
+longitudinal_results_fdr
+
+run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
+  
+  # -----------------------------
+  # 1. Build covariate list
+  # -----------------------------
+  covars <- c("age", "sex", "group")
+  
+  if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
+    covars <- c(covars, "log_acr_u_bl")
+  }
+  
+  # -----------------------------
+  # 2. Keep needed columns only
+  # -----------------------------
+  needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
+  
+  model_data <- data %>%
+    dplyr::select(dplyr::all_of(needed_vars)) %>%
+    tidyr::drop_na()
+  
+  # -----------------------------
+  # 3. Outlier removal per outcome
+  #    (same logic as your example)
+  # -----------------------------
+  m_out <- mean(model_data[[outcome]], na.rm = TRUE)
+  s_out <- sd(model_data[[outcome]], na.rm = TRUE)
+  
+  removed_ids <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
+    dplyr::pull(record_id) %>%
+    unique()
+  
+  model_data <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+  
+  # -----------------------------
+  # 4. Sample size info
+  # -----------------------------
+  n_subj <- dplyr::n_distinct(model_data$record_id)
+  n_obs  <- nrow(model_data)
+  
+  # -----------------------------
+  # 5. Formula: numeric visit + exposure:visit_num
+  #    random slope first, fallback to RI only
+  # -----------------------------
+  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
+  
+  formula_str <- paste0(
+    outcome, " ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 + visit_num | record_id)"
+  )
+  
+  formula_obj <- as.formula(formula_str)
+  
+  m1 <- tryCatch(
+    lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
+    error = function(e) {
+      fallback_formula <- as.formula(
+        paste0(
+          outcome, " ~ ",
+          paste(rhs, collapse = " + "),
+          " + (1 | record_id)"
+        )
+      )
+      lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
+    }
+  )
+  
+  # Optional: fallback if singular even when fit succeeds
+  if (lme4::isSingular(m1, tol = 1e-4)) {
+    fallback_formula <- as.formula(
+      paste0(
+        outcome, " ~ ",
+        paste(rhs, collapse = " + "),
+        " + (1 | record_id)"
+      )
+    )
+    m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
+  }
+  
+  # -----------------------------
+  # 6. Tidy + extract key terms
+  # -----------------------------
+  tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
+    dplyr::mutate(
+      analysis = "baseline_pfas_longitudinal",
+      outcome = outcome,
+      exposure = exposure,
+      n_subj = n_subj,
+      n_obs = n_obs,
+      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      model_formula = paste(deparse(formula(m1)), collapse = " ")
+    )
+  
+  list(
+    model = m1,
+    tidy = tidy_tbl
+  )
+}
+
+
+longitudinal_results_list <- lapply(group_time_outcomes, function(outcome) {
+  lapply(pfas_group_vars, function(exposure) {
+    run_baseline_pfas_lmm(dat_long, outcome, exposure)
+  })
+})
+names(longitudinal_results_list) <- group_time_outcomes
+
+longitudinal_results <- bind_rows(
+  lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
+)
+
+longitudinal_results_fdr <- longitudinal_results %>%
+  mutate(
+    term_type = case_when(
+      term == exposure ~ "main",
+      term == paste0(exposure, ":visit_num") ~ "interaction",
+      term == paste0("visit_num:", exposure) ~ "interaction",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(term_type) %>%
+  mutate(
+    p_fdr = ifelse(!is.na(term_type), p.adjust(p.value, method = "fdr"), NA_real_),
+    sig_fdr = case_when(
+      !is.na(p_fdr) & p_fdr < 0.001 ~ "***",
+      !is.na(p_fdr) & p_fdr < 0.01  ~ "**",
+      !is.na(p_fdr) & p_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    )
+  ) %>%
+  ungroup()
+
+heatmap_longitudinal_df <- longitudinal_results_fdr %>%
+  group_by(outcome, exposure) %>%
+  summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    .groups = "drop"
+  ) %>%
+  mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  mutate(
+    visit_num = case_when(
+      visit == "beta_visit0" ~ 0,
+      visit == "beta_visit1" ~ 1,
+      visit == "beta_visit2" ~ 2
+    ),
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
+
+pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"))
+
+beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
+
+p_longitudinal_heatmap_raw <- ggplot(
+  heatmap_longitudinal_df,
+  aes(x = exposure, y = outcome, fill = beta)
+) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sig), size = 3.5, color = "black") +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-beta_limit, beta_limit),
+    name = "Beta"
+  ) +
+  facet_wrap(~ visit, nrow = 1) +
+  labs(
+    title = "Baseline PFAS associations with longitudinal outcomes",
+    subtitle = paste0(
+      "Tile color shows implied PFAS beta at each visit under the linear time interaction model.\n",
+      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
+    ),
+    x = "Baseline PFAS",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+p_longitudinal_heatmap_raw
