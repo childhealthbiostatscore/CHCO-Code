@@ -1,0 +1,882 @@
+---
+title: "T1D Adiposity scRNA NEBULA Results Report"
+author: "Ye Ji Choi"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 3
+    fontsize: 15
+    number-sections: true
+---
+
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+```
+
+```{r include = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  results_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/T1D Adiposity"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  results_dir <- "/mmfs1/gscratch/togo/yejichoi/T1D_Adiposity"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  results_dir <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/T1D Adiposity"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify paths.")
+}
+```
+
+```{r include = F}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F}
+# Cell type groups matching the KPMP cell types used in the analysis
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  `PT-S1/S2` = "PT-S1/S2",
+  `PT-S3` = "PT-S3",
+  aPT = "aPT",
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  `C-TAL-1` = "C-TAL-1",
+  `C-TAL-2` = "C-TAL-2",
+  aTAL = "aTAL",
+  dTAL = "dTAL",
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  `CCD-PC` = "CCD-PC",
+  `CNT-PC` = "CNT-PC",
+  `dCCD-PC` = "dCCD-PC",
+  `M-PC` = "M-PC",
+  `tPC-IC` = "tPC-IC",
+  IC = c("IC-A", "IC-B", "aIC"),
+  `IC-A` = "IC-A",
+  `IC-B` = "IC-B",
+  aIC = "aIC",
+  DTL_ATL = c("DTL", "aDTL", "ATL"),
+  DTL = "DTL",
+  aDTL = "aDTL",
+  ATL = "ATL",
+  DCT_CNT = c("DCT", "dDCT", "CNT"),
+  DCT = "DCT",
+  dDCT = "dDCT",
+  CNT = "CNT",
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  `EC-AVR` = "EC-AVR",
+  `EC-GC` = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC",
+  `EC-A` = "EC-A",
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  MAC = "MAC",
+  MON = "MON",
+  cDC = "cDC",
+  pDC = "pDC",
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  `CD4+ T` = "CD4+ T",
+  `CD8+ T` = "CD8+ T",
+  B = "B",
+  NK = "NK",
+  cycT = "cycT",
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  `VSMC/P` = "VSMC/P",
+  FIB = "FIB",
+  POD = "POD",
+  MC = "MC",
+  PEC = "PEC",
+  Schwann = "SchwannCells",
+  Other = "non-specific"
+)
+```
+
+```{r echo = F}
+# Folder mapping: display name -> analysis_type (matching run_nebula_single.R config names)
+folders <- c(
+  # --- Categorical: BMI within T1D (unadjusted) ---
+  "T1D Normal vs Overweight (BMI)" = "T1D_normal_vs_overweight_bmi",
+  "T1D Non-obese vs Obese (BMI)" = "T1D_nonobese_vs_obese_bmi",
+  "T1D Normal vs Obese (BMI)" = "T1D_normal_vs_obese_bmi",
+  # --- Categorical: DXA within T1D (unadjusted) ---
+  "T1D Normal vs Overweight (DXA)" = "T1D_normal_vs_overweight_dxa",
+  "T1D Non-obese vs Obese (DXA)" = "T1D_nonobese_vs_obese_dxa",
+  "T1D Normal vs Obese (DXA)" = "T1D_normal_vs_obese_dxa",
+  # --- Categorical: HC vs T1D (BMI, unadjusted) ---
+  "HC vs T1D Normal (BMI)" = "HC_vs_T1D_normal_bmi",
+  "HC vs T1D Overweight (BMI)" = "HC_vs_T1D_overweight_bmi",
+  "HC vs T1D Obese (BMI)" = "HC_vs_T1D_obese_bmi",
+  # --- Categorical: HC vs T1D (DXA, unadjusted) ---
+  "HC vs T1D Normal (DXA)" = "HC_vs_T1D_normal_dxa",
+  "HC vs T1D Overweight (DXA)" = "HC_vs_T1D_overweight_dxa",
+  "HC vs T1D Obese (DXA)" = "HC_vs_T1D_obese_dxa",
+  # --- Categorical: BMI within T1D (adjusted for age) ---
+  "T1D Normal vs Overweight (BMI, adj age)" = "T1D_normal_vs_overweight_bmi_adj_age",
+  "T1D Non-obese vs Obese (BMI, adj age)" = "T1D_nonobese_vs_obese_bmi_adj_age",
+  "T1D Normal vs Obese (BMI, adj age)" = "T1D_normal_vs_obese_bmi_adj_age",
+  # --- Categorical: DXA within T1D (adjusted for age) ---
+  "T1D Normal vs Overweight (DXA, adj age)" = "T1D_normal_vs_overweight_dxa_adj_age",
+  "T1D Non-obese vs Obese (DXA, adj age)" = "T1D_nonobese_vs_obese_dxa_adj_age",
+  "T1D Normal vs Obese (DXA, adj age)" = "T1D_normal_vs_obese_dxa_adj_age",
+  # --- Categorical: HC vs T1D (BMI, adjusted for age) ---
+  "HC vs T1D Normal (BMI, adj age)" = "HC_vs_T1D_normal_bmi_adj_age",
+  "HC vs T1D Overweight (BMI, adj age)" = "HC_vs_T1D_overweight_bmi_adj_age",
+  "HC vs T1D Obese (BMI, adj age)" = "HC_vs_T1D_obese_bmi_adj_age",
+  # --- Categorical: HC vs T1D (DXA, adjusted for age) ---
+  "HC vs T1D Normal (DXA, adj age)" = "HC_vs_T1D_normal_dxa_adj_age",
+  "HC vs T1D Overweight (DXA, adj age)" = "HC_vs_T1D_overweight_dxa_adj_age",
+  "HC vs T1D Obese (DXA, adj age)" = "HC_vs_T1D_obese_dxa_adj_age",
+  # --- Continuous: T1D only (unadjusted) ---
+  "BMI (T1D)" = "cont_bmi_t1d",
+  "DXA Body Fat (T1D)" = "cont_dexa_body_fat_t1d",
+  "DXA Bone Mineral Density (T1D)" = "cont_dexa_bone_mineral_density_t1d",
+  "DXA Fat kg (T1D)" = "cont_dexa_fat_kg_t1d",
+  "DXA Lean Mass (T1D)" = "cont_dexa_lean_mass_t1d",
+  "DXA Lean kg (T1D)" = "cont_dexa_lean_kg_t1d",
+  "DXA A/G Ratio (T1D)" = "cont_dexa_ag_ratio_t1d",
+  "DXA Est. VAT (T1D)" = "cont_dexa_est_vat_t1d",
+  "DXA Trunk kg (T1D)" = "cont_dexa_trunk_kg_t1d",
+  "DXA Trunk Mass (T1D)" = "cont_dexa_trunk_mass_t1d",
+  # --- Continuous: All subjects (unadjusted) ---
+  "BMI (All)" = "cont_bmi_all",
+  "DXA Body Fat (All)" = "cont_dexa_body_fat_all",
+  "DXA Bone Mineral Density (All)" = "cont_dexa_bone_mineral_density_all",
+  "DXA Fat kg (All)" = "cont_dexa_fat_kg_all",
+  "DXA Lean Mass (All)" = "cont_dexa_lean_mass_all",
+  "DXA Lean kg (All)" = "cont_dexa_lean_kg_all",
+  "DXA A/G Ratio (All)" = "cont_dexa_ag_ratio_all",
+  "DXA Est. VAT (All)" = "cont_dexa_est_vat_all",
+  "DXA Trunk kg (All)" = "cont_dexa_trunk_kg_all",
+  "DXA Trunk Mass (All)" = "cont_dexa_trunk_mass_all",
+  # --- Continuous: All subjects (adjusted for group) ---
+  "BMI (All, adj group)" = "cont_bmi_all_adj_group",
+  "DXA Body Fat (All, adj group)" = "cont_dexa_body_fat_all_adj_group",
+  "DXA Bone Mineral Density (All, adj group)" = "cont_dexa_bone_mineral_density_all_adj_group",
+  "DXA Fat kg (All, adj group)" = "cont_dexa_fat_kg_all_adj_group",
+  "DXA Lean Mass (All, adj group)" = "cont_dexa_lean_mass_all_adj_group",
+  "DXA Lean kg (All, adj group)" = "cont_dexa_lean_kg_all_adj_group",
+  "DXA A/G Ratio (All, adj group)" = "cont_dexa_ag_ratio_all_adj_group",
+  "DXA Est. VAT (All, adj group)" = "cont_dexa_est_vat_all_adj_group",
+  "DXA Trunk kg (All, adj group)" = "cont_dexa_trunk_kg_all_adj_group",
+  "DXA Trunk Mass (All, adj group)" = "cont_dexa_trunk_mass_all_adj_group",
+  # --- Continuous: T1D only (adjusted for age) ---
+  "BMI (T1D, adj age)" = "cont_bmi_t1d_adj_age",
+  "DXA Body Fat (T1D, adj age)" = "cont_dexa_body_fat_t1d_adj_age",
+  "DXA Bone Mineral Density (T1D, adj age)" = "cont_dexa_bone_mineral_density_t1d_adj_age",
+  "DXA Fat kg (T1D, adj age)" = "cont_dexa_fat_kg_t1d_adj_age",
+  "DXA Lean Mass (T1D, adj age)" = "cont_dexa_lean_mass_t1d_adj_age",
+  "DXA Lean kg (T1D, adj age)" = "cont_dexa_lean_kg_t1d_adj_age",
+  "DXA A/G Ratio (T1D, adj age)" = "cont_dexa_ag_ratio_t1d_adj_age",
+  "DXA Est. VAT (T1D, adj age)" = "cont_dexa_est_vat_t1d_adj_age",
+  "DXA Trunk kg (T1D, adj age)" = "cont_dexa_trunk_kg_t1d_adj_age",
+  "DXA Trunk Mass (T1D, adj age)" = "cont_dexa_trunk_mass_t1d_adj_age",
+  # --- Continuous: All subjects (adjusted for age) ---
+  "BMI (All, adj age)" = "cont_bmi_all_adj_age",
+  "DXA Body Fat (All, adj age)" = "cont_dexa_body_fat_all_adj_age",
+  "DXA Bone Mineral Density (All, adj age)" = "cont_dexa_bone_mineral_density_all_adj_age",
+  "DXA Fat kg (All, adj age)" = "cont_dexa_fat_kg_all_adj_age",
+  "DXA Lean Mass (All, adj age)" = "cont_dexa_lean_mass_all_adj_age",
+  "DXA Lean kg (All, adj age)" = "cont_dexa_lean_kg_all_adj_age",
+  "DXA A/G Ratio (All, adj age)" = "cont_dexa_ag_ratio_all_adj_age",
+  "DXA Est. VAT (All, adj age)" = "cont_dexa_est_vat_all_adj_age",
+  "DXA Trunk kg (All, adj age)" = "cont_dexa_trunk_kg_all_adj_age",
+  "DXA Trunk Mass (All, adj age)" = "cont_dexa_trunk_mass_all_adj_age",
+  # --- Continuous: All subjects (adjusted for group + age) ---
+  "BMI (All, adj group+age)" = "cont_bmi_all_adj_group_age",
+  "DXA Body Fat (All, adj group+age)" = "cont_dexa_body_fat_all_adj_group_age",
+  "DXA Bone Mineral Density (All, adj group+age)" = "cont_dexa_bone_mineral_density_all_adj_group_age",
+  "DXA Fat kg (All, adj group+age)" = "cont_dexa_fat_kg_all_adj_group_age",
+  "DXA Lean Mass (All, adj group+age)" = "cont_dexa_lean_mass_all_adj_group_age",
+  "DXA Lean kg (All, adj group+age)" = "cont_dexa_lean_kg_all_adj_group_age",
+  "DXA A/G Ratio (All, adj group+age)" = "cont_dexa_ag_ratio_all_adj_group_age",
+  "DXA Est. VAT (All, adj group+age)" = "cont_dexa_est_vat_all_adj_group_age",
+  "DXA Trunk kg (All, adj group+age)" = "cont_dexa_trunk_kg_all_adj_group_age",
+  "DXA Trunk Mass (All, adj group+age)" = "cont_dexa_trunk_mass_all_adj_group_age",
+  # --- Interaction: continuous * group ---
+  "BMI x Group" = "interaction_bmi",
+  "DXA Body Fat x Group" = "interaction_dexa_body_fat",
+  "DXA Bone Mineral Density x Group" = "interaction_dexa_bone_mineral_density",
+  "DXA Fat kg x Group" = "interaction_dexa_fat_kg",
+  "DXA Lean Mass x Group" = "interaction_dexa_lean_mass",
+  "DXA Lean kg x Group" = "interaction_dexa_lean_kg",
+  "DXA A/G Ratio x Group" = "interaction_dexa_ag_ratio",
+  "DXA Est. VAT x Group" = "interaction_dexa_est_vat",
+  "DXA Trunk kg x Group" = "interaction_dexa_trunk_kg",
+  "DXA Trunk Mass x Group" = "interaction_dexa_trunk_mass"
+)
+
+reverse_folders <- setNames(names(folders), folders)
+
+meta_df_compiled <- tryCatch({
+  tmp <- tempfile(fileext = ".csv")
+  save_object(object = "results/nebula/csv/run_metadata_compiled.csv",
+              bucket = "t1d.adiposity", region = "", file = tmp)
+  df <- read.csv(tmp, stringsAsFactors = FALSE)
+  unlink(tmp)
+  df
+}, error = function(e) {
+  message("Could not load compiled metadata: ", e$message)
+  data.frame()
+})
+```
+
+```{r echo = F}
+# Helper function to render a section for a given analysis folder
+# Returns TRUE if at least one cell type was rendered, FALSE otherwise
+render_section <- function(folder, celltype_groups, meta_df_compiled, results_dir) {
+  rendered_any <- FALSE
+
+  # Check if this analysis type has any results at all
+  if (nrow(meta_df_compiled) == 0 || !folder %in% meta_df_compiled$analysis_type) {
+    cat(paste0("\n**No results available yet for `", folder, "`.**\n\n"))
+    return(FALSE)
+  }
+
+  for (cell in names(celltype_groups)) {
+
+    cell_norm <- tolower(gsub("/", "_", cell))
+
+    meta_sub <- meta_df_compiled %>%
+      dplyr::filter(
+        analysis_type == folder,
+        celltype == cell
+      )
+
+    if (nrow(meta_sub) == 0) next
+
+    rendered_any <- TRUE
+    print(knitr::kable(meta_sub))
+    cat("\n::: {layout-ncol=2}\n\n")
+
+    plot_paths <- list(
+      pval     = file.path(results_dir, paste0("Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+      fdr      = file.path(results_dir, paste0("Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+      gsea     = file.path(results_dir, paste0("Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+      lollipop = file.path(results_dir, paste0("Results/Figures/Pathways Lollipop/hallmark_", folder, "_", cell_norm, "_lollipop.png"))
+    )
+
+    for (ptype in names(plot_paths)) {
+      if (file.exists(plot_paths[[ptype]])) {
+        label <- switch(ptype,
+          pval     = "p-value < 0.05",
+          fdr      = "FDR < 0.05",
+          gsea     = "GSEA Hallmark Pathways",
+          lollipop = "GSEA Hallmark Pathways (Lollipop)",
+          "")
+        cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+      }
+    }
+
+    cat(":::\n\n")
+  }
+
+  if (!rendered_any) {
+    cat(paste0("\n**Results pending for `", folder, "` (no cell types completed yet).**\n\n"))
+  }
+
+  return(rendered_any)
+}
+```
+
+
+# Run completion status
+
+```{r echo = F, results = 'asis'}
+if (nrow(meta_df_compiled) == 0) {
+  cat("**No NEBULA results found yet.** Run `compile_metadata.R` after jobs complete.\n\n")
+} else {
+  n_analysis_types <- n_distinct(meta_df_compiled$analysis_type)
+  n_celltypes <- n_distinct(meta_df_compiled$celltype)
+  n_total <- nrow(meta_df_compiled)
+
+  cat(sprintf("**Results loaded: %d analysis-celltype combinations (%d analysis types, %d cell types)**\n\n",
+              n_total, n_analysis_types, n_celltypes))
+
+  # Show which analysis types are complete vs missing
+  all_expected <- unname(folders)
+  completed <- unique(meta_df_compiled$analysis_type)
+  missing_types <- setdiff(all_expected, completed)
+
+  if (length(missing_types) == 0) {
+    cat("All 94 analysis types have results.\n\n")
+  } else {
+    cat(sprintf("%d / %d analysis types have results. **%d pending:**\n\n",
+                length(completed), length(all_expected), length(missing_types)))
+    for (m in missing_types) {
+      display <- reverse_folders[[m]]
+      if (!is.na(display)) {
+        cat(sprintf("- %s (`%s`)\n", display, m))
+      } else {
+        cat(sprintf("- `%s`\n", m))
+      }
+    }
+    cat("\n")
+  }
+
+  # Show cell type coverage
+  all_celltypes_expected <- unique(unlist(celltype_groups))
+  completed_celltypes <- unique(meta_df_compiled$celltype)
+  missing_celltypes <- setdiff(all_celltypes_expected, completed_celltypes)
+
+  if (length(missing_celltypes) > 0) {
+    cat(sprintf("**Cell types with no results across any analysis:** %s\n\n",
+                paste(missing_celltypes, collapse = ", ")))
+  }
+
+  # Per-analysis type completion count
+  completion_summary <- meta_df_compiled %>%
+    group_by(analysis_type) %>%
+    summarise(n_celltypes = n_distinct(celltype), .groups = "drop") %>%
+    mutate(display_name = reverse_folders[analysis_type]) %>%
+    arrange(n_celltypes)
+
+  cat("\n### Cell types completed per analysis\n\n")
+  cat(sprintf("Range: %d to %d cell types per analysis (out of %d possible)\n\n",
+              min(completion_summary$n_celltypes),
+              max(completion_summary$n_celltypes),
+              length(all_celltypes_expected)))
+}
+```
+
+# Descriptive
+
+```{r echo = F}
+# Load the clinical metadata from S3
+pb90_meta <- tryCatch({
+  s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds", bucket = "t1d.adiposity", region = "")@meta.data %>%
+    distinct(record_id, .keep_all = TRUE)
+}, error = function(e) {
+  message("Could not load Seurat metadata: ", e$message)
+  data.frame()
+})
+```
+
+```{r echo = F, results = 'asis', eval = nrow(pb90_meta) == 0}
+cat("**Could not load Seurat metadata from S3.** Descriptive tables will be skipped.\n\n")
+```
+
+## Sample characteristics
+
+```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
+summary(arsenal::tableby(group ~ age + sex + bmi +
+                           dexa_body_fat + dexa_bone_mineral_density +
+                           dexa_fat_kg + dexa_lean_mass + dexa_lean_kg +
+                           dexa_ag_ratio + dexa_est_vat +
+                           dexa_trunk_kg + dexa_trunk_mass,
+                         data = pb90_meta),
+        total = TRUE, digits = 1)
+```
+
+## BMI obesity distribution
+
+```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
+summary(arsenal::tableby(group ~ bmi_obesity,
+                         data = pb90_meta),
+        total = TRUE)
+```
+
+## DXA obesity distribution
+
+```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
+summary(arsenal::tableby(group ~ dxa_obesity,
+                         data = pb90_meta),
+        total = TRUE)
+```
+
+
+# Analysis summary
+
+## Categorical comparisons
+
+### Obesity within T1D
+
+| Comparison | Obesity Metric | Adjustment | Scientific Question |
+|---|---|---|---|
+| [T1D Normal vs Overweight (BMI)](#t1d-norm-ow-bmi) | BMI | None | How does overweight (BMI) alter gene expression in T1D kidneys? |
+| [T1D Non-obese vs Obese (BMI)](#t1d-nonob-ob-bmi) | BMI | None | What is the transcriptomic signature of obesity (BMI) in T1D? |
+| [T1D Normal vs Obese (BMI)](#t1d-norm-ob-bmi) | BMI | None | What are the extreme weight-related changes (BMI, excl. overweight) in T1D? |
+| [T1D Normal vs Overweight (DXA)](#t1d-norm-ow-dxa) | DXA | None | How does overweight (body fat) alter gene expression in T1D? |
+| [T1D Non-obese vs Obese (DXA)](#t1d-nonob-ob-dxa) | DXA | None | What is the body-fat-defined obesity signature in T1D? |
+| [T1D Normal vs Obese (DXA)](#t1d-norm-ob-dxa) | DXA | None | Extreme body fat changes (excl. overweight) in T1D? |
+
+### Obesity within T1D (adjusted for age)
+
+| Comparison | Obesity Metric | Adjustment | Scientific Question |
+|---|---|---|---|
+| [T1D Normal vs Overweight (BMI, adj age)](#t1d-norm-ow-bmi-adj) | BMI | Age | Age-independent overweight effects (BMI) in T1D? |
+| [T1D Non-obese vs Obese (BMI, adj age)](#t1d-nonob-ob-bmi-adj) | BMI | Age | Age-independent obesity effects (BMI) in T1D? |
+| [T1D Normal vs Obese (BMI, adj age)](#t1d-norm-ob-bmi-adj) | BMI | Age | Age-independent extreme weight effects (BMI) in T1D? |
+| [T1D Normal vs Overweight (DXA, adj age)](#t1d-norm-ow-dxa-adj) | DXA | Age | Age-independent overweight effects (DXA) in T1D? |
+| [T1D Non-obese vs Obese (DXA, adj age)](#t1d-nonob-ob-dxa-adj) | DXA | Age | Age-independent obesity effects (DXA) in T1D? |
+| [T1D Normal vs Obese (DXA, adj age)](#t1d-norm-ob-dxa-adj) | DXA | Age | Age-independent extreme fat effects (DXA) in T1D? |
+
+### HC vs T1D by obesity category
+
+| Comparison | Obesity Metric | Adjustment | Scientific Question |
+|---|---|---|---|
+| [HC vs T1D Normal (BMI)](#hc-t1d-norm-bmi) | BMI | None | How does T1D alter gene expression in normal-weight kidneys? |
+| [HC vs T1D Overweight (BMI)](#hc-t1d-ow-bmi) | BMI | None | T1D effects in overweight (BMI) kidneys? |
+| [HC vs T1D Obese (BMI)](#hc-t1d-ob-bmi) | BMI | None | T1D effects in obese (BMI) kidneys? |
+| [HC vs T1D Normal (DXA)](#hc-t1d-norm-dxa) | DXA | None | T1D effects in normal body fat kidneys? |
+| [HC vs T1D Overweight (DXA)](#hc-t1d-ow-dxa) | DXA | None | T1D effects in overweight (DXA) kidneys? |
+| [HC vs T1D Obese (DXA)](#hc-t1d-ob-dxa) | DXA | None | T1D effects in obese (DXA) kidneys? |
+
+### HC vs T1D by obesity category (adjusted for age)
+
+| Comparison | Obesity Metric | Adjustment | Scientific Question |
+|---|---|---|---|
+| [HC vs T1D Normal (BMI, adj age)](#hc-t1d-norm-bmi-adj) | BMI | Age | Age-independent T1D effects in normal-weight? |
+| [HC vs T1D Overweight (BMI, adj age)](#hc-t1d-ow-bmi-adj) | BMI | Age | Age-independent T1D effects in overweight (BMI)? |
+| [HC vs T1D Obese (BMI, adj age)](#hc-t1d-ob-bmi-adj) | BMI | Age | Age-independent T1D effects in obese (BMI)? |
+| [HC vs T1D Normal (DXA, adj age)](#hc-t1d-norm-dxa-adj) | DXA | Age | Age-independent T1D effects in normal body fat? |
+| [HC vs T1D Overweight (DXA, adj age)](#hc-t1d-ow-dxa-adj) | DXA | Age | Age-independent T1D effects in overweight (DXA)? |
+| [HC vs T1D Obese (DXA, adj age)](#hc-t1d-ob-dxa-adj) | DXA | Age | Age-independent T1D effects in obese (DXA)? |
+
+## Continuous associations
+
+### T1D only
+
+| Variable | Adjustment | Scientific Question |
+|---|---|---|
+| [BMI (T1D)](#cont-bmi-t1d) | None | Association of BMI with gene expression in T1D? |
+| [DXA measures (T1D)](#cont-dxa-t1d) | None | Associations of body composition with gene expression in T1D? |
+| [BMI (T1D, adj age)](#cont-bmi-t1d-adj) | Age | Age-independent BMI association in T1D? |
+| [DXA measures (T1D, adj age)](#cont-dxa-t1d-adj) | Age | Age-independent body composition associations in T1D? |
+
+### All subjects
+
+| Variable | Adjustment | Scientific Question |
+|---|---|---|
+| [BMI (All)](#cont-bmi-all) | None | Overall BMI-gene expression association? |
+| [DXA measures (All)](#cont-dxa-all) | None | Overall body composition associations? |
+| [BMI (All, adj group)](#cont-bmi-all-adj) | Group | BMI association independent of disease status? |
+| [DXA measures (All, adj group)](#cont-dxa-all-adj) | Group | Body composition independent of disease status? |
+| [BMI (All, adj age)](#cont-bmi-all-age) | Age | Age-independent BMI association across all subjects? |
+| [DXA measures (All, adj age)](#cont-dxa-all-age) | Age | Age-independent body composition across all? |
+| [BMI (All, adj group+age)](#cont-bmi-all-grp-age) | Group + Age | BMI association independent of disease and age? |
+| [DXA measures (All, adj group+age)](#cont-dxa-all-grp-age) | Group + Age | Body composition independent of disease and age? |
+
+## Interaction models
+
+| Variable | Model | Scientific Question |
+|---|---|---|
+| [BMI x Group](#int-bmi) | `~ bmi * group` | Does BMI's effect on gene expression differ between T1D and HC? |
+| [DXA measures x Group](#int-dxa) | `~ dxa_var * group` | Does body composition's effect differ by disease status? |
+
+
+<!-- ================================================================== -->
+<!-- CATEGORICAL COMPARISONS: OBESITY WITHIN T1D (UNADJUSTED)           -->
+<!-- ================================================================== -->
+
+# Obesity within T1D (unadjusted)
+
+## T1D Normal vs Overweight (BMI) {#t1d-norm-ow-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_overweight_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Non-obese vs Obese (BMI) {#t1d-nonob-ob-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_nonobese_vs_obese_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Obese (BMI) {#t1d-norm-ob-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_obese_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Overweight (DXA) {#t1d-norm-ow-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_overweight_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Non-obese vs Obese (DXA) {#t1d-nonob-ob-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_nonobese_vs_obese_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Obese (DXA) {#t1d-norm-ob-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_obese_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+
+<!-- ================================================================== -->
+<!-- CATEGORICAL COMPARISONS: OBESITY WITHIN T1D (ADJUSTED FOR AGE)     -->
+<!-- ================================================================== -->
+
+# Obesity within T1D (adjusted for age)
+
+## T1D Normal vs Overweight (BMI, adj age) {#t1d-norm-ow-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_overweight_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Non-obese vs Obese (BMI, adj age) {#t1d-nonob-ob-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_nonobese_vs_obese_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Obese (BMI, adj age) {#t1d-norm-ob-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_obese_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Overweight (DXA, adj age) {#t1d-norm-ow-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_overweight_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Non-obese vs Obese (DXA, adj age) {#t1d-nonob-ob-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_nonobese_vs_obese_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## T1D Normal vs Obese (DXA, adj age) {#t1d-norm-ob-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "T1D_normal_vs_obese_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+
+<!-- ================================================================== -->
+<!-- CATEGORICAL COMPARISONS: HC VS T1D BY OBESITY (UNADJUSTED)         -->
+<!-- ================================================================== -->
+
+# HC vs T1D by obesity category (unadjusted)
+
+## HC vs T1D Normal (BMI) {#hc-t1d-norm-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_normal_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Overweight (BMI) {#hc-t1d-ow-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_overweight_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Obese (BMI) {#hc-t1d-ob-bmi}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_obese_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Normal (DXA) {#hc-t1d-norm-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_normal_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Overweight (DXA) {#hc-t1d-ow-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_overweight_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Obese (DXA) {#hc-t1d-ob-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_obese_dxa"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+
+<!-- ================================================================== -->
+<!-- CATEGORICAL COMPARISONS: HC VS T1D BY OBESITY (ADJUSTED FOR AGE)   -->
+<!-- ================================================================== -->
+
+# HC vs T1D by obesity category (adjusted for age)
+
+## HC vs T1D Normal (BMI, adj age) {#hc-t1d-norm-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_normal_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Overweight (BMI, adj age) {#hc-t1d-ow-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_overweight_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Obese (BMI, adj age) {#hc-t1d-ob-bmi-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_obese_bmi_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Normal (DXA, adj age) {#hc-t1d-norm-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_normal_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Overweight (DXA, adj age) {#hc-t1d-ow-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_overweight_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## HC vs T1D Obese (DXA, adj age) {#hc-t1d-ob-dxa-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "HC_vs_T1D_obese_dxa_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: T1D ONLY (UNADJUSTED)                                  -->
+<!-- ================================================================== -->
+
+# Continuous associations: T1D only {#cont-bmi-t1d}
+
+## BMI (T1D)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_t1d"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (T1D) {#cont-dxa-t1d}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_t1d <- c("cont_dexa_body_fat_t1d", "cont_dexa_bone_mineral_density_t1d",
+                   "cont_dexa_fat_kg_t1d", "cont_dexa_lean_mass_t1d",
+                   "cont_dexa_lean_kg_t1d", "cont_dexa_ag_ratio_t1d",
+                   "cont_dexa_est_vat_t1d", "cont_dexa_trunk_kg_t1d",
+                   "cont_dexa_trunk_mass_t1d")
+for (folder in dxa_vars_t1d) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: T1D ONLY (ADJUSTED FOR AGE)                            -->
+<!-- ================================================================== -->
+
+# Continuous associations: T1D only (adj age) {#cont-bmi-t1d-adj}
+
+## BMI (T1D, adj age)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_t1d_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (T1D, adj age) {#cont-dxa-t1d-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_t1d_adj <- c("cont_dexa_body_fat_t1d_adj_age", "cont_dexa_bone_mineral_density_t1d_adj_age",
+                       "cont_dexa_fat_kg_t1d_adj_age", "cont_dexa_lean_mass_t1d_adj_age",
+                       "cont_dexa_lean_kg_t1d_adj_age", "cont_dexa_ag_ratio_t1d_adj_age",
+                       "cont_dexa_est_vat_t1d_adj_age", "cont_dexa_trunk_kg_t1d_adj_age",
+                       "cont_dexa_trunk_mass_t1d_adj_age")
+for (folder in dxa_vars_t1d_adj) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: ALL SUBJECTS (UNADJUSTED)                              -->
+<!-- ================================================================== -->
+
+# Continuous associations: All subjects {#cont-bmi-all}
+
+## BMI (All)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_all"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (All) {#cont-dxa-all}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_all <- c("cont_dexa_body_fat_all", "cont_dexa_bone_mineral_density_all",
+                   "cont_dexa_fat_kg_all", "cont_dexa_lean_mass_all",
+                   "cont_dexa_lean_kg_all", "cont_dexa_ag_ratio_all",
+                   "cont_dexa_est_vat_all", "cont_dexa_trunk_kg_all",
+                   "cont_dexa_trunk_mass_all")
+for (folder in dxa_vars_all) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR GROUP)                      -->
+<!-- ================================================================== -->
+
+# Continuous associations: All subjects (adj group) {#cont-bmi-all-adj}
+
+## BMI (All, adj group)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_all_adj_group"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (All, adj group) {#cont-dxa-all-adj}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_all_adj <- c("cont_dexa_body_fat_all_adj_group", "cont_dexa_bone_mineral_density_all_adj_group",
+                       "cont_dexa_fat_kg_all_adj_group", "cont_dexa_lean_mass_all_adj_group",
+                       "cont_dexa_lean_kg_all_adj_group", "cont_dexa_ag_ratio_all_adj_group",
+                       "cont_dexa_est_vat_all_adj_group", "cont_dexa_trunk_kg_all_adj_group",
+                       "cont_dexa_trunk_mass_all_adj_group")
+for (folder in dxa_vars_all_adj) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR AGE)                        -->
+<!-- ================================================================== -->
+
+# Continuous associations: All subjects (adj age) {#cont-bmi-all-age}
+
+## BMI (All, adj age)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_all_adj_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (All, adj age) {#cont-dxa-all-age}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_all_age <- c("cont_dexa_body_fat_all_adj_age", "cont_dexa_bone_mineral_density_all_adj_age",
+                       "cont_dexa_fat_kg_all_adj_age", "cont_dexa_lean_mass_all_adj_age",
+                       "cont_dexa_lean_kg_all_adj_age", "cont_dexa_ag_ratio_all_adj_age",
+                       "cont_dexa_est_vat_all_adj_age", "cont_dexa_trunk_kg_all_adj_age",
+                       "cont_dexa_trunk_mass_all_adj_age")
+for (folder in dxa_vars_all_age) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR GROUP + AGE)                -->
+<!-- ================================================================== -->
+
+# Continuous associations: All subjects (adj group + age) {#cont-bmi-all-grp-age}
+
+## BMI (All, adj group + age)
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "cont_bmi_all_adj_group_age"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures (All, adj group + age) {#cont-dxa-all-grp-age}
+
+```{r echo = F, results = 'asis', eval = T}
+dxa_vars_all_grp_age <- c("cont_dexa_body_fat_all_adj_group_age", "cont_dexa_bone_mineral_density_all_adj_group_age",
+                           "cont_dexa_fat_kg_all_adj_group_age", "cont_dexa_lean_mass_all_adj_group_age",
+                           "cont_dexa_lean_kg_all_adj_group_age", "cont_dexa_ag_ratio_all_adj_group_age",
+                           "cont_dexa_est_vat_all_adj_group_age", "cont_dexa_trunk_kg_all_adj_group_age",
+                           "cont_dexa_trunk_mass_all_adj_group_age")
+for (folder in dxa_vars_all_grp_age) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```
+
+
+<!-- ================================================================== -->
+<!-- INTERACTION MODELS                                                  -->
+<!-- ================================================================== -->
+
+# Interaction models (continuous x group) {#int-bmi}
+
+## BMI x Group
+
+```{r echo = F, results = 'asis', eval = T}
+folder <- "interaction_bmi"
+render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+```
+
+## DXA measures x Group {#int-dxa}
+
+```{r echo = F, results = 'asis', eval = T}
+int_dxa_vars <- c("interaction_dexa_body_fat", "interaction_dexa_bone_mineral_density",
+                   "interaction_dexa_fat_kg", "interaction_dexa_lean_mass",
+                   "interaction_dexa_lean_kg", "interaction_dexa_ag_ratio",
+                   "interaction_dexa_est_vat", "interaction_dexa_trunk_kg",
+                   "interaction_dexa_trunk_mass")
+for (folder in int_dxa_vars) {
+  display_name <- reverse_folders[[folder]]
+  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
+  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+}
+```

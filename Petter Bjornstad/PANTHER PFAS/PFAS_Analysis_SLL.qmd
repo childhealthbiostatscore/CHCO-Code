@@ -1,0 +1,284 @@
+---
+title: "PFAS Analysis — PANTHER Study"
+author: "Savanah Leidholt & Hailey Hampson"
+date: last-modified
+format:
+  html:
+    theme: cerulean
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+# libraries, directories, data loading, variable definitions,
+# helper functions, and all data prep go here
+
+#load libraries
+
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+library(ggeffects)
+library(patchwork)
+library(corrplot)
+library(gt)
+library(table1)
+library(stringr)
+library(ggpubr)
+library(patchwork)
+
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/unadjusted_pfas_results")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/PANTHER PFAS"
+  } 
+}
+
+source(file.path(git_path, "PFAS_Analysis_SLL.R"))
+
+```
+
+------------------------------------------------------------------------
+
+# Participant Characteristics
+
+## Table 1: Demographics & Clinical Outcomes by Group
+
+```{r}
+#| label: table1-demographics
+table1(
+  ~ age + sex + bmi + race_ethnicity_condensed + hba1c + acr_u + 
+    microalbumin_u + eGFR_CKiD_U25_avg + avg_c_r2| group,
+  data = dat_baseline
+)
+```
+
+## Table 2: Baseline PFAS Levels by Group
+
+```{r}
+#| label: table2-pfas
+
+```
+
+------------------------------------------------------------------------
+
+# Baseline Group Comparisons
+
+## Clinical Outcomes by Group
+
+```{r}
+#| label: baseline-outcomes-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- lapply(baseline_model_outcomes, function(outcome) {
+  plot_baseline_group_boxplot(
+    data = dat_baseline,
+    outcome = outcome,
+    results_list = baseline_group_outcome_results
+  )
+})
+
+wrap_plots(plot_list, ncol = 3)
+
+```
+
+## PFAS Levels by Group
+
+```{r}
+#| label: baseline-pfas-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plots_by_group <- lapply(
+  pfas_group_vars,
+  function(pfas) {
+    plot_baseline_pfas_group_boxplot(
+      data = dat_baseline,
+      exposure = pfas,
+      results_list = baseline_group_pfas_results
+    )
+  }
+)
+
+wrap_plots(plots_by_group, ncol = 3)
+```
+
+------------------------------------------------------------------------
+
+# Model 1: Cross-Sectional PFAS–Outcome Associations
+
+```{r}
+#| label: model1-table
+
+```
+
+## baseline uACR
+```{r}
+#| label: uACR-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "log_acr_u",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+## baseline microalbumin
+```{r}
+#| label: microalbumin-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "microalbumin_u",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+## baseline ERPF
+```{r}
+#| label: ERPF-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "erpf_bsa_plasma",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+## baseline eGFR
+```{r}
+#| label: eGFR-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "eGFR_CKiD_U25_avg",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+## baseline PAH_clear_bsa
+```{r}
+#| label: PAH_clear_bsa-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "pah_clear_bsa",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+## baseline lean mass
+```{r}
+#| label: lean_mass-scatter-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plot_list <- plot_baseline_pfas_set(
+  data = dat_baseline,
+  outcome = "dexa_lean_kg",
+  save_pdf = FALSE
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+------------------------------------------------------------------------
+
+# Model 2: Outcome Trajectories Over Time by Group
+
+```{r}
+#| label: model2-trajectory-plots
+#| fig-width: 20
+#| fig-height: 18
+plot_list <- plot_group_time_set(
+  data = dat_long,
+  outcome = group_time_outcomes
+)
+
+plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+------------------------------------------------------------------------
+
+# Model 3: Baseline PFAS Predicting Longitudinal Outcomes
+
+## Beta Coefficient Heatmap
+
+```{r}
+#| label: model3-heatmap-beta
+#| fig-width: 12
+#| fig-height: 7
+p_longitudinal_heatmap_raw
+```
+
+
+------------------------------------------------------------------------
+
+# Appendix
+
+```{r}
+#| label: session-info
+sessionInfo()
+```

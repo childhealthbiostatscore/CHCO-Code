@@ -25,13 +25,13 @@ library(Hmisc)
 user <- Sys.info()[["user"]]
 if (user == "choiyej") {
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-  results_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/T1D Adiposity"
+  results_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/T1D Adiposity"
 } else if (user == "yejichoi") {
   keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
   results_dir <- "/mmfs1/gscratch/togo/yejichoi/T1D_Adiposity"
 } else if (user == "pylell") {
   keys <- fromJSON("/mmfs1/home/pylell/keys.json")
-  results_dir <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/T1D Adiposity"
+  results_dir <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/T1D Adiposity"
 } else {
   stop("Unknown user: please specify keys path and results dir.")
 }
@@ -766,11 +766,41 @@ parse_group_counts <- function(count_str) {
   return(vals)
 }
 
+make_meta_plot <- function(data, y_var, file_ext = "") {
+  ggplot(
+    data %>%
+      arrange(adiposity_grp) %>%
+      mutate(analysis_type = factor(analysis_type, levels = unique(analysis_type))),
+    aes(x = analysis_type, y = .data[[y_var]], fill = adiposity_grp)
+  ) +
+    geom_boxplot(size = 0.7) +
+    
+    # cutoff line
+    geom_hline(
+      yintercept = cutoffs[[y_var]],
+      linetype = "dashed",
+      color = "#d00000",
+      linewidth = 1
+    ) +
+    theme_minimal() +
+    labs(fill = NULL, x = NULL) +
+    theme(text = element_text(size = 15),
+          panel.grid.major.x = element_blank(),
+          axis.text.x = element_text(angle = 60, hjust = 1)) +
+    scale_fill_manual(values = c("BMI" = "#89c2d9",
+                                 "DXA" = "#90a955"))
+  
+  ggsave(paste0(results_dir, "/Results/Figures/Butterfly/categorical_run_summary_", y_var, file_ext, ".png"),
+         width = 12, height = 10)
+}
+
 # --- Compute per-row QC metrics: min subjects per group & min avg cells/subject ---
 cat("Computing per-run QC metrics (min subjects/group, min avg cells/subject)...\n")
 meta_compiled <- meta_compiled %>%
   dplyr::rowwise() %>%
   dplyr::mutate(
+    adiposity_grp = case_when(grepl("bmi", analysis_type) ~ "BMI",
+                              grepl("dxa", analysis_type) ~ "DXA"),
     min_subjects_per_group = {
       counts <- parse_group_counts(n_samples_per_group)
       min(counts)
@@ -785,34 +815,60 @@ meta_compiled <- meta_compiled %>%
     min_cells_per_group = {
       n_cell <- parse_group_counts(n_cells_per_group)
       min(n_cell)
+    },
+    subject_group_ratio = {
+      counts <- parse_group_counts(n_samples_per_group)
+      max(counts) / min(counts)
     }
   ) %>%
   dplyr::ungroup()
 
+
+# Visualize current version
+vars_to_plot <- c(
+  "total_cells",
+  "min_subjects_per_group",
+  "min_avg_cells_per_subject",
+  "min_cells_per_group",
+  "subject_group_ratio"
+)
+cutoffs <- c(
+  total_cells = 1000,
+  min_subjects_per_group = 5,
+  min_avg_cells_per_subject = 20,
+  min_cells_per_group = 500,
+  subject_group_ratio = 4
+)
+
+map(vars_to_plot, ~ make_meta_plot(meta_compiled, .x))
+
 # --- Apply filters ---
 n_before <- nrow(meta_compiled)
 
-meta_compiled <- meta_compiled %>%
+meta_compiled_filtered <- meta_compiled %>%
   dplyr::filter(
     total_cells >= 1000,
     celltype != "Other",
     min_subjects_per_group >= 5,
     min_avg_cells_per_subject >= 20,
-    min_cells_per_group >= 500
+    min_cells_per_group >= 500,
+    subject_group_ratio <= 4
   )
 
-n_after <- nrow(meta_compiled)
+n_after <- nrow(meta_compiled_filtered)
 n_removed <- n_before - n_after
 
 cat(sprintf("QC filtering: %d -> %d combinations (%d removed)\n", n_before, n_after, n_removed))
 cat(sprintf("  Filters applied: total_cells >= 1000, celltype != 'Other',\n"))
 cat(sprintf("                   min_subjects_per_group >= 5, min_avg_cells_per_subject >= 20,\n"))
-cat(sprintf("                   min_cells_per_group >= 500\n"))
+cat(sprintf("                   min_cells_per_group >= 500, subject_group_ratio <= 4\n"))
 
-if (nrow(meta_compiled) == 0) {
+if (nrow(meta_compiled_filtered) == 0) {
   cat("No combinations remain after filtering. Exiting.\n")
   quit(save = "no", status = 0)
 }
+
+map(vars_to_plot, ~ make_meta_plot(meta_compiled_filtered, .x, file_ext = "_filtered"))
 
 # =============================================================================
 # PHASE 1: BUTTERFLY SCAN — run first to survey DEG counts across cell types
@@ -820,15 +876,15 @@ if (nrow(meta_compiled) == 0) {
 cat("\n=== Phase 1: Scanning DEG counts for butterfly plots ===\n")
 deg_summary_list <- list()
 
-for (i in seq_len(nrow(meta_compiled))) {
-  row <- meta_compiled[i, ]
+for (i in seq_len(nrow(meta_compiled_filtered))) {
+  row <- meta_compiled_filtered[i, ]
   analysis_type <- row$analysis_type
   celltype <- row$celltype
   s3_key <- row$s3_results_key
   pval_col <- row$pval_column
   logfc_col <- row$logfc_column
   
-  cat(sprintf("  [%d/%d] Scanning %s - %s\n", i, nrow(meta_compiled), analysis_type, celltype))
+  cat(sprintf("  [%d/%d] Scanning %s - %s\n", i, nrow(meta_compiled_filtered), analysis_type, celltype))
   
   df <- tryCatch(
     s3readRDS(object = s3_key, bucket = bucket, region = ""),
@@ -874,6 +930,8 @@ for (i in seq_len(nrow(meta_compiled))) {
     celltype = celltype,
     celltype_variable = ct_var,
     resolution = resolution,
+    n_samples_per_group = row$n_samples_per_group,
+    n_cells_per_group = row$n_cells_per_group,
     Positive = pos_pval, Negative = neg_pval,
     Positive_fdr = pos_fdr, Negative_fdr = neg_fdr,
     stringsAsFactors = FALSE
@@ -952,13 +1010,176 @@ if (length(deg_summary_list) > 0) {
 }
 
 cat("\n=== Phase 1 complete. Review butterfly plots to decide which analyses to focus on. ===\n")
+
+# Look at the directional balance between DXA and BMI measures
+# =============================================================================
+# Helper: aggregate DEG counts across cell types for each analysis_type
+# =============================================================================
+agg <- deg_summary_df %>%
+  group_by(analysis_type) %>%
+  summarise(
+    total_pos = sum(Positive, na.rm = TRUE),
+    total_neg = sum(Negative, na.rm = TRUE),
+    total_pos_fdr = sum(Positive_fdr, na.rm = TRUE),
+    total_neg_fdr = sum(Negative_fdr, na.rm = TRUE),
+    n_celltypes = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_pval = total_pos + total_neg,
+    total_fdr = total_pos_fdr + total_neg_fdr,
+    pct_positive = ifelse(total_pval > 0, total_pos / total_pval * 100, NA_real_)
+  )
+
+# =============================================================================
+# Parse analysis_type into structured columns
+# =============================================================================
+# Categorical within-T1D: T1D_{comparison}_{defn}[_adj_age][_adj_age_sex]
+# Categorical HC vs T1D:  HC_vs_T1D_{adiposity}_{defn}[_adj_age][_adj_age_sex]
+# Continuous:             cont_{var}_{scope}[_adj_*]
+
+parse_categorical <- function(df) {
+  # Within-T1D patterns
+  within_t1d <- df %>%
+    filter(grepl("^T1D_", analysis_type)) %>%
+    mutate(
+      comparison_type = "Within T1D",
+      tier = case_when(
+        grepl("_adj_age_sex$", analysis_type) ~ "Age+Sex Adjusted",
+        grepl("_adj_age$", analysis_type) ~ "Age Adjusted",
+        TRUE ~ "Unadjusted"
+      ),
+      # Strip tier suffix to get base comparison + definition
+      base = analysis_type %>%
+        str_remove("_adj_age_sex$") %>%
+        str_remove("_adj_age$"),
+      definition = case_when(
+        grepl("_bmi$", base) ~ "BMI",
+        grepl("_dxa$", base) ~ "DXA",
+        TRUE ~ NA_character_
+      ),
+      comparison = base %>%
+        str_remove("^T1D_") %>%
+        str_remove("_(bmi|dxa)$") %>%
+        str_replace_all("_", " ") %>%
+        str_to_title()
+    ) %>%
+    select(-base)
+  
+  # HC vs T1D patterns
+  hc_vs <- df %>%
+    filter(grepl("^HC_vs_T1D_", analysis_type)) %>%
+    mutate(
+      comparison_type = "HC vs T1D",
+      tier = case_when(
+        grepl("_adj_age_sex$", analysis_type) ~ "Age+Sex Adjusted",
+        grepl("_adj_age$", analysis_type) ~ "Age Adjusted",
+        TRUE ~ "Unadjusted"
+      ),
+      base = analysis_type %>%
+        str_remove("_adj_age_sex$") %>%
+        str_remove("_adj_age$"),
+      definition = case_when(
+        grepl("_bmi$", base) ~ "BMI",
+        grepl("_dxa$", base) ~ "DXA",
+        TRUE ~ NA_character_
+      ),
+      comparison = base %>%
+        str_remove("^HC_vs_T1D_") %>%
+        str_remove("_(bmi|dxa)$") %>%
+        str_to_title()
+    ) %>%
+    select(-base)
+  
+  bind_rows(within_t1d, hc_vs) %>%
+    filter(!is.na(definition))
+}
+
+cat_df <- parse_categorical(agg)
+
+# Order tiers
+cat_df$tier <- factor(cat_df$tier,
+                      levels = c("Unadjusted", "Age Adjusted", "Age+Sex Adjusted"))
+
+# =============================================================================
+# FIGURE 1: Within-T1D — Direction balance (% positive) BMI vs DXA
+# =============================================================================
+
+within_df <- cat_df %>%
+  filter(comparison_type == "Within T1D") %>%
+  mutate(
+    comparison = factor(comparison,
+                        levels = c("Normal Vs Overweight", "Nonobese Vs Obese", "Normal Vs Obese"))
+  )
+
+# Build label with DEG count
+within_df <- within_df %>%
+  mutate(
+    def_label = paste0(definition, "\n(", format(total_pval, big.mark = ","), " DEGs)")
+  )
+
+p1 <- ggplot(within_df, aes(x = definition, y = pct_positive, fill = definition)) +
+  geom_col(width = 0.6, color = "white", linewidth = 0.5) +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "gray50", linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_positive)),
+            vjust = -0.5, size = 3.2, fontface = "bold") +
+  geom_text(aes(label = paste0("(", format(total_pval, big.mark = ","), ")")),
+            vjust = -2, size = 2.5, color = "gray40") +
+  facet_grid(tier ~ comparison, switch = "y") +
+  scale_fill_manual(values = c("BMI" = "#4C72B0", "DXA" = "#DD8452")) +
+  scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25)) +
+  labs(
+    title = "Within-T1D Categorical: BMI vs DXA Direction Balance",
+    subtitle = "% of p<0.05 DEGs that are upregulated (positive logFC)",
+    x = NULL, y = "% Positive DEGs", fill = "Definition"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold", size = 10),
+    strip.background = element_rect(fill = "gray95"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(size = 10, color = "gray30")
+  )
+
+ggsave(file.path(results_dir, "Results/Figures/Butterfly/categorical_direction_balance.png"),
+       p1, width = 10, height = 8, dpi = 300)
+
+ggplot(within_df, aes(x = definition, y = total_pval, fill = definition)) +
+  geom_col(width = 0.6, color = "white", linewidth = 0.5) +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "gray50", linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_positive)),
+            vjust = -0.5, size = 3.2, fontface = "bold") +
+  geom_text(aes(label = paste0("(", format(total_pval, big.mark = ","), ")")),
+            vjust = -2, size = 2.5, color = "gray40") +
+  facet_grid(tier ~ comparison, switch = "y") +
+  scale_fill_manual(values = c("BMI" = "#4C72B0", "DXA" = "#DD8452")) +
+  scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25)) +
+  labs(
+    title = "Within-T1D Categorical: BMI vs DXA Direction Balance",
+    subtitle = "% of p<0.05 DEGs that are upregulated (positive logFC)",
+    x = NULL, y = "% Positive DEGs", fill = "Definition"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold", size = 10),
+    strip.background = element_rect(fill = "gray95"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(size = 10, color = "gray30")
+  )
+
 cat("=== Phase 2: Generating per-celltype figures (volcano, GSEA, lollipop) ===\n\n")
 
 # =============================================================================
 # PHASE 2: MAIN LOOP — Generate per-celltype figures
 # =============================================================================
-for (i in seq_len(nrow(meta_compiled))) {
-  row <- meta_compiled[i, ]
+for (i in seq_len(nrow(meta_compiled_filtered))) {
+  row <- meta_compiled_filtered[i, ]
   analysis_type <- row$analysis_type
   celltype <- row$celltype
   s3_key <- row$s3_results_key
@@ -966,7 +1187,7 @@ for (i in seq_len(nrow(meta_compiled))) {
   logfc_col <- row$logfc_column
   
   cell_norm <- tolower(gsub("/", "_", celltype))
-  cat(sprintf("[%d/%d] %s - %s\n", i, nrow(meta_compiled), analysis_type, celltype))
+  cat(sprintf("[%d/%d] %s - %s\n", i, nrow(meta_compiled_filtered), analysis_type, celltype))
   
   # Read processed results from S3
   df <- tryCatch(
@@ -1067,11 +1288,11 @@ for (i in seq_len(nrow(meta_compiled))) {
 }
 
 cat("\n=== Figure generation summary ===\n")
-cat(sprintf("  Total in metadata (after filtering): %d\n", nrow(meta_compiled)))
+cat(sprintf("  Total in metadata (after filtering): %d\n", nrow(meta_compiled_filtered)))
 cat(sprintf("  Successfully processed: %d\n", n_success))
 cat(sprintf("  Failed to read from S3: %d\n", n_error))
-cat(sprintf("  Unique analysis types: %d / 94\n", n_distinct(meta_compiled$analysis_type)))
-cat(sprintf("  Unique cell types: %d\n", n_distinct(meta_compiled$celltype)))
+cat(sprintf("  Unique analysis types: %d / 94\n", n_distinct(meta_compiled_filtered$analysis_type)))
+cat(sprintf("  Unique cell types: %d\n", n_distinct(meta_compiled_filtered$celltype)))
 cat(sprintf("  Butterfly plots: %d (pval) + %d (fdr)\n",
             if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0,
             if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0))
