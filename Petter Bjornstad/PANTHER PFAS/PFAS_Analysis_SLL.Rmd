@@ -83,6 +83,8 @@ baseline_model_outcomes <- c(
   "erpf_bsa_plasma",
   "avg_c_r2",
   "avg_k_r2",
+  "bmi",
+  "pah_clear_bsa",
   "dexa_lean_kg",
   "dexa_fat_kg",
   "igf_1",
@@ -97,8 +99,10 @@ group_time_outcomes <- c(
   "log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
+  "pah_clear_bsa",
   "avg_c_r2",
   "avg_k_r2",
+  "bmi",
   "dexa_lean_kg",
   "dexa_fat_kg",
   "igf_1",
@@ -119,6 +123,7 @@ outcome_label_map <- c(
   avg_c_r2 = "Cortical R2",
   avg_k_r2= "Kidney R2",
   #metabolism
+  bmi = "Body Mass Index",
   dexa_lean_kg = "DEXA Lean Mass (kg)",
   dexa_fat_kg = "DEXA Fat Mass (kg)",
   mm_si = "Insulin Sensitivity",
@@ -310,7 +315,6 @@ dat_long <- meta_nopfas %>%
 
 
 ```
-
 #--------------------------------------------------
 # Removing outliers and log transforming covariates
 #--------------------------------------------------
@@ -368,8 +372,6 @@ dat_long <- dat_long %>%
 
 log2_pfas_bl_vars <- paste0("log2_", pfas_bl_vars)
 ```
-
-
 #-------------------------------
 #Baseline participante metadata
 #-------------------------------
@@ -432,10 +434,9 @@ run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
   )
 }
 ```
-
-#-----------------------------------
-# baseline outcome differences by group
-#-----------------------------------
+##-----------------------------------
+## baseline outcome differences by group
+##-----------------------------------
 ```{r}
 baseline_group_outcome_results <- lapply(
   baseline_model_outcomes,
@@ -470,9 +471,9 @@ baseline_group_outcome_pairwise <- bind_rows(
 baseline_group_outcome_omnibus
 baseline_group_outcome_pairwise
 ```
-#-----------------------------------
-# Plot baseline outcome by group
-#-----------------------------------
+##-----------------------------------
+## Plot baseline outcome by group
+##-----------------------------------
 ```{r}
 plot_baseline_group_boxplot <- function(data,
                                         outcome,
@@ -546,7 +547,7 @@ for (outcome in baseline_model_outcomes) {
 }
 ```
 #-----------------------------------
-# Question 5: PFAS differences by group
+# Baseline PFAS differences by group
 #-----------------------------------
 ```{r}
 pfas_group_vars <- c(log2_pfas_bl_vars, "log2_total_pfas_bl")
@@ -584,7 +585,6 @@ baseline_group_pfas_pairwise <- bind_rows(
 baseline_group_pfas_omnibus
 baseline_group_pfas_pairwise
 ```
-
 ```{r}
 plot_baseline_pfas_group_boxplot <- function(data,
                                              exposure,
@@ -655,7 +655,6 @@ for (pfas in pfas_group_vars) {
   )
 }
 ```
-
 #------------------------------------------------
 # Model 1: Baseline PFAS Cross-Sectional Analysis
 #------------------------------------------------
@@ -845,18 +844,16 @@ plot_baseline_pfas_set <- function(data,
 ```
 
 ```{r}
-plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_c_r2")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_k_r2")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_fat_kg")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg")
-plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_c_r2")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_k_r2")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_fat_kg")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg")
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1")
 ```
-
-
 #--------------------------------------------
 # Model 2: changes over time by group
 #--------------------------------------------
@@ -955,6 +952,7 @@ plot_group_time_set <- function(data,
       geom_line(linewidth = 1.1) +
       geom_point(size = 2.5) +
       geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C")+
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
@@ -988,7 +986,6 @@ plot_group_time_set <- function(data,
 ```{r}
 plot_group_time_set(data = dat_long,outcome = group_time_outcomes)
 ```
-
 #-------------------------------------------------------------------------------
 # Model 3: baseline PFAS predicting longitudinal outcomes adjusted for base uACR
 #-------------------------------------------------------------------------------
@@ -1035,142 +1032,49 @@ names(longitudinal_results_list) <- group_time_outcomes
 longitudinal_results <- bind_rows(
   lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
 )
-```
 
-```{r}
-plot_longitudinal_pfas_set <- function(data,
-                                       outcome,
-                                       exposures = log2_pfas_bl_vars,
-                                       adjust_acr = TRUE,
-                                       save_pdf = FALSE,
-                                       out_dir = dir.results) {
-  
-  plot_list <- vector("list", length(exposures))
-  names(plot_list) <- exposures
-  
-  for (i in seq_along(exposures)) {
-    exposure <- exposures[i]
-    
-    rhs <- c(exposure, "visit_f", paste0(exposure, ":visit_f"), "age", "sex", "group")
-    
-    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
-    }
-    
-    m0 <- as.formula(
-      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
-    )
-    
-    plot_data <- data %>%
-      select(record_id, all.vars(m0)) %>%
-      drop_na()
-    
-    if (nrow(plot_data) == 0) {
-      plot_list[[i]] <- NULL
-      next
-    }
-    
-    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
-    
-    est_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
-      filter(
-        str_detect(term, fixed(paste0(exposure, ":visit_f"))) |
-          str_detect(term, fixed(paste0("visit_f:", exposure)))
-      )
-    
-    qs <- quantile(plot_data[[exposure]], probs = c(0.25, 0.50, 0.75), na.rm = TRUE)
-    qs <- unique(as.numeric(qs))
-    qs_round <- signif(qs, 3)
-    
-    pred_df <- as.data.frame(
-      ggeffects::ggpredict(
-        m1,
-        terms = c(
-          "visit_f",
-          paste0(exposure, " [", paste(qs, collapse = ","), "]")
-        )
-      )
-    )
-    
-    group_levels <- unique(pred_df$group)
-    
-    label_pool <- c(
-      paste0("Low (25th: ", qs_round[1], ")"),
-      if (length(qs_round) >= 2) paste0("Mid (50th: ", qs_round[min(2, length(qs_round))], ")"),
-      if (length(qs_round) >= 3) paste0("High (75th: ", qs_round[3], ")")
-    )
-    
-    label_pool <- label_pool[!is.na(label_pool)]
-    label_pool <- label_pool[seq_along(group_levels)]
-    
-    pred_df$exposure_level <- factor(
-      pred_df$group,
-      levels = group_levels,
-      labels = label_pool
-    )
-    
-    subtitle_text <- if (nrow(est_rows) > 0) {
-      paste0(
-        "PFAS × Visit: ",
-        paste0(est_rows$term, " p = ", fmt_p(est_rows$p.value), collapse = "; ")
-      )
-    } else {
-      NULL
-    }
-    
-    p <- ggplot(pred_df, aes(x = x, y = predicted, color = exposure_level, group = exposure_level)) +
-      geom_line(linewidth = 1.1) +
-      geom_point(size = 2.5) +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
-      theme_bw() +
-      labs(
-        title = paste(get_outcome_label(outcome), "trajectory by", get_pfas_label(exposure)),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Baseline PFAS"
-      )
-    
-    plot_list[[i]] <- p
-  }
-  
-  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, paste0("longitudinal_", outcome, "_all_pfas.pdf")),
-      width = 9,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
-  
-  return(plot_list)
-}
+longitudinal_results
 ```
-
 ```{r}
-plot_longitudinal_pfas_set(data = dat_long, outcome = "log_acr_u")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "log_microalbumin_u")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "eGFR_CKiD_U25_avg")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "dexa_lean_kg")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "dexa_fat_kg")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "igf_1")
-plot_longitudinal_pfas_set(data = dat_long, outcome = "bl_dheas")
+longitudinal_results <- bind_rows(
+  lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
+)
+
+longitudinal_results_fdr <- longitudinal_results %>%
+  mutate(
+    term_type = case_when(
+      term == exposure ~ "main",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure))) ~ "int_y1",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure))) ~ "int_y2",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(outcome, term_type) %>%
+  mutate(
+    p_fdr = ifelse(!is.na(term_type), p.adjust(p.value, method = "fdr"), NA_real_),
+    sig_fdr = case_when(
+      !is.na(p_fdr) & p_fdr < 0.001 ~ "***",
+      !is.na(p_fdr) & p_fdr < 0.01  ~ "**",
+      !is.na(p_fdr) & p_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    )
+  ) %>%
+  ungroup()
+
+longitudinal_results_fdr
 ```
-
-#-----------------------------------
-#Heatmap of longitudinal outcomes
-#-----------------------------------
+##-----------------------------------
+##Heatmap of longitudinal outcomes
+##-----------------------------------
 ```{r}
-heatmap_longitudinal_df <- longitudinal_results %>%
+heatmap_longitudinal_df <- longitudinal_results_fdr %>%
   group_by(outcome, exposure) %>%
   summarise(
     beta_main = estimate[term == exposure][1],
     pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
     
     beta_int_y1 = estimate[
       str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
@@ -1180,12 +1084,20 @@ heatmap_longitudinal_df <- longitudinal_results %>%
       str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
         str_detect(term, fixed(paste0("visit_fYear 1:", exposure)))
     ][1],
+    pval_int_y1_fdr = p_fdr[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure)))
+    ][1],
     
     beta_int_y2 = estimate[
       str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
         str_detect(term, fixed(paste0("visit_fYear 2:", exposure)))
     ][1],
     pval_int_y2 = p.value[
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure)))
+    ][1],
+    pval_int_y2_fdr = p_fdr[
       str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
         str_detect(term, fixed(paste0("visit_fYear 2:", exposure)))
     ][1],
@@ -1199,7 +1111,9 @@ heatmap_longitudinal_df <- longitudinal_results %>%
   select(
     outcome, exposure,
     beta_visit0, beta_visit1, beta_visit2,
-    pval_main, pval_int_y1, pval_int_y2
+    pval_main, pval_main_fdr,
+    pval_int_y1, pval_int_y1_fdr,
+    pval_int_y2, pval_int_y2_fdr
   ) %>%
   pivot_longer(
     cols = c(beta_visit0, beta_visit1, beta_visit2),
@@ -1213,15 +1127,15 @@ heatmap_longitudinal_df <- longitudinal_results %>%
       labels = c("Baseline", "Year 1", "Year 2")
     ),
     sig = case_when(
-      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.001 ~ "***",
-      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.01  ~ "**",
-      visit == "Baseline" & !is.na(pval_main)   & pval_main   < 0.05  ~ "*",
-      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.001 ~ "***",
-      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.01  ~ "**",
-      visit == "Year 1"   & !is.na(pval_int_y1) & pval_int_y1 < 0.05  ~ "*",
-      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.001 ~ "***",
-      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.01  ~ "**",
-      visit == "Year 2"   & !is.na(pval_int_y2) & pval_int_y2 < 0.05  ~ "*",
+      visit == "Baseline" & !is.na(pval_main_fdr)   & pval_main_fdr   < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr)   & pval_main_fdr   < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr)   & pval_main_fdr   < 0.05  ~ "*",
+      visit == "Year 1"   & !is.na(pval_int_y1_fdr) & pval_int_y1_fdr < 0.001 ~ "***",
+      visit == "Year 1"   & !is.na(pval_int_y1_fdr) & pval_int_y1_fdr < 0.01  ~ "**",
+      visit == "Year 1"   & !is.na(pval_int_y1_fdr) & pval_int_y1_fdr < 0.05  ~ "*",
+      visit == "Year 2"   & !is.na(pval_int_y2_fdr) & pval_int_y2_fdr < 0.001 ~ "***",
+      visit == "Year 2"   & !is.na(pval_int_y2_fdr) & pval_int_y2_fdr < 0.01  ~ "**",
+      visit == "Year 2"   & !is.na(pval_int_y2_fdr) & pval_int_y2_fdr < 0.05  ~ "*",
       TRUE ~ ""
     ),
     exposure = factor(
@@ -1238,21 +1152,81 @@ heatmap_longitudinal_df <- longitudinal_results %>%
 ```
 
 ```{r}
-heatmap_longitudinal_df <- heatmap_longitudinal_df %>%
-  group_by(visit) %>%
-  mutate(beta_z = as.numeric(scale(beta))) %>%
-  ungroup()
+heatmap_longitudinal_df <- longitudinal_results_fdr %>%
+  mutate(
+    term_type = case_when(
+      term == exposure ~ "main",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 1"))) |
+        str_detect(term, fixed(paste0("visit_fYear 1:", exposure))) ~ "int_y1",
+      str_detect(term, fixed(paste0(exposure, ":visit_fYear 2"))) |
+        str_detect(term, fixed(paste0("visit_fYear 2:", exposure))) ~ "int_y2",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(term_type)) %>%
+  select(outcome, exposure, term_type, estimate, p.value, p_fdr) %>%
+  pivot_wider(
+    names_from = term_type,
+    values_from = c(estimate, p.value, p_fdr),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    beta_visit0 = estimate_main,
+    beta_visit1 = estimate_main + estimate_int_y1,
+    beta_visit2 = estimate_main + estimate_int_y2
+  ) %>%
+  pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  mutate(
+    visit = recode(
+      visit,
+      beta_visit0 = "Baseline",
+      beta_visit1 = "Year 1",
+      beta_visit2 = "Year 2"
+    ),
+    visit = factor(visit, levels = c("Baseline", "Year 1", "Year 2")),
+    sig = case_when(
+      visit == "Baseline" & !is.na(p_fdr_main)   & p_fdr_main   < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(p_fdr_main)   & p_fdr_main   < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(p_fdr_main)   & p_fdr_main   < 0.05  ~ "*",
+      visit == "Year 1"   & !is.na(p_fdr_int_y1) & p_fdr_int_y1 < 0.001 ~ "***",
+      visit == "Year 1"   & !is.na(p_fdr_int_y1) & p_fdr_int_y1 < 0.01  ~ "**",
+      visit == "Year 1"   & !is.na(p_fdr_int_y1) & p_fdr_int_y1 < 0.05  ~ "*",
+      visit == "Year 2"   & !is.na(p_fdr_int_y2) & p_fdr_int_y2 < 0.001 ~ "***",
+      visit == "Year 2"   & !is.na(p_fdr_int_y2) & p_fdr_int_y2 < 0.01  ~ "**",
+      visit == "Year 2"   & !is.na(p_fdr_int_y2) & p_fdr_int_y2 < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = log2_pfas_bl_vars,
+      labels = sapply(log2_pfas_bl_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
 ```
 
 ```{r}
-z_limit <- max(abs(heatmap_longitudinal_df$beta_z), na.rm = TRUE)
+heatmap_longitudinal_df_z <- heatmap_longitudinal_df %>%
+  group_by(visit) %>%
+  mutate(beta_z = as.numeric(scale(beta))) %>%
+  ungroup()
 
-p_longitudinal_heatmap <- ggplot(
-  heatmap_longitudinal_df,
+z_limit <- max(abs(heatmap_longitudinal_df_z$beta_z), na.rm = TRUE)
+
+p_longitudinal_heatmap_z <- ggplot(
+  heatmap_longitudinal_df_z,
   aes(x = exposure, y = outcome, fill = beta_z)
 ) +
   geom_tile(color = "white", linewidth = 0.4) +
-  geom_text(aes(label = sig), size = 3.5, vjust = 0.75, color = "black") +
+  geom_text(aes(label = sig), size = 3.5, color = "black") +
   scale_fill_gradient2(
     low = "#2166AC",
     mid = "white",
@@ -1265,9 +1239,47 @@ p_longitudinal_heatmap <- ggplot(
   labs(
     title = "Baseline PFAS associations with longitudinal outcomes",
     subtitle = paste0(
-      "Tiles show standardized model effect sizes within visit panels.",
-      "\nBaseline: PFAS main effect; Year 1 and Year 2: PFAS main effect + PFAS×visit interaction.",
-      "\n* p<0.05  ** p<0.01  *** p<0.001"
+      "Tile color shows standardized effect size within visit panel.\n",
+      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
+    ),
+    x = "Baseline PFAS",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+p_longitudinal_heatmap_z
+```
+
+
+
+```{r}
+beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
+
+p_longitudinal_heatmap <- ggplot(
+  heatmap_longitudinal_df,
+  aes(x = exposure, y = outcome, fill = beta)
+) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sig), size = 3.5, color = "black") +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-beta_limit, beta_limit),
+    name = expression(beta)
+  ) +
+  facet_wrap(~ visit, nrow = 1) +
+  labs(
+    title = "Baseline PFAS associations with longitudinal outcomes",
+    subtitle = paste0(
+      "Baseline tiles show PFAS main effects. Year 1 and Year 2 tiles show ",
+      "PFAS main effect + PFAS×visit interaction.\n",
+      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
     ),
     x = "Baseline PFAS",
     y = NULL,
@@ -1287,3 +1299,5 @@ p_longitudinal_heatmap <- ggplot(
 
 p_longitudinal_heatmap
 ```
+
+
