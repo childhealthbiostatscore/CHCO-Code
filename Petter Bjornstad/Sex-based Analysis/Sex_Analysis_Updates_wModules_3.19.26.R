@@ -100,7 +100,7 @@ run_nmf_modules <- function(so_obj, celltype_label, n_factors = 8,
   
   # ── 1a. Pseudo-bulk matrix ────────────────────────────────────────────────
   meta       <- so_ct@meta.data
-  counts_raw <- GetAssayData(so_ct, layer = "counts")
+  counts_raw <- GetAssayData(so_ct, assay = "RNA", layer = "counts")
   pids       <- unique(meta$record_id)
   
   pb_mat <- do.call(cbind, lapply(pids, function(pid) {
@@ -146,18 +146,31 @@ run_nmf_modules <- function(so_obj, celltype_label, n_factors = 8,
   score_cols <- paste0("NMF_F", seq_len(n_factors))
   
   # ── 1e. Participant-level heatmap of factor weights ───────────────────────
-  H_ann <- data.frame(
-    sex   = clin$sex[match(pids, clin$record_id)],
-    group = clin$group[match(pids, clin$record_id)],
-    row.names = pids
-  )
-  png(file.path(outdir, paste0("NMF_heatmap_", celltype_label, ".png")),
-      width = 1400, height = 900)
-  pheatmap(t(H), annotation_col = H_ann, scale = "row",
-           color = viridis(100),
-           main  = paste("NMF Factor Weights —", celltype_label),
-           fontsize = 10)
-  dev.off()
+  # Only annotate participants that exist in clin AND have non-NA sex/group
+  ann_df <- clin %>%
+    filter(record_id %in% pids, !is.na(sex), !is.na(group)) %>%
+    dplyr::select(record_id, sex, group) %>%
+    distinct(record_id, .keep_all = TRUE) %>%
+    column_to_rownames("record_id")
+  
+  # Subset H to only those participants so dimensions match
+  pids_ann <- intersect(pids, rownames(ann_df))
+  H_sub    <- H[, pids_ann, drop = FALSE]
+  
+  if (ncol(H_sub) > 1) {
+    png(file.path(outdir, paste0("NMF_heatmap_", celltype_label, ".png")),
+        width = 1400, height = 900)
+    pheatmap(t(H_sub),
+             annotation_col = ann_df[pids_ann, , drop = FALSE],
+             scale          = "row",
+             color          = viridis(100),
+             main           = paste("NMF Factor Weights —", celltype_label),
+             fontsize       = 10)
+    dev.off()
+  } else {
+    cat("Skipping heatmap for", celltype_label,
+        "— too few annotated participants.\n")
+  }
   
   # ── 1f. Sex tests per factor, within each group ───────────────────────────
   score_data <- so_ct@meta.data %>%
