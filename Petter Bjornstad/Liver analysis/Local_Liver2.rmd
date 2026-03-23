@@ -9373,6 +9373,83 @@ for (var in clinical_variables){
   }
 }
 
+library(fgsea)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(fs)
+
+# ── Collect all fgsea results ──────────────────────────────────────────────────
+all_reactome_results <- list()
+
+for (var in clinical_variables) {
+  results <- total_results %>% filter(variable == var)
+  
+  for (celltype in HR_celltypes) {
+    cell_results <- results %>% filter(Celltype %in% celltype)
+    
+    gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+    reactome  <- prepare_gmt(gmt_files[3], unique(cell_results$Gene), savefile = FALSE)
+    
+    rankings <- cell_results$log_fc
+    names(rankings) <- cell_results$Gene
+    rankings <- sort(rankings, decreasing = TRUE)
+    
+    set.seed(1234)
+    reactome_res <- fgsea(
+      pathways  = reactome,
+      stats     = rankings,
+      scoreType = 'std',
+      minSize   = 3,
+      maxSize   = 500,
+      nproc     = 1
+    )
+    
+    all_reactome_results[[var]][[celltype]] <- reactome_res
+  }
+}
+# ── Build one PDF page per clinical variable ───────────────────────────────────
+n_celltypes <- length(HR_celltypes)
+ncol_grid   <- 4
+nrow_grid   <- ceiling(n_celltypes / ncol_grid)
+
+pdf(fs::path(dir.results, "all_variables_reactome_faceted.pdf"),
+    width  = 20,
+    height = 25)
+
+for (var in clinical_variables) {
+  
+  plot_list <- lapply(HR_celltypes, function(celltype) {
+  res <- all_reactome_results[[var]][[celltype]]
+  
+  plot_fgsea_transpose(
+    res,
+    title  = celltype,
+    xlimit = 8
+  ) +
+    theme(
+      legend.position      = "none",          # drop legends to save space
+      plot.title           = element_text(size = 7, face = "bold"),
+      axis.text.x          = element_text(size = 5),
+      axis.text.y          = element_text(size = 5),
+      axis.title.x         = element_text(size = 6),
+      axis.title.y         = element_text(size = 6),
+      plot.margin          = unit(c(1, 1, 1, 1), "mm"),  # tighten margins
+      strip.text           = element_text(size = 5)
+    )
+})
+  
+  combined <- wrap_plots(plot_list, ncol = ncol_grid, nrow = nrow_grid) +
+    plot_annotation(
+      title = paste0("Reactome GSEA — ", var),
+      theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+    )
+  
+  print(combined)
+}
+
+dev.off()
+
 #GSEA plot all together
 library(patchwork)
 
