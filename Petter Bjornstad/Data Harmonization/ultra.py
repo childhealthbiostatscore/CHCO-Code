@@ -195,7 +195,7 @@ def clean_ultra():
                 "lvco": "lv_cardiac_output", "myo_mass_dias" : "lved_mass", "myo_mass_syst": "lves_mass",
                 "lv_myo_mass_dias" : "lv_myo_mass_diast",
                 "imaging_hr": "lv_hr",
-                "af_pwv_xcor3": "af_pwv_xcor3"}, axis=1, inplace=True)
+                "af_pwv_xcor3": "af_pwv"}, axis=1, inplace=True)
                 
     mri["procedure"] = "cardio_abdominal_mri"
 

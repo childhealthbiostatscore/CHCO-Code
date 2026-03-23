@@ -72,8 +72,6 @@ def harmonize_data():
     renal_heiritage = clean_renal_heiritage()
     panther = clean_panther()
     panda = clean_panda()
-    print("Final number of rows with CGM data:  ", panda['cgm_avg_glucose'].notnull().sum())
-
     attempt = clean_attempt()
     rpc2 = clean_rpc2_redcap()
     ultra = clean_ultra()
