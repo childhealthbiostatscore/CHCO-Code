@@ -23,17 +23,17 @@ library(EnhancedVolcano)
 library(knitr)
 
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
-
-knitr::opts_chunk$set(echo = FALSE)
-if(Sys.info()["sysname"] == "Windows"){
-  home_dir = "E:/Petter Bjornstad/TODAY subaward"
-} else if (Sys.info()["sysname"] == "Linux"){
-  home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-} else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Volumes/Peds Endo/Petter Bjornstad/TODAY subaward/"
-}
+# 
+# knitr::opts_chunk$set(echo = FALSE)
+# if(Sys.info()["sysname"] == "Windows"){
+#   home_dir = "E:/Petter Bjornstad/TODAY subaward"
+# } else if (Sys.info()["sysname"] == "Linux"){
+#   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# } else if (Sys.info()["sysname"] == "Darwin"){
+#   home_dir = "/Volumes/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# }
+home_dir = paste0("/Users/",Sys.info()["user"],"/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward")
 knitr::opts_knit$set(root.dir = home_dir)
-setwd(home_dir)
 ```
 
 ```{r, include=FALSE}
@@ -41,6 +41,9 @@ load("./Metabolomic data/urine.Rdata")
 
 # load comorbidity data
 load("./Clinical data/comorb.Rdata")
+
+# load CKM outcomes
+dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
 # take only the baseline samples
 urine$Date.Drawn <- as.Date(urine$Date.Drawn,format = "%m/%d/%Y")
@@ -50,6 +53,14 @@ base <- base %>% arrange(Date.Drawn)
 # merge in nephropathy data
 base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
 
+# merge in CKM data
+dat.ckm$releaseid<-dat.ckm$RELEASEID
+base <- merge(base, dat.ckm[,c("releaseid",
+                               "CKM_syn_base","CKM_max",
+                               "progress_CKM","days_to_first_ckm_prog",
+                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
+
 # identify columns corresponding to proteins
 #is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
 is_seq <- function(.x) grepl("nM/mM", .x)
@@ -58,8 +69,14 @@ seq <- is_seq(names(base))
 # convert to numeric
 base[,seq] <- apply(base[,seq],2,as.numeric)
 
-# are there metabolites with low variability?
-no_var = caret::nearZeroVar(base[,seq])
+# are there proteins with low variability?
+metabolites<-base[,seq]
+no_var = caret::nearZeroVar(metabolites)
+if (length(no_var)>0){
+  no_var_names<-names(metabolites[,no_var])
+  base <- base[,-which(colnames(base)%in%no_var_names)]  
+}
+seq <- is_seq(names(base))
 # none
 
 # log transform
@@ -171,6 +188,48 @@ results_glyc <- results_glyc[order(results_glyc$P.Value),]
 ymat <- NULL
 fit <- NULL
 
+# ckm progression
+ckm_contrast <- ifelse(base$progress_CKM==1,1,0)
+ckm_contrast <- cbind(rep(1,nrow(base)),ckm_contrast)
+ckm_contrast <- ckm_contrast[!is.na(ckm_contrast[,2]),]
+# moderated t-tests with and without FDR adjustment
+y <- base_log %>% filter(!is.na(base_log$progress_CKM))
+ymat <- t(y[,seq])
+fit <- lmFit(ymat,ckm_contrast)
+fit <- eBayes(fit)
+results_ckm <- topTable(fit,coef = 2,number = nrow(ymat))
+results_ckm <- results_ckm[order(results_ckm$P.Value),] 
+ymat <- NULL
+fit <- NULL
+
+# ckm progression stage 3
+ckm3_contrast <- ifelse(base$progress_CKM_stage3==1,1,0)
+ckm3_contrast <- cbind(rep(1,nrow(base)),ckm3_contrast)
+ckm3_contrast <- ckm3_contrast[!is.na(ckm3_contrast[,2]),]
+# moderated t-tests with and without FDR adjustment
+y <- base_log %>% filter(!is.na(base_log$progress_CKM_stage3))
+ymat <- t(y[,seq])
+fit <- lmFit(ymat,ckm3_contrast)
+fit <- eBayes(fit)
+results_ckm3 <- topTable(fit,coef = 2,number = nrow(ymat))
+results_ckm3 <- results_ckm3[order(results_ckm3$P.Value),] 
+ymat <- NULL
+fit <- NULL
+
+# ckm progression stage 4
+ckm4_contrast <- ifelse(base$progress_CKM_stage4==1,1,0)
+ckm4_contrast <- cbind(rep(1,nrow(base)),ckm4_contrast)
+ckm4_contrast <- ckm4_contrast[!is.na(ckm4_contrast[,2]),]
+# moderated t-tests with and without FDR adjustment
+y <- base_log %>% filter(!is.na(base_log$progress_CKM_stage4))
+ymat <- t(y[,seq])
+fit <- lmFit(ymat,ckm4_contrast)
+fit <- eBayes(fit)
+results_ckm4 <- topTable(fit,coef = 2,number = nrow(ymat))
+results_ckm4 <- results_ckm4[order(results_ckm4$P.Value),] 
+ymat <- NULL
+fit <- NULL
+
 # write all results to file
 wb <- createWorkbook()
 
@@ -198,7 +257,16 @@ writeData(wb,"retino_moderated_FDR",results_retino,rowNames = T)
 addWorksheet(wb,"glyc_moderated_FDR")
 writeData(wb,"glyc_moderated_FDR",results_glyc,rowNames = T)
 
-saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY urine metabolomics limma baseline unadjusted.xlsx",overwrite = TRUE)
+addWorksheet(wb,"ckmprog_moderated_FDR")
+writeData(wb,"ckmprog_moderated_FDR",results_ckm,rowNames = T)
+
+addWorksheet(wb,"ckmprog3_moderated_FDR")
+writeData(wb,"ckmprog3_moderated_FDR",results_ckm3,rowNames = T)
+
+addWorksheet(wb,"ckmprog4_moderated_FDR")
+writeData(wb,"ckmprog4_moderated_FDR",results_ckm4,rowNames = T)
+
+saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY urine metabolomics limma baseline unadjusted_march2026.xlsx",overwrite = TRUE)
 
 ```
 

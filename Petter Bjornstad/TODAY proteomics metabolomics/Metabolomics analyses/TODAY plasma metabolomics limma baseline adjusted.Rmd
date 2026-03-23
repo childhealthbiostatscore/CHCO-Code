@@ -24,19 +24,20 @@ library(knitr)
 
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
 
-knitr::opts_chunk$set(echo = FALSE)
-if(Sys.info()["sysname"] == "Windows"){
-  home_dir = "E:/Petter Bjornstad/TODAY subaward"
-} else if (Sys.info()["sysname"] == "Linux"){
-  home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-} else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Volumes/som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
-}
+# knitr::opts_chunk$set(echo = FALSE)
+# if(Sys.info()["sysname"] == "Windows"){
+#   home_dir = "E:/Petter Bjornstad/TODAY subaward"
+# } else if (Sys.info()["sysname"] == "Linux"){
+#   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# } else if (Sys.info()["sysname"] == "Darwin"){
+#   home_dir = "/Volumes/som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# }
+home_dir = paste0("/Users/",Sys.info()["user"],"/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward")
 knitr::opts_knit$set(root.dir = home_dir)
 ```
 
 ```{r, include=FALSE}
-load("./Metabolomic data/plasma.Rdata")
+load("./Metabolomic data/plasma_all.Rdata")
 
 # load comorbidity data
 load("./Clinical data/comorb.Rdata")
@@ -45,6 +46,7 @@ load("./Clinical data/comorb.Rdata")
 load("./Clinical data/TODAY/baserisk.Rdata")
 
 # take only the baseline samples
+plasma<-plasma_all
 plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
 base <- plasma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 base <- base %>% arrange(Date.Drawn)
@@ -54,6 +56,14 @@ base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
 
 # merge in baseline risk factors
 base <- merge(base, baserisk, by="releaseid",all.x=T, all.y=F)
+
+# merge in CKM data
+dat.ckm$releaseid<-dat.ckm$RELEASEID
+base <- merge(base, dat.ckm[,c("releaseid",
+                               "CKM_syn_base","CKM_max",
+                               "progress_CKM","days_to_first_ckm_prog",
+                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
 
 # only keep observations with nonmissing values of covariates
 # otherwise size of contrast matrix will be incorrect
@@ -68,8 +78,13 @@ seq <- is_seq(names(base))
 base[,seq] <- apply(base[,seq],2,as.numeric)
 
 # are there proteins with low variability?
-#no_var = caret::nearZeroVar(base[,seq])
-# none
+metabolites<-base[,seq]
+no_var = caret::nearZeroVar(metabolites)
+if (length(no_var)>0){
+  no_var_names<-names(metabolites[,no_var])
+  base <- base[,-which(colnames(base)%in%no_var_names)]  
+}
+seq <- is_seq(names(base))
 
 # log transform
 base_log <- base %>% modify_if(is_seq(names(.)), log)
@@ -195,6 +210,37 @@ results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$P.Value),]
 ymat <- NULL
 fit <- NULL
 
+# CKM progression
+# Make design matrix
+CKM_contrast <- model.matrix(~progress_CKM+HbA1c+log_trig+sbp+si_1_ins0,base)
+# moderated t-tests with and without FDR adjustment
+ymat <- t(base_log[,seq])
+fit <- lmFit(ymat,CKM_contrast)
+fit <- eBayes(fit)
+results_CKM <- topTable(fit,coef = 2,number = nrow(ymat))
+results_CKM <- results_CKM[order(results_CKM$P.Value),] 
+
+# CKM progression stage 3
+# Make design matrix
+CKM3_contrast <- model.matrix(~progress_CKM_stage3+HbA1c+log_trig+sbp+si_1_ins0,base)
+# moderated t-tests with and without FDR adjustment
+ymat <- t(base_log[,seq])
+fit <- lmFit(ymat,CKM3_contrast)
+fit <- eBayes(fit)
+results_CKM3 <- topTable(fit,coef = 2,number = nrow(ymat))
+results_CKM3 <- results_CKM3[order(results_CKM3$P.Value),] 
+
+# CKM progression stage 4
+# Make design matrix
+CKM4_contrast <- model.matrix(~progress_CKM_stage4+HbA1c+log_trig+sbp+si_1_ins0,base)
+# moderated t-tests with and without FDR adjustment
+ymat <- t(base_log[,seq])
+fit <- lmFit(ymat,CKM4_contrast)
+fit <- eBayes(fit)
+results_CKM4 <- topTable(fit,coef = 2,number = nrow(ymat))
+results_CKM4 <- results_CKM4[order(results_CKM4$P.Value),] 
+
+
 # write all results to file
 wb <- createWorkbook()
 
@@ -228,7 +274,17 @@ writeData(wb,"glyc_with_a1c_moderated_FDR",results_glyc_a1c,rowNames = T)
 addWorksheet(wb,"glyc_moderated_FDR")
 writeData(wb,"glyc_moderated_FDR",results_glyc,rowNames = T)
 
-saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics limma baseline adjusted.xlsx",overwrite = TRUE)
+addWorksheet(wb,"CKM_moderated_FDR")
+writeData(wb,"CKM_moderated_FDR",results_CKM,rowNames = T)
+
+addWorksheet(wb,"CKM3_moderated_FDR")
+writeData(wb,"CKM3_moderated_FDR",results_CKM3,rowNames = T)
+
+addWorksheet(wb,"CKM4_moderated_FDR")
+writeData(wb,"CKM4_moderated_FDR",results_CKM4,rowNames = T)
+
+
+saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics limma baseline adjusted_march2026.xlsx",overwrite = TRUE)
 
 ```
 
@@ -249,8 +305,11 @@ t1data$RETINO <- as.factor(t1data$RETINO)
 t1data$GLYC <- as.factor(t1data$GLYC)
 t1data$sex <- as.factor(t1data$sex)
 t1data$tg <- exp(t1data$log_trig)
+t1data$progress_CKM <- as.factor(t1data$progress_CKM)
+t1data$progress_CKM_stage3 <- as.factor(t1data$progress_CKM_stage3)
+t1data$progress_CKM_stage4 <- as.factor(t1data$progress_CKM_stage4)
 t1 <- CreateTableOne(data=t1data, vars=c("MIC.OR.MAC","MAC","MIC","HYP","RAPID","NEURO","RETINO","GLYC",
-                                         "HbA1c","trig","sbp","si_1_ins0","AGEBASE","sex","tg"))
+                                         "HbA1c","trig","sbp","si_1_ins0","AGEBASE","sex","tg","progress_CKM","progress_CKM_stage3","progress_CKM_stage4"))
 t1 <- print(t1)
 ```
 
