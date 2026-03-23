@@ -79,10 +79,9 @@ lead_plasma_oa_2025$Sample.Name <- gsub("_Plasma", "", lead_plasma_oa_2025$File.
 lead_plasma <- merge(lead_plasma,lead_plasma_oa_2025,by="Sample.Name")
 
 # read in NIDDK plasma ceramides (march 2026)
-niddk_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_NIDDK_Plasma_Cearmides_Final.xlsx", sheet = "TODAY_NIDDK_Plasma_Cearmides_Fi",
+niddk_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_NIDDK_Plasma_Cearmides_Final_updated.xlsx", sheet = "TODAY_NIDDK_Plasma_Cearmides_Fi",
                                            startRow = 2,colNames = TRUE)
-#remove last row (not data) and HC rows (healthy controls) 
-niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[-nrow(niddk_plasma_ceramides_2026),]
+#remove HC rows (healthy controls) 
 niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[- grep("HC_", niddk_plasma_ceramides_2026$Filename),]
 # read in LEAD plasma ceramides (march 2026)
 lead_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_LEAD_Plasma_Ceramides_Final.xlsx", sheet = "TODAY_LEAD_Plasma_Ceramides",
@@ -143,6 +142,15 @@ plasma_ceramides <- bind_rows(niddk_plasma_ceramides_2026,lead_plasma_ceramides_
 plasma_ceramides<-plasma_ceramides[,c("releaseid","Date.Drawn",
                                       "C14(d18:1/14:0).in.uM","C16(d18:1/16:0).in.uM","C18(d18:1/18:0).in.uM",
                                       "C20(d18:1/20:0).in.uM","C22(d18:1/22:0).in.uM","C24(d18:1/24:0).in.uM")]
+temp <- str_replace_all(colnames(plasma_ceramides),"\\(","")
+colnames(plasma_ceramides) <- temp
+temp <- str_replace_all(colnames(plasma_ceramides),"\\)","")
+colnames(plasma_ceramides) <- temp
+temp <- str_replace_all(colnames(plasma_ceramides),"\\/","_")
+colnames(plasma_ceramides) <- temp
+temp <- str_replace_all(colnames(plasma_ceramides),"\\:","_")
+colnames(plasma_ceramides) <- temp
+
 #merge plasma with plasma ceramides
 plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
 plasma_ceramides$Date.Drawn<-as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
