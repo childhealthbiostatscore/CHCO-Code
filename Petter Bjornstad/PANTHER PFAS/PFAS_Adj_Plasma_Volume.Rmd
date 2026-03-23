@@ -225,7 +225,9 @@ dat_baseline <- dat_baseline %>%
 
 dat_long <- dat_long %>%
   mutate(
-    blood_vol_ml = weight * (70 / sqrt(bmi / 22)),
+    blood_vol_ml = case_when(
+      sex == "Male" ~ (weight * (70/sqrt(bmi/22))),
+      sex == "Female" ~ (weight * (60/sqrt(bmi/22)))),
     hct_prop = hct / 100,
     plasma_vol_ml = blood_vol_ml * (1 - hct_prop)
   ) %>%
@@ -303,27 +305,31 @@ log2_pfas_total_bl_vars <- paste0("log2_", pfas_total_ng_bl_vars)
 #-------------------------------------------------------
 ```{r}
 dat_baseline2 <- dat_long %>% 
-  select(record_id, visit, weight, height, hct, sex, group, bmi) %>%
+  select(record_id, visit, weight, height, hct, sex, group, bmi, age, sex) %>%
   filter(group == "Lean Control") %>%
   filter(visit == "baseline_screening") %>%
   mutate(
     height = height/100
-  )
+  ) 
 
 dat_baseline2 <- dat_baseline2 %>%
   mutate(
     # Calculate Nadler blood volume (L) by sex
     nadler_bv_ml = case_when(
       sex == "Male"   ~ ((height^3 * 0.3669) + (0.03219 * weight) + 0.6041) * 1000,
-      sex == "Female" ~ ((height^3 * 0.3561) + (0.03208 * weight) + 0.1833) * 1000
-    ))
+      sex == "Female" ~ ((height^3 * 0.3561) + (0.03208 * weight) + 0.1833) * 1000),
+    LBB_bv_ml = case_when(
+      sex == "Male" ~ (weight * (70/sqrt(bmi/22))),
+      sex == "Female" ~ (weight * (60/sqrt(bmi/22)))
+    )
+    )
 
 dat_baseline2 <- dat_baseline2 %>%
   mutate(
-    blood_vol_ml   = weight * (70 / sqrt(bmi / 22)),
-    hct_prop       = hct / 100,
-    LBB_plasma_ml  = blood_vol_ml * (1 - hct_prop),
-    nadler_plasma_ml  = nadler_bv_ml * (1 - hct_prop)
+    hct_prop = hct / 100,
+    LBB_plasma_ml  = LBB_bv_ml * (1 - hct_prop),
+    nadler_plasma_ml  = nadler_bv_ml * (1 - hct_prop),
+    pv_diff = LBB_plasma_ml - nadler_plasma_ml
   )
 
 
@@ -335,7 +341,6 @@ dat_baseline2 <- dat_baseline2 %>%
 ```{r}
 # Keep only the two plasma volume estimates and pivot longer
 plot_dat <- dat_baseline2 %>%
-  select(record_id, LBB_plasma_ml, nadler_plasma_ml) %>%
   pivot_longer(
     cols = c(LBB_plasma_ml, nadler_plasma_ml),
     names_to = "equation_type",
@@ -344,22 +349,30 @@ plot_dat <- dat_baseline2 %>%
   mutate(
     equation_type = recode(
       equation_type,
-      LBB_plasma = "Lemmens/Brodsky",
-      nadler_plasma = "Nadler"
-    )
+      LBB_plasma_ml = "Modified LBB",
+      nadler_plasma_ml = "Nadler")
   )
 
-# Boxplot
-ggplot(plot_dat, aes(x = equation_type, y = plasma_volume, fill = equation_type)) +
-  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = 16) +
-  geom_jitter(width = 0.1, alpha = 0.6, size = 2) +
+# ANCOVA: test if mean difference ≠ 0, adjusting for age and sex
+model <- lm(pv_diff ~ age + sex, data = dat_baseline2)
+summary(model)
+
+# Or if you want a formal intercept test (is the mean diff ≠ 0?):
+emmeans(model, ~ 1)  # intercept = adjusted mean difference
+
+#boxplot
+ ggplot(plot_dat, aes(x = equation_type, y = plasma_volume, fill = equation_type)) +
+  scale_fill_viridis_d(option = "C") +
+  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = NA) +
+  geom_jitter(aes(shape = sex), width = 0.1, alpha = 0.7) +
+  stat_compare_means(paired = F, method = "t.test") +
   theme_bw() +
   labs(
     title = "Plasma volume estimates in Lean Controls by equation type",
     x = "Equation type",
-    y = "Estimated plasma volume"
-  ) +
-  theme(legend.position = "none")
+    y = "Estimated plasma volume",
+    size = "Sex"
+  )
 ```
 #---------------------------
 #Correlation matrix of PFAS
@@ -448,7 +461,7 @@ pfas_p_mat <- cor_mtest(pfas_corr_df, method = "spearman")
 ```
 
 ```{r fig.width=16, fig.height=12}
-pdf(file = file.path(dir.results, "pfas_correlation_plot.pdf"))
+pdf(file = file.path(dir.results, "total_plasma_volume_adjusted_results","pfas_correlation_plot.pdf"))
 
 corrplot::corrplot(
   pfas_corr_mat,
@@ -609,7 +622,7 @@ plot_baseline_pfas_group_boxplot <- function(data,
 ```
 
 ```{r}
-pdf(file = file.path(dir.results, "total_plasma_pfas_by_group.pdf"), width = 8, height = 6)
+pdf(file = file.path(dir.results, "total_plasma_volume_adjusted_results", "total_plasma_pfas_by_group.pdf"), width = 8, height = 6)
 
 for (pfas in pfas_group_vars) {
   print(
@@ -666,7 +679,6 @@ baseline_results <- dplyr::bind_rows(
   lapply(baseline_results_list, function(x) dplyr::bind_rows(lapply(x, `[[`, "tidy")))
 )
 ```
-
 ##-----------------------------------
 ##Baseline Results Tables
 ##-----------------------------------
@@ -812,20 +824,20 @@ plot_baseline_pfas_set <- function(data,
 ```
 
 ```{r}
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "pah_clear_bsa",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_c_r2",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_k_r2",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_fat_kg",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "bl_dheas",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_si",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_ir",save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_di",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "pah_clear_bsa",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_c_r2",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "avg_k_r2",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_fat_kg",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "dexa_lean_kg",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "igf_1",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "bl_dheas",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_si",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_ir",save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_di",save_pdf = T, out_dir = dir.results)
 ```
 #-------------------------------------------------------------------------------------------------
 # Model 2: changes over time by group-----Would be the same as other section so not running again
