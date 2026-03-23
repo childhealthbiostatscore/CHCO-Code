@@ -179,9 +179,8 @@ get_outcome_label <- function(outcome) {
 #merge PFAS & baseline metadata
 #-------------------------------
 ```{r}
-# -----------------------------------------
 # Outcome cleaning / log transforms
-# -----------------------------------------
+
 dat_baseline <- dat_baseline %>%
   mutate(
     microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
@@ -200,17 +199,16 @@ dat_long <- dat_long %>%
     log_acr_u_bl = log1p(acr_u_bl)
   )
 
-# -----------------------------------------
 # Define baseline PFAS variable names
-# -----------------------------------------
+
 pfas_bl_vars <- paste0(pfas_vars, "_bl")
 
 # names for plasma-total PFAS columns
 pfas_total_ng_bl_vars <- paste0(pfas_bl_vars, "_total_ng")
 
-# -----------------------------------------
+
 # Add blood/plasma volume and plasma-total PFAS
-# -----------------------------------------
+
 dat_baseline <- dat_baseline %>%
   mutate(
     blood_vol_ml = weight * (70 / sqrt(bmi / 22)),
@@ -239,10 +237,10 @@ dat_long <- dat_long %>%
     )
   )
 
-# -----------------------------------------
+
 # Create summed plasma-total PFAS burden
 # and log2-transform summed burden
-# -----------------------------------------
+
 dat_baseline <- dat_baseline %>%
   mutate(
     n_pfas_total_nonmiss = rowSums(!is.na(across(all_of(pfas_total_ng_bl_vars)))),
@@ -298,6 +296,70 @@ dat_long <- dat_long %>%
 
 # vector of log2 plasma-total PFAS variables for modeling
 log2_pfas_total_bl_vars <- paste0("log2_", pfas_total_ng_bl_vars)
+```
+
+#-------------------------------------------------------
+#nadler's vs lemmen's brodsky equation for lean controls
+#-------------------------------------------------------
+```{r}
+dat_baseline2 <- dat_long %>% 
+  select(record_id, visit, weight, height, hct, sex, group, bmi) %>%
+  filter(group == "Lean Control") %>%
+  filter(visit == "baseline_screening") %>%
+  mutate(
+    height = height/100
+  )
+
+dat_baseline2 <- dat_baseline2 %>%
+  mutate(
+    # Calculate Nadler blood volume (L) by sex
+    nadler_bv_ml = case_when(
+      sex == "Male"   ~ ((height^3 * 0.3669) + (0.03219 * weight) + 0.6041) * 1000,
+      sex == "Female" ~ ((height^3 * 0.3561) + (0.03208 * weight) + 0.1833) * 1000
+    ))
+
+dat_baseline2 <- dat_baseline2 %>%
+  mutate(
+    blood_vol_ml   = weight * (70 / sqrt(bmi / 22)),
+    hct_prop       = hct / 100,
+    LBB_plasma_ml  = blood_vol_ml * (1 - hct_prop),
+    nadler_plasma_ml  = nadler_bv_ml * (1 - hct_prop)
+  )
+
+
+
+```
+#------------------------------------------------------------
+#Do plasma volume's differ significantly by equation for LC
+#------------------------------------------------------------
+```{r}
+# Keep only the two plasma volume estimates and pivot longer
+plot_dat <- dat_baseline2 %>%
+  select(record_id, LBB_plasma_ml, nadler_plasma_ml) %>%
+  pivot_longer(
+    cols = c(LBB_plasma_ml, nadler_plasma_ml),
+    names_to = "equation_type",
+    values_to = "plasma_volume"
+  ) %>%
+  mutate(
+    equation_type = recode(
+      equation_type,
+      LBB_plasma = "Lemmens/Brodsky",
+      nadler_plasma = "Nadler"
+    )
+  )
+
+# Boxplot
+ggplot(plot_dat, aes(x = equation_type, y = plasma_volume, fill = equation_type)) +
+  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = 16) +
+  geom_jitter(width = 0.1, alpha = 0.6, size = 2) +
+  theme_bw() +
+  labs(
+    title = "Plasma volume estimates in Lean Controls by equation type",
+    x = "Equation type",
+    y = "Estimated plasma volume"
+  ) +
+  theme(legend.position = "none")
 ```
 #---------------------------
 #Correlation matrix of PFAS
@@ -407,7 +469,6 @@ corrplot::corrplot(
 
 dev.off()
 ```
-
 #-----------------------------------
 # Baseline PFAS differences by group
 #-----------------------------------
@@ -1034,7 +1095,7 @@ heatmap_nominal_df <- heatmap_longitudinal_df %>%
 ```
 
 ```{r fig.width=16}
-pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"))
+pdf(file = file.path(dir.results, "total_plasma_volume_adjusted_results", "longitudinal_outcomes_hm.pdf"), width = 16, height = 12)
 
 beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
 
@@ -1055,7 +1116,7 @@ p_longitudinal_heatmap_raw <- ggplot(
   ) +
   
   #fdr pvalues
-  geom_text(aes(label = sig), size = 8, color = "black") +
+  geom_text(aes(label = sig), size = 9, color = "black") +
   scale_fill_gradient2(
     low = "#2166AC",
     mid = "white",
