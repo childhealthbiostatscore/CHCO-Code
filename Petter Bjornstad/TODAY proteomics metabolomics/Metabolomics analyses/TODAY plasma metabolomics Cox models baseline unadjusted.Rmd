@@ -26,8 +26,6 @@ library(broom)
 library(stringr)
 
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
-
-knitr::opts_chunk$set(echo = FALSE)
 # if(Sys.info()["sysname"] == "Windows"){
 #   home_dir = "E:/Petter Bjornstad/TODAY subaward"
 # } else if (Sys.info()["sysname"] == "Linux"){
@@ -49,6 +47,7 @@ load("./Clinical data/comorb.Rdata")
 dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
 # take only the baseline samples
+
 plasma_all$Date.Drawn <- as.Date(plasma_all$Date.Drawn,format = "%m/%d/%Y")
 base <- plasma_all %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 base <- base %>% arrange(Date.Drawn)
@@ -74,22 +73,13 @@ seq <- is_seq(names(base))
 # convert to numeric
 base[,seq] <- apply(base[,seq],2,as.numeric)
 
-# KM fixing this part - the indices were off because the no_var list refers to the index of metabolite list (base[,seq]), so it wasn't selecting the correct variables from base
-metabolites<-base[,seq]
 # are there proteins with low variability?
+metabolites<-base[,seq]
 no_var = caret::nearZeroVar(metabolites)
-no_var_names<-names(metabolites[,no_var])
-
-base <- base[,-which(colnames(base)%in%no_var_names)]
-
-# base <- base[,-no_var]
-# # other metabolites have zero variance
-# base <- base %>% select(!Adenine.in.uM)
-# base <- base %>% select(!`DL-Homocystine.in.uM`)
-# base <- base %>% select(!Sulpiride.in.uM)
-# base <- base %>% select(!Nicotinic_acid.in.uM)
-# base <- base %>% select(!Quinolinic.Acid.in.uM)
-# base <- base %>% select(!`5-Hydroxyindoleacetic.Acid.in.uM`)
+if (length(no_var)>0){
+  no_var_names<-names(metabolites[,no_var])
+  base <- base[,-which(colnames(base)%in%no_var_names)]  
+}
 seq <- is_seq(names(base))
 
 # log transform
@@ -99,7 +89,7 @@ base_log <- base %>% modify_if(is_seq(names(.)), log)
 base_log_scale <- base_log
 predictors <- colnames(base_log[seq])
 for (i in 1:length(predictors)) {
-  base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])])
+  base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])],na.rm=T)
 }
 
 # now we need to change the format of the variable names
@@ -215,6 +205,42 @@ for (i in 1:length(predictors)) {
 result_GLYC$adj.p.value <- p.adjust(result_GLYC$p.value, "fdr")
 result_GLYC <- result_GLYC[order(result_GLYC$p.value),] 
 
+# CKM
+result_CKM <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, progress_CKM)~",predictors[i])
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  result_CKM <- rbind(result_CKM,tidymod)
+}
+result_CKM$adj.p.value <- p.adjust(result_CKM$p.value, "fdr")
+result_CKM <- result_CKM[order(result_CKM$p.value),] 
+
+# CKM3
+result_CKM3 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",predictors[i])
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  result_CKM3 <- rbind(result_CKM3,tidymod)
+}
+result_CKM3$adj.p.value <- p.adjust(result_CKM3$p.value, "fdr")
+result_CKM3 <- result_CKM3[order(result_CKM3$p.value),] 
+
+# CKM4
+result_CKM4 <- NULL
+predictors <- colnames(base_log_scale[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",predictors[i])
+  mod <- coxph(data = base_log_scale, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  result_CKM4 <- rbind(result_CKM4,tidymod)
+}
+result_CKM4$adj.p.value <- p.adjust(result_CKM4$p.value, "fdr")
+result_CKM4 <- result_CKM4[order(result_CKM4$p.value),] 
+
 # write all results to file
 setwd(home_dir)
 wb <- createWorkbook()
@@ -234,7 +260,14 @@ addWorksheet(wb,"RETINO CPH")
 writeData(wb,"RETINO CPH",result_RETINO,rowNames = F)
 addWorksheet(wb,"GLYC CPH")
 writeData(wb,"GLYC CPH",result_GLYC,rowNames = F)
-saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline unadjusted.xlsx",overwrite = TRUE)
+addWorksheet(wb,"CKM progression")
+writeData(wb,"CKM progression",result_CKM,rowNames = F)
+addWorksheet(wb,"CKM progression stage 3")
+writeData(wb,"CKM progression stage 3",result_CKM3,rowNames = F)
+addWorksheet(wb,"CKM progression stage 4")
+writeData(wb,"CKM progression stage 4",result_CKM4,rowNames = F)
+
+saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline unadjusted_march2026.xlsx",overwrite = TRUE)
 
 
 ```

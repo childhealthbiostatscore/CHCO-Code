@@ -74,14 +74,12 @@ def clean_ultra():
             "American Indian or Alaskan Native", "Asian",
             "Hawaiian or Pacific Islander", "Black or African American",
             "White", "Unknown", "Other"])
-        print(type(demo))
         # Same for ethnicity
         combine_checkboxes(demo,
                                 base_name="ethnicity",
                                 levels=["Hispanic or Latino",
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
-        print(type(demo))
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
 
     # --------------------------------------------------------------------------
@@ -91,9 +89,6 @@ def clean_ultra():
     var = ["record_id", "diabetes_diag", "med_hx_hypertension"] #"insulin_type",met_hx
            #"cvd_type", "met_hx", "med_hx_hypertension"] #"diabetes_meds"]
     med = pd.DataFrame(proj.export_records(fields=var))
-    print(type(med))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
-    print(len(med))        # Number of records exported
-    print(med[:3]) 
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
     med.replace(rep, np.nan)#, inplace=True)
@@ -195,7 +190,11 @@ def clean_ultra():
                 "lvco": "lv_cardiac_output", "myo_mass_dias" : "lved_mass", "myo_mass_syst": "lves_mass",
                 "lv_myo_mass_dias" : "lv_myo_mass_diast",
                 "imaging_hr": "lv_hr",
-                "af_pwv_xcor3": "af_pwv_xcor3"}, axis=1, inplace=True)
+                "af_pwv_xcor3": "af_pwv"}, axis=1, inplace=True)
+    print("af_pwv PULLED?")                                                       
+    print("af_pwv" in mri.columns)                            
+    print("TOTAL NOT NULLS IN af_pwv:")                                           
+    print(mri["af_pwv"].notna().sum())
                 
     mri["procedure"] = "cardio_abdominal_mri"
 

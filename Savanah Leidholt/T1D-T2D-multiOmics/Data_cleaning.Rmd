@@ -1,0 +1,652 @@
+---
+title: "Harmonized data cleanup"
+output: pdf_document
+author: "Savanah Leidholt"
+date: "2026-02-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(tidyr)
+library(purrr)
+library(dplyr)
+library(haven)
+library(SeuratObject)
+```
+
+#---------------------------------------------------
+# inputting all directories and storage locations
+#---------------------------------------------------
+```{r}
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } 
+}
+```
+
+```{r}
+# ------------
+#load objects 
+#------------
+harm <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
+dict <- readRDS(file.path(dir.dat, "Data Harmonization", "Data Clean", "data_dictionary_master.rds"))
+harm_soma <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv"))
+load(file.path(dir.dat, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther
+```
+
+```{r}
+#--------------------------
+#reading in attempt
+#--------------------------
+attempt <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "attempt_dat.rds"))
+
+#trasnforming data to match the harmonized data
+attempt_acr <- attempt %>%
+  filter(visit == 0) %>%  # keep baseline rows
+  mutate(
+    visit = "baseline",   # recode 0 to match your harm visit label
+    acr_u_attempt = emu_urine_acr_mean * 8.84
+  ) %>%
+  select(subject_id, visit, acr_u_attempt)
+
+ 
+panther_hba1c <- panther %>%
+  select(record_id, visit, hba1c)
+  
+```
+
+```{r}
+#-----------------------------------------------
+# bind attmempt & panther data to larger harmonized dataset
+#-----------------------------------------------
+
+harm <- harm %>%
+  mutate(
+    record_id = as.character(record_id),
+    visit = trimws(as.character(visit))
+  )
+
+attempt_acr <- attempt_acr %>%
+  mutate(
+    subject_id = as.character(subject_id),
+    visit = trimws(as.character(visit))
+  )
+
+panther_hba1c <- panther_hba1c %>%
+  transmute(
+    record_id = gsub("_", "-", as.character(record_id)),
+    visit = trimws(as.character(visit)),
+    hba1c_panther = as.numeric(hba1c)
+  )
+
+harm <- harm %>%
+  left_join(
+    attempt_acr,
+    by = c("record_id" = "subject_id", "visit" = "visit")
+  ) %>%
+  mutate(
+    acr_u = if_else(study == "ATTEMPT" & is.na(acr_u), acr_u_attempt, acr_u)
+  ) %>%
+  select(-acr_u_attempt) %>%
+  left_join(
+    panther_hba1c,
+    by = c("record_id", "visit")
+  ) %>%
+  mutate(
+    hba1c = if_else(study == "PANTHER", coalesce(hba1c, hba1c_panther), hba1c)
+  ) %>%
+  select(-hba1c_panther)
+```
+
+```{r}
+# Subsetting for variables and creating a new dataframe
+metab_bl_tiss <- dict[grepl("^metabolomics", dict$form_name), c("variable_name", "label", "form_name")]
+metab <- metab_bl_tiss$variable_name
+
+lipids <- dict[grepl("lipidomics", dict$form_name), c("variable_name", "label", "form_name")] #lipids more straight forward
+lip <- lipids$variable_name
+```
+
+```{r}
+#-----------------
+#bind metabolomics 
+#-----------------
+#Checking if any metabolites listed are not in the larger dataset---three don't exist in the larger dataset
+setdiff(metab, colnames(harm))
+
+#Checking to see if it's a case issue
+metab_lower <- tolower(metab)
+harm_cols_lower <- tolower(colnames(harm))
+
+setdiff(metab, colnames(harm)) #still doesn't work so not a case issue proceed to only collect metabolites that intersect with larger data set
+
+#only keep metabolites that actually exist in harm
+metab_present <- intersect(metab, colnames(harm))
+
+#studies I want to keep creating a variable name to a list
+studies_keep <- c("ATTEMPT","RENAL-HEIR","RENAL-HEIRitage","PANTHER","CROCODILE","IMPROVE")
+
+#same with ids columns (all categorical)
+id_cols <- as.character(c(
+  "record_id","mrn","attempt_id","croc_id","improve_id","rh_id","rh2_id","panther_id",
+  "study","visit","group","sex","race","ethnicity"
+))
+
+#clinical numeric data I want to keep stored in a list
+clin_cols <- c(
+  "age","bmi","eGFR_fas_cr","hba1c",
+  "acr_u"
+)
+
+
+#filtering metabolomics data
+ # for non-numeric: keep value only if it's consistent within record_id+visit
+ # for numeric: mean within record_id+visit (not counting NAs within the mean)
+harm_metab <- harm %>%
+  arrange(record_id) %>%
+  filter(visit == "baseline") %>%
+  filter(study %in% studies_keep) %>%
+  select(any_of(c(id_cols, clin_cols)), any_of(metab)) %>%
+  summarise(
+    across(
+      where(~ !is.numeric(.x)),
+      ~{
+        vals <- unique(na.omit(.x))
+        if (length(vals) == 0) NA_character_
+        else if (length(vals) == 1) as.character(vals)
+        else NA_character_
+      }
+    ),
+    across(
+      where(is.numeric),
+      ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+    ),
+    .by = c(record_id, visit)
+  ) %>%
+  mutate(
+    race_ethnicity_condensed = case_when(
+      race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+      race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+      TRUE ~ "Not Hispanic or Latino Other"
+    )
+  ) %>%
+  relocate(all_of(metab_present), .after = last_col())
+
+
+#keep all NA MRNs -- unique patients involved in only one study
+na_mrn <- harm_metab %>%
+  filter(is.na(mrn))
+  
+#keep only one row per unqiue MRN--making sure patients only show up in one study
+unique_mrn <- harm_metab %>%
+  filter(!is.na(mrn)) %>%
+  distinct(mrn, .keep_all = TRUE)
+
+#combined unique ids
+harm_metab <- bind_rows(na_mrn, unique_mrn)
+
+#adding back in group info for attempt. For some reason it drops some of the Type 1 Diabetes group designations
+harm_metab <- harm_metab %>%
+  mutate(
+    group = case_when(
+      grepl("ATTEMPT", study) & is.na(group) ~ "Type 1 Diabetes",
+      TRUE ~ group
+    )
+  )
+
+#subsetting data into data matrix and variable matrix
+meta_metab <- harm_metab %>% select(1:20) 
+metabolites <- harm_metab %>% select(-(1:20))
+
+# ---- set rownames consistently for meta ----
+meta_metab <- as.data.frame(meta_metab)
+rownames(meta_metab) <- meta_metab$record_id
+# ---- only do the above once ---------------
+
+metabolites <- as.data.frame(metabolites)
+rownames(metabolites) <- meta_metab$record_id
+
+metabolites$leucyl_tryptophan_cl_tissue <- as.numeric(metabolites$leucyl_tryptophan_cl_tissue)
+
+non_numeric <- names(metabolites)[!vapply(metabolites, is.numeric, logical(1))]
+length(non_numeric)
+head(non_numeric, 50)   # show first 50 offenders
+```
+
+
+```{r}
+#-----------------------
+#binding lipid data
+#-----------------------
+
+harm_lipids <- harm %>%
+  filter(study %in% studies_keep) %>%
+  select(any_of(c(id_cols, clin_cols, lip))) %>%
+  summarise(
+    across(
+      where(is.numeric),
+      ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+    ),
+    across(
+      where(~ !is.numeric(.x)),
+      ~ {
+        vals <- unique(na.omit(.x))
+        if (length(vals) == 1) as.character(vals) else NA_character_
+      }
+    ),
+    .by = c(record_id, visit)
+  ) %>%
+  mutate(
+    race_ethnicity_condensed = case_when(
+      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+      race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+      race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+      TRUE ~ "Not Hispanic or Latino Other"
+    )
+  ) %>%
+  filter(visit == "baseline") %>%
+  relocate(any_of(lip), .after = last_col()) %>%
+  arrange(record_id)
+ 
+
+
+#keep all NA MRNs -- unique patients involved in only one study
+na_mrn <- harm_lipids %>%
+  filter(is.na(mrn))
+  
+#keep only one row per unqiue MRN--making sure patients only show up in one study
+unique_mrn <- harm_lipids %>%
+  filter(!is.na(mrn)) %>%
+  distinct(mrn, .keep_all = TRUE)
+
+#combined unique ids
+harm_lipids <- bind_rows(na_mrn, unique_mrn)
+
+#adding back in group info for attempt. For some reason it drops some of the Type 1 Diabetes group designations
+harm_lipids <- harm_lipids %>%
+  mutate(
+    group = case_when(
+      grepl("ATTEMPT", study) & is.na(group) ~ "Type 1 Diabetes",
+      TRUE ~ group
+    )
+  )
+
+```
+
+```{r}
+#-----subsetting lipids dataframe--------
+meta_lips <- harm_lipids %>% select(1:20) %>% as.data.frame()
+rownames(meta_lips) <- meta_lips$record_id
+
+#------adding rownames ------------------
+lipids <- harm_lipids %>% select(-(1:20)) %>% as.data.frame()
+rownames(lipids) <- meta_lips$record_id
+
+
+
+#checking to see if any metadata was kept in lipids expression matrix or if any lipids are being read as characters
+
+non_numeric2 <- names(lipids)[!vapply(lipids, is.numeric, logical(1))]
+length(non_numeric2)
+head(non_numeric2, 50)   # show first 50 offenders
+```
+
+```{r}
+#filtering to final proteomics dataset
+harm_proteins <- harm_soma %>%
+  arrange(record_id) %>%
+  filter(study %in% studies_keep) %>%
+  select(any_of(c(id_cols, clin_cols)), starts_with("seq")) %>%
+  summarise(
+    across(
+      where(~ !is.numeric(.x)),
+      ~{
+        vals <- unique(na.omit(.x))
+        if (length(vals) == 0) NA_character_
+        else if (length(vals) == 1) as.character(vals)
+        else NA_character_
+      }
+    ),
+    across(
+      where(is.numeric),
+      ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+    ),
+    .by = c(record_id, visit)
+  ) %>%
+  mutate(
+    race_ethnicity_condensed = case_when(
+      race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+      race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+      TRUE ~ "Not Hispanic or Latino Other"
+    )
+  ) %>%
+  filter(visit == "baseline") %>%
+  relocate(starts_with("seq"), .after = last_col())
+
+
+#keep all NA MRNs -- unique patients involved in only one study
+na_mrn <- harm_proteins %>%
+  filter(is.na(mrn))
+  
+#keep only one row per unqiue MRN--making sure patients only show up in one study
+unique_mrn <- harm_proteins%>%
+  filter(!is.na(mrn)) %>%
+  distinct(mrn, .keep_all = TRUE)
+
+#combined unique ids
+harm_proteins<- bind_rows(na_mrn, unique_mrn)
+```
+
+```{r}
+#-----------------------------
+#adding in attempt acr_u
+#-----------------------------
+
+harm_proteins <- harm_proteins %>%
+  left_join(attempt_acr, by = c("record_id" = "subject_id", "visit" = "visit")) %>%
+  mutate(
+    acr_u = if_else(study == "ATTEMPT" & is.na(acr_u), acr_u_attempt, acr_u),
+    group = if_else(study == "ATTEMPT", "Type 1 Diabetes", group)
+  ) %>%
+  select(-acr_u_attempt)
+
+```
+
+```{r}
+# ---- Sanity Check: do seq columns exist and have non-NA? ----
+seq_cols <- grep("^seq", names(harm_proteins), value = TRUE)
+
+c(
+  n_rows = nrow(harm_proteins),
+  n_seq_cols = length(seq_cols),
+  nonNA_seq_total = sum(!is.na(harm_proteins[, seq_cols, drop = FALSE]))
+)
+
+# peek a few values (do you REALLY see numbers here?)
+harm_proteins[1:3, head(seq_cols, 3)]
+```
+
+
+```{r}
+# ---- split metadata vs analytes ----
+
+meta_prot <- harm_proteins %>% select(1:20) %>% as.data.frame()
+rownames(meta_prot) <- meta_prot$record_id
+
+combined <- harm_proteins %>% select(-(1:20)) %>% as.data.frame()
+rownames(combined) <- meta_prot$record_id
+
+# urine proteins end in "...urine" OR "...urine_cradj"
+prot_urine <- combined %>%
+  select(matches("(urine|urine_cradj)$"))
+
+# plasma proteins = remaining seq columns
+prot_plasma <- combined %>%
+  select(-matches("(urine|urine_cradj)$"))
+
+# ---- set rownames consistently ----
+prot_urine <- as.data.frame(prot_urine)
+rownames(prot_urine) <- meta_prot$record_id
+
+prot_plasma <- as.data.frame(prot_plasma)
+rownames(prot_plasma) <- meta_prot$record_id
+
+#checking to see if any metadata remains in final prot_plasma matrix
+
+non_numeric3 <- names(prot_plasma)[!vapply(prot_plasma, is.numeric, logical(1))]
+length(non_numeric3)
+head(non_numeric3, 50) 
+
+# ---- sanity checks ----
+stopifnot(all(grepl("(urine|urine_cradj)$", colnames(prot_urine))))
+stopifnot(!any(grepl("(urine|urine_cradj)$", colnames(prot_plasma))))
+
+dim(prot_urine)
+dim(prot_plasma)
+
+
+table(meta_prot$group, useNA = "ifany")
+table(meta_prot$study, meta_prot$group, useNA = "ifany")
+
+n_table <- meta_prot %>%
+  count(study, group) %>%
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>%
+  arrange(study)
+
+n_table
+```
+
+```{r}
+
+# ---- save for other Rmd ----
+out_path <- file.path(dir.dat, "Savanah Leidholt", "T1D-T2D","Data","omics_split_objects3.rds")
+
+saveRDS(
+  list(
+    meta_prot = meta_prot,
+    prot_plasma = prot_plasma,
+    prot_urine = prot_urine,
+    meta_lips = meta_lips,
+    lipids = lipids,
+    meta_metab = meta_metab,
+    metabolites = metabolites,
+    n_table = n_table
+  ),
+  file = out_path
+)
+
+out_path
+
+
+```
+
+```{r}
+# =========================================================
+# Combine metabolomics + lipidomics + proteomics (union IDs)
+# NO feature prefixes, NO metadata suffixes
+# =========================================================
+
+# --- inputs assumed to already exist ---
+# meta_metab, metabolites
+# meta_lips,  lipids
+# meta_prot,  prot_plasma, prot_urine
+
+# -----------------------------
+# 0) helpers
+# -----------------------------
+make_unique_ids <- function(x) {
+  # if record_id duplicates exist, make them unique (rare but safe)
+  if (anyDuplicated(x)) make.unique(as.character(x)) else as.character(x)
+}
+
+fix_rownames_to_record_id <- function(meta_df, mat_df = NULL, id_col = "record_id") {
+  meta_df <- as.data.frame(meta_df)
+
+  # ensure id_col exists as a column
+  if (!(id_col %in% names(meta_df))) {
+    meta_df[[id_col]] <- rownames(meta_df)
+  }
+  meta_df[[id_col]] <- make_unique_ids(meta_df[[id_col]])
+
+  # set rownames on meta
+  rownames(meta_df) <- meta_df[[id_col]]
+
+  # if a matrix provided, align it to meta by rownames and set rownames too
+  if (!is.null(mat_df)) {
+    mat_df <- as.data.frame(mat_df)
+
+    # if mat has no rownames, set from meta
+    if (is.null(rownames(mat_df))) rownames(mat_df) <- rownames(meta_df)
+
+    # reorder matrix rows to match meta rows (drop=FALSE keeps data.frame)
+    mat_df <- mat_df[rownames(meta_df), , drop = FALSE]
+    rownames(mat_df) <- rownames(meta_df)
+  }
+
+  list(meta = meta_df, mat = mat_df)
+}
+
+align_to_ids <- function(df, ids) {
+  df <- as.data.frame(df)
+  df <- df[match(ids, rownames(df)), , drop = FALSE]
+  rownames(df) <- ids
+  df
+}
+
+fill_to_ids <- function(mat, ids) {
+  mat <- as.data.frame(mat)
+  out <- matrix(
+    NA_real_,
+    nrow = length(ids),
+    ncol = ncol(mat),
+    dimnames = list(ids, colnames(mat))
+  )
+  overlap <- intersect(ids, rownames(mat))
+  out[overlap, ] <- as.matrix(mat[overlap, , drop = FALSE])
+  as.data.frame(out)
+}
+
+coalesce3 <- function(a, b, c) dplyr::coalesce(a, b, c)
+
+# -----------------------------
+# 1) standardize rownames everywhere
+# -----------------------------
+metab_fixed <- fix_rownames_to_record_id(meta_metab, metabolites, id_col = "record_id")
+meta_metab2 <- metab_fixed$meta
+metab_mat   <- metab_fixed$mat
+
+lip_fixed   <- fix_rownames_to_record_id(meta_lips, lipids, id_col = "record_id")
+meta_lips2  <- lip_fixed$meta
+lipid_mat   <- lip_fixed$mat
+
+# proteomics: meta_prot governs both plasma+urine
+prot_fixed  <- fix_rownames_to_record_id(meta_prot, NULL, id_col = "record_id")
+meta_prot2  <- prot_fixed$meta
+
+# enforce proteomics matrices follow meta_prot row order
+protP_mat <- as.data.frame(prot_plasma)[rownames(meta_prot2), , drop = FALSE]
+protU_mat <- as.data.frame(prot_urine)[rownames(meta_prot2), , drop = FALSE]
+rownames(protP_mat) <- rownames(meta_prot2)
+rownames(protU_mat) <- rownames(meta_prot2)
+
+# sanity checks
+stopifnot(
+  identical(rownames(meta_metab2), rownames(metab_mat)),
+  identical(rownames(meta_lips2),  rownames(lipid_mat)),
+  identical(rownames(meta_prot2),  rownames(protP_mat)),
+  identical(rownames(meta_prot2),  rownames(protU_mat))
+)
+
+# -----------------------------
+# 2) union IDs (allow missing blocks)
+# -----------------------------
+ids <- Reduce(union, list(
+  rownames(metab_mat),
+  rownames(lipid_mat),
+  rownames(meta_prot2)
+))
+
+# -----------------------------
+# 3) Build meta_all WITHOUT suffixes (coalesce across sources)
+# -----------------------------
+meta_cols_keep <- c(
+  "record_id", "mrn", "study", "visit", "group", "sex", "race", "ethnicity",
+  "age", "bmi", "eGFR_fas_cr", "hba1c", "acr_u",
+  "race_ethnicity_condensed"
+)
+
+
+# align each meta to union ids
+mp <- align_to_ids(meta_prot2,  ids)
+ml <- align_to_ids(meta_lips2,  ids)
+mm <- align_to_ids(meta_metab2, ids)
+
+# ensure record_id exists
+if (!("record_id" %in% names(mp))) mp$record_id <- rownames(mp)
+if (!("record_id" %in% names(ml))) ml$record_id <- rownames(ml)
+if (!("record_id" %in% names(mm))) mm$record_id <- rownames(mm)
+
+# --------------------------------------
+# ADD meta_numeric HERE (before the loop)
+# --------------------------------------
+meta_numeric <- c(
+  "age", "bmi", "eGFR_fas_cr", "hba1c", "acr_u"
+)
+
+# initialize
+meta_all <- as.data.frame(matrix(NA, nrow = length(ids), ncol = 0))
+rownames(meta_all) <- ids
+
+# --------------------------------------
+# THEN your coalescing loop
+# --------------------------------------
+for (cc in meta_cols_keep) {
+  a <- if (cc %in% names(mp)) mp[[cc]] else rep(NA, length(ids))
+  b <- if (cc %in% names(ml)) ml[[cc]] else rep(NA, length(ids))
+  c <- if (cc %in% names(mm)) mm[[cc]] else rep(NA, length(ids))
+
+  if (cc %in% meta_numeric) {
+    # force numeric consistency across datasets
+    a <- suppressWarnings(as.numeric(as.character(a)))
+    b <- suppressWarnings(as.numeric(as.character(b)))
+    c <- suppressWarnings(as.numeric(as.character(c)))
+    meta_all[[cc]] <- dplyr::coalesce(a, b, c)
+  } else {
+    # force character consistency (handles factors safely)
+    a <- as.character(a)
+    b <- as.character(b)
+    c <- as.character(c)
+    meta_all[[cc]] <- dplyr::coalesce(a, b, c)
+  }
+}
+
+meta_all$record_id <- ids
+rownames(meta_all) <- meta_all$record_id
+```
+
+```{r}
+X_all <- cbind(
+  fill_to_ids(metab_mat, ids),
+  fill_to_ids(lipid_mat, ids),
+  fill_to_ids(protP_mat, ids),
+  fill_to_ids(protU_mat, ids)
+)
+
+stopifnot(identical(rownames(meta_all), rownames(X_all)))
+
+omics_all <- cbind(meta_all, X_all)
+```
+
+```{r}
+dim(omics_all)
+
+# -----------------------------
+# 6) Save
+# -----------------------------
+saveRDS(
+  omics_all,
+  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_all.rds")
+)
+```

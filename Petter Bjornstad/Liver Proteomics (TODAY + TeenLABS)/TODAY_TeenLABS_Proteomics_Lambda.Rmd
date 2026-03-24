@@ -1,0 +1,781 @@
+---
+title: "TODAY & TeenLABS Proteomics"
+author: "Hailey E. Hampson"
+date: "2026-03-18"
+output: html_document
+---
+# 1. Set up Libraries & Directores
+```{r libraries, echo=F, include = F}
+#Load Libraries
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
+source("Lambda_Libraries_Liver_Proteomics.R")
+
+#Load functions
+source("Lambda_Liver_Proteomics_Functions.R")
+# source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Data Processing and Analysis/Standard_Functions.R")
+
+# install.packages("PGEE")
+library(PGEE)
+# install.packages("glmnet")
+library(glmnet)
+library(lme4)
+library(lmerTest)  # For p-values in mixed models
+library(dplyr)
+
+```
+
+
+# 2. Set up Cyberduck to load data
+```{r, Cyberduck setup}
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+```
+
+#3. TODAY
+## a. Load Data & Format
+```{r}
+#Load in Proteomics in Today - baseline and follow up & alt ast
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "today_proteomics_longitudinal_log2.rds", temp_file)
+TODAY_prot <- readRDS(temp_file)
+gc()
+
+proteins <- colnames(TODAY_prot)[which(grepl("seq.",colnames(TODAY_prot)))] #7728 aptamers
+
+#Participants with proteomics
+prot_IDs <- unique(TODAY_prot$releaseid)
+length(prot_IDs) #379
+
+#Load gene protein key
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".RDS") # need to create a temporary file
+s3$download_file(bucket, "analytes.RDS", temp_file)
+analytes <- readRDS(temp_file)
+gc()
+analytes <- analytes %>% 
+  dplyr::select(all_of(c("AptName","EntrezGeneSymbol"))) #7288 aptamers
+
+
+#Load ALT/AST longitudinal data
+#Need to figure out which timeponts we have ALT/AST for and where that data is and then merge it into prot dataframe. 
+#Proteins at baseline & 10 years
+#ALT/AST at baseline & additional timepoints up to 10 years?
+
+#Research Question: Or impact of change ALT/AST levels on changing proteins over time?Impact of protein changes on ALT/AST Changes over time? 
+
+#Baseline - M00
+#Year 10 - P120
+
+#Spaghetti plot of peoples ALT and AST trajectories over time - pick a trajectory type (linear,sline, quadradic) 
+#Then get a slope for each pewrsons ALT trajectory
+#Slope variable ALT/AST - single value as the outcome
+#longitudinal proteins for the PGEE 
+#Load in ALT/AST data
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".RDS") # need to create a temporary file
+s3$download_file(bucket, "clinical_data_long.RDS", temp_file)
+clinical <- readRDS(temp_file)
+gc()
+
+#Select only those with proteomics
+clinical <- clinical %>% 
+  filter(releaseid %in% prot_IDs)
+#Order of visits 
+clinical$visit <- as.factor(clinical$visit)
+unique(clinical$releaseid)
+
+#ALT
+alt <- ggplot(clinical,aes(x=visit,y=alt,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit",
+       y = "ALT (U/L)",
+       title = "Longitudinal ALT Trajectories",
+       subtitle = "Median ALT Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept = "P027", linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = "M00", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = "P120", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = "P027", y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = "M00", y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = "P120", y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+#AST
+ast <- ggplot(clinical,aes(x=visit,y=ast,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit",
+       y = "ALT (U/L)",
+       title = "Longitudinal AST Trajectories in TODAY & TODAY2",
+       subtitle = "Median AST Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept = "P027", linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = "M00", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = "P120", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = "P027", y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = "M00", y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = "P120", y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+plot <- alt/ast
+png("/home/hhampson/Results/ALT_AST_Overtime_TODAY.png",res=300,width=3050,height=2100)
+print(plot)
+dev.off()
+
+#Visit -> Numeric variable
+clinical$visit_num
+# clinical$visit_numeric <- as.numeric(clinical$visit)
+
+#ALT
+alt <- ggplot(clinical,aes(x=visit_num,y=alt,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit (Months)",
+       y = "ALT (U/L)",
+       title = "Longitudinal ALT Trajectories TODAY & TODAY2",
+       subtitle = "Median ALT Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept =  27, linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = 60, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = 27, y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = 0, y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = 60, y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+#AST
+ast <- ggplot(clinical,aes(x=visit_num,y=ast,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit (Months)",
+       y = "ALT (U/L)",
+       title = "Longitudinal AST Trajectories in TODAY & TODAY2",
+       subtitle = "Median AST Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept =  27, linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = 60, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = 27, y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = 0, y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = 60, y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+plot <- alt/ast
+png("/home/hhampson/Results/ALT_AST_Overtime_TODAY_Months.png",res=300,width=3050,height=2100)
+print(plot)
+dev.off()
+```
+## a. Prepare TODAY Dataset
+```{r}
+################################################################################
+# TODAY PROTEOMICS ANALYSIS
+# Author: Hailey E. Hampson
+# Date: 2026-03-18
+# Description: Clean & process TODAY proteomics + clinical data into analysis
+#              datasets, with longitudinal visualization, elastic net feature
+#              selection, and mixed effects model validation.
+################################################################################
+
+# ── 0. LIBRARIES ──────────────────────────────────────────────────────────────
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
+source("Lambda_Libraries_Liver_Proteomics.R")
+source("Lambda_Liver_Proteomics_Functions.R")
+
+library(PGEE)
+library(glmnet)
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(jsonlite)
+
+# ── 1. LOAD DATA FROM KOPAH ───────────────────────────────────────────────────
+
+## 1a. S3 / Cyberduck setup ---------------------------------------------------
+boto3 <- reticulate::import("boto3")
+pd    <- reticulate::import("pandas")
+
+keys    <- fromJSON("/home/hhampson/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id     = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+bucket <- "harmonized.dataset"
+
+## 1b. Proteomics (log2-transformed, long format: one row per person-visit) ---
+gc()
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file(bucket, "today_proteomics_longitudinal_log2.rds", temp_file)
+TODAY_prot <- readRDS(temp_file)
+gc()
+
+# Identify aptamer columns
+proteins  <- colnames(TODAY_prot)[grepl("^seq\\.", colnames(TODAY_prot))]
+cat("Aptamers:", length(proteins), "\n")                        # expect ~7,728
+
+# Participants with proteomics
+prot_IDs <- unique(TODAY_prot$releaseid)
+cat("Participants with proteomics:", length(prot_IDs), "\n")   # expect ~379
+
+## 1c. Analyte key (AptName → EntrezGeneSymbol) --------------------------------
+gc()
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file(bucket, "analytes.RDS", temp_file)
+analytes <- readRDS(temp_file) %>%
+  dplyr::select(AptName, EntrezGeneSymbol)
+gc()
+cat("Analytes in key:", nrow(analytes), "\n")                  # expect ~7,288
+
+## 1d. Longitudinal clinical data (ALT, AST, + covariates) --------------------
+gc()
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file(bucket, "clinical_data_long.RDS", temp_file)
+clinical_raw <- readRDS(temp_file)
+gc()
+
+# Keep only participants who also have proteomics
+clinical_raw <- clinical_raw %>%
+  filter(releaseid %in% prot_IDs)
+cat("Clinical rows (proteomics participants):", nrow(clinical_raw), "\n")
+
+################################################################################
+# 2. DEFINE VISIT ORDERING & NUMERIC TIME
+################################################################################
+
+# TODAY visit labels (adjust if your data uses different names)
+visit_order <- c(
+  "M00",  "M02",  "M06",  "M12",  "M24",  "M36",
+  "M48",  "M60",  "M72",  "M84",  "M96",  "M108", "M120",
+  "P027", "P039", "P051", "P063", "P075", "P087",
+  "P099", "P111", "P120"
+)
+
+# Keep only visits that actually appear in the data
+visit_order <- visit_order[visit_order %in% unique(clinical_raw$visit)]
+
+# Approximate months from baseline for plotting / mixed models
+visit_to_months <- setNames(
+  c(0, 2, 6, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120,
+    27, 39, 51, 63, 75, 87, 99, 111, 120)[seq_along(visit_order)],
+  visit_order
+)
+
+################################################################################
+# 3. CLEAN CLINICAL DATA
+################################################################################
+
+clinical <- clinical_raw %>%
+  mutate(
+    visit        = factor(visit, levels = visit_order),
+    time_months  = visit_to_months[as.character(visit)],
+    # Log-transform ALT and AST (natural log; use log2 if preferred)
+    log_alt      = log(alt + 1),
+    log_ast      = log(ast + 1)
+  ) %>%
+  # Require at least one non-missing ALT or AST value
+  filter(!is.na(alt) | !is.na(ast)) %>%
+  arrange(releaseid, visit)
+
+cat("\nClinical data dimensions:", nrow(clinical), "rows x", ncol(clinical), "cols\n")
+cat("Unique participants:", length(unique(clinical$releaseid)), "\n")
+cat("Visits present:", paste(levels(clinical$visit), collapse = ", "), "\n")
+
+################################################################################
+# 4. INDIVIDUAL-LEVEL SUMMARY STATISTICS (for elastic net outcomes)
+################################################################################
+# Each person → one row with: mean, SD, slope, CV for ALT and AST.
+# These become the OUTCOMES in the elastic net feature selection stage.
+
+individual_summaries <- clinical %>%
+  group_by(releaseid) %>%
+  summarise(
+    # ── ALT ──────────────────────────────────────────────
+    n_alt       = sum(!is.na(alt)),
+    mean_alt    = mean(alt,   na.rm = TRUE),
+    sd_alt      = sd(alt,     na.rm = TRUE),
+    cv_alt      = sd_alt / mean_alt,
+    # Slope: fit lm(alt ~ time_months) per person; require ≥ 3 visits
+    alt_slope   = if (sum(!is.na(alt)) >= 3) {
+      coef(lm(alt ~ time_months, data = cur_data(), na.action = na.exclude))[2]
+    } else NA_real_,
+    # ── AST ──────────────────────────────────────────────
+    n_ast       = sum(!is.na(ast)),
+    mean_ast    = mean(ast,   na.rm = TRUE),
+    sd_ast      = sd(ast,     na.rm = TRUE),
+    cv_ast      = sd_ast / mean_ast,
+    ast_slope   = if (sum(!is.na(ast)) >= 3) {
+      coef(lm(ast ~ time_months, data = cur_data(), na.action = na.exclude))[2]
+    } else NA_real_,
+    .groups = "drop"
+  )
+
+cat("\nIndividual summaries:", nrow(individual_summaries), "participants\n")
+cat("Missing alt slopes:", sum(is.na(individual_summaries$alt_slope)), "\n")
+cat("Missing ast slopes:", sum(is.na(individual_summaries$ast_slope)), "\n")
+
+################################################################################
+# 5. CLEAN PROTEOMICS DATA
+################################################################################
+
+# TODAY proteomics has TWO timepoints: baseline (M00) and 10-year (P120).
+# Pivot so each participant has: baseline protein values + change scores.
+
+## 5a. Separate baseline and follow-up rows ------------------------------------
+prot_baseline <- TODAY_prot %>%
+  filter(visit == "M00") %>%           # Adjust label if needed
+  dplyr::select(releaseid, all_of(proteins)) %>%
+  rename_with(~ ., all_of(proteins))   # no rename needed at baseline
+
+prot_followup <- TODAY_prot %>%
+  filter(visit == "P120") %>%          # Adjust label if needed
+  dplyr::select(releaseid, all_of(proteins))
+
+cat("\nBaseline prot rows:", nrow(prot_baseline),
+    " | Follow-up prot rows:", nrow(prot_followup), "\n")
+
+## 5b. Compute change scores (follow-up minus baseline) -----------------------
+# Only for participants with both timepoints
+prot_change <- prot_baseline %>%
+  inner_join(prot_followup, by = "releaseid", suffix = c("_base", "_fu")) %>%
+  {
+    base_cols <- paste0(proteins, "_base")
+    fu_cols   <- paste0(proteins, "_fu")
+    diff_mat  <- as.matrix(dplyr::select(., all_of(fu_cols))) -
+                 as.matrix(dplyr::select(., all_of(base_cols)))
+    colnames(diff_mat) <- paste0(proteins, "_change")
+    bind_cols(dplyr::select(., releaseid), as_tibble(diff_mat))
+  }
+
+cat("Participants with both prot timepoints:", nrow(prot_change), "\n")
+
+## 5c. Scale baseline proteins (each protein → mean 0, SD 1) -----------------
+# Scaling is done across participants at baseline (cross-sectional).
+scale_proteins <- function(df, protein_cols) {
+  df[protein_cols] <- scale(df[protein_cols])
+  df
+}
+
+prot_baseline_scaled <- scale_proteins(prot_baseline, proteins)
+prot_change_scaled   <- scale_proteins(prot_change,   paste0(proteins, "_change"))
+
+################################################################################
+# 6. BUILD ANALYSIS DATASETS
+################################################################################
+# Three flavors for elastic net:
+#   A. Baseline proteins only
+#   B. Change scores only
+#   C. Combined (baseline + change)
+# All joined to individual-level outcome summaries.
+
+outcomes_cols <- c(
+  "mean_alt", "sd_alt", "alt_slope", "cv_alt",
+  "mean_ast", "sd_ast", "ast_slope", "cv_ast"
+)
+
+## Dataset A: Baseline proteins ------------------------------------------------
+analysis_baseline <- prot_baseline_scaled %>%
+  inner_join(individual_summaries %>% dplyr::select(releaseid, all_of(outcomes_cols)),
+             by = "releaseid")
+
+## Dataset B: Change scores only -----------------------------------------------
+change_proteins <- paste0(proteins, "_change")
+
+analysis_change <- prot_change_scaled %>%
+  inner_join(individual_summaries %>% dplyr::select(releaseid, all_of(outcomes_cols)),
+             by = "releaseid")
+
+## Dataset C: Combined ---------------------------------------------------------
+analysis_combined <- prot_baseline_scaled %>%
+  inner_join(prot_change_scaled,        by = "releaseid") %>%
+  inner_join(individual_summaries %>% dplyr::select(releaseid, all_of(outcomes_cols)),
+             by = "releaseid")
+
+cat("\n── Analysis Dataset Dimensions ──\n")
+cat("A (baseline):  ", nrow(analysis_baseline),  "×", ncol(analysis_baseline),  "\n")
+cat("B (change):    ", nrow(analysis_change),     "×", ncol(analysis_change),     "\n")
+cat("C (combined):  ", nrow(analysis_combined),   "×", ncol(analysis_combined),   "\n")
+
+################################################################################
+# 7. LONGITUDINAL VISUALIZATION
+################################################################################
+# Spaghetti plots for ALT and AST with median overlay.
+# Data: clinical (long format), with ordered visit factor + numeric time.
+
+## Helper: spaghetti plot function ---------------------------------------------
+plot_spaghetti <- function(data, y_var, y_label, title_suffix = "") {
+  ggplot(data %>% filter(!is.na(.data[[y_var]])),
+         aes(x = time_months, y = .data[[y_var]], group = releaseid)) +
+    # Individual trajectories
+    geom_line(alpha = 0.15, color = "steelblue", linewidth = 0.4) +
+    geom_point(alpha = 0.10, color = "steelblue", size = 0.6) +
+    # Median trajectory
+    stat_summary(aes(group = 1), fun = median, geom = "line",
+                 color = "#D55E00", linewidth = 1.2) +
+    stat_summary(aes(group = 1), fun = median, geom = "point",
+                 color = "#D55E00", size = 2.5) +
+    # IQR ribbon
+    stat_summary(aes(group = 1, ymin = after_stat(y), ymax = after_stat(y)),
+                 fun.min = ~ quantile(.x, 0.25, na.rm = TRUE),
+                 fun.max = ~ quantile(.x, 0.75, na.rm = TRUE),
+                 geom = "ribbon", alpha = 0.15, fill = "#D55E00") +
+    scale_x_continuous(breaks = sort(unique(data$time_months))) +
+    labs(
+      x     = "Time (months from baseline)",
+      y     = y_label,
+      title = paste("Longitudinal", y_label, "Trajectories", title_suffix),
+      subtitle = "Thin lines: individual participants | Bold orange: median (IQR ribbon)"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+p_alt <- plot_spaghetti(clinical, "alt", "ALT (U/L)", "– TODAY")
+p_ast <- plot_spaghetti(clinical, "ast", "AST (U/L)", "– TODAY")
+
+ggsave("TODAY_ALT_spaghetti.png", plot = p_alt, width = 10, height = 6, dpi = 300)
+ggsave("TODAY_AST_spaghetti.png", plot = p_ast, width = 10, height = 6, dpi = 300)
+
+cat("\nSpaghetti plots saved.\n")
+
+## Log-transformed versions ----------------------------------------------------
+p_logalt <- plot_spaghetti(clinical, "log_alt", "log(ALT + 1)", "– TODAY")
+p_logast <- plot_spaghetti(clinical, "log_ast", "log(AST + 1)", "– TODAY")
+ggsave("TODAY_logALT_spaghetti.png", plot = p_logalt, width = 10, height = 6, dpi = 300)
+ggsave("TODAY_logAST_spaghetti.png", plot = p_logast, width = 10, height = 6, dpi = 300)
+
+################################################################################
+# 8. ELASTIC NET FEATURE SELECTION
+################################################################################
+# Run separately for each outcome × analysis dataset combination.
+# Returns selected protein names (non-zero coefficients at lambda.min).
+
+run_elastic_net <- function(data, protein_cols, outcome, alpha = 0.5, nfolds = 10,
+                            seed = 42) {
+  # Remove rows missing the outcome
+  df <- data %>% filter(!is.na(.data[[outcome]]))
+  if (nrow(df) < 50) {
+    warning("Fewer than 50 observations for outcome: ", outcome, ". Skipping.")
+    return(NULL)
+  }
+
+  X <- as.matrix(df[, protein_cols])
+  y <- df[[outcome]]
+
+  # Remove any protein columns with zero variance (can happen after subsetting)
+  keep <- apply(X, 2, sd) > 0
+  X    <- X[, keep, drop = FALSE]
+
+  set.seed(seed)
+  cv_fit <- cv.glmnet(X, y, alpha = alpha, nfolds = nfolds,
+                      type.measure = "mse", standardize = FALSE)
+  # NOTE: standardize = FALSE because proteins are already scaled
+
+  # Extract non-zero coefficients at lambda.min
+  coefs      <- coef(cv_fit, s = "lambda.min")
+  coef_df    <- as.data.frame(as.matrix(coefs))
+  colnames(coef_df) <- "coefficient"
+  coef_df$protein   <- rownames(coef_df)
+  selected   <- coef_df %>%
+    filter(protein != "(Intercept)", coefficient != 0) %>%
+    arrange(desc(abs(coefficient)))
+
+  list(
+    cv_fit      = cv_fit,
+    lambda_min  = cv_fit$lambda.min,
+    cvm_min     = min(cv_fit$cvm),           # Cross-validated MSE
+    n_selected  = nrow(selected),
+    selected    = selected,
+    outcome     = outcome
+  )
+}
+
+## Define which outcomes to run (focus: mean & slope; can expand) --------------
+outcomes_to_run <- c("mean_alt", "alt_slope", "mean_ast", "ast_slope")
+
+cat("\n── Running Elastic Net ──\n")
+
+## Analysis A: Baseline proteins -----------------------------------------------
+en_results_A <- lapply(outcomes_to_run, function(oc) {
+  cat("  Baseline |", oc, "\n")
+  run_elastic_net(analysis_baseline, proteins, oc)
+})
+names(en_results_A) <- outcomes_to_run
+
+## Analysis C: Combined proteins -----------------------------------------------
+all_proteins_C <- c(proteins, change_proteins)
+
+en_results_C <- lapply(outcomes_to_run, function(oc) {
+  cat("  Combined |", oc, "\n")
+  run_elastic_net(analysis_combined, all_proteins_C, oc)
+})
+names(en_results_C) <- outcomes_to_run
+
+## Summary table ---------------------------------------------------------------
+make_en_summary <- function(results_list, analysis_label) {
+  do.call(rbind, lapply(names(results_list), function(oc) {
+    res <- results_list[[oc]]
+    if (is.null(res)) return(NULL)
+    data.frame(
+      analysis    = analysis_label,
+      outcome     = oc,
+      n_obs       = nrow(analysis_baseline %>% filter(!is.na(.data[[oc]]))),
+      lambda_min  = round(res$lambda_min,  4),
+      cv_mse      = round(res$cvm_min,     3),
+      n_selected  = res$n_selected
+    )
+  }))
+}
+
+en_summary <- bind_rows(
+  make_en_summary(en_results_A, "Baseline"),
+  make_en_summary(en_results_C, "Combined")
+)
+
+print(en_summary)
+write.csv(en_summary, "TODAY_elastic_net_summary.csv", row.names = FALSE)
+
+## Annotate selected proteins with gene names ----------------------------------
+annotate_selected <- function(selected_df, analytes_df) {
+  selected_df %>%
+    left_join(analytes_df, by = c("protein" = "AptName"))
+}
+
+# Example: annotate mean_alt baseline results
+if (!is.null(en_results_A[["mean_alt"]])) {
+  mean_alt_selected_A <- annotate_selected(
+    en_results_A[["mean_alt"]]$selected, analytes
+  )
+  cat("\nTop 20 proteins for mean ALT (Baseline approach):\n")
+  print(head(mean_alt_selected_A, 20))
+  write.csv(mean_alt_selected_A, "TODAY_mean_alt_baseline_selected_proteins.csv",
+            row.names = FALSE)
+}
+
+################################################################################
+# 9. MIXED EFFECTS MODEL VALIDATION
+################################################################################
+# For each outcome's selected proteins, run a proper longitudinal mixed model:
+#   outcome_raw_longitudinal ~ time + protein_1 + ... + protein_k + (1 + time | id)
+#
+# The clinical data is in long format (multiple rows per person).
+# Selected proteins are merged in from the BASELINE (wide) proteomics data.
+
+run_mixed_models <- function(selected_proteins_df,     # data.frame: protein, coefficient, EntrezGeneSymbol
+                             clinical_long,             # long-format clinical data
+                             prot_baseline_wide,        # wide: one row per person, baseline proteins
+                             outcome_col,               # "alt" or "ast"
+                             max_proteins = 30,         # safety cap for convergence
+                             random_slope  = TRUE) {
+
+  sel_prots <- head(selected_proteins_df$protein, max_proteins)
+  if (length(sel_prots) == 0) {
+    message("No proteins selected for outcome: ", outcome_col)
+    return(NULL)
+  }
+
+  # Merge baseline proteins into long clinical data
+  model_data <- clinical_long %>%
+    filter(!is.na(.data[[outcome_col]])) %>%
+    left_join(prot_baseline_wide %>% dplyr::select(releaseid, all_of(sel_prots)),
+              by = "releaseid") %>%
+    filter(complete.cases(dplyr::select(., all_of(sel_prots))))
+
+  if (nrow(model_data) < 100) {
+    warning("Too few complete observations for mixed model. Skipping.")
+    return(NULL)
+  }
+
+  # Build formula
+  fixed_terms <- paste(c("time_months", sel_prots), collapse = " + ")
+  re_term     <- if (random_slope) "(1 + time_months | releaseid)" else "(1 | releaseid)"
+  formula_str <- paste0(outcome_col, " ~ ", fixed_terms, " + ", re_term)
+
+  cat("  Fitting:", formula_str, "\n")
+
+  fit <- tryCatch(
+    lmer(as.formula(formula_str), data = model_data, REML = FALSE,
+         control = lmerControl(optimizer = "bobyqa",
+                               optCtrl   = list(maxfun = 2e5))),
+    error = function(e) {
+      message("  Model failed: ", e$message)
+      # Fall back: random intercept only
+      formula_ri <- paste0(outcome_col, " ~ ", fixed_terms, " + (1 | releaseid)")
+      tryCatch(
+        lmer(as.formula(formula_ri), data = model_data, REML = FALSE,
+             control = lmerControl(optimizer = "bobyqa",
+                                   optCtrl   = list(maxfun = 2e5))),
+        error = function(e2) { message("  Fallback also failed: ", e2$message); NULL }
+      )
+    }
+  )
+
+  if (is.null(fit)) return(NULL)
+
+  # Extract fixed effects table (lmerTest provides p-values)
+  coef_table <- as.data.frame(summary(fit)$coefficients)
+  coef_table$term    <- rownames(coef_table)
+  coef_table$outcome <- outcome_col
+
+  # FDR correction across protein terms only
+  prot_rows   <- coef_table$term %in% sel_prots
+  coef_table$fdr <- NA_real_
+  if (any(prot_rows)) {
+    coef_table$fdr[prot_rows] <- p.adjust(coef_table[prot_rows, "Pr(>|t|)"],
+                                           method = "BH")
+  }
+
+  # Annotate gene symbols
+  coef_table <- coef_table %>%
+    left_join(analytes, by = c("term" = "AptName"))
+
+  list(model = fit, results = coef_table)
+}
+
+## Run mixed models for mean ALT (Baseline approach) --------------------------
+cat("\n── Mixed Effects Models: Mean ALT (Baseline proteins) ──\n")
+
+if (!is.null(en_results_A[["mean_alt"]])) {
+  mm_mean_alt_A <- run_mixed_models(
+    selected_proteins_df = en_results_A[["mean_alt"]]$selected,
+    clinical_long        = clinical,
+    prot_baseline_wide   = prot_baseline_scaled,   # scaled; interpretable as SD units
+    outcome_col          = "alt",
+    max_proteins         = 30,
+    random_slope         = TRUE
+  )
+
+  if (!is.null(mm_mean_alt_A)) {
+    sig_proteins <- mm_mean_alt_A$results %>%
+      filter(!is.na(fdr), fdr < 0.05) %>%
+      arrange(fdr)
+    cat("Significant proteins (FDR < 0.05) for ALT:\n")
+    print(sig_proteins %>% dplyr::select(term, EntrezGeneSymbol, Estimate,
+                                          `Std. Error`, `t value`, `Pr(>|t|)`, fdr))
+    write.csv(mm_mean_alt_A$results,
+              "TODAY_mixed_model_mean_alt_baseline.csv", row.names = FALSE)
+  }
+}
+
+## Run mixed models for mean AST (Baseline approach) --------------------------
+cat("\n── Mixed Effects Models: Mean AST (Baseline proteins) ──\n")
+
+if (!is.null(en_results_A[["mean_ast"]])) {
+  mm_mean_ast_A <- run_mixed_models(
+    selected_proteins_df = en_results_A[["mean_ast"]]$selected,
+    clinical_long        = clinical,
+    prot_baseline_wide   = prot_baseline_scaled,
+    outcome_col          = "ast",
+    max_proteins         = 30,
+    random_slope         = TRUE
+  )
+
+  if (!is.null(mm_mean_ast_A)) {
+    sig_proteins <- mm_mean_ast_A$results %>%
+      filter(!is.na(fdr), fdr < 0.05) %>%
+      arrange(fdr)
+    cat("Significant proteins (FDR < 0.05) for AST:\n")
+    print(sig_proteins %>% dplyr::select(term, EntrezGeneSymbol, Estimate,
+                                          `Std. Error`, `t value`, `Pr(>|t|)`, fdr))
+    write.csv(mm_mean_ast_A$results,
+              "TODAY_mixed_model_mean_ast_baseline.csv", row.names = FALSE)
+  }
+}
+
+################################################################################
+# 10. SAVE CLEAN ANALYSIS DATASETS
+################################################################################
+
+saveRDS(clinical,             "TODAY_clinical_long_clean.rds")
+saveRDS(individual_summaries, "TODAY_individual_summaries.rds")
+saveRDS(prot_baseline_scaled, "TODAY_prot_baseline_scaled.rds")
+saveRDS(prot_change_scaled,   "TODAY_prot_change_scaled.rds")
+saveRDS(analysis_baseline,    "TODAY_analysis_baseline.rds")
+saveRDS(analysis_change,      "TODAY_analysis_change.rds")
+saveRDS(analysis_combined,    "TODAY_analysis_combined.rds")
+
+cat("\n────────────────────────────────────────────\n")
+cat("TODAY datasets saved:\n")
+cat("  TODAY_clinical_long_clean.rds       — long-format clinical (all visits)\n")
+cat("  TODAY_individual_summaries.rds      — one row per person (mean/SD/slope outcomes)\n")
+cat("  TODAY_prot_baseline_scaled.rds      — scaled baseline proteins (wide)\n")
+cat("  TODAY_prot_change_scaled.rds        — scaled change proteins (wide)\n")
+cat("  TODAY_analysis_baseline.rds         — elastic net input: baseline proteins + outcomes\n")
+cat("  TODAY_analysis_change.rds           — elastic net input: change proteins + outcomes\n")
+cat("  TODAY_analysis_combined.rds         — elastic net input: baseline + change + outcomes\n")
+cat("────────────────────────────────────────────\n")
+
+
+```

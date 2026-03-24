@@ -224,7 +224,7 @@ def clean_improve():
     mri.replace(rep, np.nan, inplace=True)  # Replace missing values
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
-    mri.rename({"radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", 
+    mri.rename({"lv_grs" : "grs", "lv_gcs " : "gcs", "lv_gls ": "gls", "af_pwv_xcor3": "af_pwv", 
                     "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
                     "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
     mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri",
