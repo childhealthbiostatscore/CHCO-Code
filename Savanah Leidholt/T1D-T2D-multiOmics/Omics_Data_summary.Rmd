@@ -1,0 +1,183 @@
+---
+title: "Omics_data_summary"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#---------------------------------------------------
+# inputting all directories and storage locations
+#---------------------------------------------------
+```{r}
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } 
+}
+```
+
+```{r}
+# ============================================================
+# Summary Tables: Sample Counts by Study, Group, Omics Type
+# ============================================================
+
+library(dplyr)
+library(tidyr)
+
+# Load your saved objects
+omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+
+list2env(omics_objects, envir = .GlobalEnv)
+```
+
+```{r}
+# ============================================================
+# HELPER: count non-NA samples in a matrix for a given metadata
+# ============================================================
+
+count_samples_with_data <- function(meta_df, mat_df) {
+  # A sample "has data" if it has at least one non-NA value in the omics matrix
+  has_data <- rowSums(!is.na(mat_df)) > 0
+  meta_df %>%
+    mutate(has_omics = has_data) %>%
+    filter(has_omics)
+}
+```
+
+```{r}
+# ============================================================
+# 1) PER-OMICS SAMPLE COUNTS: Study x Group
+# ============================================================
+
+make_count_table <- function(meta_df, mat_df, omics_label) {
+  count_samples_with_data(meta_df, mat_df) %>%
+    count(study, group) %>%
+    pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
+    arrange(study) %>%
+    mutate(Omics = omics_label, .before = 1)
+}
+
+tbl_metabolites <- make_count_table(meta_metab, metabolites,  "Metabolomics")
+tbl_lipids      <- make_count_table(meta_lips,  lipids,        "Lipidomics")
+tbl_proteins    <- make_count_table(meta_prot,  prot_plasma,   "Proteomics (Plasma)")
+
+cat("\n===== METABOLOMICS: Samples per Study x Group =====\n")
+print(tbl_metabolites)
+
+cat("\n===== LIPIDOMICS: Samples per Study x Group =====\n")
+print(tbl_lipids)
+
+cat("\n===== PROTEOMICS (Plasma): Samples per Study x Group =====\n")
+print(tbl_proteins)
+```
+
+
+```{r}
+# ============================================================
+# 2) SAMPLES WITH ALL THREE OMICS TYPES: by Group
+# ============================================================
+
+# Identify record_ids that have data in all three
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
+ids_prot   <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+
+ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
+
+cat("\n===== SAMPLES WITH ALL THREE OMICS TYPES =====\n")
+cat("Total samples with metabolomics + lipidomics + proteomics:", length(ids_all_three), "\n\n")
+
+# Pull metadata for these shared samples (use meta_prot as it has all studies)
+# Combine metadata sources to get group info for all IDs
+str(meta_metab)
+str(meta_lips)
+str(meta_prot)
+meta_metab <- meta_metab %>%
+  mutate(across(c(record_id, mrn), as.character))
+
+meta_lips <- meta_lips %>%
+  mutate(across(c(record_id, mrn), as.character))
+
+meta_prot <- meta_prot %>%
+  mutate(across(c(record_id, mrn), as.character))
+
+meta_combined <- bind_rows(meta_metab, meta_lips, meta_prot) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+all_three_meta <- meta_combined %>%
+  filter(record_id %in% ids_all_three)
+
+tbl_all_three <- all_three_meta %>%
+  count(group) %>%
+  rename(Group = group, `N (all 3 omics)` = n)
+
+print(tbl_all_three)
+
+# Also break out by study x group
+tbl_all_three_study <- all_three_meta %>%
+  count(study, group) %>%
+  pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
+  arrange(study)
+
+cat("\n--- All Three Omics by Study x Group ---\n")
+print(tbl_all_three_study)
+
+```
+
+
+```{r}
+# ============================================================
+# 3) PROTEOMICS: Ethnicity breakdown by Group
+# ============================================================
+
+cat("\n===== PROTEOMICS: Ethnicity by Group =====\n")
+
+tbl_ethnicity <- meta_prot %>%
+  filter(rowSums(!is.na(prot_plasma)) > 0) %>%  # only samples with actual proteomic data
+  count(group, race_ethnicity_condensed) %>%
+  pivot_wider(
+    names_from  = race_ethnicity_condensed,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  arrange(group)
+
+print(tbl_ethnicity)
+
+# Also as proportions within each group (useful for demographics table)
+cat("\n--- Ethnicity Proportions Within Each Group (%) ---\n")
+
+tbl_ethnicity_pct <- meta_prot %>%
+  filter(rowSums(!is.na(prot_plasma)) > 0) %>%
+  count(group, race_ethnicity_condensed) %>%
+  group_by(group) %>%
+  mutate(pct = round(100 * n / sum(n), 1)) %>%
+  ungroup() %>%
+  mutate(display = paste0(n, " (", pct, "%)")) %>%
+  select(group, race_ethnicity_condensed, display) %>%
+  pivot_wider(
+    names_from  = race_ethnicity_condensed,
+    values_from = display,
+    values_fill = "0 (0%)"
+  ) %>%
+  arrange(group)
+
+print(tbl_ethnicity_pct)
+```
+
