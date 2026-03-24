@@ -23,8 +23,8 @@ library(SeuratObject)
 #---------------------------------------------------
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
@@ -46,12 +46,11 @@ if (computer == "mac studio") {
 # ------------
 #load objects 
 #------------
-harm <- readRDS(file.path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.rds"))
+harm <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
 dict <- readRDS(file.path(dir.dat, "Data Harmonization", "Data Clean", "data_dictionary_master.rds"))
 harm_soma <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv"))
-load(file.path(dir.dat, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther_data
+load(file.path(dir.dat, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther
 ```
-
 
 ```{r}
 #--------------------------
@@ -63,7 +62,7 @@ attempt <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "at
 attempt_acr <- attempt %>%
   filter(visit == 0) %>%  # keep baseline rows
   mutate(
-    visit = "baseline",   # recode 0 to match your harm_metab visit label
+    visit = "baseline",   # recode 0 to match your harm visit label
     acr_u_attempt = emu_urine_acr_mean * 8.84
   ) %>%
   select(subject_id, visit, acr_u_attempt)
@@ -78,8 +77,25 @@ panther_hba1c <- panther %>%
 #-----------------------------------------------
 # bind attmempt & panther data to larger harmonized dataset
 #-----------------------------------------------
-attempt_acr$subject_id <- as.character(attempt_acr$subject_id)
-panther_hba1c$record_id <- as.character(panther_hba1c$record_id)
+
+harm <- harm %>%
+  mutate(
+    record_id = as.character(record_id),
+    visit = trimws(as.character(visit))
+  )
+
+attempt_acr <- attempt_acr %>%
+  mutate(
+    subject_id = as.character(subject_id),
+    visit = trimws(as.character(visit))
+  )
+
+panther_hba1c <- panther_hba1c %>%
+  transmute(
+    record_id = gsub("_", "-", as.character(record_id)),
+    visit = trimws(as.character(visit)),
+    hba1c_panther = as.numeric(hba1c)
+  )
 
 harm <- harm %>%
   left_join(
@@ -87,27 +103,15 @@ harm <- harm %>%
     by = c("record_id" = "subject_id", "visit" = "visit")
   ) %>%
   mutate(
-    acr_u = if_else(
-      study == "ATTEMPT" & is.na(acr_u),
-      acr_u_attempt,
-      acr_u
-    )
+    acr_u = if_else(study == "ATTEMPT" & is.na(acr_u), acr_u_attempt, acr_u)
   ) %>%
-  select(-acr_u_attempt)
-
-
-# 2) Make sure harm$hba1c is numeric too (if it exists)
-harm$visit <- as.character(harm$visit)
-panther_hba1c$visit <- as.character(panther_hba1c$visit)
-
-harm <- harm %>%
-  left_join(panther_hba1c, by = c("record_id", "visit")) %>%
+  select(-acr_u_attempt) %>%
+  left_join(
+    panther_hba1c,
+    by = c("record_id", "visit")
+  ) %>%
   mutate(
-    hba1c = if_else(
-      study == "PANTHER" & is.na(hba1c),
-      hba1c_panther,
-      hba1c
-    )
+    hba1c = if_else(study == "PANTHER", coalesce(hba1c, hba1c_panther), hba1c)
   ) %>%
   select(-hba1c_panther)
 ```
@@ -116,7 +120,6 @@ harm <- harm %>%
 # Subsetting for variables and creating a new dataframe
 metab_bl_tiss <- dict[grepl("^metabolomics", dict$form_name), c("variable_name", "label", "form_name")]
 metab <- metab_bl_tiss$variable_name
-#metab_urine <- dict[grepl("^az_urine", dict$form_name), c("variable_name", "label", "form_name")] --urine metabolites are not found in harm_dataset so don't run this
 
 lipids <- dict[grepl("lipidomics", dict$form_name), c("variable_name", "label", "form_name")] #lipids more straight forward
 lip <- lipids$variable_name
@@ -126,7 +129,6 @@ lip <- lipids$variable_name
 #-----------------
 #bind metabolomics 
 #-----------------
-
 #Checking if any metabolites listed are not in the larger dataset---three don't exist in the larger dataset
 setdiff(metab, colnames(harm))
 
@@ -143,10 +145,10 @@ metab_present <- intersect(metab, colnames(harm))
 studies_keep <- c("ATTEMPT","RENAL-HEIR","RENAL-HEIRitage","PANTHER","CROCODILE","IMPROVE")
 
 #same with ids columns (all categorical)
-id_cols <- c(
+id_cols <- as.character(c(
   "record_id","mrn","attempt_id","croc_id","improve_id","rh_id","rh2_id","panther_id",
   "study","visit","group","sex","race","ethnicity"
-)
+))
 
 #clinical numeric data I want to keep stored in a list
 clin_cols <- c(
@@ -237,35 +239,34 @@ head(non_numeric, 50)   # show first 50 offenders
 #-----------------------
 
 harm_lipids <- harm %>%
-  arrange(record_id) %>%
   filter(study %in% studies_keep) %>%
   select(any_of(c(id_cols, clin_cols, lip))) %>%
   summarise(
     across(
-      where(~ !is.numeric(.x)),
-      ~{
-        vals <- unique(na.omit(.x))
-        if (length(vals) == 0) NA_character_
-        else if (length(vals) == 1) as.character(vals)
-        else NA_character_
-      }
-    ),
-    across(
       where(is.numeric),
       ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+    ),
+    across(
+      where(~ !is.numeric(.x)),
+      ~ {
+        vals <- unique(na.omit(.x))
+        if (length(vals) == 1) as.character(vals) else NA_character_
+      }
     ),
     .by = c(record_id, visit)
   ) %>%
   mutate(
     race_ethnicity_condensed = case_when(
+      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
       race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
       race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
       TRUE ~ "Not Hispanic or Latino Other"
     )
   ) %>%
   filter(visit == "baseline") %>%
-  relocate(all_of(lip), .after = last_col())
+  relocate(any_of(lip), .after = last_col()) %>%
+  arrange(record_id)
+ 
 
 
 #keep all NA MRNs -- unique patients involved in only one study
@@ -372,7 +373,7 @@ harm_proteins <- harm_proteins %>%
 ```
 
 ```{r}
-# ---- CHECKPOINT A: do seq columns exist and have non-NA? ----
+# ---- Sanity Check: do seq columns exist and have non-NA? ----
 seq_cols <- grep("^seq", names(harm_proteins), value = TRUE)
 
 c(
@@ -440,7 +441,7 @@ n_table
 ```{r}
 
 # ---- save for other Rmd ----
-out_path <- file.path(dir.results, "omics_split_objects3.rds")
+out_path <- file.path(dir.dat, "Savanah Leidholt", "T1D-T2D","Data","omics_split_objects3.rds")
 
 saveRDS(
   list(
@@ -635,17 +636,17 @@ X_all <- cbind(
 
 stopifnot(identical(rownames(meta_all), rownames(X_all)))
 
-omics_wide <- cbind(meta_all, X_all)
+omics_all <- cbind(meta_all, X_all)
 ```
 
 ```{r}
-dim(omics_wide)
+dim(omics_all)
 
 # -----------------------------
 # 6) Save
 # -----------------------------
 saveRDS(
-  omics_wide,
-  "/mmfs1/gscratch/togo/leidholt/Data/R_objects/omics_wide_union_baseline.rds"
+  omics_all,
+  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_all.rds")
 )
 ```
