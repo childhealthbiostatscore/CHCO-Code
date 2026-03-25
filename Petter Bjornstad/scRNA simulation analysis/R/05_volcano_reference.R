@@ -281,6 +281,16 @@ nebula_stats <- tryCatch({
   nc$subject_id <- as.character(nc$subject_id)
   counts_rounded <- round(counts)
   genes_list <- rownames(counts_rounded)
+
+  # Pooled offset via scran (matches ATTEMPT QMD approach)
+  sce_offset <- SingleCellExperiment(assays = list(counts = counts_rounded))
+  sce_offset <- computeSumFactors(sce_offset,
+                                  BPPARAM = BiocParallel::MulticoreParam(opt$n_cores))
+  pooled_offset <- sizeFactors(sce_offset)
+  rm(sce_offset); gc(verbose = FALSE)
+  message(sprintf("  Pooled offset: min=%.4f  median=%.4f  max=%.4f",
+                  min(pooled_offset), median(pooled_offset), max(pooled_offset)))
+
   message(sprintf("  NEBULA: fitting %d genes across %d cells, %d subjects",
                   length(genes_list), ncol(counts_rounded),
                   length(unique(nc$subject_id))))
@@ -292,26 +302,30 @@ nebula_stats <- tryCatch({
   nebula_res_list <- foreach(
     g = genes_list,
     .packages = c("nebula", "Matrix"),
+    .export   = c("counts_rounded", "nc", "pooled_offset", "group_cell_mod"),
     .errorhandling = "pass"
   ) %dopar% {
     warn <- err <- res <- NULL
     tryCatch({
       count_gene <- counts_rounded[g, , drop = FALSE]
       pred_gene  <- model.matrix(~ treatment * visit, data = nc)
-      data_gene  <- group_cell(count = count_gene,
-                               id    = nc$subject_id,
-                               pred  = pred_gene)
-      
-      # If group_cell returns NULL (cells already sorted), use raw inputs
+      data_gene  <- group_cell_mod(count  = count_gene,
+                                   id     = nc$subject_id,
+                                   pred   = pred_gene,
+                                   offset = pooled_offset)
+
+      # If group_cell_mod returns NULL (cells already sorted), use raw inputs
       if (is.null(data_gene)) {
-        data_gene <- list(count = count_gene, id = nc$subject_id, pred = pred_gene)
+        data_gene <- list(count = count_gene, id = nc$subject_id,
+                          pred = pred_gene, offset = pooled_offset)
       }
-      
+
       res <- withCallingHandlers(
         nebula(
           count      = data_gene$count,
           id         = data_gene$id,
           pred       = data_gene$pred,
+          offset     = data_gene$offset,
           ncore      = 1,
           output_re  = TRUE,
           covariance = TRUE,
