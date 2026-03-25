@@ -566,18 +566,25 @@ nebula_stats <- tryCatch({
 
   stopCluster(cl)
 
-  # Extract results from converged genes
+  # Extract results — filter out errors (NULL) and non-converged genes
   names(nebula_res_list) <- vapply(nebula_res_list, `[[`, "", "gene")
   result_list <- lapply(nebula_res_list, `[[`, "result")
   result_list <- Filter(Negate(is.null), result_list)
 
-  n_converged <- length(result_list)
+  # Check NEBULA's internal convergence flag (conv == 1 means converged)
+  converged <- sapply(result_list, function(r) {
+    if (!is.null(r$convergence)) all(r$convergence == 1) else TRUE
+  })
+  n_returned  <- length(result_list)
+  n_converged <- sum(converged)
   n_total     <- length(genes_list)
-  message(sprintf("  NEBULA convergence: %d/%d genes (%.1f%% failed)",
-                  n_converged, n_total,
+  result_list <- result_list[converged]
+
+  message(sprintf("  NEBULA: %d/%d returned results, %d converged (%.1f%% failed)",
+                  n_returned, n_total, n_converged,
                   100 * (n_total - n_converged) / n_total))
 
-  # Parse each gene's NEBULA result into a row
+  # Parse each converged gene's NEBULA result into a row
   parsed <- lapply(names(result_list), function(g) {
     res  <- result_list[[g]]
     summ <- res$summary
@@ -593,9 +600,13 @@ nebula_stats <- tryCatch({
     pval_col <- sub("^logFC_", "p_", lfc_col[1])
     if (!pval_col %in% colnames(summ)) return(NULL)
 
+    # Additional sanity check: skip genes with extreme logFC (non-converged artifacts)
+    lfc_val <- summ[[lfc_col[1]]] / log(2)
+    if (!is.finite(lfc_val) || abs(lfc_val) > 20) return(NULL)
+
     data.frame(
       gene      = g,
-      logFC_int = summ[[lfc_col[1]]] / log(2),   # natural log -> log2
+      logFC_int = lfc_val,
       pval_int  = summ[[pval_col]],
       stringsAsFactors = FALSE
     )
