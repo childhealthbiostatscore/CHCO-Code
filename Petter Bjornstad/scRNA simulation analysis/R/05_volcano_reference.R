@@ -1099,11 +1099,19 @@ summary_rows <- lapply(methods_ok, function(m) {
   n_up   <- sum(sig_genes$logFC_int > 0, na.rm = TRUE)
   n_down <- sum(sig_genes$logFC_int < 0, na.rm = TRUE)
   
+  # Nominal p < 0.05 sig genes
+  sig_nom <- df %>% dplyr::filter(pval_int < 0.05)
+  n_up_nom   <- sum(sig_nom$logFC_int > 0, na.rm = TRUE)
+  n_down_nom <- sum(sig_nom$logFC_int < 0, na.rm = TRUE)
+  
   data.frame(
     Method             = m$name,
     Contrast           = m$test_name,
     Genes_Tested       = n_tested,
     Sig_p05            = n_sig_p,
+    Pct_Sig_p05        = sprintf("%.1f%%", 100 * n_sig_p / n_tested),
+    Up_p05             = n_up_nom,
+    Down_p05           = n_down_nom,
     Sig_FDR05          = n_sig_fdr,
     Pct_Sig_FDR        = sprintf("%.1f%%", 100 * n_sig_fdr / n_tested),
     Up_FDR05           = n_up,
