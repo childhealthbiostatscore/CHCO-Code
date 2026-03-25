@@ -2,7 +2,7 @@
 # 05_volcano_reference.R
 #
 # PURPOSE:
-#   Run all 5 DE methods (NEBULA, DESeq2, edgeR, Wilcoxon, MAST) on the
+#   Run all 5 DE methods (NEBULA, edgeR, limma-voom+dupCor, Wilcoxon, MAST) on the
 #   ACTUAL ATTEMPT reference dataset (not simulated data) and produce volcano
 #   plots of the interaction term for each method.
 #
@@ -33,8 +33,8 @@
 
 suppressPackageStartupMessages({
   library(nebula)
-  library(DESeq2)
   library(edgeR)
+  library(limma)
   library(Matrix)
   library(dplyr)
   library(tidyr)
@@ -394,7 +394,7 @@ message(sprintf("  NEBULA done: %.1f s  (%s genes)",
                 t_neb_elapsed, if (!is.null(nebula_stats)) nrow(nebula_stats) else "0"))
 
 # =============================================================================
-# 7. PSEUDOBULK AGGREGATION (shared by DESeq2 and edgeR)
+# 7. PSEUDOBULK AGGREGATION (shared by edgeR and limma)
 # =============================================================================
 message("  Aggregating pseudobulk...")
 
@@ -423,42 +423,7 @@ message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
                 ncol(pb_counts), sum(keep), nrow(pb_counts)))
 
 # =============================================================================
-# 8. DESeq2
-# =============================================================================
-t_d2 <- proc.time()
-message("  Running DESeq2...")
-
-deseq2_stats <- tryCatch({
-  dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
-                                colData   = pb_meta,
-                                design    = ~ visit + treatment + visit:treatment)
-  dds <- DESeq(dds, parallel = TRUE,
-               BPPARAM = BiocParallel::MulticoreParam(opt$n_cores),
-               quiet = TRUE)
-  
-  rn       <- resultsNames(dds)
-  int_name <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
-                   rn, value = TRUE)
-  if (!length(int_name)) int_name <- tail(rn, 1)
-  res <- results(dds, name = int_name[1], independentFiltering = FALSE)
-  
-  full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
-                     pval_int = NA_real_, stringsAsFactors = FALSE)
-  hit                 <- match(rownames(res), full$gene)
-  full$logFC_int[hit] <- res$log2FoldChange
-  full$pval_int[hit]  <- res$pvalue
-  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
-  full
-}, error = function(e) {
-  message("  DESeq2 error: ", conditionMessage(e))
-  NULL
-})
-
-t_d2_elapsed <- (proc.time() - t_d2)["elapsed"]
-message(sprintf("  DESeq2 done: %.1f s", t_d2_elapsed))
-
-# =============================================================================
-# 9. edgeR
+# 8. edgeR
 # =============================================================================
 t_er <- proc.time()
 message("  Running edgeR...")
@@ -489,6 +454,66 @@ edger_stats <- tryCatch({
 
 t_er_elapsed <- (proc.time() - t_er)["elapsed"]
 message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
+
+# =============================================================================
+# 9. limma-voom + duplicateCorrelation
+#
+# Uses voom to transform pseudobulk counts, then estimates the within-subject
+# correlation via duplicateCorrelation() with subject_id as the blocking factor.
+# Design: ~ visit * treatment (no subject dummies — correlation handles pairing).
+# =============================================================================
+t_limma <- proc.time()
+message("  Running limma-voom + duplicateCorrelation...")
+
+limma_stats <- tryCatch({
+  dge_limma <- DGEList(counts = pb_counts_filt)
+  dge_limma <- calcNormFactors(dge_limma)
+
+  limma_design <- model.matrix(~ visit * treatment, data = pb_meta)
+
+  # voom transform
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE)
+
+  # Estimate within-subject correlation
+  corfit <- limma::duplicateCorrelation(v, limma_design,
+                                        block = pb_meta$subject_id)
+  message(sprintf("  duplicateCorrelation consensus = %.4f", corfit$consensus))
+
+  # Re-run voom with the correlation estimate for better precision weights
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE,
+                   block = pb_meta$subject_id,
+                   correlation = corfit$consensus)
+
+  # Fit with correlation structure
+  fit_limma <- limma::lmFit(v, limma_design,
+                            block = pb_meta$subject_id,
+                            correlation = corfit$consensus)
+  fit_limma <- limma::eBayes(fit_limma)
+
+  # Extract interaction term
+  int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
+                  colnames(limma_design), value = TRUE)
+  if (!length(int_col)) {
+    int_col <- colnames(limma_design)[ncol(limma_design)]
+  }
+
+  res_limma <- limma::topTable(fit_limma, coef = int_col[1],
+                               number = Inf, sort.by = "none")
+
+  full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
+                     pval_int = NA_real_, stringsAsFactors = FALSE)
+  hit                 <- match(rownames(res_limma), full$gene)
+  full$logFC_int[hit] <- res_limma$logFC
+  full$pval_int[hit]  <- res_limma$P.Value
+  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
+  full
+}, error = function(e) {
+  message("  limma error: ", conditionMessage(e))
+  NULL
+})
+
+t_limma_elapsed <- (proc.time() - t_limma)["elapsed"]
+message(sprintf("  limma done: %.1f s", t_limma_elapsed))
 
 # =============================================================================
 # 10. BUILD SEURAT OBJECT FOR CELL-LEVEL METHODS
@@ -589,8 +614,8 @@ gc(verbose = FALSE)
 # 13. TIMING SUMMARY
 # =============================================================================
 timing <- c(nebula = t_neb_elapsed,
-            deseq2 = t_d2_elapsed,
             edger  = t_er_elapsed,
+            limma  = t_limma_elapsed,
             wilcox = t_wilcox_elapsed,
             mast   = t_mast_elapsed)
 message(sprintf("  Timing: %s",
@@ -805,11 +830,11 @@ message("  Preparing analyses...")
 
 methods <- list(
   list(name = "NEBULA",    data = nebula_stats, test_name = "(Interaction)",
-       formula_text = "~ visit * treatment", note = "Cell-level mixed model (NEBULA-LN)"),
-  list(name = "DESeq2",    data = deseq2_stats, test_name = "(Interaction)",
-       formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk"),
+       formula_text = "~ visit * treatment", note = "Cell-level NBLMM + REML + pooled offset"),
   list(name = "edgeR",     data = edger_stats,  test_name = "(Interaction)",
        formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk QL F-test"),
+  list(name = "limma",     data = limma_stats,  test_name = "(Interaction)",
+       formula_text = "~ visit * treatment + duplicateCorrelation", note = "Pseudobulk voom + dupCor"),
   list(name = "Wilcoxon",  data = wilcox_stats, test_name = "(Trt POST vs Plc POST)",
        formula_text = NULL, note = "Cell-level naive; tests b_trt + b_int"),
   list(name = "MAST",      data = mast_stats,   test_name = "(Trt POST vs Plc POST)",
@@ -820,7 +845,7 @@ methods <- list(
 methods_ok <- Filter(function(m) !is.null(m$data), methods)
 method_names <- sapply(methods_ok, `[[`, "name")
 
-method_colors <- c(NEBULA = "#e63946", DESeq2 = "#457b9d", edgeR = "#2a9d8f",
+method_colors <- c(NEBULA = "#e63946", edgeR = "#2a9d8f", limma = "#457b9d",
                    Wilcoxon = "#e9c46a", MAST = "#264653")
 
 subtitle_text <- sprintf("ATTEMPT reference | Cell type: %s | %d HVGs | %d subjects",
@@ -1287,8 +1312,8 @@ unlink(tmp_pdf)
 # Also save stats results + summary table to S3 for downstream use
 ref_results <- list(
   nebula_stats  = nebula_stats,
-  deseq2_stats  = deseq2_stats,
   edger_stats   = edger_stats,
+  limma_stats   = limma_stats,
   wilcox_stats  = wilcox_stats,
   mast_stats    = mast_stats,
   summary_table = summary_table,
