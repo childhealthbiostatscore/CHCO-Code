@@ -770,9 +770,9 @@ for (m in methods) {
     p_thresh  = 0.05,
     cell_type = unique(sce_ref$celltype)[1],
     formula_text = m$formula_text,
-    cohort_text  = m$note,
-    positive_text = "Up in Treatment",
-    negative_text = "Down in Treatment"
+    cohort_text  = NULL,
+    positive_text = "",
+    negative_text = ""
   )
 
   # FDR volcano
@@ -787,9 +787,9 @@ for (m in methods) {
     p_thresh  = 0.05,
     cell_type = unique(sce_ref$celltype)[1],
     formula_text = m$formula_text,
-    cohort_text  = m$note,
-    positive_text = "Up in Treatment",
-    negative_text = "Down in Treatment"
+    cohort_text  = NULL,
+    positive_text = "",
+    negative_text = ""
   )
 
   if (!is.null(p_pval)) plot_list[[paste0(m$name, "_pval")]] <- p_pval
@@ -836,7 +836,8 @@ s3_output_path <- paste0(S3_BASE, "plots/", opt$output_name)
 aws.s3::put_object(
   file   = tmp_pdf,
   object = s3_output_path,
-  bucket = S3_BUCKET
+  bucket = S3_BUCKET,
+  region = ""
 )
 unlink(tmp_pdf)
 
