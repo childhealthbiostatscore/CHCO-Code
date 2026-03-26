@@ -2,9 +2,10 @@
 # 02_simulate_analyze.R
 #
 # PURPOSE:
-#   COMBINED script: simulate one scRNA-seq dataset, run all three DE methods
-#   (NEBULA-LN, DESeq2 pseudobulk, edgeR pseudobulk), save only the small
-#   stats output files to S3, and discard the raw count matrix.
+#   COMBINED script: simulate one scRNA-seq dataset, run all six DE methods
+#   (NEBULA-NBLMM, edgeR pseudobulk, limma-voom + duplicateCorrelation,
+#   Wilcoxon, MAST), save only the small stats output files to S3, and
+#   discard the raw count matrix.
 #
 #   This avoids writing 5-15 MB sparse matrices for each of 21,600 tasks,
 #   reducing total storage from ~300-800 GB down to ~1-2 GB.
@@ -15,7 +16,8 @@
 #     1. Draws the simulated design (subjects x visits x cells)
 #     2. Modifies the scDesign3 fitted model to inject DE signal + indiv variance
 #     3. Calls extract_para() + simu_new() -- count matrix lives only in memory
-#     4. Immediately runs NEBULA, DESeq2, edgeR, Wilcoxon, MAST on the in-memory counts
+#     4. Immediately runs NEBULA (gene-by-gene NBLMM+REML), edgeR,
+#        limma-voom+duplicateCorrelation, Wilcoxon, MAST on the in-memory counts
 #     5. Saves three small stats data.frames + timing + truth to S3
 #     6. Frees the count matrix (gc())
 #
@@ -43,11 +45,13 @@
 #   bucket: scrna
 #   prefix: Projects/Paired scRNA simulation analysis/results/stats/array_NNNNN/
 #     nebula_stats.rds    -- gene x {logFC, pval, padj, is_de, beta_int_true}
-#     deseq2_stats.rds    -- same structure
 #     edger_stats.rds     -- same structure
+#     limma_stats.rds     -- same structure (limma-voom + duplicateCorrelation)
 #     wilcox_stats.rds    -- same structure (contrast: Treatment POST vs Placebo POST)
 #     mast_stats.rds      -- same structure (MAST + subject_id latent covariate)
-#     timing.rds          -- named vector: sim, nebula, deseq2, edger, wilcox, mast (s)
+#     agreement.rds       -- pairwise Jaccard / overlap coeff between methods
+#     sig_membership.rds  -- binary gene x method matrix of sig hits (for UpSet)
+#     timing.rds          -- named vector: sim, nebula, edger, limma, wilcox, mast (s)
 #     params.rds          -- single-row data.frame of this task's parameters
 #     truth.rds           -- data.frame: gene, is_de, beta_int_true
 #
@@ -68,8 +72,9 @@ suppressPackageStartupMessages({
   library(scDesign3)
   library(SingleCellExperiment)
   library(nebula)
-  library(DESeq2)
   library(edgeR)
+  library(limma)
+  library(scran)
   library(Matrix)
   library(dplyr)
   library(BiocParallel)
@@ -77,6 +82,8 @@ suppressPackageStartupMessages({
   library(aws.s3)
   library(Seurat)
   library(MAST)
+  library(foreach)
+  library(doParallel)
 })
 
 # ── S3 / Multi-user setup ─────────────────────────────────────────────────────
@@ -115,8 +122,8 @@ option_list <- list(
   make_option("--array_id",      type = "integer",   default = NULL,
               help = "Row index in param_grid (1-based) [required]"),
   make_option("--n_cores",       type = "integer",   default = 4L),
-  make_option("--nebula_method",   type = "character", default = "LN",
-              help = "NEBULA method: LN or HL"),
+  make_option("--nebula_method",   type = "character", default = "NBLMM",
+              help = "NEBULA model (now uses gene-by-gene NBLMM+REML; kept for backward compat)"),
   make_option("--pb_min_count",    type = "integer",   default = 10L,
               help = "Min rowSum for pseudobulk filtering"),
   make_option("--pb_min_samples",  type = "integer",   default = 2L,
@@ -125,10 +132,10 @@ option_list <- list(
               help = "Max POST cells to pass to MAST (subsample if exceeded) [default: 5000]")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-if (is.null(opt$array_id)) stop("--array_id is required")
-
 # manual settings for debugging
 # opt$array_id = 1
+if (is.null(opt$array_id)) stop("--array_id is required")
+
 
 # Seed is array_id so each task is reproducible and unique
 set.seed(opt$array_id)
@@ -442,101 +449,191 @@ tidy_join <- function(gene, logfc, pval) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. NEBULA
+# 7. NEBULA  (gene-by-gene NBLMM + REML — matches ATTEMPT reference analysis)
 # ─────────────────────────────────────────────────────────────────────────────
-t_neb <- proc.time()
-message(sprintf("  Running NEBULA-%s...", opt$nebula_method))
 
-run_nebula <- function(counts, new_covariate, method, n_cores) {
-  nc <- new_covariate
-  nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
-  nc$treatment <- factor(nc$treatment,  levels = c("Placebo",     "Treatment"))
-  nc$subject_id <- as.character(nc$subject_id)
-  
-  X   <- model.matrix(~ visit * treatment, data = nc)
-  neb <- group_cell(count  = counts,
-                    id     = nc$subject_id,
-                    pred   = X)
-  
-  # group_cell returns NULL when cells are already grouped
-  if (is.null(neb)) {
-    message("  Cells already grouped, using inputs directly")
-    neb <- list(count = counts, id = nc$subject_id, pred = X)
+# Fixed version of nebula::group_cell that properly handles factor conversion.
+# The original group_cell() has a bug: is.unsorted() on a factor can return
+# FALSE even when cells aren't sorted, causing all subjects to collapse to 1.
+group_cell_mod <- function(count, id, pred = NULL, offset = NULL) {
+  ng <- nrow(count)
+  nc <- ncol(count)
+  if (nc != length(id)) {
+    stop("The length of id is not equal to the number of columns of the count matrix.")
   }
-  
-  # Identify subjects per arm dynamically from new_covariate (not hardcoded)
-  subjects_Treatment <- unique(nc$subject_id[nc$treatment == "Treatment"])
-  subjects_Placebo <- unique(nc$subject_id[nc$treatment == "Placebo"])
-  keep <- sapply(seq_len(nrow(neb$count)), function(g) {
-    expr_vec <- neb$count[g, ]
-    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Treatment]))
-    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Placebo]))
-    (subA >= 2) & (subB >= 2)
-  })
-  
-  neb$count <- neb$count[keep, ]
-  
-  nebula(count   = neb$count,
-         id      = neb$id,
-         pred    = neb$pred,
-         method  = method,
-         ncore   = n_cores,
-         verbose = T)
+  id <- as.character(id)
+  levels <- unique(id)
+  id <- factor(id, levels = levels)
+  if (is.unsorted(id) == FALSE) {
+    cat("The cells are already grouped.")
+    return(NULL)
+  }
+  k <- length(levels)
+  o <- order(id)
+  count <- count[, o]
+  id <- id[o]
+  if (is.null(pred) == FALSE) {
+    if (nc != nrow(as.matrix(pred))) {
+      stop("The number of rows of the design matrix is not equal to the number of columns of the count matrix")
+    }
+    pred <- as.matrix(pred)[o, , drop = FALSE]
+  }
+  if (is.null(offset) == FALSE) {
+    if (nc != length(offset)) {
+      stop("The length of offset is not equal to the number of columns of the count matrix")
+    }
+    if (sum(offset <= 0) > 0) {
+      stop("Some elements in the scaling factor are not positive.")
+    }
+    offset <- offset[o]
+  }
+  grouped <- list(count = count, id = id, pred = pred, offset = offset)
+  return(grouped)
 }
 
-extract_nebula_stats <- function(fit_neb) {
-  summ     <- fit_neb$summary
-  # NEBULA stores gene names in a $gene column; rownames are just integers 1..n
-  gene_vec <- if ("gene" %in% colnames(summ)) summ$gene else rownames(summ)
-  lfc_col  <- grep("logFC.*visittimepoint2.*Treatment|logFC.*Treatment.*visittimepoint2",
-                   colnames(summ), value = TRUE)
-  if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
-  pval_col <- sub("^logFC_", "p_", lfc_col[1])
-  # NEBULA reports logFC on natural log scale; convert to log2 for consistency
-  # with DESeq2/edgeR/Wilcoxon/MAST (all report log2FC)
-  tidy_join(gene  = gene_vec,
-            logfc = summ[[lfc_col[1]]] / log(2),
-            pval  = summ[[pval_col]])
-}
+t_neb <- proc.time()
+message("  Running NEBULA (gene-by-gene NBLMM + REML)...")
 
 nebula_stats <- tryCatch({
-  
-  fit_neb <- run_nebula(counts, new_covariate, opt$nebula_method, opt$n_cores)
-  extract_nebula_stats(fit_neb)
-  
-}, error = function(e) {
-  # Fallback 1: switch method (LN <-> HL), serial to avoid parallel noise
-  fb1 <- if (opt$nebula_method == "LN") "HL" else "LN"
-  message(sprintf("  NEBULA-%s failed; retrying %s ncore=1  [%s]",
-                  opt$nebula_method, fb1, conditionMessage(e)))
-  tryCatch({
-    r <- extract_nebula_stats(run_nebula(counts, new_covariate, fb1, 1L))
-    attr(r, "nebula_fallback") <- fb1
-    r
-  }, error = function(e2) {
-    # Fallback 2: same alternate method but zero offset.
-    # Independent simulation produces extreme library-size variance; dropping
-    # the offset removes that source of NaN gradients entirely.
-    message(sprintf("  NEBULA-%s also failed; retrying zero offset  [%s]",
-                    fb1, conditionMessage(e2)))
+  nc <- new_covariate
+  nc$visit      <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
+  nc$treatment  <- factor(nc$treatment,  levels = c("Placebo",     "Treatment"))
+  nc$subject_id <- as.character(nc$subject_id)
+
+  counts_rounded <- round(counts)
+  genes_list     <- rownames(counts_rounded)
+
+  # Pooled offset via scran (matches ATTEMPT QMD approach)
+  sce_offset <- SingleCellExperiment(assays = list(counts = counts_rounded))
+  sce_offset <- computeSumFactors(sce_offset,
+                                  BPPARAM = BiocParallel::MulticoreParam(opt$n_cores))
+  pooled_offset <- sizeFactors(sce_offset)
+  rm(sce_offset); gc(verbose = FALSE)
+  message(sprintf("  Pooled offset: min=%.4f  median=%.4f  max=%.4f",
+                  min(pooled_offset), median(pooled_offset), max(pooled_offset)))
+
+  message(sprintf("  NEBULA: fitting %d genes across %d cells, %d subjects",
+                  length(genes_list), ncol(counts_rounded),
+                  length(unique(nc$subject_id))))
+
+  # Gene-by-gene parallel loop (matches ATTEMPT QMD / 05_volcano_reference.R)
+  cl <- makeCluster(opt$n_cores)
+  registerDoParallel(cl)
+
+  nebula_res_list <- foreach(
+    g = genes_list,
+    .packages = c("nebula", "Matrix"),
+    .export   = c("counts_rounded", "nc", "pooled_offset", "group_cell_mod"),
+    .errorhandling = "pass"
+  ) %dopar% {
+    warn <- err <- res <- NULL
     tryCatch({
-      r2 <- extract_nebula_stats(
-        run_nebula(counts, new_covariate, fb1, 1L,
-                   offset_vec = rep(0, ncol(counts))))
-      attr(r2, "nebula_fallback") <- paste0(fb1, "_zero_offset")
-      r2
-    }, error = function(e3) {
-      message("  NEBULA all fallbacks failed: ", conditionMessage(e3))
-      NULL
+      count_gene <- counts_rounded[g, , drop = FALSE]
+      pred_gene  <- model.matrix(~ visit * treatment, data = nc)
+      data_gene  <- group_cell_mod(count  = count_gene,
+                                   id     = nc$subject_id,
+                                   pred   = pred_gene,
+                                   offset = pooled_offset)
+
+      # group_cell returns NULL when cells appear sorted; use raw inputs
+      if (is.null(data_gene)) {
+        data_gene <- list(count = count_gene, id = nc$subject_id,
+                          pred = pred_gene, offset = pooled_offset)
+      }
+
+      res <- withCallingHandlers(
+        nebula(
+          count      = data_gene$count,
+          id         = data_gene$id,
+          pred       = data_gene$pred,
+          offset     = data_gene$offset,
+          ncore      = 1,
+          output_re  = TRUE,
+          covariance = TRUE,
+          reml       = 1,
+          model      = "NBLMM"
+        ),
+        warning = function(w) {
+          warn <<- conditionMessage(w)
+          invokeRestart("muffleWarning")
+        }
+      )
+    }, error = function(e) {
+      err <<- conditionMessage(e)
     })
+    list(gene = g, result = res, warning = warn, error = err)
+  }
+
+  stopCluster(cl)
+
+  # Extract results — filter out errors (NULL) and non-converged genes
+  names(nebula_res_list) <- vapply(nebula_res_list, `[[`, "", "gene")
+  result_list <- lapply(nebula_res_list, `[[`, "result")
+  result_list <- Filter(Negate(is.null), result_list)
+
+  # Check NEBULA's internal convergence flag (conv == 1 means converged)
+  converged <- sapply(result_list, function(r) {
+    if (!is.null(r$convergence)) all(r$convergence == 1) else TRUE
   })
+  n_returned  <- length(result_list)
+  n_converged <- sum(converged)
+  n_total     <- length(genes_list)
+  result_list <- result_list[converged]
+
+  message(sprintf("  NEBULA: %d/%d returned results, %d converged (%.1f%% failed)",
+                  n_returned, n_total, n_converged,
+                  100 * (n_total - n_converged) / n_total))
+
+  # Parse each converged gene's NEBULA result into a row
+  parsed <- lapply(names(result_list), function(g) {
+    res  <- result_list[[g]]
+    summ <- res$summary
+    # Find the interaction column (visit * treatment formula order)
+    lfc_col <- grep("logFC.*visit.*treatment|logFC.*Treatment.*timepoint|logFC.*visittimepoint2.*Treatment",
+                    colnames(summ), value = TRUE, ignore.case = TRUE)
+    if (!length(lfc_col)) {
+      # Fallback: any logFC column with a colon (interaction)
+      lfc_col <- grep("^logFC_.*:", colnames(summ), value = TRUE)
+    }
+    if (!length(lfc_col)) return(NULL)
+
+    pval_col <- sub("^logFC_", "p_", lfc_col[1])
+    if (!pval_col %in% colnames(summ)) return(NULL)
+
+    # Additional sanity check: skip genes with extreme logFC (non-converged artifacts)
+    lfc_val <- summ[[lfc_col[1]]] / log(2)
+    if (!is.finite(lfc_val) || abs(lfc_val) > 20) return(NULL)
+
+    data.frame(
+      gene      = g,
+      logFC_int = lfc_val,
+      pval_int  = summ[[pval_col]],
+      stringsAsFactors = FALSE
+    )
+  })
+  parsed <- Filter(Negate(is.null), parsed)
+
+  if (length(parsed) == 0) {
+    message("  NEBULA: no genes converged")
+    NULL
+  } else {
+    df <- do.call(rbind, parsed)
+    df$padj_int <- p.adjust(df$pval_int, method = "BH")
+    # Join with ground truth
+    left_join(df, truth_df, by = "gene")
+  }
+
+}, error = function(e) {
+  message("  NEBULA error: ", conditionMessage(e))
+  NULL
 })
 
 t_neb_elapsed <- (proc.time() - t_neb)["elapsed"]
-message(sprintf("  NEBULA done: %.1f s", t_neb_elapsed))
+message(sprintf("  NEBULA done: %.1f s  (%s genes)",
+                t_neb_elapsed, if (!is.null(nebula_stats)) nrow(nebula_stats) else "0"))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. PSEUDOBULK AGGREGATION (shared between DESeq2 and edgeR)
+# 8. PSEUDOBULK AGGREGATION (shared between edgeR and limma)
 # ─────────────────────────────────────────────────────────────────────────────
 message("  Aggregating pseudobulk...")
 
@@ -549,6 +646,9 @@ pb_counts <- vapply(unique_pbs, function(pb) {
   idx <- which(new_covariate$pb_id == pb)
   rowSums(counts[, idx, drop = FALSE])
 }, numeric(nrow(counts)))
+# Sparse-matrix rowSums can produce floating-point artifacts (e.g. 1547.0000000000002);
+# round once here so all downstream methods (edgeR, limma) receive clean integers.
+pb_counts <- round(pb_counts)
 
 # Pseudobulk sample metadata
 pb_meta <- new_covariate[match(unique_pbs, new_covariate$pb_id),
@@ -574,7 +674,7 @@ message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
 #   Each subject belongs to exactly one treatment arm for their entire study
 #   duration, so treatment is a linear combination of the subject_id dummies.
 #   Adding a treatment main effect makes the matrix rank-deficient and
-#   DESeq2/edgeR will refuse to fit.
+#   edgeR will refuse to fit.
 #
 # What the terms mean:
 #   visit            the within-subject visit effect averaged across arms
@@ -583,53 +683,7 @@ message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
 pb_design <- model.matrix(~ visit + treatment + visit:treatment, data = pb_meta)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9. DESeq2
-# ─────────────────────────────────────────────────────────────────────────────
-t_d2 <- proc.time()
-message("  Running DESeq2...")
-
-deseq2_stats <- tryCatch({
-  dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
-                                colData   = pb_meta,
-                                design    = ~ visit + treatment + visit:treatment)
-  
-  dds <- DESeq(dds, parallel = TRUE,
-               BPPARAM  = BiocParallel::MulticoreParam(opt$n_cores),
-               quiet    = TRUE)
-  
-  # Find interaction result name
-  rn       <- resultsNames(dds)
-  int_name <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
-                   rn, value = TRUE)
-  if (!length(int_name)) {
-    message("  WARNING: DESeq2 interaction term not found; using last coef: ",
-            tail(rn, 1))
-    int_name <- tail(rn, 1)
-  }
-  
-  res <- results(dds, name = int_name[1], independentFiltering = FALSE)
-  
-  # Return stats for ALL genes (NAs for filtered-out genes)
-  full <- data.frame(gene      = hvg_genes,
-                     logFC_int = NA_real_,
-                     pval_int  = NA_real_,
-                     stringsAsFactors = FALSE)
-  hit                 <- match(rownames(res), full$gene)
-  full$logFC_int[hit] <- res$log2FoldChange
-  full$pval_int[hit]  <- res$pvalue
-  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
-  left_join(full, truth_df, by = "gene")
-  
-}, error = function(e) {
-  message("  DESeq2 error: ", conditionMessage(e))
-  NULL
-})
-
-t_d2_elapsed <- (proc.time() - t_d2)["elapsed"]
-message(sprintf("  DESeq2 done: %.1f s", t_d2_elapsed))
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 10. edgeR (quasi-likelihood)
+# 9. edgeR (quasi-likelihood)
 # ─────────────────────────────────────────────────────────────────────────────
 t_er <- proc.time()
 message("  Running edgeR...")
@@ -669,6 +723,77 @@ edger_stats <- tryCatch({
 
 t_er_elapsed <- (proc.time() - t_er)["elapsed"]
 message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. limma-voom + duplicateCorrelation
+#
+# Uses voom to transform pseudobulk counts, then estimates the within-subject
+# correlation via duplicateCorrelation() with subject_id as the blocking factor.
+# The design matrix is ~ visit * treatment (full interaction, no subject_id
+# dummies), and the estimated correlation is passed to both lmFit calls.
+#
+# This is the standard limma approach for repeated-measures designs where
+# subjects are measured at multiple timepoints.
+# ─────────────────────────────────────────────────────────────────────────────
+t_limma <- proc.time()
+message("  Running limma-voom + duplicateCorrelation...")
+
+limma_stats <- tryCatch({
+  # DGEList + normalization (reuse filtered pseudobulk counts)
+  dge_limma <- DGEList(counts = pb_counts_filt)
+  dge_limma <- calcNormFactors(dge_limma)
+
+  # Design: full interaction (no subject dummies — correlation handles pairing)
+  limma_design <- model.matrix(~ visit * treatment, data = pb_meta)
+
+  # voom transform
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE)
+
+  # Estimate within-subject correlation
+  corfit <- limma::duplicateCorrelation(v, limma_design,
+                                        block = pb_meta$subject_id)
+  message(sprintf("  duplicateCorrelation consensus = %.4f", corfit$consensus))
+
+  # Re-run voom with the correlation estimate for better precision weights
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE,
+                   block = pb_meta$subject_id,
+                   correlation = corfit$consensus)
+
+  # Fit with correlation structure
+  fit_limma <- limma::lmFit(v, limma_design,
+                            block = pb_meta$subject_id,
+                            correlation = corfit$consensus)
+  fit_limma <- limma::eBayes(fit_limma)
+
+  # Extract interaction term
+  int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
+                  colnames(limma_design), value = TRUE)
+  if (!length(int_col)) {
+    message("  WARNING: limma interaction column not found; using last coef.")
+    int_col <- colnames(limma_design)[ncol(limma_design)]
+  }
+
+  res_limma <- limma::topTable(fit_limma, coef = int_col[1],
+                               number = Inf, sort.by = "none")
+
+  # Build full-gene output (NAs for filtered-out genes)
+  full <- data.frame(gene      = hvg_genes,
+                     logFC_int = NA_real_,
+                     pval_int  = NA_real_,
+                     stringsAsFactors = FALSE)
+  hit                 <- match(rownames(res_limma), full$gene)
+  full$logFC_int[hit] <- res_limma$logFC
+  full$pval_int[hit]  <- res_limma$P.Value
+  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
+  left_join(full, truth_df, by = "gene")
+
+}, error = function(e) {
+  message("  limma error: ", conditionMessage(e))
+  NULL
+})
+
+t_limma_elapsed <- (proc.time() - t_limma)["elapsed"]
+message(sprintf("  limma done: %.1f s", t_limma_elapsed))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. BUILD SEURAT OBJECT FOR CELL-LEVEL METHODS (Wilcoxon, MAST)
@@ -711,11 +836,11 @@ wilcox_stats <- tryCatch({
     ident.1         = "Treatment",
     ident.2         = "Placebo",
     test.use        = "wilcox",
-    logfc.threshold = 0,    # no pre-filtering: we evaluate all 2k genes
+    logfc.threshold = 0,    # no pre-filtering: we evaluate all genes
     min.pct         = 0,
     verbose         = FALSE
   )
-  
+
   full <- data.frame(gene = hvg_genes,
                      logFC_int = NA_real_, pval_int = NA_real_,
                      stringsAsFactors = FALSE)
@@ -724,7 +849,7 @@ wilcox_stats <- tryCatch({
   full$pval_int[hit]  <- fm_w$p_val
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
-  
+
 }, error = function(e) {
   message("  Wilcoxon error: ", conditionMessage(e))
   NULL
@@ -796,12 +921,167 @@ if (exists("so_mast")) rm(so_mast)
 gc(verbose = FALSE)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 14. SAVE RESULTS TO S3 (small files only; counts already freed)
+# 13. METHOD AGREEMENT: pairwise overlap of significant gene sets
+#
+# For each method pair, compute:
+#   - Jaccard index  = |A ∩ B| / |A ∪ B|
+#   - Overlap coeff  = |A ∩ B| / min(|A|, |B|)
+#   - Counts: n_A, n_B, n_intersect, n_union
+# Also store the per-method significant gene lists so the downstream
+# aggregation script can build UpSet plots across scenarios.
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Computing method agreement...")
+
+method_results <- list(
+  NEBULA   = nebula_stats,
+  edgeR    = edger_stats,
+  limma    = limma_stats,
+  Wilcoxon = wilcox_stats,
+  MAST     = mast_stats
+)
+
+# Significant genes per method (padj < 0.05)
+sig_genes <- lapply(method_results, function(df) {
+  if (is.null(df)) return(character(0))
+  df$gene[!is.na(df$padj_int) & df$padj_int < 0.05]
+})
+
+# Pairwise agreement
+method_names <- names(sig_genes)
+pairs <- combn(method_names, 2, simplify = FALSE)
+
+agreement <- do.call(rbind, lapply(pairs, function(p) {
+  a <- sig_genes[[p[1]]]
+  b <- sig_genes[[p[2]]]
+  n_a   <- length(a)
+  n_b   <- length(b)
+  inter <- length(intersect(a, b))
+  uni   <- length(union(a, b))
+  data.frame(
+    method_A    = p[1],
+    method_B    = p[2],
+    n_A         = n_a,
+    n_B         = n_b,
+    n_intersect = inter,
+    n_union     = uni,
+    jaccard     = if (uni > 0) inter / uni else NA_real_,
+    overlap_coef = if (min(n_a, n_b) > 0) inter / min(n_a, n_b) else NA_real_,
+    stringsAsFactors = FALSE
+  )
+}))
+
+# Binary membership matrix (genes x methods) for UpSet-style analysis downstream
+all_genes <- unique(unlist(sig_genes))
+if (length(all_genes) > 0) {
+  sig_membership <- as.data.frame(
+    sapply(method_names, function(m) as.integer(all_genes %in% sig_genes[[m]])),
+    stringsAsFactors = FALSE
+  )
+  sig_membership$gene <- all_genes
+} else {
+  sig_membership <- data.frame(gene = character(0), stringsAsFactors = FALSE)
+}
+
+n_any_sig <- length(all_genes)
+n_all_sig <- sum(rowSums(sig_membership[, method_names, drop = FALSE]) == length(method_names))
+message(sprintf("  Agreement: %d genes sig in any method, %d in all %d methods",
+                n_any_sig, n_all_sig, length(method_names)))
+if (nrow(agreement) > 0) {
+  message(sprintf("  Jaccard range: %.3f – %.3f",
+                  min(agreement$jaccard, na.rm = TRUE),
+                  max(agreement$jaccard, na.rm = TRUE)))
+}
+
+# 14. PERFORMANCE METRICS: power, FDR, type I error at both p<0.05 and FDR<0.05
+#
+# Since we know ground truth (is_de, beta_int_true), compute per method:
+#   - power_nominal:   sensitivity at raw p < 0.05 among true DE genes
+#   - power_fdr:       sensitivity at FDR < 0.05 among true DE genes
+#   - typeI_nominal:   type I error rate at raw p < 0.05 among true null genes
+#   - typeI_fdr:       type I error rate at FDR < 0.05 among true null genes
+#   - FDP:             false discovery proportion among genes called sig at FDR < 0.05
+#   - n_sig_nominal:   total genes significant at p < 0.05
+#   - n_sig_fdr:       total genes significant at FDR < 0.05
+#   - n_tested:        genes with non-NA p-values
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Computing performance metrics...")
+
+compute_metrics <- function(stats_df, method_name) {
+  if (is.null(stats_df) || nrow(stats_df) == 0) {
+    return(data.frame(
+      method = method_name,
+      n_tested = 0L, n_de_tested = 0L, n_null_tested = 0L,
+      n_sig_nominal = 0L, n_sig_fdr = 0L,
+      power_nominal = NA_real_, power_fdr = NA_real_,
+      typeI_nominal = NA_real_, typeI_fdr = NA_real_,
+      FDP = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  df <- stats_df[!is.na(stats_df$pval_int), ]
+  n_tested <- nrow(df)
+  
+  # Split by ground truth
+  de   <- df[!is.na(df$is_de) & df$is_de == TRUE, ]
+  null <- df[!is.na(df$is_de) & df$is_de == FALSE, ]
+  n_de   <- nrow(de)
+  n_null <- nrow(null)
+  
+  # Counts
+  n_sig_nominal <- sum(df$pval_int < 0.05, na.rm = TRUE)
+  n_sig_fdr     <- sum(df$padj_int < 0.05, na.rm = TRUE)
+  
+  # Power (sensitivity among true DE)
+  power_nominal <- if (n_de > 0) mean(de$pval_int < 0.05, na.rm = TRUE) else NA_real_
+  power_fdr     <- if (n_de > 0) mean(de$padj_int < 0.05, na.rm = TRUE) else NA_real_
+  
+  # Type I error (among true nulls)
+  typeI_nominal <- if (n_null > 0) mean(null$pval_int < 0.05, na.rm = TRUE) else NA_real_
+  typeI_fdr     <- if (n_null > 0) mean(null$padj_int < 0.05, na.rm = TRUE) else NA_real_
+  
+  # False discovery proportion (among called positives at FDR < 0.05)
+  sig_fdr_genes <- df[!is.na(df$padj_int) & df$padj_int < 0.05, ]
+  FDP <- if (nrow(sig_fdr_genes) > 0) {
+    mean(!sig_fdr_genes$is_de | is.na(sig_fdr_genes$is_de), na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  
+  data.frame(
+    method        = method_name,
+    n_tested      = n_tested,
+    n_de_tested   = n_de,
+    n_null_tested = n_null,
+    n_sig_nominal = n_sig_nominal,
+    n_sig_fdr     = n_sig_fdr,
+    power_nominal = round(power_nominal, 4),
+    power_fdr     = round(power_fdr, 4),
+    typeI_nominal = round(typeI_nominal, 4),
+    typeI_fdr     = round(typeI_fdr, 4),
+    FDP           = round(FDP, 4),
+    stringsAsFactors = FALSE
+  )
+}
+
+performance <- do.call(rbind, list(
+  compute_metrics(nebula_stats, "NEBULA"),
+  compute_metrics(edger_stats,  "edgeR"),
+  compute_metrics(limma_stats,  "limma"),
+  compute_metrics(wilcox_stats, "Wilcoxon"),
+  compute_metrics(mast_stats,   "MAST")
+))
+
+message("  Performance metrics:")
+print(performance)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. SAVE RESULTS TO S3 (small files only; counts already freed)
 # ─────────────────────────────────────────────────────────────────────────────
 timing <- c(sim    = t_sim_elapsed,
             nebula = t_neb_elapsed,
-            deseq2 = t_d2_elapsed,
             edger  = t_er_elapsed,
+            limma  = t_limma_elapsed,
             wilcox = t_wilcox_elapsed,
             mast   = t_mast_elapsed)
 
@@ -809,9 +1089,6 @@ message(sprintf("  Saving results to s3://%s/%s ...", S3_BUCKET, S3_OUT))
 
 s3saveRDS(nebula_stats,
           object = paste0(S3_OUT, "nebula_stats.rds"),
-          bucket = S3_BUCKET, region = "")
-s3saveRDS(deseq2_stats,
-          object = paste0(S3_OUT, "deseq2_stats.rds"),
           bucket = S3_BUCKET, region = "")
 s3saveRDS(edger_stats,
           object = paste0(S3_OUT, "edger_stats.rds"),
@@ -821,6 +1098,18 @@ s3saveRDS(wilcox_stats,
           bucket = S3_BUCKET, region = "")
 s3saveRDS(mast_stats,
           object = paste0(S3_OUT, "mast_stats.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(limma_stats,
+          object = paste0(S3_OUT, "limma_stats.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(agreement,
+          object = paste0(S3_OUT, "agreement.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(performance,
+          object = paste0(S3_OUT, "performance.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(sig_membership,
+          object = paste0(S3_OUT, "sig_membership.rds"),
           bucket = S3_BUCKET, region = "")
 s3saveRDS(timing,
           object = paste0(S3_OUT, "timing.rds"),
@@ -834,8 +1123,8 @@ s3saveRDS(params,
 
 total_elapsed <- sum(timing)
 message(sprintf(
-  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1fs | neb=%.1fs | d2=%.1f s| er=%.1fs | wilcox=%.1fs | mast=%.1fs) ══",
+  "══ [02] DONE  array=%d  total=%.1f s  (sim=%.1fs | neb=%.1fs | er=%.1fs | limma=%.1fs | wilcox=%.1fs | mast=%.1fs) ══",
   opt$array_id, total_elapsed,
-  timing["sim.elapsed"], timing["nebula.elapsed"], timing["deseq2.elapsed"], timing["edger.elapsed"],
-  timing["wilcox.elapsed"], timing["mast.elapsed"]
+  timing["sim.elapsed"], timing["nebula.elapsed"], timing["edger.elapsed"],
+  timing["limma.elapsed"], timing["wilcox.elapsed"], timing["mast.elapsed"]
 ))

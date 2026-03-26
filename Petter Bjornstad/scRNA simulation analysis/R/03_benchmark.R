@@ -16,7 +16,7 @@
 #   bucket: scrna
 #   prefix: Projects/Paired scRNA simulation analysis/results/
 #     param_grid/param_grid.rds
-#     stats/array_NNNNN/{nebula_stats,deseq2_stats,edger_stats,
+#     stats/array_NNNNN/{nebula_stats,edger_stats,limma_stats,
 #                        wilcox_stats,mast_stats,timing,params}.rds
 #
 # OUTPUT (to S3):
@@ -106,7 +106,7 @@ message(sprintf("── [03] Aggregating %d tasks ──", n_scenarios))
 
 # ── Metric computation ────────────────────────────────────────────────────────
 # Methods that test the interaction coefficient (logFC comparable to log2FC_true)
-INTERACTION_METHODS <- c("nebula", "deseq2", "edger")
+INTERACTION_METHODS <- c("nebula", "edger", "limma")
 
 compute_metrics <- function(stats_df, fdr_thr, method_name) {
   if (is.null(stats_df) || nrow(stats_df) == 0) return(NULL)
@@ -192,7 +192,7 @@ process_task <- function(i) {
     s3readRDS(object = paste0(pfx_i, "timing.rds"),
               bucket = S3_BUCKET, region = ""),
     error = function(e) c(sim    = NA_real_, nebula = NA_real_,
-                          deseq2 = NA_real_, edger  = NA_real_,
+                          edger  = NA_real_, limma  = NA_real_,
                           wilcox = NA_real_, mast   = NA_real_)
   )
   
@@ -208,10 +208,10 @@ process_task <- function(i) {
   methods <- list(
     nebula = list(file = "nebula_stats.rds",
                   time = as.numeric(timing["nebula.elapsed"])),
-    deseq2 = list(file = "deseq2_stats.rds",
-                  time = as.numeric(timing["deseq2.elapsed"])),
     edger  = list(file = "edger_stats.rds",
                   time = as.numeric(timing["edger.elapsed"])),
+    limma  = list(file = "limma_stats.rds",
+                  time = as.numeric(timing["limma.elapsed"])),
     wilcox = list(file = "wilcox_stats.rds",
                   time = as.numeric(timing["wilcox.elapsed"])),
     mast   = list(file = "mast_stats.rds",

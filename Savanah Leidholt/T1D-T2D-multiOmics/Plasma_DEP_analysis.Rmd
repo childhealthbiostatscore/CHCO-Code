@@ -1,0 +1,978 @@
+---
+title: "Plasma_DEP_anlaysis"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# ---- packages ----
+library(dplyr)
+library(tidyr)
+library(limma)
+library(EnhancedVolcano)
+library(ggplot2)
+library(patchwork)
+library(ggrepel)
+library(vegan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+library(haven)
+library(ggVennDiagram)
+```
+
+#=====================================================
+# inputting all directories and storage locations
+#=====================================================
+```{r}
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } 
+}
+```
+
+
+```{r}
+# ---- load split objects created in your first Rmd ----
+obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+
+meta   <- obj$meta_prot
+prot_plasma <- obj$prot_plasma
+n_table     <- obj$n_table
+
+# quick check
+n_table
+dim(prot_plasma)
+dim(meta)
+
+
+```
+#==========================
+#open panther_data.RData
+#==========================
+```{r}
+load(file.path(dir.dat, "PANTHER", "Data_cleaned", "panther_data.RData"))
+
+
+#trasnforming data to match the harmonized data
+panther_hba1c <- panther %>%
+  select(record_id, hba1c) %>%
+  transmute(
+    record_id = gsub("_", "-", as.character(record_id)),
+    hba1c_panther = as.numeric(hba1c)
+  )
+```
+
+```{r}
+panther_hba1c$record_id <- as.character(panther_hba1c$record_id)
+
+# 2) Make sure harm$hba1c is numeric too (if it exists)
+meta <- meta %>%
+  mutate(hba1c = as.numeric(zap_labels(hba1c))) %>%
+  left_join(panther_hba1c, by = "record_id") %>%
+  mutate(
+    hba1c = if_else(
+      study == "PANTHER" & is.na(hba1c),
+      hba1c_panther,
+      hba1c
+    )
+  ) %>%
+  select(-hba1c_panther)
+```
+
+
+```{r}
+# ---- clean + filter meta ----
+meta$record_id <- trimws(as.character(meta$record_id))
+meta$study     <- trimws(as.character(meta$study))
+meta$group     <- trimws(as.character(meta$group))
+meta$sex       <- trimws(as.character(meta$sex))
+meta$ethnicity <- trimws(as.character(meta$race_ethnicity_condensed))
+
+# ensure numeric age (prevents silent coercion issues)
+meta$age <- suppressWarnings(as.numeric(meta$age))
+
+# drop missing covariates (common set for PCA + limma)
+keep <- !is.na(meta$age) & !is.na(meta$sex) & meta$sex != "" 
+meta <- meta[keep, , drop = FALSE]
+
+# compact group labels for plots/models
+meta$group4 <- factor(
+  meta$group,
+  levels = c("Lean Control","Obese Control","Type 1 Diabetes","Type 2 Diabetes"),
+  labels = c("LC","OC","T1D","T2D")
+)
+
+# ethnicity as factor (from cleaned column)
+meta$ethnicity <- factor(meta$ethnicity)
+
+# study6: SAFE mapping (never creates NA; unlisted studies keep original name)
+meta$study6 <- dplyr::recode(
+  meta$study,
+  "ATTEMPT"        = "ATT",
+  "CROCODILE"      = "CRC",
+  "PANTHER"        = "PAN",
+  "RENAL-HEIR"     = "RH",
+  "IMPROVE"        = "IT",
+  "RENAL-HEIRitage"= "RH2",
+  .default = meta$study
+)
+meta$study6 <- factor(meta$study6)
+
+# meta_common is your analysis baseline set (age+sex present)
+meta_common <- meta
+meta_common <- meta_common %>%
+  mutate(
+    uacr = suppressWarnings(as.numeric(acr_u)),
+    log_uacr = if_else(is.na(uacr), NA_real_, log(uacr + 1))
+  )
+
+```
+
+```{r}
+# Make both comparable
+meta_common$record_id <- trimws(as.character(meta_common$record_id))
+prot_ids <- trimws(rownames(prot_plasma))
+
+cat("meta_common n:", nrow(meta_common), "\n")
+cat("prot_plasma dim:", dim(prot_plasma), "\n")
+
+cat("example meta IDs:", paste(head(meta_common$record_id), collapse=", "), "\n")
+cat("example prot rownames:", paste(head(prot_ids), collapse=", "), "\n")
+
+# overlap
+olap <- intersect(meta_common$record_id, prot_ids)
+cat("overlap n:", length(olap), "\n")
+
+# show a few that DON'T match (helps spot formatting differences)
+cat("meta not in prot:", sum(!meta_common$record_id %in% prot_ids), "\n")
+cat("prot not in meta:", sum(!prot_ids %in% meta_common$record_id), "\n")
+```
+
+
+```{r}
+# ============================================================
+# ALIGN metadata and protein matrix
+# ============================================================
+meta_common$record_id <- trimws(as.character(meta_common$record_id))
+rownames(prot_plasma) <- trimws(rownames(prot_plasma))
+
+olap <- intersect(meta_common$record_id, rownames(prot_plasma))
+cat("Overlap samples (meta vs plasma):", length(olap), "\n")
+stopifnot(length(olap) > 0)
+
+meta_common <- meta_common[match(olap, meta_common$record_id), , drop = FALSE]
+prot_plasma_common <- prot_plasma[olap, , drop = FALSE]
+
+stopifnot(identical(rownames(prot_plasma_common), meta_common$record_id))
+
+# ============================================================
+# BUILD PCA INPUT
+# ============================================================
+prot_pca <- as.matrix(prot_plasma_common)
+
+prot_log <- log2(prot_pca + 1)
+prot_log[!is.finite(prot_log)] <- NA_real_
+
+prot_imp <- prot_log
+meds <- apply(prot_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp))) {
+  if (!is.na(meds[j])) {
+    prot_imp[is.na(prot_imp[, j]), j] <- meds[j]
+  }
+}
+
+keep_cols <- colSums(is.na(prot_imp)) == 0 &
+  apply(prot_imp, 2, var) > 0 &
+  is.finite(apply(prot_imp, 2, var))
+
+prot_imp <- prot_imp[, keep_cols, drop = FALSE]
+
+# ============================================================
+# FIND OUTLIER
+# ============================================================
+pca0 <- prcomp(prot_imp, center = TRUE, scale. = TRUE)
+
+pca_df <- tibble(
+  record_id = rownames(prot_imp),
+  study6    = meta_common$study6[match(rownames(prot_imp), meta_common$record_id)],
+  PC1       = pca0$x[, 1],
+  PC2       = pca0$x[, 2]
+) %>%
+  mutate(dist = sqrt(PC1^2 + PC2^2))
+
+# overall outlier
+outlier_id <- c("10424", "10434")
+
+# or ATT-only outlier:
+# outlier_id <- pca_df %>%
+#   filter(study6 == "ATT") %>%
+#   arrange(desc(dist)) %>%
+#   slice(1) %>%
+#   pull(record_id)
+
+cat("Outlier to remove:", outlier_id, "\n")
+
+# check it exists
+stopifnot(outlier_id %in% meta_common$record_id)
+stopifnot(outlier_id %in% rownames(prot_plasma_common))
+
+# ============================================================
+# ACTUALLY REMOVE IT FROM THE MASTER OBJECTS
+# ============================================================
+meta_common_filt <- meta_common %>%
+  filter(record_id != outlier_id)
+
+prot_plasma_common_filt <- prot_plasma_common[
+  rownames(prot_plasma_common) != outlier_id, , drop = FALSE
+]
+
+cat("Still present in metadata? ", outlier_id %in% meta_common_filt$record_id, "\n")
+cat("Still present in matrix? ", outlier_id %in% rownames(prot_plasma_common_filt), "\n")
+
+stopifnot(!(outlier_id %in% meta_common_filt$record_id))
+stopifnot(!(outlier_id %in% rownames(prot_plasma_common_filt)))
+
+# ============================================================
+# REBUILD PCA INPUT AFTER REMOVAL
+# ============================================================
+meta_pca <- meta_common_filt
+prot_pca <- prot_plasma_common_filt[match(meta_pca$record_id, rownames(prot_plasma_common_filt)), , drop = FALSE]
+
+stopifnot(identical(rownames(prot_pca), meta_pca$record_id))
+
+prot_pca <- as.matrix(prot_pca)
+
+prot_log <- log2(prot_pca + 1)
+prot_log[!is.finite(prot_log)] <- NA_real_
+
+prot_imp <- prot_log
+meds <- apply(prot_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp))) {
+  if (!is.na(meds[j])) {
+    prot_imp[is.na(prot_imp[, j]), j] <- meds[j]
+  }
+}
+
+keep_cols <- colSums(is.na(prot_imp)) == 0 &
+  apply(prot_imp, 2, var) > 0 &
+  is.finite(apply(prot_imp, 2, var))
+
+prot_imp <- prot_imp[, keep_cols, drop = FALSE]
+
+stopifnot(identical(rownames(prot_imp), meta_pca$record_id))
+
+# ============================================================
+# PLOT HELPER
+# ============================================================
+make_pca_plot <- function(prot_mat, meta_df, title_str) {
+  pca  <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1    = pca$x[, 1],
+    PC2    = pca$x[, 2],
+    group4 = meta_df$group4,
+    study  = meta_df$study6
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group4, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC  = "Cyan4",
+        OC  = "Gold",
+        T1D = "DarkRed",
+        T2D = "Purple"
+      ),
+      name = "Group"
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw()
+}
+
+# ============================================================
+# PCA PANELS
+# ============================================================
+p  <- make_pca_plot(prot_imp, meta_pca, "No adjustment")
+
+cov_m1 <- model.matrix(~ age + sex, data = meta_pca)[, -1, drop = FALSE]
+prot_m1 <- t(removeBatchEffect(t(prot_imp), covariates = cov_m1))
+p1 <- make_pca_plot(prot_m1, meta_pca, "Age + Sex")
+
+
+cov_m2 <- model.matrix(~ age + sex + study6, data = meta_pca)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(prot_imp), covariates = cov_m2))
+p2 <- make_pca_plot(prot_m2, meta_pca, "Age + Sex + Study")
+
+(p | p1 | p2)
+```
+```{r}
+get_pca_outlier <- function(prot_mat, meta_df) {
+  pca <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
+
+  tibble(
+    record_id = meta_df$record_id,
+    study6    = meta_df$study6,
+    group4    = meta_df$group4,
+    PC1       = pca$x[, 1],
+    PC2       = pca$x[, 2]
+  ) %>%
+    mutate(dist = sqrt(PC1^2 + PC2^2)) %>%
+    arrange(desc(dist))
+}
+
+out_p  <- get_pca_outlier(prot_imp, meta_pca)
+out_p1 <- get_pca_outlier(prot_m1, meta_pca)
+out_p2 <- get_pca_outlier(prot_m2, meta_pca)
+
+head(out_p, 3)
+head(out_p1, 3)
+head(out_p2, 3)
+```
+
+
+## limma testing
+```{r}
+meta_common$sex    <- factor(meta_common$sex)
+meta_common$group4 <- factor(meta_common$group4)
+
+# helper: run limma + return list of topTables
+run_limma_contrasts <- function(Y, design, contr) {
+  fit <- lmFit(Y, design)
+  fit2 <- contrasts.fit(fit, contr)
+  fit2 <- eBayes(fit2)
+
+  out <- setNames(vector("list", ncol(contr)), colnames(contr))
+  for (cc in colnames(contr)) {
+    tt <- topTable(fit2, coef = cc, number = Inf, adjust.method = "BH", sort.by = "P")
+    tt$feature_id <- rownames(tt)
+    tt$contrast <- cc
+    out[[cc]] <- tt
+  }
+  list(fit = fit2, out = out)
+}
+
+# ---- helper: summarise sig hits per contrast ----
+summarise_sig <- function(out_list, model_label, n_samp) {
+  tibble(
+    contrast = names(out_list),
+    n_FDR05  = sapply(out_list, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+    n_FDR01  = sapply(out_list, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE)),
+    model    = model_label,
+    n_samples = n_samp
+  )
+}
+
+# response matrix (proteins x samples)
+Y_all <- t(log2(as.matrix(prot_plasma_common) + 1))
+```
+
+```{r}
+# MODEL 1: age + sex 
+meta_m1 <- meta_common
+Y_m1 <- Y_all[, meta_m1$record_id, drop = FALSE]  # enforce same sample order
+
+design_no <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
+colnames(design_no) <- sub("^group4", "", colnames(design_no))
+colnames(design_no) <- make.names(colnames(design_no))
+
+contr_m1 <- makeContrasts(
+  T1D_vs_LC   = T1D - LC,
+  T2D_vs_LC   = T2D - LC,
+  T1D_vs_T2D  = T1D - T2D,
+  OC_vs_LC    = OC  - LC,
+  T1D_vs_OC   = T1D - OC,
+  T2D_vs_OC   = T2D - OC,
+  levels = design_no
+)
+
+res_m1 <- run_limma_contrasts(Y_m1, design_no, contr_m1)
+fit_m1 <- res_m1$fit
+out_m1  <- res_m1$out
+
+sig_m1 <- tibble(
+  contrast = colnames(contr_m1),
+  n_FDR05 = sapply(out_m1, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_m1, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
+) %>% mutate(model = "age + sex", n_samples = nrow(meta_m1))
+
+sig_m1
+
+
+# MODEL 2: age + sex + study
+meta_m2 <- meta_common %>%
+  filter(!is.na(study6))       
+
+Y_m2 <- Y_all[, meta_m2$record_id, drop = FALSE]
+
+design_m2 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m2)
+colnames(design_m2) <- sub("^group4", "", colnames(design_m2))
+colnames(design_m2) <- make.names(colnames(design_m2))
+
+contr_m2 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC  - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m2
+)
+
+res_m2  <- run_limma_contrasts(Y_m2, design_m2, contr_m2)
+out_m2  <- res_m2$out
+fit_m2  <- res_m2$fit
+sig_m2  <- summarise_sig(out_m2, "age_sex_study", nrow(meta_m2))
+
+cat("Model 2 (age+sex+study) complete. N =", nrow(meta_m2), "\n")
+sig_m2
+```
+
+# =====================================
+# COMBINED SUMMARY TABLE (all models)
+# =====================================
+```{r}
+# Assumes sig_no and sig_with already exist from your original code
+summary_all <- bind_rows(
+  sig_m1  %>% mutate(model = "age_sex"),
+  sig_m2
+) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+print(summary_all)
+
+# Optional: wide format for easy comparison across models per contrast
+summary_wide <- summary_all %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(names_from = model, values_from = n_FDR05)
+
+print(summary_wide)
+```
+
+# =============================================================================
+# SENSITIVITY ANALYSIS:
+# Exclude ATTEMPT study (different sequencing platform)
+# =============================================================================
+```{r}
+# Subset metadata + protein matrix
+meta_noATT <- meta_common %>%
+  filter(study != "ATTEMPT")
+
+prot_noATT <- prot_plasma_common[meta_noATT$record_id, , drop = FALSE]
+
+stopifnot(identical(rownames(prot_noATT), meta_noATT$record_id))
+
+cat("Original sample size:", nrow(meta_common), "\n")
+cat("Sample size excluding ATTEMPT:", nrow(meta_noATT), "\n")
+cat("ATTEMPT samples removed:", nrow(meta_common) - nrow(meta_noATT), "\n")
+
+cat("Studies remaining:\n")
+print(table(meta_noATT$study, useNA = "ifany"))
+```
+## --------------------------------------------------
+## PCA using no-ATTEMPT dataset
+## --------------------------------------------------
+```{r}
+meta_pca_noATT <- meta_noATT
+prot_pca_noATT <- prot_noATT[meta_pca_noATT$record_id, , drop = FALSE]
+stopifnot(identical(rownames(prot_pca_noATT), meta_pca_noATT$record_id))
+
+prot_pca_noATT <- as.matrix(prot_pca_noATT)
+
+# log2 transform + median impute
+prot_log_noATT <- log2(prot_pca_noATT + 1)
+prot_log_noATT[!is.finite(prot_log_noATT)] <- NA_real_
+
+prot_imp_noATT <- prot_log_noATT
+meds_noATT <- apply(prot_imp_noATT, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp_noATT))) {
+  if (!is.na(meds_noATT[j])) prot_imp_noATT[is.na(prot_imp_noATT[, j]), j] <- meds_noATT[j]
+}
+
+keep_cols_noATT <- colSums(is.na(prot_imp_noATT)) == 0 &
+  apply(prot_imp_noATT, 2, var) > 0 &
+  is.finite(apply(prot_imp_noATT, 2, var))
+
+prot_imp_noATT <- prot_imp_noATT[, keep_cols_noATT, drop = FALSE]
+
+cat("Proteins kept for no-ATTEMPT PCA:", ncol(prot_imp_noATT), "\n")
+
+# ---- PCA panels ----
+p_noATT <- make_pca_plot(prot_imp_noATT, meta_pca_noATT, "No adjustment (excluding ATTEMPT)")
+
+cov_m1_noATT <- model.matrix(~ age + sex, data = meta_pca_noATT)[, -1, drop = FALSE]
+prot_m1_noATT <- t(removeBatchEffect(t(prot_imp_noATT), covariates = cov_m1_noATT))
+p1_noATT <- make_pca_plot(prot_m1_noATT, meta_pca_noATT, "Age + Sex (excluding ATTEMPT)")
+
+keep_m2_noATT <- !is.na(meta_pca_noATT$study6)
+meta_m2p_noATT <- meta_pca_noATT[keep_m2_noATT, ]
+prot_m2p_noATT <- prot_imp_noATT[keep_m2_noATT, , drop = FALSE]
+cov_m2_noATT <- model.matrix(~ age + sex + study6, data = meta_m2p_noATT)[, -1, drop = FALSE]
+prot_m2_adj_noATT <- t(removeBatchEffect(t(prot_m2p_noATT), covariates = cov_m2_noATT))
+p2_noATT <- make_pca_plot(prot_m2_adj_noATT, meta_m2p_noATT, "Age + Sex + Study (excluding ATTEMPT)")
+
+# Render no-ATTEMPT PCA panel
+(p_noATT | p1_noATT | p2_noATT) 
+  plot_annotation(
+    title = "PCA: Sensitivity Analysis Excluding ATTEMPT",
+    subtitle = "Color = group | Shape = study | ATTEMPT removed due to platform differences",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+```
+##--------------------------------------------------
+## limma using no-ATTEMPT dataset
+## --------------------------------------------------
+```{r}
+Y_all_noATT <- t(log2(as.matrix(prot_noATT) + 1))
+
+
+# Model 1: age + sex
+
+meta_m1_noATT <- meta_noATT
+Y_m1_noATT <- Y_all_noATT[, meta_m1_noATT$record_id, drop = FALSE]
+
+design_m1_noATT <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_noATT)
+colnames(design_m1_noATT) <- sub("^group4", "", colnames(design_m1_noATT))
+colnames(design_m1_noATT) <- make.names(colnames(design_m1_noATT))
+
+contr_m1_noATT <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m1_noATT
+)
+
+res_m1_noATT <- run_limma_contrasts(Y_m1_noATT, design_m1_noATT, contr_m1_noATT)
+fit_m1_noATT <- res_m1_noATT$fit
+out_m1_noATT <- res_m1_noATT$out
+
+sig_m1_noATT <- tibble(
+  contrast = colnames(contr_m1_noATT),
+  n_FDR05 = sapply(out_m1_noATT, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_m1_noATT, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
+) %>% mutate(model = "age_sex_noATT", n_samples = nrow(meta_m1_noATT))
+
+
+# Model 2: age + sex + study
+
+meta_m2_noATT <- meta_noATT %>% filter(!is.na(study6))
+Y_m2_noATT <- Y_all_noATT[, meta_m2_noATT$record_id, drop = FALSE]
+
+design_m2_noATT <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m2_noATT)
+colnames(design_m2_noATT) <- sub("^group4", "", colnames(design_m2_noATT))
+colnames(design_m2_noATT) <- make.names(colnames(design_m2_noATT))
+
+contr_m2_noATT <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m2_noATT
+)
+
+res_m2_noATT <- run_limma_contrasts(Y_m2_noATT, design_m2_noATT, contr_m2_noATT)
+fit_m2_noATT <- res_m2_noATT$fit
+out_m2_noATT <- res_m2_noATT$out
+sig_m2_noATT <- summarise_sig(out_m2_noATT, "age_sex_study_noATT", nrow(meta_m2_noATT))
+
+```
+## --------------------------------------------------
+## Summarize no-ATTEMPT results
+## --------------------------------------------------
+```{r}
+summary_all_noATT <- bind_rows(
+  sig_m1_noATT,
+  sig_m2_noATT
+) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+print(summary_all_noATT)
+
+summary_wide_noATT <- summary_all_noATT %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(names_from = model, values_from = n_FDR05)
+
+print(summary_wide_noATT)
+
+
+# Compare original vs no-ATTEMPT summary tables
+
+
+summary_compare_noATT <- bind_rows(
+  summary_all %>% mutate(dataset = "original"),
+  summary_all_noATT %>% mutate(dataset = "excluding_ATTEMPT")
+) %>%
+  arrange(contrast, dataset, model)
+
+print(summary_compare_noATT)
+```
+
+# ========================================================================
+# SENSITIVITY ANALYSIS:
+# Restrict proteomics workflow to participants with all 3 omics types
+# (metabolomics + lipidomics + proteomics)
+# ========================================================================
+```{r}
+# Identify participants with all three omics types
+
+# A sample "has data" if it has at least one non-missing value in that matrix
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
+ids_prot <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+
+ids_metab <- trimws(as.character(ids_metab))
+ids_lipids <- trimws(as.character(ids_lipids))
+ids_prot <- trimws(as.character(ids_prot))
+
+ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
+
+cat("Total participants with all 3 omics:", length(ids_all_three), "\n")
+```
+
+## --------------------------------------------------
+##Restrict the proteomics analysis-ready dataset
+## --------------------------------------------------
+```{r}
+# Start from analysis-ready objects from original workflow
+meta_all3 <- meta_common %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_all_three)
+
+prot_all3 <- prot_plasma_common[meta_all3$record_id, , drop = FALSE]
+
+stopifnot(identical(rownames(prot_all3), meta_all3$record_id))
+
+cat("Original proteomics analysis N:", nrow(meta_common), "\n")
+cat("Proteomics analysis N with all 3 omics:", nrow(meta_all3), "\n")
+cat("Excluded because not all 3 omics:",
+    nrow(meta_common) - nrow(meta_all3), "\n")
+
+cat("Group counts in all-3-omics subset:\n")
+print(table(meta_all3$group4, useNA = "ifany"))
+
+cat("Study counts in all-3-omics subset:\n")
+print(table(meta_all3$study, useNA = "ifany"))
+```
+## --------------------------------------------------
+##PCA using all-3-omics subset
+##--------------------------------------------------
+```{r}
+meta_pca_all3 <- meta_all3
+prot_pca_all3 <- prot_all3[meta_pca_all3$record_id, , drop = FALSE]
+stopifnot(identical(rownames(prot_pca_all3), meta_pca_all3$record_id))
+
+prot_pca_all3 <- as.matrix(prot_pca_all3)
+
+# ---- log2 transform + median impute ----
+prot_log_all3 <- log2(prot_pca_all3 + 1)
+prot_log_all3[!is.finite(prot_log_all3)] <- NA_real_
+
+prot_imp_all3 <- prot_log_all3
+meds_all3 <- apply(prot_imp_all3, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp_all3))) {
+  if (!is.na(meds_all3[j])) prot_imp_all3[is.na(prot_imp_all3[, j]), j] <- meds_all3[j]
+}
+
+keep_cols_all3 <- colSums(is.na(prot_imp_all3)) == 0 &
+  apply(prot_imp_all3, 2, var) > 0 &
+  is.finite(apply(prot_imp_all3, 2, var))
+
+prot_imp_all3 <- prot_imp_all3[, keep_cols_all3, drop = FALSE]
+
+cat("Proteins kept for all-3-omics PCA:", ncol(prot_imp_all3), "\n")
+
+# ---- PCA panels ----
+p_all3 <- make_pca_plot(prot_imp_all3, meta_pca_all3, "No adjustment (all 3 omics subset)")
+
+cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3)[, -1, drop = FALSE]
+prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3), covariates = cov_m1_all3))
+p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3, "Age + Sex (all 3 omics subset)")
+
+keep_m2_all3 <- !is.na(meta_pca_all3$bmi)
+meta_m2p_all3 <- meta_pca_all3[keep_m2_all3, ]
+prot_m2p_all3 <- prot_imp_all3[keep_m2_all3, , drop = FALSE]
+cov_m2_all3 <- model.matrix(~ age + sex + study6, data = meta_m2p_all3)[, -1, drop = FALSE]
+prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
+p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (all 3 omics subset)")
+
+
+
+# Render all-3-omics PCA panel
+(p_all3 | p1_all3 | p2_all3)+
+  plot_annotation(
+    title = "PCA: Proteomics Sensitivity Analysis in Participants with All 3 Omics Types",
+    subtitle = "Color = group | Shape = study | Restricted to shared metabolomics + lipidomics + proteomics participants",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+```
+##--------------------------------------------------
+##limma using all-3-omics subset
+##--------------------------------------------------
+```{r}
+Y_all_all3 <- t(log2(as.matrix(prot_all3) + 1))
+
+
+# Model 1: age + sex
+meta_m1_all3 <- meta_all3
+Y_m1_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+
+design_m1_all3 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_all3)
+colnames(design_m1_all3) <- sub("^group4", "", colnames(design_m1_all3))
+colnames(design_m1_all3) <- make.names(colnames(design_m1_all3))
+
+contr_m1_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m1_all3
+)
+
+res_m1_all3 <- run_limma_contrasts(Y_m1_all3, design_m1_all3, contr_m1_all3)
+fit_m1_all3 <- res_m1_all3$fit
+out_m1_all3 <- res_m1_all3$out
+
+sig_m1_all3 <- tibble(
+  contrast = colnames(contr_m1_all3),
+  n_FDR05 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
+) %>% mutate(model = "age_sex_all3", n_samples = nrow(meta_m1_all3))
+
+
+# Model 2: age + sex + study
+Y_m2_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+
+design_m2_all3 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m1_all3)
+colnames(design_m2_all3) <- sub("^group4", "", colnames(design_m2_all3))
+colnames(design_m2_all3) <- make.names(colnames(design_m2_all3))
+
+contr_m2_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m2_all3
+)
+
+res_m2_all3 <- run_limma_contrasts(Y_m2_all3, design_m2_all3, contr_m2_all3)
+fit_m2_all3 <- res_m2_all3$fit
+out_m2_all3 <- res_m2_all3$out
+sig_m2_all3 <- summarise_sig(out_m2_all3, "age_sex_study_all3", nrow(meta_m1_all3))
+```
+## --------------------------------------------------
+## Summarize all-3-omics results
+##--------------------------------------------------
+```{r}
+summary_all_all3 <- bind_rows(
+  sig_m1_all3,
+  sig_m2_all3
+) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+print(summary_all_all3)
+
+summary_wide_all3 <- summary_all_all3 %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(names_from = model, values_from = n_FDR05)
+
+print(summary_wide_all3)
+
+
+#Compare original vs all-3-omics subset
+summary_compare_all3 <- bind_rows(
+  summary_all %>% mutate(dataset = "original"),
+  summary_all_all3 %>% mutate(dataset = "all_3_omics_subset")
+) %>%
+  arrange(contrast, dataset, model)
+
+print(summary_compare_all3)
+
+```
+
+```{r}
+FDR_THRESH <- 0.05
+
+contrasts <- c("T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+               "OC_vs_LC",  "T1D_vs_OC", "T2D_vs_OC")
+
+get_sig <- function(out_list, contrast, fdr = FDR_THRESH) {
+  tt <- out_list[[contrast]]
+  if (is.null(tt)) return(character(0))
+  tt %>%
+    dplyr::filter(!is.na(adj.P.Val), adj.P.Val < fdr) %>%
+    dplyr::pull(feature_id) %>%
+    unique()
+}
+
+overlap_results <- lapply(contrasts, function(cc) {
+  
+  all_studies <- get_sig(out_m2, cc)
+  noATT       <- get_sig(out_m2_noATT, cc)
+  all3        <- get_sig(out_m2_all3, cc)
+  
+  tibble::tibble(
+    contrast = cc,
+    
+    n_all_studies = length(all_studies),
+    n_noATT       = length(noATT),
+    n_all3        = length(all3),
+    
+    overlap_all_vs_noATT = length(intersect(all_studies, noATT)),
+    overlap_all_vs_all3  = length(intersect(all_studies, all3)),
+    overlap_noATT_vs_all3 = length(intersect(noATT, all3)),
+    
+    overlap_all_three = length(Reduce(intersect, list(all_studies, noATT, all3))),
+    
+    union_all_vs_noATT = length(union(all_studies, noATT)),
+    union_all_vs_all3  = length(union(all_studies, all3)),
+    union_noATT_vs_all3 = length(union(noATT, all3)),
+    union_all_three    = length(Reduce(union, list(all_studies, noATT, all3))),
+    
+    jaccard_all_vs_noATT = ifelse(length(union(all_studies, noATT)) > 0,
+                                  length(intersect(all_studies, noATT)) / length(union(all_studies, noATT)),
+                                  NA_real_),
+    
+    jaccard_all_vs_all3 = ifelse(length(union(all_studies, all3)) > 0,
+                                 length(intersect(all_studies, all3)) / length(union(all_studies, all3)),
+                                 NA_real_),
+    
+    jaccard_noATT_vs_all3 = ifelse(length(union(noATT, all3)) > 0,
+                                   length(intersect(noATT, all3)) / length(union(noATT, all3)),
+                                   NA_real_),
+    
+    jaccard_all_three = ifelse(length(Reduce(union, list(all_studies, noATT, all3))) > 0,
+                               length(Reduce(intersect, list(all_studies, noATT, all3))) /
+                                 length(Reduce(union, list(all_studies, noATT, all3))),
+                               NA_real_)
+  )
+})
+
+overlap_summary <- dplyr::bind_rows(overlap_results)
+print(overlap_summary)
+```
+
+# ============================================================
+# SAVE GSEA-READY LIMMA OUTPUTS
+# Three model versions, all using age + sex + study
+# ============================================================
+```{r}
+# small helper to keep only what you'll likely need for GSEA
+prep_gsea_tables <- function(out_list) {
+  lapply(out_list, function(tt) {
+    tt %>%
+      dplyr::select(feature_id, logFC, AveExpr, t, P.Value, adj.P.Val, B, contrast)
+  })
+}
+
+# define a shared contrast order
+contrast_order <- c(
+  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+)
+
+# build one object with all three study-adjusted analyses
+limma_gsea_inputs <- list(
+  
+  metadata = list(
+    created = Sys.time(),
+    response = "plasma proteomics",
+    transform = "log2(x + 1)",
+    model_formula = "0 + group4 + age + sex + study6",
+    contrasts = contrast_order
+  ),
+  
+  all_studies = list(
+    model_name = "age_sex_study6",
+    samples = meta_m2,
+    design = design_m2,
+    fit = fit_m2,
+    out = out_m2,
+    gsea_tables = prep_gsea_tables(out_m2)
+  ),
+  
+  no_attempt = list(
+    model_name = "age_sex_study_noATT",
+    samples = meta_m2_noATT,
+    design = design_m2_noATT,
+    fit = fit_m2_noATT,
+    out = out_m2_noATT,
+    gsea_tables = prep_gsea_tables(out_m2_noATT)
+  ),
+  
+  all3_omics = list(
+    model_name = "age_sex_study4",
+    samples = meta_all3,
+    design = design_m2_all3,
+    fit = fit_m2_all3,
+    out = out_m2_all3,
+    gsea_tables = prep_gsea_tables(out_m2_all3)
+  )
+)
+
+saveRDS(
+  limma_gsea_inputs,
+  file = file.path(
+    dir.dat, "Savanah Leidholt", "T1D-T2D", "Data",
+    "limma_gsea_inputs_age_sex_study.rds"
+  )
+)
+
+cat("Saved: limma_gsea_inputs_age_sex_study.rds\n")
+```
+

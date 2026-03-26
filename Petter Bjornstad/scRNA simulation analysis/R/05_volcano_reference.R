@@ -2,7 +2,7 @@
 # 05_volcano_reference.R
 #
 # PURPOSE:
-#   Run all 5 DE methods (NEBULA, DESeq2, edgeR, Wilcoxon, MAST) on the
+#   Run all 5 DE methods (NEBULA, edgeR, limma-voom+dupCor, Wilcoxon, MAST) on the
 #   ACTUAL ATTEMPT reference dataset (not simulated data) and produce volcano
 #   plots of the interaction term for each method.
 #
@@ -33,8 +33,8 @@
 
 suppressPackageStartupMessages({
   library(nebula)
-  library(DESeq2)
   library(edgeR)
+  library(limma)
   library(Matrix)
   library(dplyr)
   library(tidyr)
@@ -48,6 +48,10 @@ suppressPackageStartupMessages({
   library(aws.s3)
   library(Seurat)
   library(MAST)
+  library(scran)
+  library(SingleCellExperiment)
+  library(foreach)
+  library(doParallel)
 })
 
 # =============================================================================
@@ -55,7 +59,7 @@ suppressPackageStartupMessages({
 # =============================================================================
 setup_s3 <- function() {
   user <- Sys.info()[["user"]]
-
+  
   if (user == "choiyej") {
     keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
   } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
@@ -63,7 +67,7 @@ setup_s3 <- function() {
   } else {
     stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
   }
-
+  
   keys <- jsonlite::fromJSON(keys_path)
   Sys.setenv(
     AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
@@ -185,7 +189,7 @@ names(clean_ids) <- orig_ids
 clean_ids[placebo_ids]   <- sprintf("grpPlacebo_S%02d", seq_along(placebo_ids))
 clean_ids[treatment_ids] <- sprintf("grpTreatment_S%02d", seq_along(treatment_ids))
 
-so_sub$subject_id_clean <- clean_ids[as.character(so_sub$subject_id)]
+so_sub$subject_id_clean <- unname(clean_ids[as.character(so_sub$subject_id)])
 so_sub$visit_recode     <- factor(
   ifelse(so_sub$visit == "PRE", "timepoint1", "timepoint2"),
   levels = c("timepoint1", "timepoint2")
@@ -233,44 +237,163 @@ tidy_results <- function(gene, logfc, pval) {
 t_neb <- proc.time()
 message("  Running NEBULA...")
 
+group_cell_mod <- function (count, id, pred = NULL, offset = NULL) 
+{
+  ng = nrow(count)
+  nc = ncol(count)
+  if (nc != length(id)) {
+    stop("The length of id is not equal to the number of columns of the count matrix.")
+  }
+  id = as.character(id)
+  levels = unique(id)
+  id = factor(id, levels = levels)
+  if (is.unsorted(id) == FALSE) {
+    cat("The cells are already grouped.")
+    return(NULL)
+  }
+  k = length(levels)
+  o = order(id)
+  count = count[, o]
+  id = id[o]
+  if (is.null(pred) == FALSE) {
+    if (nc != nrow(as.matrix(pred))) {
+      stop("The number of rows of the design matrix is not equal to the number of columns of the count matrix")
+    }
+    pred = as.matrix(pred)[o, , drop = FALSE]
+  }
+  if (is.null(offset) == FALSE) {
+    if (nc != length(offset)) {
+      stop("The length of offset is not equal to the number of columns of the count matrix")
+    }
+    if (sum(offset <= 0) > 0) {
+      stop("Some elements in the scaling factor are not positive.")
+    }
+    offset = offset[o]
+  }
+  grouped = list(count = count, id = id, pred = pred, offset = offset)
+  return(grouped)
+}
+
 nebula_stats <- tryCatch({
   nc <- meta
   nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
   nc$treatment <- factor(nc$treatment,  levels = c("Placebo",     "Treatment"))
   nc$subject_id <- as.character(nc$subject_id)
+  counts_rounded <- round(counts)
+  genes_list <- rownames(counts_rounded)
 
-  X   <- model.matrix(~ visit * treatment, data = nc)
-  neb <- group_cell(count = counts, id = nc$subject_id, pred = X)
+  # Pooled offset via scran (matches ATTEMPT QMD approach)
+  sce_offset <- SingleCellExperiment(assays = list(counts = counts_rounded))
+  sce_offset <- computeSumFactors(sce_offset,
+                                  BPPARAM = BiocParallel::MulticoreParam(opt$n_cores))
+  pooled_offset <- sizeFactors(sce_offset)
+  rm(sce_offset); gc(verbose = FALSE)
+  message(sprintf("  Pooled offset: min=%.4f  median=%.4f  max=%.4f",
+                  min(pooled_offset), median(pooled_offset), max(pooled_offset)))
 
-  if (is.null(neb)) {
-    neb <- list(count = counts, id = nc$subject_id, pred = X)
+  message(sprintf("  NEBULA: fitting %d genes across %d cells, %d subjects",
+                  length(genes_list), ncol(counts_rounded),
+                  length(unique(nc$subject_id))))
+  
+  # Gene-by-gene parallel loop (matches ATTEMPT QMD approach)
+  cl <- makeCluster(opt$n_cores)
+  registerDoParallel(cl)
+  
+  nebula_res_list <- foreach(
+    g = genes_list,
+    .packages = c("nebula", "Matrix"),
+    .export   = c("counts_rounded", "nc", "pooled_offset", "group_cell_mod"),
+    .errorhandling = "pass"
+  ) %dopar% {
+    warn <- err <- res <- NULL
+    tryCatch({
+      count_gene <- counts_rounded[g, , drop = FALSE]
+      pred_gene  <- model.matrix(~ treatment * visit, data = nc)
+      data_gene  <- group_cell_mod(count  = count_gene,
+                                   id     = nc$subject_id,
+                                   pred   = pred_gene,
+                                   offset = pooled_offset)
+
+      # If group_cell_mod returns NULL (cells already sorted), use raw inputs
+      if (is.null(data_gene)) {
+        data_gene <- list(count = count_gene, id = nc$subject_id,
+                          pred = pred_gene, offset = pooled_offset)
+      }
+
+      res <- withCallingHandlers(
+        nebula(
+          count      = data_gene$count,
+          id         = data_gene$id,
+          pred       = data_gene$pred,
+          offset     = data_gene$offset,
+          ncore      = 1,
+          output_re  = TRUE,
+          covariance = TRUE,
+          reml       = 1,
+          model      = "NBLMM",
+        ),
+        warning = function(w) {
+          warn <<- conditionMessage(w)
+          invokeRestart("muffleWarning")
+        }
+      )
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
   }
+  
+  stopCluster(cl)
+  
+  # Extract results — filter out errors (NULL) and non-converged genes
+  names(nebula_res_list) <- vapply(nebula_res_list, `[[`, "", "gene")
+  result_list <- lapply(nebula_res_list, `[[`, "result")
+  result_list <- Filter(Negate(is.null), result_list)
 
-  # Filter: gene must be expressed in >= 2 subjects per arm
-  subjects_Treatment <- unique(nc$subject_id[nc$treatment == "Treatment"])
-  subjects_Placebo   <- unique(nc$subject_id[nc$treatment == "Placebo"])
-  keep <- sapply(seq_len(nrow(neb$count)), function(g) {
-    expr_vec <- neb$count[g, ]
-    subA <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Treatment]))
-    subB <- length(unique(neb$id[expr_vec > 0 & neb$id %in% subjects_Placebo]))
-    (subA >= 2) & (subB >= 2)
+  # Check NEBULA's internal convergence flag (conv == 1 means converged)
+  converged <- sapply(result_list, function(r) {
+    if (!is.null(r$convergence)) all(r$convergence == 1) else TRUE
   })
-  neb$count <- neb$count[keep, ]
+  n_returned  <- length(result_list)
+  n_converged <- sum(converged)
+  n_total     <- length(genes_list)
+  result_list <- result_list[converged]
 
-  fit_neb <- nebula(count = neb$count, id = neb$id, pred = neb$pred,
-                    method = opt$nebula_method, ncore = opt$n_cores, verbose = TRUE)
+  message(sprintf("  NEBULA: %d/%d returned results, %d converged (%.1f%% failed)",
+                  n_returned, n_total, n_converged,
+                  100 * (n_total - n_converged) / n_total))
 
-  summ     <- fit_neb$summary
-  gene_vec <- if ("gene" %in% colnames(summ)) summ$gene else rownames(summ)
-  lfc_col  <- grep("logFC.*visittimepoint2.*Treatment|logFC.*Treatment.*visittimepoint2",
-                   colnames(summ), value = TRUE)
-  if (!length(lfc_col)) lfc_col <- grep(":", colnames(summ), value = TRUE)[1]
-  pval_col <- sub("^logFC_", "p_", lfc_col[1])
+  # Parse each converged gene's NEBULA result into a row
+  parsed <- lapply(names(result_list), function(g) {
+    res  <- result_list[[g]]
+    summ <- res$summary
+    # Find the interaction column (treatment * visit formula order)
+    lfc_col <- grep("logFC.*treatment.*visit|logFC.*Treatment.*timepoint",
+                    colnames(summ), value = TRUE, ignore.case = TRUE)
+    if (!length(lfc_col)) {
+      lfc_col <- grep("^logFC_.*:", colnames(summ), value = TRUE)
+    }
+    if (!length(lfc_col)) return(NULL)
 
-  # NEBULA reports natural log -> convert to log2
-  tidy_results(gene  = gene_vec,
-               logfc = summ[[lfc_col[1]]] / log(2),
-               pval  = summ[[pval_col]])
+    pval_col <- sub("^logFC_", "p_", lfc_col[1])
+    if (!pval_col %in% colnames(summ)) return(NULL)
+
+    # Additional sanity check: skip genes with extreme logFC (non-converged artifacts)
+    lfc_val <- summ[[lfc_col[1]]] / log(2)
+    if (!is.finite(lfc_val) || abs(lfc_val) > 20) return(NULL)
+
+    data.frame(
+      gene      = g,
+      logFC_int = lfc_val,
+      pval_int  = summ[[pval_col]],
+      stringsAsFactors = FALSE
+    )
+  })
+  parsed <- Filter(Negate(is.null), parsed)
+  df <- do.call(rbind, parsed)
+  df$padj_int <- p.adjust(df$pval_int, method = "BH")
+  df
+
 }, error = function(e) {
   message("  NEBULA error: ", conditionMessage(e))
   NULL
@@ -281,7 +404,7 @@ message(sprintf("  NEBULA done: %.1f s  (%s genes)",
                 t_neb_elapsed, if (!is.null(nebula_stats)) nrow(nebula_stats) else "0"))
 
 # =============================================================================
-# 7. PSEUDOBULK AGGREGATION (shared by DESeq2 and edgeR)
+# 7. PSEUDOBULK AGGREGATION (shared by edgeR and limma)
 # =============================================================================
 message("  Aggregating pseudobulk...")
 
@@ -301,6 +424,7 @@ pb_meta$visit     <- factor(pb_meta$visit,
 pb_meta$treatment <- factor(pb_meta$treatment,
                             levels = c("Placebo", "Treatment"))
 
+pb_counts      <- round(pb_counts)
 keep           <- rowSums(pb_counts >= opt$pb_min_count) >= opt$pb_min_samples
 pb_counts_filt <- pb_counts[keep, ]
 pb_design      <- model.matrix(~ visit + treatment + visit:treatment, data = pb_meta)
@@ -309,42 +433,7 @@ message(sprintf("  Pseudobulk: %d samples | %d/%d genes pass filter",
                 ncol(pb_counts), sum(keep), nrow(pb_counts)))
 
 # =============================================================================
-# 8. DESeq2
-# =============================================================================
-t_d2 <- proc.time()
-message("  Running DESeq2...")
-
-deseq2_stats <- tryCatch({
-  dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
-                                colData   = pb_meta,
-                                design    = ~ visit + treatment + visit:treatment)
-  dds <- DESeq(dds, parallel = TRUE,
-               BPPARAM = BiocParallel::MulticoreParam(opt$n_cores),
-               quiet = TRUE)
-
-  rn       <- resultsNames(dds)
-  int_name <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
-                   rn, value = TRUE)
-  if (!length(int_name)) int_name <- tail(rn, 1)
-  res <- results(dds, name = int_name[1], independentFiltering = FALSE)
-
-  full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
-                     pval_int = NA_real_, stringsAsFactors = FALSE)
-  hit                 <- match(rownames(res), full$gene)
-  full$logFC_int[hit] <- res$log2FoldChange
-  full$pval_int[hit]  <- res$pvalue
-  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
-  full
-}, error = function(e) {
-  message("  DESeq2 error: ", conditionMessage(e))
-  NULL
-})
-
-t_d2_elapsed <- (proc.time() - t_d2)["elapsed"]
-message(sprintf("  DESeq2 done: %.1f s", t_d2_elapsed))
-
-# =============================================================================
-# 9. edgeR
+# 8. edgeR
 # =============================================================================
 t_er <- proc.time()
 message("  Running edgeR...")
@@ -354,13 +443,13 @@ edger_stats <- tryCatch({
   dge <- calcNormFactors(dge)
   dge <- estimateDisp(dge, design = pb_design)
   fit_er  <- glmQLFit(dge, design = pb_design, robust = TRUE)
-
+  
   int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
                   colnames(pb_design))
   if (!length(int_col)) int_col <- ncol(pb_design)
   qlf    <- glmQLFTest(fit_er, coef = int_col[1])
   res_er <- topTags(qlf, n = Inf, sort.by = "none")$table
-
+  
   full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
                      pval_int = NA_real_, stringsAsFactors = FALSE)
   hit                 <- match(rownames(res_er), full$gene)
@@ -375,6 +464,66 @@ edger_stats <- tryCatch({
 
 t_er_elapsed <- (proc.time() - t_er)["elapsed"]
 message(sprintf("  edgeR done: %.1f s", t_er_elapsed))
+
+# =============================================================================
+# 9. limma-voom + duplicateCorrelation
+#
+# Uses voom to transform pseudobulk counts, then estimates the within-subject
+# correlation via duplicateCorrelation() with subject_id as the blocking factor.
+# Design: ~ visit * treatment (no subject dummies — correlation handles pairing).
+# =============================================================================
+t_limma <- proc.time()
+message("  Running limma-voom + duplicateCorrelation...")
+
+limma_stats <- tryCatch({
+  dge_limma <- DGEList(counts = pb_counts_filt)
+  dge_limma <- calcNormFactors(dge_limma)
+
+  limma_design <- model.matrix(~ visit * treatment, data = pb_meta)
+
+  # voom transform
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE)
+
+  # Estimate within-subject correlation
+  corfit <- limma::duplicateCorrelation(v, limma_design,
+                                        block = pb_meta$subject_id)
+  message(sprintf("  duplicateCorrelation consensus = %.4f", corfit$consensus))
+
+  # Re-run voom with the correlation estimate for better precision weights
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE,
+                   block = pb_meta$subject_id,
+                   correlation = corfit$consensus)
+
+  # Fit with correlation structure
+  fit_limma <- limma::lmFit(v, limma_design,
+                            block = pb_meta$subject_id,
+                            correlation = corfit$consensus)
+  fit_limma <- limma::eBayes(fit_limma)
+
+  # Extract interaction term
+  int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
+                  colnames(limma_design), value = TRUE)
+  if (!length(int_col)) {
+    int_col <- colnames(limma_design)[ncol(limma_design)]
+  }
+
+  res_limma <- limma::topTable(fit_limma, coef = int_col[1],
+                               number = Inf, sort.by = "none")
+
+  full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
+                     pval_int = NA_real_, stringsAsFactors = FALSE)
+  hit                 <- match(rownames(res_limma), full$gene)
+  full$logFC_int[hit] <- res_limma$logFC
+  full$pval_int[hit]  <- res_limma$P.Value
+  full$padj_int       <- p.adjust(full$pval_int, method = "BH")
+  full
+}, error = function(e) {
+  message("  limma error: ", conditionMessage(e))
+  NULL
+})
+
+t_limma_elapsed <- (proc.time() - t_limma)["elapsed"]
+message(sprintf("  limma done: %.1f s", t_limma_elapsed))
 
 # =============================================================================
 # 10. BUILD SEURAT OBJECT FOR CELL-LEVEL METHODS
@@ -435,7 +584,7 @@ message(sprintf("  Running FindMarkers (MAST, max_cells=%d)...", opt$mast_max_ce
 
 mast_stats <- tryCatch({
   so_mast <- so_post
-
+  
   if (n_post > opt$mast_max_cells) {
     n_per_group <- floor(opt$mast_max_cells / 2)
     cells_A <- WhichCells(so_post, idents = "Treatment")
@@ -448,7 +597,7 @@ mast_stats <- tryCatch({
     message(sprintf("  MAST: subsampled to %d POST cells (%d/group)",
                     ncol(so_mast), n_per_group))
   }
-
+  
   fm_m <- FindMarkers(so_mast, ident.1 = "Treatment", ident.2 = "Placebo",
                       test.use = "MAST", latent.vars = "subject_id",
                       logfc.threshold = 0, min.pct = 0, verbose = FALSE)
@@ -475,8 +624,8 @@ gc(verbose = FALSE)
 # 13. TIMING SUMMARY
 # =============================================================================
 timing <- c(nebula = t_neb_elapsed,
-            deseq2 = t_d2_elapsed,
             edger  = t_er_elapsed,
+            limma  = t_limma_elapsed,
             wilcox = t_wilcox_elapsed,
             mast   = t_mast_elapsed)
 message(sprintf("  Timing: %s",
@@ -503,17 +652,17 @@ make_volcano <- function(data, p_col, fc, title = NULL,
                          off_chart_threshold = 0.95,
                          off_chart_y_position = 0.85,
                          off_chart_arrow_length = 0.02) {
-
+  
   if (!p_col %in% names(data) || !fc %in% names(data)) return(NULL)
-
+  
   # Rename gene column if needed
   if (!"Gene" %in% names(data) && "gene" %in% names(data)) {
     data$Gene <- data$gene
   }
-
+  
   data <- data %>% dplyr::filter(!is.na(.data[[p_col]]) & !is.na(.data[[fc]]))
   if (nrow(data) == 0) return(NULL)
-
+  
   # Apply significance filter based on sig_type
   if (sig_type == "fdr") {
     if (is.null(fdr_col) || !fdr_col %in% names(data)) return(NULL)
@@ -522,29 +671,29 @@ make_volcano <- function(data, p_col, fc, title = NULL,
   } else {
     data$is_sig <- data[[p_col]] < p_thresh
   }
-
+  
   set.seed(1)
   epsilon <- 1e-300
-
+  
   y_col <- if (sig_type == "fdr") fdr_col else p_col
   data <- data %>%
     dplyr::mutate(neg_log_p = -log10(.data[[y_col]] + epsilon))
-
+  
   y_max <- max(data$neg_log_p, na.rm = TRUE) * 1.1
   y_cutoff <- y_max * off_chart_threshold
-
+  
   top_pos <- data %>%
     dplyr::filter(.data[[fc]] > 0 & is_sig) %>%
     dplyr::arrange(.data[[y_col]])
   n_pos <- nrow(top_pos)
   top_pos_n <- top_pos %>% dplyr::slice_head(n = 20)
-
+  
   top_neg <- data %>%
     dplyr::filter(.data[[fc]] < 0 & is_sig) %>%
     dplyr::arrange(.data[[y_col]])
   n_neg <- nrow(top_neg)
   top_neg_n <- top_neg %>% dplyr::slice_head(n = 20)
-
+  
   # Identify off-chart genes
   off_chart_genes <- data %>%
     dplyr::filter(Gene %in% c(top_pos_n$Gene, top_neg_n$Gene) & neg_log_p > y_cutoff) %>%
@@ -555,11 +704,11 @@ make_volcano <- function(data, p_col, fc, title = NULL,
                           .data[[fc]] - seq(from = 0.1, by = 0.2, length.out = n())),
       y_position = y_max * off_chart_y_position
     )
-
+  
   on_chart_genes <- c(top_pos_n$Gene, top_neg_n$Gene)[
     !c(top_pos_n$Gene, top_neg_n$Gene) %in% off_chart_genes$Gene
   ]
-
+  
   data <- data %>%
     dplyr::mutate(
       top_color = case_when(
@@ -572,14 +721,14 @@ make_volcano <- function(data, p_col, fc, title = NULL,
       display_neg_log_p = pmin(neg_log_p, y_cutoff)
     ) %>%
     dplyr::filter(abs(.data[[fc]]) < 10)
-
+  
   max_fc <- max(data[[fc]], na.rm = TRUE)
   min_fc <- min(data[[fc]], na.rm = TRUE)
-
+  
   # Build caption
   has_formula <- !is.null(formula_text) && !is.na(formula_text)
   has_cohort  <- !is.null(cohort_text) && !is.na(cohort_text)
-
+  
   caption_text <- paste0(
     if (has_formula && has_cohort) {
       paste0("Formula: ", formula_text, " + (1|subject) | Cohort: ", cohort_text, "\n\n")
@@ -596,9 +745,9 @@ make_volcano <- function(data, p_col, fc, title = NULL,
              " gene(s) with p-values near zero (arrows indicate off-scale values)")
     } else ""
   )
-
+  
   y_label <- ifelse(sig_type == "fdr", "-log10(adj. p-value)", "-log10(p-value)")
-
+  
   p <- ggplot(data, aes(x = .data[[fc]], y = display_neg_log_p)) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color), size = 3) +
@@ -612,7 +761,7 @@ make_volcano <- function(data, p_col, fc, title = NULL,
                      fill = fill_alpha("white", 0.7),
                      label.size = 0
     )
-
+  
   if (nrow(off_chart_genes) > 0) {
     p <- p +
       geom_segment(
@@ -638,7 +787,7 @@ make_volcano <- function(data, p_col, fc, title = NULL,
         color = "darkgrey"
       )
   }
-
+  
   p <- p +
     labs(title = title,
          x = paste0("log2 FC ", test_name),
@@ -680,7 +829,7 @@ make_volcano <- function(data, p_col, fc, title = NULL,
           plot.background  = element_rect(fill = "transparent", color = NA),
           legend.background = element_rect(fill = "transparent", color = NA),
           legend.box.background = element_rect(fill = "transparent", color = NA))
-
+  
   return(p)
 }
 
@@ -691,11 +840,11 @@ message("  Preparing analyses...")
 
 methods <- list(
   list(name = "NEBULA",    data = nebula_stats, test_name = "(Interaction)",
-       formula_text = "~ visit * treatment", note = "Cell-level mixed model (NEBULA-LN)"),
-  list(name = "DESeq2",    data = deseq2_stats, test_name = "(Interaction)",
-       formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk"),
+       formula_text = "~ visit * treatment", note = "Cell-level NBLMM + REML + pooled offset"),
   list(name = "edgeR",     data = edger_stats,  test_name = "(Interaction)",
        formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk QL F-test"),
+  list(name = "limma",     data = limma_stats,  test_name = "(Interaction)",
+       formula_text = "~ visit * treatment + duplicateCorrelation", note = "Pseudobulk voom + dupCor"),
   list(name = "Wilcoxon",  data = wilcox_stats, test_name = "(Trt POST vs Plc POST)",
        formula_text = NULL, note = "Cell-level naive; tests b_trt + b_int"),
   list(name = "MAST",      data = mast_stats,   test_name = "(Trt POST vs Plc POST)",
@@ -706,7 +855,7 @@ methods <- list(
 methods_ok <- Filter(function(m) !is.null(m$data), methods)
 method_names <- sapply(methods_ok, `[[`, "name")
 
-method_colors <- c(NEBULA = "#e63946", DESeq2 = "#457b9d", edgeR = "#2a9d8f",
+method_colors <- c(NEBULA = "#e63946", edgeR = "#2a9d8f", limma = "#457b9d",
                    Wilcoxon = "#e9c46a", MAST = "#264653")
 
 subtitle_text <- sprintf("ATTEMPT reference | Cell type: %s | %d HVGs | %d subjects",
@@ -741,7 +890,7 @@ for (m in methods_ok) {
     positive_text = "Up in Treatment",
     negative_text = "Down in Treatment"
   )
-
+  
   # FDR volcano
   p_fdr <- make_volcano(
     data      = m$data,
@@ -758,7 +907,7 @@ for (m in methods_ok) {
     positive_text = "Up in Treatment",
     negative_text = "Down in Treatment"
   )
-
+  
   if (!is.null(p_pval)) volcano_list[[paste0(m$name, "_pval")]] <- p_pval
   if (!is.null(p_fdr))  volcano_list[[paste0(m$name, "_fdr")]]  <- p_fdr
 }
@@ -773,7 +922,7 @@ pval_hist_list <- list()
 for (m in methods_ok) {
   df <- m$data %>% dplyr::filter(!is.na(pval_int))
   if (nrow(df) == 0) next
-
+  
   p <- ggplot(df, aes(x = pval_int)) +
     geom_histogram(bins = 50, fill = method_colors[m$name],
                    color = "white", alpha = 0.8) +
@@ -887,9 +1036,9 @@ make_cor_heatmap <- function(cor_mat, title_text) {
 }
 
 cor_logfc_plot <- make_cor_heatmap(cor_logfc,
-  "Spearman correlation of log2FC between methods")
+                                   "Spearman correlation of log2FC between methods")
 cor_pval_plot <- make_cor_heatmap(cor_pval,
-  "Spearman correlation of p-value ranks between methods")
+                                  "Spearman correlation of p-value ranks between methods")
 
 # =============================================================================
 # 19. LOG2FC SCATTER PLOTS BETWEEN METHOD PAIRS
@@ -904,16 +1053,16 @@ for (pair in method_pairs) {
   m1 <- pair[1]; m2 <- pair[2]
   fc1_col <- paste0("logFC_", m1)
   fc2_col <- paste0("logFC_", m2)
-
+  
   if (!fc1_col %in% names(merged_all) || !fc2_col %in% names(merged_all)) next
-
+  
   df_pair <- merged_all %>%
     dplyr::select(gene, all_of(c(fc1_col, fc2_col))) %>%
     dplyr::filter(!is.na(.data[[fc1_col]]) & !is.na(.data[[fc2_col]]))
-
+  
   r_val <- cor(df_pair[[fc1_col]], df_pair[[fc2_col]],
                method = "spearman", use = "complete.obs")
-
+  
   p <- ggplot(df_pair, aes(x = .data[[fc1_col]], y = .data[[fc2_col]])) +
     geom_point(alpha = 0.3, size = 1.5, color = "grey40") +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
@@ -927,7 +1076,7 @@ for (pair in method_pairs) {
          y = paste0("log2FC (", m2, ")")) +
     shared_theme +
     coord_fixed(ratio = 1)
-
+  
   fc_scatter_list[[paste0(m1, "_vs_", m2)]] <- p
 }
 
@@ -941,27 +1090,35 @@ summary_rows <- lapply(methods_ok, function(m) {
   n_tested  <- nrow(df)
   n_sig_p   <- sum(df$pval_int < 0.05, na.rm = TRUE)
   n_sig_fdr <- sum(df$padj_int < 0.05, na.rm = TRUE)
-
+  
   sig_genes <- df %>% dplyr::filter(padj_int < 0.05)
   median_fc     <- if (nrow(sig_genes) > 0) median(abs(sig_genes$logFC_int), na.rm = TRUE) else NA
   median_fc_all <- median(abs(df$logFC_int), na.rm = TRUE)
-
+  
   # Direction breakdown
   n_up   <- sum(sig_genes$logFC_int > 0, na.rm = TRUE)
   n_down <- sum(sig_genes$logFC_int < 0, na.rm = TRUE)
-
+  
+  # Nominal p < 0.05 sig genes
+  sig_nom <- df %>% dplyr::filter(pval_int < 0.05)
+  n_up_nom   <- sum(sig_nom$logFC_int > 0, na.rm = TRUE)
+  n_down_nom <- sum(sig_nom$logFC_int < 0, na.rm = TRUE)
+  
   data.frame(
     Method             = m$name,
     Contrast           = m$test_name,
     Genes_Tested       = n_tested,
     Sig_p05            = n_sig_p,
+    Pct_Sig_p05        = sprintf("%.1f%%", 100 * n_sig_p / n_tested),
+    Up_p05             = n_up_nom,
+    Down_p05           = n_down_nom,
     Sig_FDR05          = n_sig_fdr,
     Pct_Sig_FDR        = sprintf("%.1f%%", 100 * n_sig_fdr / n_tested),
     Up_FDR05           = n_up,
     Down_FDR05         = n_down,
     Median_absFC_Sig   = round(median_fc, 3),
     Median_absFC_All   = round(median_fc_all, 3),
-    Time_sec           = round(timing[tolower(gsub("Wilcoxon", "wilcox", m$name))], 1),
+    Time_sec           = round(timing[paste0(tolower(gsub("Wilcoxon", "wilcox", m$name)), ".elapsed")], 1),
     stringsAsFactors   = FALSE
   )
 })
@@ -1000,7 +1157,7 @@ grid::grid.draw(
       gp = grid::gpar(fontsize = 18, fontface = "bold")
     ),
     grid::textGrob(subtitle_text,
-      gp = grid::gpar(fontsize = 12, col = "grey40")
+                   gp = grid::gpar(fontsize = 12, col = "grey40")
     ),
     summary_grob,
     ncol = 1,
@@ -1056,23 +1213,33 @@ cor_combined <- cor_logfc_plot + cor_pval_plot +
 print(cor_combined)
 
 # ── UpSet plot: overlap of FDR-significant gene sets ──
-# Only plot if at least 2 methods have significant genes
-n_sets_with_sig <- sum(sapply(sig_genes_list, length) > 0)
-if (n_sets_with_sig >= 2) {
+# Only include methods that have at least 1 significant gene AND appear as columns
+upset_sets <- intersect(
+  names(sig_genes_list)[sapply(sig_genes_list, length) > 0],
+  colnames(upset_df)
+)
+if (length(upset_sets) >= 2) {
   # UpSetR uses base graphics, so we print directly
-  print(
-    upset(upset_df,
-          sets        = rev(method_names),
-          nsets       = length(method_names),
-          order.by    = "freq",
-          decreasing  = TRUE,
-          mb.ratio    = c(0.6, 0.4),
-          text.scale  = c(1.5, 1.2, 1.2, 1.0, 1.5, 1.2),
-          main.bar.color  = "#457b9d",
-          sets.bar.color  = method_colors[rev(method_names)],
-          mainbar.y.label = "Intersection size",
-          sets.x.label    = "Significant genes (FDR < 0.05)")
-  )
+  tryCatch({
+    print(
+      upset(upset_df,
+            sets        = rev(upset_sets),
+            nsets       = length(upset_sets),
+            keep.order  = TRUE,
+            order.by    = "freq",
+            decreasing  = TRUE,
+            mb.ratio    = c(0.6, 0.4),
+            text.scale  = c(1.5, 1.2, 1.2, 1.0, 1.5, 1.2),
+            main.bar.color  = "#457b9d",
+            sets.bar.color  = method_colors[rev(upset_sets)],
+            mainbar.y.label = "Intersection size",
+            sets.x.label    = "Significant genes (FDR < 0.05)")
+    )
+  }, error = function(e) {
+    message("  UpSet plot failed (non-fatal): ", conditionMessage(e))
+  })
+} else {
+  message("  Skipping UpSet plot: fewer than 2 methods have FDR-significant genes")
 }
 
 # ── log2FC scatter plots between method pairs ──
@@ -1108,20 +1275,20 @@ for (pair in method_pairs) {
   pv1_col <- paste0("pval_", m1)
   pv2_col <- paste0("pval_", m2)
   if (!pv1_col %in% names(merged_all) || !pv2_col %in% names(merged_all)) next
-
+  
   df_pair <- merged_all %>%
     dplyr::select(gene, all_of(c(pv1_col, pv2_col))) %>%
     dplyr::filter(!is.na(.data[[pv1_col]]) & !is.na(.data[[pv2_col]]))
-
+  
   p <- ggplot(df_pair, aes(x = -log10(.data[[pv1_col]] + 1e-300),
-                            y = -log10(.data[[pv2_col]] + 1e-300))) +
+                           y = -log10(.data[[pv2_col]] + 1e-300))) +
     geom_point(alpha = 0.3, size = 1.5, color = "grey40") +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
     labs(title = paste0("-log10(p): ", m1, " vs ", m2),
          x = paste0("-log10(p) ", m1),
          y = paste0("-log10(p) ", m2)) +
     shared_theme
-
+  
   pval_scatter_list[[paste0(m1, "_vs_", m2)]] <- p
 }
 
@@ -1155,15 +1322,16 @@ s3_output_path <- paste0(S3_BASE, "plots/", opt$output_name)
 aws.s3::put_object(
   file   = tmp_pdf,
   object = s3_output_path,
-  bucket = S3_BUCKET
+  bucket = S3_BUCKET,
+  region = ""
 )
 unlink(tmp_pdf)
 
 # Also save stats results + summary table to S3 for downstream use
 ref_results <- list(
   nebula_stats  = nebula_stats,
-  deseq2_stats  = deseq2_stats,
   edger_stats   = edger_stats,
+  limma_stats   = limma_stats,
   wilcox_stats  = wilcox_stats,
   mast_stats    = mast_stats,
   summary_table = summary_table,
@@ -1190,7 +1358,7 @@ s3write_csv <- function(df, s3_path) {
   tmp <- tempfile(fileext = ".csv")
   on.exit(unlink(tmp))
   write.csv(df, file = tmp, row.names = FALSE)
-  aws.s3::put_object(file = tmp, object = s3_path, bucket = S3_BUCKET)
+  aws.s3::put_object(file = tmp, object = s3_path, bucket = S3_BUCKET, region = "")
 }
 
 S3_CSV_PFX <- paste0(S3_BASE, "reference/csv/")
@@ -1268,3 +1436,4 @@ message(sprintf("  PDF:  s3://%s/%s", S3_BUCKET, s3_output_path))
 message(sprintf("  RDS:  s3://%s/%sde_results_%s.rds", S3_BUCKET,
                 paste0(S3_BASE, "reference/"), opt$cell_type))
 message(sprintf("  CSVs: s3://%s/%s", S3_BUCKET, S3_CSV_PFX))
+

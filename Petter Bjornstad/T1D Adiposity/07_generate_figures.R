@@ -1147,32 +1147,6 @@ p1 <- ggplot(within_df, aes(x = definition, y = pct_positive, fill = definition)
 ggsave(file.path(results_dir, "Results/Figures/Butterfly/categorical_direction_balance.png"),
        p1, width = 10, height = 8, dpi = 300)
 
-ggplot(within_df, aes(x = definition, y = total_pval, fill = definition)) +
-  geom_col(width = 0.6, color = "white", linewidth = 0.5) +
-  geom_hline(yintercept = 50, linetype = "dashed", color = "gray50", linewidth = 0.5) +
-  geom_text(aes(label = sprintf("%.1f%%", pct_positive)),
-            vjust = -0.5, size = 3.2, fontface = "bold") +
-  geom_text(aes(label = paste0("(", format(total_pval, big.mark = ","), ")")),
-            vjust = -2, size = 2.5, color = "gray40") +
-  facet_grid(tier ~ comparison, switch = "y") +
-  scale_fill_manual(values = c("BMI" = "#4C72B0", "DXA" = "#DD8452")) +
-  scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25)) +
-  labs(
-    title = "Within-T1D Categorical: BMI vs DXA Direction Balance",
-    subtitle = "% of p<0.05 DEGs that are upregulated (positive logFC)",
-    x = NULL, y = "% Positive DEGs", fill = "Definition"
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    strip.text = element_text(face = "bold", size = 10),
-    strip.background = element_rect(fill = "gray95"),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor = element_blank(),
-    legend.position = "none",
-    plot.title = element_text(face = "bold", size = 13),
-    plot.subtitle = element_text(size = 10, color = "gray30")
-  )
-
 cat("=== Phase 2: Generating per-celltype figures (volcano, GSEA, lollipop) ===\n\n")
 
 # =============================================================================

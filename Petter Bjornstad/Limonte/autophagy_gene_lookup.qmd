@@ -1,0 +1,410 @@
+---
+title: "Limonte autophagy gene look up"
+author: "Ye Ji Choi & Kristen Miller"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+  
+```{r}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(msigdbr)
+library(ggpubr)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else if (user == "kristenmiller") {
+  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
+  git_path <- "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/kristenmiller/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+
+entrez_map <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys   = keys(org.Hs.eg.db, keytype = "ENTREZID"),
+  columns = c("SYMBOL", "GENENAME", "ALIAS"),
+  keytype = "ENTREZID"
+)
+
+
+s3write_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    # if object has an extension, keep it; otherwise make a generic tmp
+    ext <- tools::file_ext(object)
+    if (nzchar(ext)) tempfile(fileext = paste0(".", ext)) else tempfile()
+  }
+  
+  on.exit(unlink(tmp), add = TRUE)
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  FUN(tmp, ...)
+  
+  if (is.null(opts)) {
+    r <- put_object(file = tmp, bucket = bucket, object = object)
+  } else {
+    r <- do.call("put_object", c(list(file = tmp, bucket = bucket, object = object), opts))
+  }
+  
+  return(invisible(r))
+}
+
+# read in full pb90 seurat object:
+pb90_so <- s3readRDS("data_clean/pb90_processed.rds", "scrna", region = "")
+
+# remove obese controls:
+pb90_sub<- subset(pb90_so, group %in% c("Lean Control", "Type 1 Diabetes", "Type 2 Diabetes"))
+
+# only use baseline samples: (removes post)
+pb90_sub<- subset(pb90_sub, pre_post %in% c(".", "pre"))
+
+# only use proximal tubular cells:
+pb90_sub<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
+
+#immune_so <- s3readRDS("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_Immune.rds", "scrna", region = "")
+#tcell_so <- subset(immune_so, KPMP_celltype %in% c("CD4+ T", "CD8+ T", "cycT"))
+
+# read in gene lists from Christine's excel file:
+gene_lists <- openxlsx::read.xlsx(file.path(root_path, "./Limonte/Autophagy_gene_protein_lists_CL.xlsx"), sheet = "Gene lists",
+                                 startRow = 3,colNames = TRUE)
+```
+
+# ```{r}
+# # Pull in nebula results
+# folders <- c(
+#   # Category A: Disease Signatures (vs. HC)
+#   "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc", # Category A: Disease signature - diabetes/metabolic without DKD
+#   "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc", # Category A: Disease signature - early DKD
+#   # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc", # Category A: Disease signature - advanced DKD
+#   "DKD_30_vs_HC" = "dkd30_hc", # Category A: Disease signature - early DKD (alternative to comparison 2)
+#   # "DKD_100_vs_HC" = "dkd100_hc", # Category A: Disease signature - advanced DKD (alternative to comparison 3)
+#   "T2D_GLP_N_vs_HC" = "t2d_glpn_hc", # Category A: Disease signature - all T2D patients not on GLP-1RA
+#   
+#   # Category B: Treatment Effects (GLP+ vs. GLP-)
+#   "GLP_Y_vs_GLP_N" = "glpy_glpn", # Category B: Overall GLP-1RA treatment effect
+#   "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITHOUT DKD
+#   "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITH early DKD
+#   # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn", # Category B: GLP-1RA effect in patients WITH advanced DKD
+#   "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn", # Category B: GLP-1RA effect in all T2D patients (similar to comparison 7)
+#   
+#   # Category C: Normalization Assessment (GLP+ vs. HC)
+#   "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc", # Category C: Normalization - GLP+ without DKD vs. HC
+#   "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc", # Category C: Normalization - GLP+ with early DKD vs. HC
+#   # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc", # Category C: Normalization - GLP+ with advanced DKD vs. HC
+#   
+#   # Category D: DKD Progression (within T2D/obesity)
+#   "DKD_vs_nonDKD_30" = "dkd30" # Category D: DKD effect within T2D/obesity (GLP-1RA agnostic)
+#   # "DKD_vs_nonDKD_100" = "dkd100" # Category D: Advanced DKD effect within T2D/obesity
+# )
+# 
+# # Define common parameters
+# celltype_groups <- list(
+#   # Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+#   # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+#   # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+#   T_cells <- c("CD4+ T", "CD8+ T", "cycT")
+# )
+# 
+# 
+# # Create dataframe with comparison information
+# comparison_df <- data.frame(
+#   run = c(
+#     # Category A: Disease Signatures (vs. HC)
+#     "nonDKD_30_GLP_N_vs_HC",
+#     "DKD_30_GLP_N_vs_HC",
+#     "DKD_30_vs_HC",
+#     "T2D_GLP_N_vs_HC",
+#     
+#     # Category B: Treatment Effects (GLP+ vs. GLP-)
+#     "GLP_Y_vs_GLP_N",
+#     "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N",
+#     "DKD_30_GLP_Y_vs_DKD_30_GLP_N",
+#     "T2D_GLP_Y_vs_T2D_GLP_N",
+#     
+#     # Category C: Normalization Assessment (GLP+ vs. HC)
+#     "nonDKD_30_GLP_Y_vs_HC",
+#     "DKD_30_GLP_Y_vs_HC",
+#     
+#     # Category D: DKD Progression (within T2D/obesity)
+#     "DKD_vs_nonDKD_30"
+#   ),
+#   
+#   category = c(
+#     # Category A
+#     "A", "A", "A", "A",
+#     # Category B
+#     "B", "B", "B", "B",
+#     # Category C
+#     "C", "C",
+#     # Category D
+#     "D"
+#   ),
+#   
+#   description = c(
+#     # Category A
+#     "Disease Signatures (vs. HC)",
+#     "Disease Signatures (vs. HC)",
+#     "Disease Signatures (vs. HC)",
+#     "Disease Signatures (vs. HC)",
+#     
+#     # Category B
+#     "Treatment Effects (GLP+ vs. GLP-)",
+#     "Treatment Effects (GLP+ vs. GLP-)",
+#     "Treatment Effects (GLP+ vs. GLP-)",
+#     "Treatment Effects (GLP+ vs. GLP-)",
+#     
+#     # Category C
+#     "Normalization Assessment (GLP+ vs. HC)",
+#     "Normalization Assessment (GLP+ vs. HC)",
+#     
+#     # Category D
+#     "DKD Progression (within T2D/obesity)"
+#   ),
+#   
+#   folder_name = c(
+#     # Category A
+#     "nondkd30_glpn_hc",
+#     "dkd30_glpn_hc",
+#     "dkd30_hc",
+#     "t2d_glpn_hc",
+#     
+#     # Category B
+#     "glpy_glpn",
+#     "nondkd_30_glpy_glpn",
+#     "dkd_30_glpy_glpn",
+#     "t2d_glpyn",
+#     
+#     # Category C
+#     "nondkd30_glpy_hc",
+#     "dkd30_glpy_hc",
+#     
+#     # Category D
+#     "dkd30"
+#   ),
+#   
+#   stringsAsFactors = FALSE
+# )
+# ```
+# 
+# ```{r eval = F}
+# # load all the necessary files (processed df and pathways)
+# gsea_results <- list()
+# for (folder in names(folders)) {
+#   for (cell in names(celltype_groups)) {
+#     
+#     var_name <- paste0(tolower(cell), "_", folders[folder])
+#     var_name <- gsub("/", "_", var_name)
+#     
+#     processed_path <- file.path(
+#       root_path,
+#       paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+#     )
+#     
+#     if (!file.exists(processed_path)) {
+#       message("Processed DF not found, skipping: ", var_name)
+#       next
+#     }
+#     
+#     processed_df <- read.csv(processed_path)
+#     assign(var_name, processed_df, envir = .GlobalEnv)
+#     
+#     file_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folders[[folder]], "_", tolower(gsub("/", "_", cell)), "_gsea.RDS"))
+#     
+#     # Check if file exists and read it
+#     if (file.exists(file_path)) {
+#       # Create a unique name for this combination
+#       result_name <- paste0(folders[[folder]], "_", tolower(gsub("/", "_", cell)))
+#       
+#       # Read the RDS file
+#       gsea_results[[result_name]] <- readRDS(file_path)
+#     } else {
+#       message(paste0("File not found: ", file_path))
+#     }
+#   }
+# }
+# ```
+# 
+# ```{r eval = F}
+# gene_search <- data.frame()
+# for (folder in names(folders)) {
+#   for (cell in names(celltype_groups)) {
+#     
+#     var_name <- paste0(tolower(cell), "_", folders[folder])
+#     var_name <- gsub("/", "_", var_name)
+#     
+#     processed_path <- file.path(
+#       root_path,
+#       paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+#     )
+#     
+#     if (!file.exists(processed_path)) {
+#       message("Processed DF not found, skipping: ", var_name)
+#       next
+#     }
+#     
+#     processed_df <- read.csv(processed_path)
+#     
+#     processed_df_subset <- processed_df %>%
+#       dplyr::select(logFC = 2, pval = 6, 10, 9) %>%
+#       mutate(cell = cell, run = folder) %>%
+#       left_join(comparison_df, by = join_by(run))
+#     
+#     gene_search <- rbind(gene_search, processed_df_subset)
+#     
+#   }
+# }
+# 
+# gene_search <- gene_search %>%
+#   arrange(Gene, cell)
+# 
+# # write.csv(gene_search, file.path(root_path, "Renal HERITAGE/Results/Summary csv/tcell_findings.csv"), row.names = F, na =)
+# ```
+
+# Module scores
+
+```{r}
+#gene lists from Christine:
+overall_autophagy_genes <- c(
+  gene_lists$`Overall.autophagy-related.genes.(n=589)`[!is.na(gene_lists$`Overall.autophagy-related.genes.(n=589)`)]
+)
+autophagy_induction_genes <- c(
+  gene_lists$`Autophagy.induction.genes.(n=20)`[!is.na(gene_lists$`Autophagy.induction.genes.(n=20)`)]
+)
+lyosomal_biogenesis_genes <- c(
+  gene_lists$`Lysosomal.biogenesis.genes.(n=26)`[!is.na(gene_lists$`Lysosomal.biogenesis.genes.(n=26)`)]
+)
+tfeb_genes <- c(
+  gene_lists$`TFEB.genes.(n=13)`[!is.na(gene_lists$`TFEB.genes.(n=13)`)]
+)
+```
+
+```{r}
+# overall autophagy-related signature
+pb90_sub <- AddModuleScore(
+  pb90_sub,
+  features = list(overall_autophagy_genes),
+  name = "overall_autophagy_signature"
+)
+
+# autophagy induction signature
+pb90_sub <- AddModuleScore(
+  pb90_sub,
+  features = list(autophagy_induction_genes),
+  name = "autophagy_induction_signature"
+)
+
+# lysosomal biogenesis signature
+pb90_sub <- AddModuleScore(
+  pb90_sub,
+  features = list(lyosomal_biogenesis_genes),
+  name = "lyosomal_biogenesis_genes"
+)
+
+# TFEB signature
+pb90_sub <- AddModuleScore(
+  pb90_sub,
+  features = list(tfeb_genes),
+  name = "tfeb_genes"
+)
+
+
+features<-c("overall_autophagy_signature1", "autophagy_induction_signature1",
+                         "lyosomal_biogenesis_genes1","tfeb_genes1")
+# grouping variables
+table(pb90_sub@meta.data$group)
+table(pb90_sub@meta.data$sglt2i_ever, pb90_sub@meta.data$group) #SGLT2i ever yes/no, only wihtin t2d?
+
+pb90_t2d <- subset(tcell_so, group %in% c("Type_2_Diabetes"))
+table(pb90_t2d@meta.data$group)
+table(pb90_t2d@meta.data$sglt2i_ever)
+
+#### compare across diabetes vs. non-diabetes
+RidgePlot(pb90_sub, 
+          features = features,
+          ncol = 2, 
+          group.by="group")
+
+VlnPlot(pb90_sub, 
+        features = features,
+        ncol = 2,
+        pt.size = 0,
+        group.by="group")
+
+FeaturePlot(pb90_sub, 
+            features = features, 
+            ncol = 2)
+
+DotPlot(pb90_sub, 
+        features = features, 
+        group.by="group") + RotatedAxis()
+
+#### compare across sglt2i
+RidgePlot(pb90_t2d, 
+          features = features,
+          ncol = 2, 
+          group.by="sglt2i_ever")
+
+VlnPlot(pb90_t2d, 
+        features = features,
+        ncol = 2,
+        pt.size = 0,
+        group.by="sglt2i_ever")
+
+FeaturePlot(pb90_t2d, 
+            features = features, 
+            ncol = 2)
+
+DotPlot(pb90_t2d, 
+        features = features, 
+        group.by="sglt2i_ever") + RotatedAxis()
+
+```
+
+```{r}
+### aggregate gene scores at the person level
+
+### mixed models with random intercept for person? 
+```
+

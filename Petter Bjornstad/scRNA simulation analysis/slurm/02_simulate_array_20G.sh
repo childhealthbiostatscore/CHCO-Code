@@ -2,7 +2,7 @@
 #SBATCH --job-name=scD3_sim_analyze
 #SBATCH --array=1-8100%50
 #SBATCH --time=01:00:00
-#SBATCH --mem=32G             # simulate + run all 3 methods in memory
+#SBATCH --mem=40G             # simulate + run all 3 methods in memory
 #SBATCH --cpus-per-task=4
 #SBATCH --partition=cpu-g2          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account

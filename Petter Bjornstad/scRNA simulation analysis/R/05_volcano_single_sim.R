@@ -4,7 +4,7 @@
 # PURPOSE:
 #   Run ONE simulation using the reference model (with a specific parameter
 #   combination) and produce volcano plots of the interaction term for every
-#   DE method (NEBULA, DESeq2, edgeR, Wilcoxon, MAST).
+#   DE method (NEBULA, edgeR, limma-voom+dupCor, Wilcoxon, MAST).
 #
 #   Two volcano plots per method:
 #     1. Raw p-value on the y-axis
@@ -41,8 +41,8 @@ suppressPackageStartupMessages({
   library(scDesign3)
   library(SingleCellExperiment)
   library(nebula)
-  library(DESeq2)
   library(edgeR)
+  library(limma)
   library(Matrix)
   library(dplyr)
   library(ggplot2)
@@ -421,30 +421,55 @@ keep           <- rowSums(pb_counts >= opt$pb_min_count) >= opt$pb_min_samples
 pb_counts_filt <- pb_counts[keep, ]
 pb_design <- model.matrix(~ visit + treatment + visit:treatment, data = pb_meta)
 
-# --- DESeq2 ---
-message("  Running DESeq2...")
-deseq2_stats <- tryCatch({
-  dds <- DESeqDataSetFromMatrix(countData = pb_counts_filt,
-                                colData   = pb_meta,
-                                design    = ~ visit + treatment + visit:treatment)
-  dds <- DESeq(dds, parallel = TRUE,
-               BPPARAM = BiocParallel::MulticoreParam(opt$n_cores),
-               quiet = TRUE)
-  rn       <- resultsNames(dds)
-  int_name <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
-                   rn, value = TRUE)
-  if (!length(int_name)) int_name <- tail(rn, 1)
-  res <- results(dds, name = int_name[1], independentFiltering = FALSE)
+# --- limma-voom + duplicateCorrelation ---
+message("  Running limma-voom + duplicateCorrelation...")
+limma_stats <- tryCatch({
+  # DGEList + normalization (reuse filtered pseudobulk counts)
+  dge_limma <- DGEList(counts = pb_counts_filt)
+  dge_limma <- calcNormFactors(dge_limma)
+
+  # Design: full interaction (no subject dummies — correlation handles pairing)
+  limma_design <- model.matrix(~ visit * treatment, data = pb_meta)
+
+  # voom transform
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE)
+
+  # Estimate within-subject correlation
+  corfit <- limma::duplicateCorrelation(v, limma_design,
+                                        block = pb_meta$subject_id)
+  message(sprintf("  duplicateCorrelation consensus = %.4f", corfit$consensus))
+
+  # Re-run voom with the correlation estimate for better precision weights
+  v <- limma::voom(dge_limma, design = limma_design, plot = FALSE,
+                   block = pb_meta$subject_id,
+                   correlation = corfit$consensus)
+
+  # Fit with correlation structure
+  fit_limma <- limma::lmFit(v, limma_design,
+                            block = pb_meta$subject_id,
+                            correlation = corfit$consensus)
+  fit_limma <- limma::eBayes(fit_limma)
+
+  # Extract interaction term
+  int_col <- grep("visittimepoint2.*Treatment|Treatment.*visittimepoint2",
+                  colnames(limma_design), value = TRUE)
+  if (!length(int_col)) {
+    message("  WARNING: limma interaction column not found; using last coef.")
+    int_col <- colnames(limma_design)[ncol(limma_design)]
+  }
+
+  res_limma <- limma::topTable(fit_limma, coef = int_col[1],
+                               number = Inf, sort.by = "none")
 
   full <- data.frame(gene = hvg_genes, logFC_int = NA_real_,
                      pval_int = NA_real_, stringsAsFactors = FALSE)
-  hit                 <- match(rownames(res), full$gene)
-  full$logFC_int[hit] <- res$log2FoldChange
-  full$pval_int[hit]  <- res$pvalue
+  hit                 <- match(rownames(res_limma), full$gene)
+  full$logFC_int[hit] <- res_limma$logFC
+  full$pval_int[hit]  <- res_limma$P.Value
   full$padj_int       <- p.adjust(full$pval_int, method = "BH")
   left_join(full, truth_df, by = "gene")
 }, error = function(e) {
-  message("  DESeq2 error: ", conditionMessage(e))
+  message("  limma error: ", conditionMessage(e))
   NULL
 })
 
@@ -740,8 +765,8 @@ message("  Generating volcano plots...")
 methods <- list(
   list(name = "NEBULA",    data = nebula_stats, test_name = "(Interaction)",
        formula_text = "~ visit * treatment", note = "Cell-level mixed model"),
-  list(name = "DESeq2",    data = deseq2_stats, test_name = "(Interaction)",
-       formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk"),
+  list(name = "limma",     data = limma_stats,  test_name = "(Interaction)",
+       formula_text = "~ visit * treatment + dupCor(subject)", note = "Pseudobulk limma-voom + dupCor"),
   list(name = "edgeR",     data = edger_stats,  test_name = "(Interaction)",
        formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk QL F-test"),
   list(name = "Wilcoxon",  data = wilcox_stats, test_name = "(Trt POST vs Plc POST)",
@@ -770,9 +795,9 @@ for (m in methods) {
     p_thresh  = 0.05,
     cell_type = unique(sce_ref$celltype)[1],
     formula_text = m$formula_text,
-    cohort_text  = m$note,
-    positive_text = "Up in Treatment",
-    negative_text = "Down in Treatment"
+    cohort_text  = NULL,
+    positive_text = "",
+    negative_text = ""
   )
 
   # FDR volcano
@@ -787,9 +812,9 @@ for (m in methods) {
     p_thresh  = 0.05,
     cell_type = unique(sce_ref$celltype)[1],
     formula_text = m$formula_text,
-    cohort_text  = m$note,
-    positive_text = "Up in Treatment",
-    negative_text = "Down in Treatment"
+    cohort_text  = NULL,
+    positive_text = "",
+    negative_text = ""
   )
 
   if (!is.null(p_pval)) plot_list[[paste0(m$name, "_pval")]] <- p_pval
@@ -836,7 +861,8 @@ s3_output_path <- paste0(S3_BASE, "plots/", opt$output_name)
 aws.s3::put_object(
   file   = tmp_pdf,
   object = s3_output_path,
-  bucket = S3_BUCKET
+  bucket = S3_BUCKET,
+  region = ""
 )
 unlink(tmp_pdf)
 
