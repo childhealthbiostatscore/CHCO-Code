@@ -169,7 +169,9 @@ cat("prot not in meta:", sum(!prot_ids %in% meta_common$record_id), "\n")
 
 
 ```{r}
-# ---- align to matrix IDs ----
+# ============================================================
+# ALIGN metadata and protein matrix
+# ============================================================
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
 rownames(prot_plasma) <- trimws(rownames(prot_plasma))
 
@@ -182,21 +184,11 @@ prot_plasma_common <- prot_plasma[olap, , drop = FALSE]
 
 stopifnot(identical(rownames(prot_plasma_common), meta_common$record_id))
 
-table(meta_common$study, meta_common$group4, useNA = "ifany")
-```
-
 # ============================================================
-# PCA — Visual adjustment matching limma models M0, M1, M2
-# Colored by group4, shaped by study.
+# BUILD PCA INPUT
 # ============================================================
-```{r}
-# ---- use all samples with age + sex present (meta_common baseline) ----
-meta_pca <- meta_common
-prot_pca  <- prot_plasma_common[meta_pca$record_id, , drop = FALSE]
-stopifnot(identical(rownames(prot_pca), meta_pca$record_id))
-prot_pca <- as.matrix(prot_pca)
+prot_pca <- as.matrix(prot_plasma_common)
 
-# ---- log2 transform + median impute ----
 prot_log <- log2(prot_pca + 1)
 prot_log[!is.finite(prot_log)] <- NA_real_
 
@@ -205,19 +197,100 @@ meds <- apply(prot_imp, 2, function(x) {
   m <- median(x, na.rm = TRUE)
   if (is.finite(m)) m else NA_real_
 })
+
 for (j in seq_len(ncol(prot_imp))) {
-  if (!is.na(meds[j])) prot_imp[is.na(prot_imp[, j]), j] <- meds[j]
+  if (!is.na(meds[j])) {
+    prot_imp[is.na(prot_imp[, j]), j] <- meds[j]
+  }
 }
 
-# drop zero-variance / still-NA columns
 keep_cols <- colSums(is.na(prot_imp)) == 0 &
-             apply(prot_imp, 2, var) > 0 &
-             is.finite(apply(prot_imp, 2, var))
-prot_imp  <- prot_imp[, keep_cols, drop = FALSE]
-cat("Proteins kept for PCA:", ncol(prot_imp), "\n")
+  apply(prot_imp, 2, var) > 0 &
+  is.finite(apply(prot_imp, 2, var))
 
-# ---- shared plot helper ----
-# builds a consistent ggplot from a PCA result + metadata
+prot_imp <- prot_imp[, keep_cols, drop = FALSE]
+
+# ============================================================
+# FIND OUTLIER
+# ============================================================
+pca0 <- prcomp(prot_imp, center = TRUE, scale. = TRUE)
+
+pca_df <- tibble(
+  record_id = rownames(prot_imp),
+  study6    = meta_common$study6[match(rownames(prot_imp), meta_common$record_id)],
+  PC1       = pca0$x[, 1],
+  PC2       = pca0$x[, 2]
+) %>%
+  mutate(dist = sqrt(PC1^2 + PC2^2))
+
+# overall outlier
+outlier_id <- c("10424", "10434")
+
+# or ATT-only outlier:
+# outlier_id <- pca_df %>%
+#   filter(study6 == "ATT") %>%
+#   arrange(desc(dist)) %>%
+#   slice(1) %>%
+#   pull(record_id)
+
+cat("Outlier to remove:", outlier_id, "\n")
+
+# check it exists
+stopifnot(outlier_id %in% meta_common$record_id)
+stopifnot(outlier_id %in% rownames(prot_plasma_common))
+
+# ============================================================
+# ACTUALLY REMOVE IT FROM THE MASTER OBJECTS
+# ============================================================
+meta_common_filt <- meta_common %>%
+  filter(record_id != outlier_id)
+
+prot_plasma_common_filt <- prot_plasma_common[
+  rownames(prot_plasma_common) != outlier_id, , drop = FALSE
+]
+
+cat("Still present in metadata? ", outlier_id %in% meta_common_filt$record_id, "\n")
+cat("Still present in matrix? ", outlier_id %in% rownames(prot_plasma_common_filt), "\n")
+
+stopifnot(!(outlier_id %in% meta_common_filt$record_id))
+stopifnot(!(outlier_id %in% rownames(prot_plasma_common_filt)))
+
+# ============================================================
+# REBUILD PCA INPUT AFTER REMOVAL
+# ============================================================
+meta_pca <- meta_common_filt
+prot_pca <- prot_plasma_common_filt[match(meta_pca$record_id, rownames(prot_plasma_common_filt)), , drop = FALSE]
+
+stopifnot(identical(rownames(prot_pca), meta_pca$record_id))
+
+prot_pca <- as.matrix(prot_pca)
+
+prot_log <- log2(prot_pca + 1)
+prot_log[!is.finite(prot_log)] <- NA_real_
+
+prot_imp <- prot_log
+meds <- apply(prot_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp))) {
+  if (!is.na(meds[j])) {
+    prot_imp[is.na(prot_imp[, j]), j] <- meds[j]
+  }
+}
+
+keep_cols <- colSums(is.na(prot_imp)) == 0 &
+  apply(prot_imp, 2, var) > 0 &
+  is.finite(apply(prot_imp, 2, var))
+
+prot_imp <- prot_imp[, keep_cols, drop = FALSE]
+
+stopifnot(identical(rownames(prot_imp), meta_pca$record_id))
+
+# ============================================================
+# PLOT HELPER
+# ============================================================
 make_pca_plot <- function(prot_mat, meta_df, title_str) {
   pca  <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
   vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
@@ -231,57 +304,63 @@ make_pca_plot <- function(prot_mat, meta_df, title_str) {
     ggplot(aes(PC1, PC2, color = group4, shape = study)) +
     geom_point(size = 3, alpha = 0.85) +
     scale_color_manual(
-      values = c(LC  = "#2166AC",
-                 OC  = "#F4A582",
-                 T1D = "#D6604D",
-                 T2D = "#4DAC26"),
+      values = c(
+        LC  = "Cyan4",
+        OC  = "Gold",
+        T1D = "DarkRed",
+        T2D = "Purple"
+      ),
       name = "Group"
     ) +
     labs(
       title = title_str,
-      x     = paste0("PC1 (", vexp[1], "%)"),
-      y     = paste0("PC2 (", vexp[2], "%)")
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
     ) +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, face = "bold", hjust = 0.5))
+    theme_bw()
 }
-```
 
-```{r}
-# PCA 1 — No adjustment  (all samples)
-p <- make_pca_plot(prot_imp, meta_pca, "No adjustment")
+# ============================================================
+# PCA PANELS
+# ============================================================
+p  <- make_pca_plot(prot_imp, meta_pca, "No adjustment")
 
-# PCA 2 — Age + Sex  (M1 equivalent, all samples)
 cov_m1 <- model.matrix(~ age + sex, data = meta_pca)[, -1, drop = FALSE]
 prot_m1 <- t(removeBatchEffect(t(prot_imp), covariates = cov_m1))
-
 p1 <- make_pca_plot(prot_m1, meta_pca, "Age + Sex")
 
-# PCA 3 — Age + Sex + Study (M5, drops missing BMI)
-keep_m2   <- !is.na(meta_pca$bmi)
-meta_m2p  <- meta_pca[keep_m2, ]
-prot_m2p  <- prot_imp[keep_m2, , drop = FALSE]
 
-cov_m2 <- model.matrix(~ age + sex + study6, data = meta_m2p)[, -1, drop = FALSE]
-prot_m2_adj <- t(removeBatchEffect(t(prot_m2p), covariates = cov_m2))
+cov_m2 <- model.matrix(~ age + sex + study6, data = meta_pca)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(prot_imp), covariates = cov_m2))
+p2 <- make_pca_plot(prot_m2, meta_pca, "Age + Sex + Study")
 
-p2 <- make_pca_plot(prot_m2_adj, meta_m2p, "Age + Sex + Study")
+(p | p1 | p2)
 ```
-
-# =============================================================================
-# RENDER — 2 rows: unadjusted on top, progressively adjusted below
-# =============================================================================
 ```{r}
-(p | p1 | p2) 
-  plot_annotation(
-    title    = "PCA: Progressive Covariate Adjustment",
-    subtitle = "Color = group  |  Shape = study  |  Variance removed via removeBatchEffect (visual only)",
-    theme    = theme(
-      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 9,  hjust = 0.5, color = "grey40")
-    )
-  )
+get_pca_outlier <- function(prot_mat, meta_df) {
+  pca <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
+
+  tibble(
+    record_id = meta_df$record_id,
+    study6    = meta_df$study6,
+    group4    = meta_df$group4,
+    PC1       = pca$x[, 1],
+    PC2       = pca$x[, 2]
+  ) %>%
+    mutate(dist = sqrt(PC1^2 + PC2^2)) %>%
+    arrange(desc(dist))
+}
+
+out_p  <- get_pca_outlier(prot_imp, meta_pca)
+out_p1 <- get_pca_outlier(prot_m1, meta_pca)
+out_p2 <- get_pca_outlier(prot_m2, meta_pca)
+
+head(out_p, 3)
+head(out_p1, 3)
+head(out_p2, 3)
 ```
+
+
 ## limma testing
 ```{r}
 meta_common$sex    <- factor(meta_common$sex)
@@ -828,12 +907,11 @@ overlap_summary <- dplyr::bind_rows(overlap_results)
 print(overlap_summary)
 ```
 
-```{r}
 # ============================================================
 # SAVE GSEA-READY LIMMA OUTPUTS
 # Three model versions, all using age + sex + study
 # ============================================================
-
+```{r}
 # small helper to keep only what you'll likely need for GSEA
 prep_gsea_tables <- function(out_list) {
   lapply(out_list, function(tt) {
