@@ -2,7 +2,7 @@
 # 04_plots.R
 #
 # PURPOSE:
-#   Generate publication-quality plots comparing NEBULA vs DESeq2 vs edgeR
+#   Generate publication-quality plots comparing NEBULA vs edgeR vs limma-voom
 #   across all simulation parameters:
 #     1. Power curves vs n_subjects_per_arm, effect_size, prop_de
 #     2. FDR control plots (nominal vs observed)
@@ -113,10 +113,10 @@ avg <- s3readRDS(
   region = ""
 )
 
-METHOD_COLORS <- c(nebula = "#E64B35", deseq2 = "#4DBBD5", edger = "#00A087",
-                   wilcox = "#F39B7F", mast   = "#8491B4")
-METHOD_LABELS <- c(nebula = "NEBULA-LN", deseq2 = "DESeq2 PB", edger = "edgeR PB",
-                   wilcox = "Wilcoxon",  mast   = "MAST")
+METHOD_COLORS <- c(nebula = "#E64B35", edger = "#00A087", limma = "#4DBBD5",
+                   wilcox = "#F39B7F", mast  = "#8491B4")
+METHOD_LABELS <- c(nebula = "NEBULA-LN", edger = "edgeR PB", limma = "limma-voom PB",
+                   wilcox = "Wilcoxon",  mast  = "MAST")
 
 base_theme <- theme_bw(base_size = 12) +
   theme(strip.background = element_rect(fill = "grey90"),
