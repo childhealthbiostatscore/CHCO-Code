@@ -181,3 +181,269 @@ tbl_ethnicity_pct <- meta_prot %>%
 print(tbl_ethnicity_pct)
 ```
 
+# =============================================================================
+# SENSITIVITY ANALYSIS:
+# Restrict proteomics workflow to participants with all 3 omics types
+# (metabolomics + lipidomics + proteomics)
+# This leaves the original analysis untouched
+# =============================================================================
+```{r}
+# --------------------------------------------------
+# 1. Identify participants with all three omics types
+# --------------------------------------------------
+
+# A sample "has data" if it has at least one non-missing value in that matrix
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
+ids_prot <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+
+ids_metab <- trimws(as.character(ids_metab))
+ids_lipids <- trimws(as.character(ids_lipids))
+ids_prot <- trimws(as.character(ids_prot))
+
+ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
+
+cat("Total participants with all 3 omics:", length(ids_all_three), "\n")
+
+# --------------------------------------------------
+# 2. Restrict the proteomics analysis-ready dataset
+# --------------------------------------------------
+
+# Start from analysis-ready objects from original workflow
+meta_all3 <- meta_common %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_all_three)
+
+prot_all3 <- prot_plasma_common[meta_all3$record_id, , drop = FALSE]
+
+stopifnot(identical(rownames(prot_all3), meta_all3$record_id))
+
+cat("Original proteomics analysis N:", nrow(meta_common), "\n")
+cat("Proteomics analysis N with all 3 omics:", nrow(meta_all3), "\n")
+cat("Excluded because not all 3 omics:",
+    nrow(meta_common) - nrow(meta_all3), "\n")
+
+cat("Group counts in all-3-omics subset:\n")
+print(table(meta_all3$group4, useNA = "ifany"))
+
+cat("Study counts in all-3-omics subset:\n")
+print(table(meta_all3$study, useNA = "ifany"))
+
+# --------------------------------------------------
+# 3. PCA using all-3-omics subset
+# --------------------------------------------------
+
+meta_pca_all3 <- meta_all3
+prot_pca_all3 <- prot_all3[meta_pca_all3$record_id, , drop = FALSE]
+stopifnot(identical(rownames(prot_pca_all3), meta_pca_all3$record_id))
+
+prot_pca_all3 <- as.matrix(prot_pca_all3)
+
+# ---- log2 transform + median impute ----
+prot_log_all3 <- log2(prot_pca_all3 + 1)
+prot_log_all3[!is.finite(prot_log_all3)] <- NA_real_
+
+prot_imp_all3 <- prot_log_all3
+meds_all3 <- apply(prot_imp_all3, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(prot_imp_all3))) {
+  if (!is.na(meds_all3[j])) prot_imp_all3[is.na(prot_imp_all3[, j]), j] <- meds_all3[j]
+}
+
+keep_cols_all3 <- colSums(is.na(prot_imp_all3)) == 0 &
+  apply(prot_imp_all3, 2, var) > 0 &
+  is.finite(apply(prot_imp_all3, 2, var))
+
+prot_imp_all3 <- prot_imp_all3[, keep_cols_all3, drop = FALSE]
+
+cat("Proteins kept for all-3-omics PCA:", ncol(prot_imp_all3), "\n")
+
+# ---- PCA panels ----
+p_all3 <- make_pca_plot(prot_imp_all3, meta_pca_all3, "No adjustment (all 3 omics subset)")
+
+cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3)[, -1, drop = FALSE]
+prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3), covariates = cov_m1_all3))
+p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3, "Age + Sex (all 3 omics subset)")
+
+keep_m2_all3 <- !is.na(meta_pca_all3$bmi)
+meta_m2p_all3 <- meta_pca_all3[keep_m2_all3, ]
+prot_m2p_all3 <- prot_imp_all3[keep_m2_all3, , drop = FALSE]
+cov_m2_all3 <- model.matrix(~ age + sex + bmi, data = meta_m2p_all3)[, -1, drop = FALSE]
+prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
+p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + BMI (all 3 omics subset)")
+
+keep_m3_all3 <- !is.na(meta_pca_all3$bmi) & !is.na(meta_pca_all3$hba1c)
+meta_m3p_all3 <- meta_pca_all3[keep_m3_all3, ]
+prot_m3p_all3 <- prot_imp_all3[keep_m3_all3, , drop = FALSE]
+cov_m3_all3 <- model.matrix(~ age + sex + bmi + hba1c, data = meta_m3p_all3)[, -1, drop = FALSE]
+prot_m3_adj_all3 <- t(removeBatchEffect(t(prot_m3p_all3), covariates = cov_m3_all3))
+p3_all3 <- make_pca_plot(prot_m3_adj_all3, meta_m3p_all3, "Age + Sex + BMI + HbA1c (all 3 omics subset)")
+
+keep_m4_all3 <- !is.na(meta_pca_all3$bmi) & !is.na(meta_pca_all3$hba1c) & !is.na(meta_pca_all3$log_uacr)
+meta_m4p_all3 <- meta_pca_all3[keep_m4_all3, ]
+prot_m4p_all3 <- prot_imp_all3[keep_m4_all3, , drop = FALSE]
+cov_m4_all3 <- model.matrix(~ age + sex + bmi + hba1c + log_uacr, data = meta_m4p_all3)[, -1, drop = FALSE]
+prot_m4_adj_all3 <- t(removeBatchEffect(t(prot_m4p_all3), covariates = cov_m4_all3))
+p4_all3 <- make_pca_plot(prot_m4_adj_all3, meta_m4p_all3, "Age + Sex + BMI + HbA1c + log(uACR) (all 3 omics subset)")
+
+# Render all-3-omics PCA panel
+(p_all3 | p1_all3 | p2_all3) /
+  (p3_all3 | p4_all3 | plot_spacer()) +
+  plot_annotation(
+    title = "PCA: Proteomics Sensitivity Analysis in Participants with All 3 Omics Types",
+    subtitle = "Color = group | Shape = study | Restricted to shared metabolomics + lipidomics + proteomics participants",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+
+# --------------------------------------------------
+# 4. limma using all-3-omics subset
+# --------------------------------------------------
+
+Y_all_all3 <- t(log2(as.matrix(prot_all3) + 1))
+
+# -------------------
+# Model 1: age + sex
+# -------------------
+meta_m1_all3 <- meta_all3
+Y_m1_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+
+design_m1_all3 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_all3)
+colnames(design_m1_all3) <- sub("^group4", "", colnames(design_m1_all3))
+colnames(design_m1_all3) <- make.names(colnames(design_m1_all3))
+
+contr_m1_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m1_all3
+)
+
+res_m1_all3 <- run_limma_contrasts(Y_m1_all3, design_m1_all3, contr_m1_all3)
+fit_m1_all3 <- res_m1_all3$fit
+out_m1_all3 <- res_m1_all3$out
+
+sig_m1_all3 <- tibble(
+  contrast = colnames(contr_m1_all3),
+  n_FDR05 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
+) %>% mutate(model = "age_sex_all3", n_samples = nrow(meta_m1_all3))
+
+# -------------------------
+# Model 2: age + sex + BMI
+# -------------------------
+meta_m2_all3 <- meta_all3 %>% filter(!is.na(bmi))
+Y_m2_all3 <- Y_all_all3[, meta_m2_all3$record_id, drop = FALSE]
+
+design_m2_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi, data = meta_m2_all3)
+colnames(design_m2_all3) <- sub("^group4", "", colnames(design_m2_all3))
+colnames(design_m2_all3) <- make.names(colnames(design_m2_all3))
+
+contr_m2_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m2_all3
+)
+
+res_m2_all3 <- run_limma_contrasts(Y_m2_all3, design_m2_all3, contr_m2_all3)
+fit_m2_all3 <- res_m2_all3$fit
+out_m2_all3 <- res_m2_all3$out
+sig_m2_all3 <- summarise_sig(out_m2_all3, "age_sex_bmi_all3", nrow(meta_m2_all3))
+
+# ---------------------------------
+# Model 3: age + sex + BMI + HbA1c
+# ---------------------------------
+meta_m3_all3 <- meta_all3 %>% filter(!is.na(bmi), !is.na(hba1c))
+Y_m3_all3 <- Y_all_all3[, meta_m3_all3$record_id, drop = FALSE]
+
+design_m3_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi + hba1c, data = meta_m3_all3)
+colnames(design_m3_all3) <- sub("^group4", "", colnames(design_m3_all3))
+colnames(design_m3_all3) <- make.names(colnames(design_m3_all3))
+
+contr_m3_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m3_all3
+)
+
+res_m3_all3 <- run_limma_contrasts(Y_m3_all3, design_m3_all3, contr_m3_all3)
+fit_m3_all3 <- res_m3_all3$fit
+out_m3_all3 <- res_m3_all3$out
+sig_m3_all3 <- summarise_sig(out_m3_all3, "age_sex_bmi_hba1c_all3", nrow(meta_m3_all3))
+
+# ----------------------------------------------
+# Model 4: age + sex + BMI + HbA1c + log(uACR)
+# ----------------------------------------------
+meta_m4_all3 <- meta_all3 %>% filter(!is.na(bmi), !is.na(hba1c), !is.na(log_uacr))
+Y_m4_all3 <- Y_all_all3[, meta_m4_all3$record_id, drop = FALSE]
+
+design_m4_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi + hba1c + log_uacr, data = meta_m4_all3)
+colnames(design_m4_all3) <- sub("^group4", "", colnames(design_m4_all3))
+colnames(design_m4_all3) <- make.names(colnames(design_m4_all3))
+
+contr_m4_all3 <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_m4_all3
+)
+
+res_m4_all3 <- run_limma_contrasts(Y_m4_all3, design_m4_all3, contr_m4_all3)
+fit_m4_all3 <- res_m4_all3$fit
+out_m4_all3 <- res_m4_all3$out
+sig_m4_all3 <- summarise_sig(out_m4_all3, "age_sex_bmi_hba1c_uacr_all3", nrow(meta_m4_all3))
+
+# --------------------------------------------------
+# 5. Summarize all-3-omics results
+# --------------------------------------------------
+
+summary_all_all3 <- bind_rows(
+  sig_m1_all3,
+  sig_m2_all3,
+  sig_m3_all3,
+  sig_m4_all3
+) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+print(summary_all_all3)
+
+summary_wide_all3 <- summary_all_all3 %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(names_from = model, values_from = n_FDR05)
+
+print(summary_wide_all3)
+
+# --------------------------------------------------
+# 6. Compare original vs all-3-omics subset
+# --------------------------------------------------
+
+summary_compare_all3 <- bind_rows(
+  summary_all %>% mutate(dataset = "original"),
+  summary_all_all3 %>% mutate(dataset = "all_3_omics_subset")
+) %>%
+  arrange(contrast, dataset, model)
+
+print(summary_compare_all3)
+
+```
+
