@@ -1,0 +1,1058 @@
+---
+title: "Metabolomics & Lipiomics_Analysis"
+author: "Savanah leidholt"
+date: "2026-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#---------------------------------------------------
+# inputting all directories and storage locations
+#---------------------------------------------------
+```{r}
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  } 
+}
+```
+
+```{r}
+# ============================================================
+# PATHWAY COMPARISON ACROSS 3 STUDY-ADJUSTED LIMMA MODELS
+# all studies vs no ATTEMPT vs all-3-omics subset
+# ============================================================
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(limma)
+library(pheatmap)
+library(ggplot2)
+library(EnhancedVolcano)
+
+# ------------------------------------------------------------
+# settings
+# ------------------------------------------------------------
+contrasts <- c(
+  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+)
+```
+
+```{r}
+# Identify participants with all three omics types
+# Load your saved objects
+
+omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+# ============================================================
+# HELPER: count non-NA samples in a matrix for a given metadata
+# ============================================================
+
+count_samples_with_data <- function(meta_df, mat_df) {
+  # A sample "has data" if it has at least one non-NA value in the omics matrix
+  has_data <- rowSums(!is.na(mat_df)) > 0
+  meta_df %>%
+    mutate(has_omics = has_data) %>%
+    filter(has_omics)
+}
+```
+
+```{r}
+# ============================================================
+# 1) PER-OMICS SAMPLE COUNTS: Study x Group
+# ============================================================
+
+make_count_table <- function(meta_df, mat_df, omics_label) {
+  count_samples_with_data(meta_df, mat_df) %>%
+    count(study, group) %>%
+    pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
+    arrange(study) %>%
+    mutate(Omics = omics_label, .before = 1)
+}
+
+tbl_metabolites <- make_count_table(omics_objects$meta_metab, omics_objects$metabolites,  "Metabolomics")
+tbl_lipids      <- make_count_table(omics_objects$meta_lips,  omics_objects$lipids,        "Lipidomics")
+tbl_proteins    <- make_count_table(omics_objects$meta_prot,  omics_objects$prot_plasma,   "Proteomics (Plasma)")
+
+cat("\n===== METABOLOMICS: Samples per Study x Group =====\n")
+print(tbl_metabolites)
+
+cat("\n===== LIPIDOMICS: Samples per Study x Group =====\n")
+print(tbl_lipids)
+
+cat("\n===== PROTEOMICS (Plasma): Samples per Study x Group =====\n")
+print(tbl_proteins)
+```
+
+```{r}
+# ---- get IDs WITH data ----
+get_ids_with_data <- function(mat, meta) {
+  ids <- rownames(mat)[rowSums(!is.na(mat)) > 0]
+  ids <- trimws(as.character(ids))
+  
+  meta %>%
+    mutate(record_id = trimws(as.character(record_id))) %>%
+    filter(record_id %in% ids) %>%
+    distinct(record_id) %>%  
+    pull(record_id)
+}
+
+ids_metab  <- get_ids_with_data(omics_objects$metabolites, omics_objects$meta_metab)
+ids_lipids <- get_ids_with_data(omics_objects$lipids,      omics_objects$meta_lips)
+ids_prot   <- get_ids_with_data(omics_objects$prot_plasma, omics_objects$meta_prot)
+
+ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
+
+cat("Total UNIQUE participants with all 3 omics:", length(ids_all_three), "\n")
+```
+# ============================================================
+# STREAMLINED METABOLOMICS / LIPIDOMICS WORKFLOW
+# Similar to proteomics workflow, without extra clinical plots
+# ============================================================
+```{r}
+# CHOOSE OMICS LAYER
+
+#omics_name <- "lipidomics"
+omics_name <- "metabolomics"
+
+if (omics_name == "lipidomics") {
+  meta <- omics_objects$meta_lips
+  mat  <- omics_objects$lipids
+} else if (omics_name == "metabolomics") {
+  meta <- omics_objects$meta_metab
+  mat  <- omics_objects$metabolites
+} else {
+  stop("omics_name must be 'lipidomics' or 'metabolomics'")
+}
+```
+# ------------------------------------------------------------
+# CLEAN METADATA
+# ------------------------------------------------------------
+```{r}
+meta$record_id <- trimws(as.character(meta$record_id))
+meta$study     <- trimws(as.character(meta$study))
+meta$group     <- trimws(as.character(meta$group))
+meta$sex       <- trimws(as.character(meta$sex))
+
+meta$age <- suppressWarnings(as.numeric(meta$age))
+meta$bmi <- suppressWarnings(as.numeric(meta$bmi))
+
+keep <- !is.na(meta$age) & !is.na(meta$sex) & meta$sex != ""
+meta <- meta[keep, , drop = FALSE]
+
+meta$group4 <- factor(
+  meta$group,
+  levels = c("Lean Control","Obese Control","Type 1 Diabetes","Type 2 Diabetes"),
+  labels = c("LC","OC","T1D","T2D")
+)
+
+meta$study6 <- dplyr::recode(
+  meta$study,
+  "CROCODILE"       = "CRC",
+  "RENAL-HEIR"      = "RH",
+  "IMPROVE"         = "IT",
+  "RENAL-HEIRitage" = "RH2",
+  .default = meta$study
+)
+meta$study6 <- factor(meta$study6)
+meta$sex    <- factor(meta$sex)
+
+meta_common <- meta
+```
+# ------------------------------------------------------------
+# ALIGN METADATA TO MATRIX
+# ------------------------------------------------------------
+
+```{r}
+meta_common$record_id <- trimws(as.character(meta_common$record_id))
+rownames(mat) <- trimws(as.character(rownames(mat)))
+
+olap <- intersect(meta_common$record_id, rownames(mat))
+cat("Overlap samples:", length(olap), "\n")
+stopifnot(length(olap) > 0)
+
+meta_common <- meta_common[match(olap, meta_common$record_id), , drop = FALSE]
+mat_common  <- mat[olap, , drop = FALSE]
+
+stopifnot(identical(meta_common$record_id, rownames(mat_common)))
+
+cat("Analysis-ready N:", nrow(meta_common), "\n")
+cat("Features before filtering:", ncol(mat_common), "\n")
+print(table(meta_common$study, meta_common$group4, useNA = "ifany"))
+```
+# ------------------------------------------------------------
+# PCA PREP
+# ------------------------------------------------------------
+```{r}
+meta_pca <- meta_common
+mat_pca  <- mat_common[meta_pca$record_id, , drop = FALSE]
+stopifnot(identical(rownames(mat_pca), meta_pca$record_id))
+mat_pca <- as.matrix(mat_pca)
+
+# check if log2(x + 1) is appropriate
+if (min(mat_pca, na.rm = TRUE) < 0) {
+  stop("Matrix contains negative values; do not use log2(x + 1) without checking preprocessing.")
+}
+
+# log transform the data
+mat_log <- log2(mat_pca + 1)
+mat_log[!is.finite(mat_log)] <- NA_real_
+
+
+# filter features by missingness BEFORE imputation
+
+study_vec <- meta_pca$study6
+names(study_vec) <- rownames(mat_pca)
+
+# function: does a feature have data in a given study?
+feature_present_by_study <- function(x, study_vec) {
+  tapply(!is.na(x), study_vec, function(v) any(v))  # any non-NA in that study
+}
+
+# matrix: features x studies (TRUE/FALSE)
+present_mat <- apply(mat_log, 2, feature_present_by_study, study_vec = study_vec)
+
+# number of studies each feature is observed in
+n_studies_present <- colSums(present_mat)
+
+# keep features present in >= 2 studies
+keep_study <- n_studies_present >= 2
+
+cat("Features before study filter:", ncol(mat_log), "\n")
+cat("Features removed (<2 studies):", sum(!keep_study), "\n")
+cat("Features kept (>=2 studies):", sum(keep_study), "\n")
+
+mat_filt <- mat_log[, keep_study, drop = FALSE]
+
+
+# median imputation after missingness filtering
+mat_imp <- mat_filt
+meds <- apply(mat_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(mat_imp))) {
+  if (!is.na(meds[j])) {
+    mat_imp[is.na(mat_imp[, j]), j] <- meds[j]
+  }
+}
+
+
+# remove any remaining bad columns
+vars <- apply(mat_imp, 2, var)
+
+keep_cols <- colSums(is.na(mat_imp)) == 0 &
+  vars > 0 &
+  is.finite(vars)
+
+mat_imp <- mat_imp[, keep_cols, drop = FALSE]
+
+cat("Features kept for PCA:", ncol(mat_imp), "\n")
+```
+
+
+# ------------------------------------------------------------
+# PCA HELPER
+# ------------------------------------------------------------
+```{r}
+make_pca_plot <- function(mat_in, meta_df, title_str) {
+  pca  <- prcomp(mat_in, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1    = pca$x[, 1],
+    PC2    = pca$x[, 2],
+    group4 = meta_df$group4,
+    study  = meta_df$study6
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group4, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC  = "#2166AC",
+        OC  = "#F4A582",
+        T1D = "#D6604D",
+        T2D = "#4DAC26"
+      ),
+      name = "Group"
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, face = "bold", hjust = 0.5))
+}
+
+# ------------------------------------------------------------
+# PCA PANELS
+# ------------------------------------------------------------
+p0 <- make_pca_plot(mat_imp, meta_pca, paste(omics_name, "- No adjustment"))
+
+cov_m1 <- model.matrix(~ age + sex, data = meta_pca)[, -1, drop = FALSE]
+mat_m1 <- t(removeBatchEffect(t(mat_imp), covariates = cov_m1))
+p1 <- make_pca_plot(mat_m1, meta_pca, paste(omics_name, "- Age + Sex"))
+
+cov_m2 <- model.matrix(~ age + sex + study6, data = meta_pca)[, -1, drop = FALSE]
+mat_m2 <- t(removeBatchEffect(t(mat_imp), covariates = cov_m2))
+p2 <- make_pca_plot(mat_m2, meta_pca, paste(omics_name, "- Age + Sex + Study"))
+
+(p0 | p1 | p2) +
+  plot_annotation(
+    title = paste("PCA:", omics_name),
+    subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+
+# ------------------------------------------------------------
+# LIMMA HELPERS
+# ------------------------------------------------------------
+run_limma_contrasts <- function(Y, design, contr) {
+  fit <- lmFit(Y, design)
+  fit2 <- contrasts.fit(fit, contr)
+  fit2 <- eBayes(fit2)
+
+  out <- setNames(vector("list", ncol(contr)), colnames(contr))
+  for (cc in colnames(contr)) {
+    tt <- topTable(fit2, coef = cc, number = Inf, adjust.method = "BH", sort.by = "P")
+    tt$feature_id <- rownames(tt)
+    tt$contrast <- cc
+    out[[cc]] <- tt
+  }
+  list(fit = fit2, out = out)
+}
+
+summarise_sig <- function(out_list, model_label, n_samp) {
+  tibble(
+    contrast = names(out_list),
+    n_FDR05  = sapply(out_list, function(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+    n_FDR01  = sapply(out_list, function(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE)),
+    model    = model_label,
+    n_samples = n_samp
+  )
+}
+
+make_my_contrasts <- function(design) {
+  makeContrasts(
+    T1D_vs_LC  = T1D - LC,
+    T2D_vs_LC  = T2D - LC,
+    T1D_vs_T2D = T1D - T2D,
+    OC_vs_LC   = OC  - LC,
+    T1D_vs_OC  = T1D - OC,
+    T2D_vs_OC  = T2D - OC,
+    levels = design
+  )
+}
+
+# ------------------------------------------------------------
+# LIMMA: ALL STUDIES
+# ------------------------------------------------------------
+Y_all <- t(log2(as.matrix(mat_common) + 1))
+
+# age + sex
+meta_m1 <- meta_common
+Y_m1 <- Y_all[, meta_m1$record_id, drop = FALSE]
+
+design_m1 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
+colnames(design_m1) <- sub("^group4", "", colnames(design_m1))
+colnames(design_m1) <- make.names(colnames(design_m1))
+
+contr_m1 <- make_my_contrasts(design_m1)
+
+res_m1 <- run_limma_contrasts(Y_m1, design_m1, contr_m1)
+fit_m1 <- res_m1$fit
+out_m1 <- res_m1$out
+sig_m1 <- summarise_sig(out_m1, paste0(omics_name, "_age_sex"), nrow(meta_m1))
+
+# age + sex + study
+meta_m2 <- meta_common %>% filter(!is.na(study6))
+Y_m2 <- Y_all[, meta_m2$record_id, drop = FALSE]
+
+design_m2 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m2)
+colnames(design_m2) <- sub("^group4", "", colnames(design_m2))
+colnames(design_m2) <- make.names(colnames(design_m2))
+
+contr_m2 <- make_my_contrasts(design_m2)
+
+res_m2 <- run_limma_contrasts(Y_m2, design_m2, contr_m2)
+fit_m2 <- res_m2$fit
+out_m2 <- res_m2$out
+sig_m2 <- summarise_sig(out_m2, paste0(omics_name, "_age_sex_study"), nrow(meta_m2))
+
+summary_all <- bind_rows(sig_m1, sig_m2) %>%
+  dplyr::select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+print(summary_all)
+```
+```{r}
+make_volcano <- function(out_list, contrast_name, subtitle_txt = "Age + sex + study") {
+  
+  tt <- out_list[[contrast_name]]
+  
+  EnhancedVolcano::EnhancedVolcano(
+    tt,
+    lab = tt$feature_id,
+    x = "logFC",
+    y = "adj.P.Val",
+    pCutoff = 0.05,
+    FCcutoff = 1,
+    title = gsub("_", " ", contrast_name),
+    subtitle = subtitle_txt,
+    pointSize = 2.0,
+    labSize = 3.0
+  )
+}
+
+contrast_names <- c(
+  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+)
+
+volcano_list <- lapply(contrast_names, function(cc) {
+  make_volcano(out_m2, cc)
+})
+
+names(volcano_list) <- contrast_names
+
+patchwork::wrap_plots(volcano_list, ncol = 3)
+```
+
+# ------------------------------------------------------------
+# OPTIONAL SENSITIVITY: ALL-OMICS SUBSET
+# ------------------------------------------------------------
+```{r}
+# BUILD ALL-3 SUBSET
+ids_all_three <- trimws(as.character(ids_all_three))
+
+meta_all3 <- meta_common %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_all_three)
+
+# keep matrix rows in same order as metadata
+mat_all3 <- mat_common[meta_all3$record_id, , drop = FALSE]
+
+stopifnot(nrow(mat_all3) == nrow(meta_all3))
+stopifnot(identical(rownames(mat_all3), meta_all3$record_id))
+
+cat("All-3 subset features before filtering:", ncol(mat_all3), "\n")
+cat("All-3 subset N:", nrow(meta_all3), "\n")
+
+# proteomics + metabolomics subset only
+ids_metab_prot <- Reduce(intersect, list(ids_metab, ids_prot))
+
+cat("Total with proteomics + metabolomics:", length(ids_metab_prot), "\n")
+```
+
+
+```{r}
+# ------------------------------------------------------------
+# PCA PREP: subset
+# ------------------------------------------------------------
+mat_pca_all3 <- as.matrix(mat_all3)
+
+if (min(mat_pca_all3, na.rm = TRUE) < 0) {
+  stop("Matrix contains negative values; do not use log2(x + 1) without checking preprocessing.")
+}
+
+mat_log_all3 <- log2(mat_pca_all3 + 1)
+mat_log_all3[!is.finite(mat_log_all3)] <- NA_real_
+
+# make sure metadata still matches matrix rows
+stopifnot(nrow(mat_log_all3) == nrow(meta_all3))
+stopifnot(identical(rownames(mat_log_all3), meta_all3$record_id))
+
+# ------------------------------------------------------------
+# STUDY-AWARE FEATURE FILTER
+# keep features present in >= 2 studies
+# ------------------------------------------------------------
+study_vec <- as.character(meta_all3$study6)
+
+study_idx <- split(seq_len(nrow(mat_log_all3)), study_vec)
+
+present_by_study <- sapply(study_idx, function(idx) {
+  colSums(!is.na(mat_log_all3[idx, , drop = FALSE])) > 0
+})
+
+present_by_study <- as.matrix(present_by_study)
+
+# rows = features, cols = studies
+n_studies_present <- rowSums(present_by_study)
+
+keep_study <- n_studies_present >= 2
+
+cat("Features before study filter:", ncol(mat_log_all3), "\n")
+cat("Features removed (<2 studies):", sum(!keep_study), "\n")
+cat("Features kept (>=2 studies):", sum(keep_study), "\n")
+
+mat_filt_all3 <- mat_log_all3[, keep_study, drop = FALSE]
+
+# ------------------------------------------------------------
+# MEDIAN IMPUTATION
+# ------------------------------------------------------------
+mat_imp_all3 <- mat_filt_all3
+
+meds_all3 <- apply(mat_imp_all3, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(mat_imp_all3))) {
+  if (!is.na(meds_all3[j])) {
+    mat_imp_all3[is.na(mat_imp_all3[, j]), j] <- meds_all3[j]
+  }
+}
+
+# ------------------------------------------------------------
+# REMOVE BAD COLUMNS
+# ------------------------------------------------------------
+vars_all3 <- apply(mat_imp_all3, 2, var, na.rm = TRUE)
+
+keep_cols_all3 <- colSums(is.na(mat_imp_all3)) == 0 &
+  vars_all3 > 0 &
+  is.finite(vars_all3)
+
+mat_imp_all3 <- mat_imp_all3[, keep_cols_all3, drop = FALSE]
+
+cat("Features kept for PCA:", ncol(mat_imp_all3), "\n")
+cat("Samples for PCA:", nrow(mat_imp_all3), "\n")
+
+# final safety checks
+stopifnot(nrow(mat_imp_all3) == nrow(meta_all3))
+stopifnot(identical(rownames(mat_imp_all3), meta_all3$record_id))
+
+if (ncol(mat_imp_all3) < 2) {
+  stop("Need at least 2 features after filtering for PCA.")
+}
+```
+
+```{r}
+# ------------------------------------------------------------
+# PCA PANELS: all-3 subset
+# ------------------------------------------------------------
+p0_all3 <- make_pca_plot(
+  mat_imp_all3,
+  meta_all3,
+  paste(omics_name, "- No adjustment (all-3 subset)")
+)
+
+cov_m1_all3 <- model.matrix(~ age + sex, data = meta_all3)[, -1, drop = FALSE]
+mat_m1_all3 <- t(removeBatchEffect(t(mat_imp_all3), covariates = cov_m1_all3))
+p1_all3 <- make_pca_plot(
+  mat_m1_all3,
+  meta_all3,
+  paste(omics_name, "- Age + Sex (all-3 subset)")
+)
+
+cov_m2_all3 <- model.matrix(~ age + sex + study6, data = meta_all3)[, -1, drop = FALSE]
+mat_m2_all3 <- t(removeBatchEffect(t(mat_imp_all3), covariates = cov_m2_all3))
+p2_all3 <- make_pca_plot(
+  mat_m2_all3,
+  meta_all3,
+  paste(omics_name, "- Age + Sex + Study (all-3 subset)")
+)
+
+cov_m3_all3 <- model.matrix(~ study6, data = meta_all3)[, -1, drop = FALSE]
+mat_m3_all3 <- t(removeBatchEffect(t(mat_imp_all3), covariates = cov_m3_all3))
+p3_all3 <- make_pca_plot(
+  mat_m3_all3,
+  meta_all3,
+  paste(omics_name, "-Study (all-3 subset)")
+)
+
+(p0_all3 | p1_all3 | p2_all3 | p3_all3) +
+  plot_annotation(
+    title = paste("PCA:", omics_name, "(all-3 subset)"),
+    subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+```
+```{r}
+# ------------------------------------------------------------
+# LIMMA: all-3 subset
+# ------------------------------------------------------------
+
+# align metadata to the matrix actually being modeled
+meta_all3 <- meta_all3 %>%
+  mutate(record_id = trimws(as.character(record_id)))
+
+meta_all3 <- meta_all3[match(rownames(mat_imp_all3), meta_all3$record_id), , drop = FALSE]
+
+stopifnot(nrow(mat_imp_all3) == nrow(meta_all3))
+stopifnot(identical(rownames(mat_imp_all3), meta_all3$record_id))
+
+# mat_imp_all3 is already log2-transformed and imputed
+Y_all_all3 <- t(as.matrix(mat_imp_all3))
+
+design_m2_all3 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_all3)
+colnames(design_m2_all3) <- sub("^group4", "", colnames(design_m2_all3))
+colnames(design_m2_all3) <- make.names(colnames(design_m2_all3))
+
+contr_m2_all3 <- make_my_contrasts(design_m2_all3)
+
+res_m2_all3 <- run_limma_contrasts(Y_all_all3, design_m2_all3, contr_m2_all3)
+fit_m2_all3 <- res_m2_all3$fit
+out_m2_all3 <- res_m2_all3$out
+sig_m2_all3 <- summarise_sig(
+  out_m2_all3,
+  paste0(omics_name, "_age_sex_study_all3"),
+  nrow(meta_all3)
+)
+
+print(sig_m2_all3)
+```
+
+```{r}
+# ------------------------------------------------------------
+# VOLCANO PLOTS: all-3 subset
+# ------------------------------------------------------------
+make_volcano <- function(out_list,
+                         contrast_name,
+                         subtitle_txt = "Age + sex + study (MultiOmics subset)",
+                         fc_cutoff = 0.5,
+                         p_cutoff = 0.05) {
+  
+  tt <- out_list[[contrast_name]]
+  
+  EnhancedVolcano::EnhancedVolcano(
+    tt,
+    lab = tt$feature_id,
+    x = "logFC",
+    y = "adj.P.Val",
+    pCutoff = p_cutoff,
+    FCcutoff = fc_cutoff,
+    title = gsub("_", " ", contrast_name),
+    subtitle = subtitle_txt,
+    pointSize = 2.0,
+    labSize = 3.0
+  )
+}
+
+contrast_names <- c(
+  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+)
+
+volcano_list <- lapply(contrast_names, function(cc) {
+  make_volcano(out_m2_all3, cc)
+})
+
+names(volcano_list) <- contrast_names
+
+patchwork::wrap_plots(volcano_list, ncol = 3)
+
+
+```
+```{r}
+study_vec <- meta_common$study6
+ref_studies <- c("IT", "RH", "RH2")
+study_idx <- split(seq_len(nrow(mat_common)), study_vec)
+
+#original df of cleaned lipids >= 2 studies
+lipid_presence <- as.data.frame(lipid_presence)
+
+# count number of lipids per study
+lipids_per_study <- colSums(lipid_presence)
+lipids_per_study
+
+# presence matrix: lipids x studies reduce CRC lipids to those common in IT, RH, RH2
+present_by_study <- sapply(study_idx, function(idx) {
+  colSums(!is.na(mat_common[idx, , drop = FALSE])) > 0
+})
+
+present_by_study <- as.matrix(present_by_study)
+
+lipid_presence <- sapply(study_idx, function(idx) {
+  colSums(!is.na(mat_common[idx, , drop = FALSE])) > 0
+})
+
+keep_ref <- rowSums(present_by_study[, ref_studies, drop = FALSE]) == length(ref_studies)
+
+#original df of cleaned lipids >= 2 studies
+lipid_presence <- as.data.frame(lipid_presence)
+
+# count number of lipids per study
+lipids_per_study <- colSums(lipid_presence)
+lipids_per_study
+```
+
+```{r}
+mat_common_ref <- mat_common[, keep_ref, drop = FALSE]
+
+cat("Original features:", ncol(mat_common), "\n")
+cat("Filtered features (reference panel):", ncol(mat_common_ref), "\n")
+```
+
+```{r}
+study_vec <- meta_common$study6
+study_idx <- split(seq_len(nrow(mat_common)), study_vec)
+omics_by_study <- lapply(study_idx, function(idx) {
+  colnames(mat_common)[colSums(!is.na(mat_common[idx, , drop = FALSE])) > 0]
+})
+common_all <- Reduce(intersect, omics_by_study)
+length(common_all)
+
+
+all_lipids <- Reduce(union, omics_by_study)
+length(all_lipids)
+
+lipid_table <- table(unlist(omics_by_study))
+sum(lipid_table >= 2)
+```
+```{r}
+#pairwise overlap
+studies <- names(omics_by_study)
+
+overlap_mat <- matrix(0, nrow = length(studies), ncol = length(studies),
+                      dimnames = list(studies, studies))
+
+for (i in seq_along(studies)) {
+  for (j in seq_along(studies)) {
+    overlap_mat[i, j] <- length(
+      intersect(omics_by_study[[i]], omics_by_study[[j]])
+    )
+  }
+}
+
+overlap_mat
+```
+
+
+```{r}
+#coverage_df <- meta_common %>%
+ # mutate(
+  #  n_lipids = rowSums(!is.na(mat_common))
+  #)
+
+#coverage_df2 <- meta_common %>%
+ # mutate(n_lipids = rowSums(!is.na(mat_common_ref)))
+
+#aggregate(n_lipids ~ study6, data = coverage_df, summary)
+```
+
+
+```{r}
+#p1 <- ggplot(coverage_df, aes(x = study6, y = n_lipids, fill = study6)) +
+ # geom_boxplot(alpha = 0.7) +
+  #geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+  #theme_bw() +
+  #labs(
+   # title = "Lipid coverage per sample by study",
+  #  x = "Study",
+   # y = "Number of detected lipids"
+  #) +
+  #theme(legend.position = "none")
+
+#p2 <- ggplot(coverage_df2, aes(x = study6, y = n_lipids, fill = study6)) +
+#  geom_boxplot(alpha = 0.7) +
+#  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+ # theme_bw() +
+ # labs(
+  #  title = "Lipid coverage per sample by study",
+   # x = "Study",
+  #  y = "Number of detected lipids"
+  #) +
+  #theme(legend.position = "none")
+
+#p1 | p2
+```
+
+# ============================================================
+# SEPARATE SENSITIVITY ANALYSIS:
+# SHARED PROTEOMICS + METABOLOMICS SAMPLES ONLY
+# ============================================================
+```{r}
+# ------------------------------------------------------------
+# IDENTIFY SHARED PROTEOMICS + METABOLOMICS IDS
+# ------------------------------------------------------------
+ids_metab_prot <- Reduce(intersect, list(ids_metab, ids_prot))
+ids_metab_prot <- trimws(as.character(ids_metab_prot))
+
+cat("Total UNIQUE participants with proteomics + metabolomics:",
+    length(ids_metab_prot), "\n")
+# ------------------------------------------------------------
+# BUILD METABOLOMICS SUBSET ON SHARED IDS
+# ------------------------------------------------------------
+meta_metab_pm <- omics_objects$meta_metab
+mat_metab_pm  <- omics_objects$metabolites
+
+meta_metab_pm$record_id <- trimws(as.character(meta_metab_pm$record_id))
+meta_metab_pm$study     <- trimws(as.character(meta_metab_pm$study))
+meta_metab_pm$group     <- trimws(as.character(meta_metab_pm$group))
+meta_metab_pm$sex       <- trimws(as.character(meta_metab_pm$sex))
+
+meta_metab_pm$age <- suppressWarnings(as.numeric(meta_metab_pm$age))
+meta_metab_pm$bmi <- suppressWarnings(as.numeric(meta_metab_pm$bmi))
+
+keep <- !is.na(meta_metab_pm$age) & !is.na(meta_metab_pm$sex) & meta_metab_pm$sex != ""
+meta_metab_pm <- meta_metab_pm[keep, , drop = FALSE]
+
+meta_metab_pm$group4 <- factor(
+  meta_metab_pm$group,
+  levels = c("Lean Control","Obese Control","Type 1 Diabetes","Type 2 Diabetes"),
+  labels = c("LC","OC","T1D","T2D")
+)
+
+meta_metab_pm$study6 <- dplyr::recode(
+  meta_metab_pm$study,
+  "CROCODILE"       = "CRC",
+  "RENAL-HEIR"      = "RH",
+  "IMPROVE"         = "IT",
+  "RENAL-HEIRitage" = "RH2",
+  .default = meta_metab_pm$study
+)
+
+meta_metab_pm$study6 <- factor(meta_metab_pm$study6)
+meta_metab_pm$sex    <- factor(meta_metab_pm$sex)
+
+rownames(mat_metab_pm) <- trimws(as.character(rownames(mat_metab_pm)))
+
+ids_use_metab_pm <- intersect(ids_metab_prot, intersect(meta_metab_pm$record_id, rownames(mat_metab_pm)))
+
+meta_metab_pm <- meta_metab_pm[match(ids_use_metab_pm, meta_metab_pm$record_id), , drop = FALSE]
+mat_metab_pm  <- mat_metab_pm[ids_use_metab_pm, , drop = FALSE]
+
+stopifnot(identical(meta_metab_pm$record_id, rownames(mat_metab_pm)))
+
+cat("Metabolomics shared subset N:", nrow(meta_metab_pm), "\n")
+cat("Metabolomics shared subset features before filtering:", ncol(mat_metab_pm), "\n")
+```
+
+```{r}
+# ------------------------------------------------------------
+# BUILD PROTEOMICS SUBSET ON SAME SHARED IDS
+# ------------------------------------------------------------
+meta_prot_pm <- omics_objects$meta_prot
+mat_prot_pm  <- omics_objects$prot_plasma
+
+meta_prot_pm$record_id <- trimws(as.character(meta_prot_pm$record_id))
+meta_prot_pm$study     <- trimws(as.character(meta_prot_pm$study))
+meta_prot_pm$group     <- trimws(as.character(meta_prot_pm$group))
+meta_prot_pm$sex       <- trimws(as.character(meta_prot_pm$sex))
+
+meta_prot_pm$age <- suppressWarnings(as.numeric(meta_prot_pm$age))
+meta_prot_pm$bmi <- suppressWarnings(as.numeric(meta_prot_pm$bmi))
+
+keep <- !is.na(meta_prot_pm$age) & !is.na(meta_prot_pm$sex) & meta_prot_pm$sex != ""
+meta_prot_pm <- meta_prot_pm[keep, , drop = FALSE]
+
+meta_prot_pm$group4 <- factor(
+  meta_prot_pm$group,
+  levels = c("Lean Control","Obese Control","Type 1 Diabetes","Type 2 Diabetes"),
+  labels = c("LC","OC","T1D","T2D")
+)
+
+meta_prot_pm$study6 <- dplyr::recode(
+  meta_prot_pm$study,
+  "ATTEMPT"        = "ATT",
+  "CROCODILE"       = "CRC",
+  "RENAL-HEIR"      = "RH",
+  "IMPROVE"         = "IT",
+  "RENAL-HEIRitage" = "RH2",
+  .default = meta_prot_pm$study
+)
+
+meta_prot_pm$study6 <- factor(meta_prot_pm$study6)
+meta_prot_pm$sex    <- factor(meta_prot_pm$sex)
+
+rownames(mat_prot_pm) <- trimws(as.character(rownames(mat_prot_pm)))
+
+ids_use_prot_pm <- intersect(ids_metab_prot, intersect(meta_prot_pm$record_id, rownames(mat_prot_pm)))
+
+meta_prot_pm <- meta_prot_pm[match(ids_use_prot_pm, meta_prot_pm$record_id), , drop = FALSE]
+mat_prot_pm  <- mat_prot_pm[ids_use_prot_pm, , drop = FALSE]
+
+stopifnot(identical(meta_prot_pm$record_id, rownames(mat_prot_pm)))
+
+cat("Proteomics shared subset N:", nrow(meta_prot_pm), "\n")
+```
+```{r}
+# ------------------------------------------------------------
+# KEEP ONLY IDS PRESENT IN BOTH CLEANED SUBSETS
+# ------------------------------------------------------------
+ids_pm_final <- intersect(meta_metab_pm$record_id, meta_prot_pm$record_id)
+
+meta_metab_pm <- meta_metab_pm[match(ids_pm_final, meta_metab_pm$record_id), , drop = FALSE]
+mat_metab_pm  <- mat_metab_pm[ids_pm_final, , drop = FALSE]
+
+meta_prot_pm <- meta_prot_pm[match(ids_pm_final, meta_prot_pm$record_id), , drop = FALSE]
+mat_prot_pm  <- mat_prot_pm[ids_pm_final, , drop = FALSE]
+
+stopifnot(identical(meta_metab_pm$record_id, rownames(mat_metab_pm)))
+stopifnot(identical(meta_prot_pm$record_id, rownames(mat_prot_pm)))
+stopifnot(identical(meta_metab_pm$record_id, meta_prot_pm$record_id))
+
+cat("Final shared proteomics + metabolomics N:", length(ids_pm_final), "\n")
+```
+```{r}
+tbl_metab_pm <- meta_metab_pm %>%
+  count(study6, group4) %>%
+  tidyr::pivot_wider(
+    names_from = group4,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(
+    Total = rowSums(across(c(LC, OC, T1D, T2D)))
+  ) %>%
+  arrange(study6)
+
+tbl_metab_pm
+```
+
+```{r}
+# ------------------------------------------------------------
+# PREP METABOLOMICS MATRIX FOR PCA / LIMMA
+# ------------------------------------------------------------
+mat_pca_metab_pm <- as.matrix(mat_metab_pm)
+
+if (min(mat_pca_metab_pm, na.rm = TRUE) < 0) {
+  stop("Metabolomics matrix contains negative values; do not use log2(x + 1).")
+}
+
+mat_log_metab_pm <- log2(mat_pca_metab_pm + 1)
+mat_log_metab_pm[!is.finite(mat_log_metab_pm)] <- NA_real_
+
+study_vec <- as.character(meta_metab_pm$study6)
+study_idx <- split(seq_len(nrow(mat_log_metab_pm)), study_vec)
+
+present_by_study <- sapply(study_idx, function(idx) {
+  colSums(!is.na(mat_log_metab_pm[idx, , drop = FALSE])) > 0
+})
+
+present_by_study <- as.matrix(present_by_study)
+n_studies_present <- rowSums(present_by_study)
+keep_study <- n_studies_present >= 2
+
+cat("Metabolomics features before study filter:", ncol(mat_log_metab_pm), "\n")
+cat("Metabolomics features removed (<2 studies):", sum(!keep_study), "\n")
+cat("Metabolomics features kept:", sum(keep_study), "\n")
+
+mat_filt_metab_pm <- mat_log_metab_pm[, keep_study, drop = FALSE]
+
+meds_metab_pm <- apply(mat_filt_metab_pm, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+mat_imp_metab_pm <- mat_filt_metab_pm
+for (j in seq_len(ncol(mat_imp_metab_pm))) {
+  if (!is.na(meds_metab_pm[j])) {
+    mat_imp_metab_pm[is.na(mat_imp_metab_pm[, j]), j] <- meds_metab_pm[j]
+  }
+}
+
+vars_metab_pm <- apply(mat_imp_metab_pm, 2, var, na.rm = TRUE)
+
+keep_cols_metab_pm <- colSums(is.na(mat_imp_metab_pm)) == 0 &
+  vars_metab_pm > 0 &
+  is.finite(vars_metab_pm)
+
+mat_imp_metab_pm <- mat_imp_metab_pm[, keep_cols_metab_pm, drop = FALSE]
+
+cat("Metabolomics features kept for PCA/limma:", ncol(mat_imp_metab_pm), "\n")
+```
+
+```{r}
+# ------------------------------------------------------------
+# PCA: METABOLOMICS ON SHARED PROT+METAB SUBSET
+# ------------------------------------------------------------
+p0_metab_pm <- make_pca_plot(
+  mat_imp_metab_pm,
+  meta_metab_pm,
+  "Metabolomics - No adjustment (proteomics+metabolomics subset)"
+)
+
+cov_metab_pm1 <- model.matrix(~ age + sex, data = meta_metab_pm)[, -1, drop = FALSE]
+mat_metab_pm1 <- t(removeBatchEffect(t(mat_imp_metab_pm), covariates = cov_metab_pm1))
+p1_metab_pm <- make_pca_plot(
+  mat_metab_pm1,
+  meta_metab_pm,
+  "Metabolomics - Age + Sex (proteomics+metabolomics subset)"
+)
+
+cov_metab_pm2 <- model.matrix(~ age + sex + study6, data = meta_metab_pm)[, -1, drop = FALSE]
+mat_metab_pm2 <- t(removeBatchEffect(t(mat_imp_metab_pm), covariates = cov_metab_pm2))
+p2_metab_pm <- make_pca_plot(
+  mat_metab_pm2,
+  meta_metab_pm,
+  "Metabolomics - Age + Sex + Study (proteomics+metabolomics subset)"
+)
+
+(p0_metab_pm | p1_metab_pm | p2_metab_pm) +
+  plot_annotation(
+    title = "PCA: Metabolomics (proteomics+metabolomics subset)",
+    subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
+    )
+  )
+```
+```{r}
+# ------------------------------------------------------------
+# LIMMA: METABOLOMICS ON SHARED PROT+METAB SUBSET
+# ------------------------------------------------------------
+Y_metab_pm <- t(as.matrix(mat_imp_metab_pm))
+
+design_metab_pm <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_metab_pm)
+colnames(design_metab_pm) <- sub("^group4", "", colnames(design_metab_pm))
+colnames(design_metab_pm) <- make.names(colnames(design_metab_pm))
+
+contr_metab_pm <- make_my_contrasts(design_metab_pm)
+
+res_metab_pm <- run_limma_contrasts(Y_metab_pm, design_metab_pm, contr_metab_pm)
+out_metab_pm <- res_metab_pm$out
+
+sig_metab_pm <- summarise_sig(
+  out_metab_pm,
+  "metabolomics_age_sex_study_proteomics_metabolomics_subset",
+  nrow(meta_metab_pm)
+)
+
+print(sig_metab_pm)
+```
+```{r}
+# ------------------------------------------------------------
+# VOLCANO PLOTS: METABOLOMICS ON SHARED PROT+METAB SUBSET
+# ------------------------------------------------------------
+volcano_list_metab_pm <- lapply(contrast_names, function(cc) {
+  make_volcano(
+    out_metab_pm,
+    cc,
+    subtitle_txt = "Age + sex + study (proteomics + metabolomics subset)",
+    fc_cutoff = 0.5,
+    p_cutoff = 0.05
+  )
+})
+
+names(volcano_list_metab_pm) <- contrast_names
+
+patchwork::wrap_plots(volcano_list_metab_pm, ncol = 3)
+```
+

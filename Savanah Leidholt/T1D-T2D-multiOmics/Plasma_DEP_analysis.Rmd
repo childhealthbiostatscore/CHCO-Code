@@ -74,7 +74,7 @@ load(file.path(dir.dat, "PANTHER", "Data_cleaned", "panther_data.RData"))
 
 #trasnforming data to match the harmonized data
 panther_hba1c <- panther %>%
-  select(record_id, hba1c) %>%
+  dplyr::select(record_id, hba1c) %>%
   transmute(
     record_id = gsub("_", "-", as.character(record_id)),
     hba1c_panther = as.numeric(hba1c)
@@ -95,7 +95,7 @@ meta <- meta %>%
       hba1c
     )
   ) %>%
-  select(-hba1c_panther)
+  dplyr::select(-hba1c_panther)
 ```
 
 
@@ -410,9 +410,9 @@ Y_all <- t(log2(as.matrix(prot_plasma_common) + 1))
 meta_m1 <- meta_common
 Y_m1 <- Y_all[, meta_m1$record_id, drop = FALSE]  # enforce same sample order
 
-design_no <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
-colnames(design_no) <- sub("^group4", "", colnames(design_no))
-colnames(design_no) <- make.names(colnames(design_no))
+design <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
+colnames(design) <- sub("^group4", "", colnames(design))
+colnames(design) <- make.names(colnames(design))
 
 contr_m1 <- makeContrasts(
   T1D_vs_LC   = T1D - LC,
@@ -421,10 +421,10 @@ contr_m1 <- makeContrasts(
   OC_vs_LC    = OC  - LC,
   T1D_vs_OC   = T1D - OC,
   T2D_vs_OC   = T2D - OC,
-  levels = design_no
+  levels = design
 )
 
-res_m1 <- run_limma_contrasts(Y_m1, design_no, contr_m1)
+res_m1 <- run_limma_contrasts(Y_m1, design, contr_m1)
 fit_m1 <- res_m1$fit
 out_m1  <- res_m1$out
 
@@ -475,14 +475,14 @@ summary_all <- bind_rows(
   sig_m1  %>% mutate(model = "age_sex"),
   sig_m2
 ) %>%
-  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  dplyr::select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
   arrange(contrast, model)
 
 print(summary_all)
 
 # Optional: wide format for easy comparison across models per contrast
 summary_wide <- summary_all %>%
-  select(model, contrast, n_FDR05) %>%
+  dplyr::select(model, contrast, n_FDR05) %>%
   pivot_wider(names_from = model, values_from = n_FDR05)
 
 print(summary_wide)
@@ -635,13 +635,13 @@ summary_all_noATT <- bind_rows(
   sig_m1_noATT,
   sig_m2_noATT
 ) %>%
-  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  dplyr::select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
   arrange(contrast, model)
 
 print(summary_all_noATT)
 
 summary_wide_noATT <- summary_all_noATT %>%
-  select(model, contrast, n_FDR05) %>%
+  dplyr::select(model, contrast, n_FDR05) %>%
   pivot_wider(names_from = model, values_from = n_FDR05)
 
 print(summary_wide_noATT)
@@ -666,11 +666,56 @@ print(summary_compare_noATT)
 # ========================================================================
 ```{r}
 # Identify participants with all three omics types
+# Load your saved objects
 
+omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+
+
+# ============================================================
+# HELPER: count non-NA samples in a matrix for a given metadata
+# ============================================================
+
+count_samples_with_data <- function(meta_df, mat_df) {
+  # A sample "has data" if it has at least one non-NA value in the omics matrix
+  has_data <- rowSums(!is.na(mat_df)) > 0
+  meta_df %>%
+    mutate(has_omics = has_data) %>%
+    filter(has_omics)
+}
+```
+
+```{r}
+# ============================================================
+# 1) PER-OMICS SAMPLE COUNTS: Study x Group
+# ============================================================
+
+make_count_table <- function(meta_df, mat_df, omics_label) {
+  count_samples_with_data(meta_df, mat_df) %>%
+    count(study, group) %>%
+    pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
+    arrange(study) %>%
+    mutate(Omics = omics_label, .before = 1)
+}
+
+tbl_metabolites <- make_count_table(omics_objects$meta_metab, omics_objects$metabolites,  "Metabolomics")
+tbl_lipids      <- make_count_table(omics_objects$meta_lips,  omics_objects$lipids,        "Lipidomics")
+tbl_proteins    <- make_count_table(omics_objects$meta_prot,  omics_objects$prot_plasma,   "Proteomics (Plasma)")
+
+cat("\n===== METABOLOMICS: Samples per Study x Group =====\n")
+print(tbl_metabolites)
+
+cat("\n===== LIPIDOMICS: Samples per Study x Group =====\n")
+print(tbl_lipids)
+
+cat("\n===== PROTEOMICS (Plasma): Samples per Study x Group =====\n")
+print(tbl_proteins)
+```
+
+```{r}
 # A sample "has data" if it has at least one non-missing value in that matrix
-ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
-ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
-ids_prot <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_metab <- rownames(omics_objects$metabolites)[rowSums(!is.na(omics_objects$metabolites)) > 0]
+ids_lipids <- rownames(omics_objects$lipids)[rowSums(!is.na(omics_objects$lipids)) > 0]
+ids_prot <- rownames(omics_objects$prot_plasma)[rowSums(!is.na(omics_objects$prot_plasma)) > 0]
 
 ids_metab <- trimws(as.character(ids_metab))
 ids_lipids <- trimws(as.character(ids_lipids))
@@ -800,6 +845,7 @@ sig_m1_all3 <- tibble(
 ) %>% mutate(model = "age_sex_all3", n_samples = nrow(meta_m1_all3))
 
 
+
 # Model 2: age + sex + study
 Y_m2_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
 
@@ -830,13 +876,13 @@ summary_all_all3 <- bind_rows(
   sig_m1_all3,
   sig_m2_all3
 ) %>%
-  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  dplyr::select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
   arrange(contrast, model)
 
 print(summary_all_all3)
 
 summary_wide_all3 <- summary_all_all3 %>%
-  select(model, contrast, n_FDR05) %>%
+  dplyr::select(model, contrast, n_FDR05) %>%
   pivot_wider(names_from = model, values_from = n_FDR05)
 
 print(summary_wide_all3)
