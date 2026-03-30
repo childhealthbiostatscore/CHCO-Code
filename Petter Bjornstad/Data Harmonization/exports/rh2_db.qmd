@@ -1,0 +1,56 @@
+---
+title: "RH2 data for Denis Blodin"
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(janitor)
+library(Hmisc)
+library(purrr)
+library(arsenal)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
+
+harm_dat_sub <- harm_dat %>% 
+  filter(study == "RENAL-HEIRitage" & group == "Type 2 Diabetes") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  mutate(diabetes_onset_age = as.numeric(difftime(diabetes_dx_date, dob, unit = "days")/365))
+
+```
+
+```{r}
+rh2_dat <- harm_dat_sub %>%
+  dplyr::select(record_id, age, bmi, diabetes_onset_age, diabetes_duration, hba1c)
+
+rh2_dat_summary <- summary(arsenal::tableby(~ age + bmi + diabetes_onset_age + diabetes_duration + hba1c, 
+                         data = rh2_dat, digits = 1), text = T )
+
+write.csv(rh2_dat, file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh2_diabetes_dur_db.csv"), na = "", row.names = F)
+write.csv(rh2_dat_summary, file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh2_diabetes_dur_db_summary.csv"), na = "", row.names = F)
+
+```
