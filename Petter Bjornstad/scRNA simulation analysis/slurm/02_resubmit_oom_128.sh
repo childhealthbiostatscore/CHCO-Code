@@ -3,7 +3,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=128G
 #SBATCH --cpus-per-task=4
-#SBATCH --partition=cpu-g2
+#SBATCH --partition=ckpt
 #SBATCH --account=togo
 #SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/output/02_sim_oom128_%A_%a.out"
 #SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/error/02_sim_oom128_%A_%a.err"
@@ -11,7 +11,7 @@
 #SBATCH --ntasks=1
 
 # File containing array IDs to rerun (one per line)
-ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_33794733.txt"
+ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_34109511.txt"
 
 ################################################################################
 # Self-submission: if not inside a SLURM array task, submit ourselves
@@ -19,7 +19,7 @@ ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arra
 if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     N_JOBS=$(wc -l < "${ID_FILE}")
     echo "OOM 128GB resubmission: ${N_JOBS} jobs from ${ID_FILE}"
-    sbatch --array=1-${N_JOBS}%50 "$0"
+    sbatch --array=1-${N_JOBS}%100 "$0"
     exit 0
 fi
 
