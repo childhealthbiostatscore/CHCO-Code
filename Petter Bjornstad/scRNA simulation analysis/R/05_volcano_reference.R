@@ -463,7 +463,7 @@ nebula_ln_stats <- tryCatch({
           ncore      = 1,
           output_re  = TRUE,
           covariance = TRUE,
-          model      = "LN",
+          method      = "LN",
         ),
         warning = function(w) {
           warn <<- conditionMessage(w)
@@ -1556,6 +1556,7 @@ message("  Saved: correlation_logfc.csv, correlation_pval.csv")
 
 # 6. Gene overlap matrix (which methods call each gene significant)
 overlap_df <- data.frame(gene = all_genes_tested, upset_df, stringsAsFactors = FALSE) %>%
+  dplyr::rename("NEBULA-LN" = "NEBULA.LN") %>%
   dplyr::mutate(n_methods_sig = rowSums(dplyr::across(all_of(method_names)))) %>%
   dplyr::arrange(desc(n_methods_sig))
 s3write_csv(overlap_df,
