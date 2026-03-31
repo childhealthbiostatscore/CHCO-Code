@@ -132,10 +132,10 @@ option_list <- list(
               help = "Max POST cells to pass to MAST (subsample if exceeded) [default: 5000]")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-if (is.null(opt$array_id)) stop("--array_id is required")
-
 # manual settings for debugging
 # opt$array_id = 1
+if (is.null(opt$array_id)) stop("--array_id is required")
+
 
 # Seed is array_id so each task is reproducible and unique
 set.seed(opt$array_id)
@@ -992,8 +992,91 @@ if (nrow(agreement) > 0) {
                   max(agreement$jaccard, na.rm = TRUE)))
 }
 
+# 14. PERFORMANCE METRICS: power, FDR, type I error at both p<0.05 and FDR<0.05
+#
+# Since we know ground truth (is_de, beta_int_true), compute per method:
+#   - power_nominal:   sensitivity at raw p < 0.05 among true DE genes
+#   - power_fdr:       sensitivity at FDR < 0.05 among true DE genes
+#   - typeI_nominal:   type I error rate at raw p < 0.05 among true null genes
+#   - typeI_fdr:       type I error rate at FDR < 0.05 among true null genes
+#   - FDP:             false discovery proportion among genes called sig at FDR < 0.05
+#   - n_sig_nominal:   total genes significant at p < 0.05
+#   - n_sig_fdr:       total genes significant at FDR < 0.05
+#   - n_tested:        genes with non-NA p-values
 # ─────────────────────────────────────────────────────────────────────────────
-# 14. SAVE RESULTS TO S3 (small files only; counts already freed)
+message("  Computing performance metrics...")
+
+compute_metrics <- function(stats_df, method_name) {
+  if (is.null(stats_df) || nrow(stats_df) == 0) {
+    return(data.frame(
+      method = method_name,
+      n_tested = 0L, n_de_tested = 0L, n_null_tested = 0L,
+      n_sig_nominal = 0L, n_sig_fdr = 0L,
+      power_nominal = NA_real_, power_fdr = NA_real_,
+      typeI_nominal = NA_real_, typeI_fdr = NA_real_,
+      FDP = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  df <- stats_df[!is.na(stats_df$pval_int), ]
+  n_tested <- nrow(df)
+  
+  # Split by ground truth
+  de   <- df[!is.na(df$is_de) & df$is_de == TRUE, ]
+  null <- df[!is.na(df$is_de) & df$is_de == FALSE, ]
+  n_de   <- nrow(de)
+  n_null <- nrow(null)
+  
+  # Counts
+  n_sig_nominal <- sum(df$pval_int < 0.05, na.rm = TRUE)
+  n_sig_fdr     <- sum(df$padj_int < 0.05, na.rm = TRUE)
+  
+  # Power (sensitivity among true DE)
+  power_nominal <- if (n_de > 0) mean(de$pval_int < 0.05, na.rm = TRUE) else NA_real_
+  power_fdr     <- if (n_de > 0) mean(de$padj_int < 0.05, na.rm = TRUE) else NA_real_
+  
+  # Type I error (among true nulls)
+  typeI_nominal <- if (n_null > 0) mean(null$pval_int < 0.05, na.rm = TRUE) else NA_real_
+  typeI_fdr     <- if (n_null > 0) mean(null$padj_int < 0.05, na.rm = TRUE) else NA_real_
+  
+  # False discovery proportion (among called positives at FDR < 0.05)
+  sig_fdr_genes <- df[!is.na(df$padj_int) & df$padj_int < 0.05, ]
+  FDP <- if (nrow(sig_fdr_genes) > 0) {
+    mean(!sig_fdr_genes$is_de | is.na(sig_fdr_genes$is_de), na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  
+  data.frame(
+    method        = method_name,
+    n_tested      = n_tested,
+    n_de_tested   = n_de,
+    n_null_tested = n_null,
+    n_sig_nominal = n_sig_nominal,
+    n_sig_fdr     = n_sig_fdr,
+    power_nominal = round(power_nominal, 4),
+    power_fdr     = round(power_fdr, 4),
+    typeI_nominal = round(typeI_nominal, 4),
+    typeI_fdr     = round(typeI_fdr, 4),
+    FDP           = round(FDP, 4),
+    stringsAsFactors = FALSE
+  )
+}
+
+performance <- do.call(rbind, list(
+  compute_metrics(nebula_stats, "NEBULA"),
+  compute_metrics(edger_stats,  "edgeR"),
+  compute_metrics(limma_stats,  "limma"),
+  compute_metrics(wilcox_stats, "Wilcoxon"),
+  compute_metrics(mast_stats,   "MAST")
+))
+
+message("  Performance metrics:")
+print(performance)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. SAVE RESULTS TO S3 (small files only; counts already freed)
 # ─────────────────────────────────────────────────────────────────────────────
 timing <- c(sim    = t_sim_elapsed,
             nebula = t_neb_elapsed,
@@ -1021,6 +1104,9 @@ s3saveRDS(limma_stats,
           bucket = S3_BUCKET, region = "")
 s3saveRDS(agreement,
           object = paste0(S3_OUT, "agreement.rds"),
+          bucket = S3_BUCKET, region = "")
+s3saveRDS(performance,
+          object = paste0(S3_OUT, "performance.rds"),
           bucket = S3_BUCKET, region = "")
 s3saveRDS(sig_membership,
           object = paste0(S3_OUT, "sig_membership.rds"),

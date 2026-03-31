@@ -730,43 +730,24 @@ fig1i <- ggplot() +
   theme(plot.tag    = element_text(size = 14, face = "bold"),
         plot.margin = margin(5, 5, 5, 5))
 
-########################################################################
-# PANEL J — Delta-delta correlation heatmap (hardcoded from .sav values)
-#
-# Values taken directly from the current .sav-based output + SPSS tables.
-# Rows: k2 Cortex, k2 Medulla, k2/F Cortex, k2/F Medulla
-# Cols: HbA1c, HOMA-IR, Glucose, Sodium Load
-# NA = cell not requested (renders grey)
-#
-# r values (from .sav run):
-#   k2 Cortex   x HbA1c:        0.48*
-#   k2 Cortex   x HOMA-IR:      0.77***
-#   k2 Medulla  x HbA1c:        0.50*
-#   k2 Medulla  x HOMA-IR:      0.82***
-#   k2/F Cortex x HOMA-IR:      0.61**
-#   k2/F Cortex x Glucose:      0.48*
-#   k2/F Cortex x Sodium Load:  0.45*
-#   k2/F Medulla x HOMA-IR:     0.64**
-#   k2/F Medulla x Sodium Load: 0.52*
-########################################################################
 
-# Row order: k2 Cortex, k2 Medulla, k2/F Cortex, k2/F Medulla
-# Col order: HbA1c, HOMA-IR, Glucose, Sodium Load
-
-# All 16 cells — exact values from .sav run
-# Stars: p<0.05=*, p<0.01=**, p<0.001=***
-# Row order: k2 Cortex, k2 Medulla, k2/F Cortex, k2/F Medulla
-# Col order: HbA1c, HOMA-IR, Glucose, Sodium Load
+########################################################################
+# FIX 1: Panel J heatmap — replace Unicode subscript with plain text
+#
+# The \u2082 glyph isn't in the default "sans" font on Windows,
+# so pheatmap renders a square.  Use plain ASCII labels instead.
+########################################################################
 
 dd_rho <- matrix(
-  c( 0.48,  0.77,  0.36,  0.20,   # k2 Cortex    (gluc p=0.124, sod p=0.401 — ns)
-     0.50,  0.82,  0.31,  0.17,   # k2 Medulla   (gluc p=0.178, sod p=0.471 — ns)
-     0.32,  0.61,  0.48,  0.45,   # k2/F Cortex  (hba1c p=0.165 — ns)
-     0.31,  0.64,  0.42,  0.52),  # k2/F Medulla (hba1c p=0.177, gluc p=0.065 — ns)
+  c( 0.48,  0.77,  0.36,  0.20,
+     0.50,  0.82,  0.31,  0.17,
+     0.32,  0.61,  0.48,  0.45,
+     0.31,  0.64,  0.42,  0.52),
   nrow = 4, ncol = 4, byrow = TRUE,
   dimnames = list(
-    c("k\u2082 Cortex", "k\u2082 Medulla", "k\u2082/F Cortex", "k\u2082/F Medulla"),
-    c("\u0394 HbA1c", "\u0394 HOMA-IR", "\u0394 Glucose", "\u0394 Sodium Load")
+    # ---- plain ASCII: no more squares ----
+    c("k2 Cortex", "k2 Medulla", "k2/F Cortex", "k2/F Medulla"),
+    c("Delta HbA1c", "Delta HOMA-IR", "Delta Glucose", "Delta Sodium Load")
   )
 )
 
@@ -803,6 +784,8 @@ fig1j <- wrap_elements(full = fig1j_heatmap$gtable) +
   labs(tag = "J") +
   theme(plot.tag = element_text(size = 14, face = "bold",
                                 margin = margin(0, 4, 0, 0)))
+
+
 
 ########################################################################
 # ASSEMBLE FIGURE 1
@@ -956,13 +939,45 @@ fig3d <- plot_corr_log(dat_fig3, "acr_u", "log10_uacr", "avg_c_k2_f",
                        expression(bold("Cortical k"[2]*"/F")),
                        "D", point_col = cols$corr_point)
 
-# --- Also update Panel A heatmap to note log10 on x-axis label ---
+
+# --- 1. Use plain text labels (no \u2082) ---
+vars_to_test <- list(
+  list(var = "avg_c_k2",   label = "Cortical k2"),
+  list(var = "avg_c_f",    label = "Cortical F"),
+  list(var = "avg_c_k2_f", label = "Cortical k2/F")
+)
+
+cor_results <- purrr::map_dfr(vars_to_test, function(v) {
+  df <- dat_fig3 %>% filter(!is.na(.data[[v$var]]))
+  ct <- cor.test(df$acr_u, df[[v$var]], method = "spearman")
+  data.frame(
+    var_label = v$label,
+    rho       = ct$estimate,
+    pval      = ct$p.value,
+    label     = formatC(ct$estimate, format = "f", digits = 2),
+    sig       = ifelse(ct$p.value < 0.001, "***",
+                       ifelse(ct$p.value < 0.01,  "**",
+                              ifelse(ct$p.value < 0.05,  "*", "")))
+  )
+})
+
+cor_results$var_label <- factor(cor_results$var_label,
+                                levels = c("Cortical k2/F",
+                                           "Cortical F",
+                                           "Cortical k2"))
+
+# --- 2. Widen fill limits from ±0.6 to ±1 so 0.62 isn't clipped ---
 fig3a <- ggplot(cor_results, aes(x = "UACR", y = var_label, fill = rho)) +
   geom_tile(color = "white", linewidth = 1) +
   geom_text(aes(label = paste0(label, sig)), size = 4, fontface = "bold") +
-  scale_fill_gradient2(low = cols$control, mid = "white", high = cols$t2d,
-                       midpoint = 0, limits = c(-0.6, 0.6),
-                       name = "Spearman\nrho") +
+  scale_fill_gradient2(
+    low      = cols$control,
+    mid      = "white",
+    high     = cols$t2d,
+    midpoint = 0,
+    limits   = c(-1, 1),        # <-- was c(-0.6, 0.6), clipping 0.62 to NA
+    name     = "Spearman\nrho"
+  ) +
   labs(x = NULL, y = NULL, tag = "A") +
   theme_rockies +
   theme(legend.position = "right",
@@ -2145,4 +2160,154 @@ cat("\n========================================================\n")
 cat("  Combined PDF saved:\n")
 cat("  ", paste0(base_path, "ROCKIES_All_Figures_Combined.pdf"), "\n")
 cat("========================================================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+###Full merge 
+
+
+library(qpdf)   # install.packages("qpdf") if needed
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Helper: save one figure to a temporary PDF at its natural size
+save_page <- function(plot_obj, filename, w, h) {
+  path <- paste0(base_path, filename)
+  tryCatch(
+    ggsave(path, plot_obj, width = w, height = h, device = cairo_pdf),
+    error = function(e) ggsave(path, plot_obj, width = w, height = h)
+  )
+  path
+}
+
+# ------------------------------------------------------------------
+# Re-assemble Figure 1 (uses the fixed fig1j from above)
+# ------------------------------------------------------------------
+row1 <- fig1a + fig1b + plot_layout(widths = c(1.2, 1.2))
+row2 <- fig1c + fig1d + plot_layout(widths = c(1, 1.4))
+row3 <- fig1e + fig1f + fig1g + fig1h + plot_layout(widths = c(1, 1, 1, 1))
+row4 <- fig1i + fig1j + plot_layout(widths = c(1.8, 1.2))
+
+fig1_full <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(3.5, 3, 2.5, 3)) +
+  plot_annotation(
+    title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  )
+
+# ------------------------------------------------------------------
+# Figure 2
+# ------------------------------------------------------------------
+fig2_full <- (fig2b | fig2c | fig2d) +
+  plot_annotation(
+    title    = "Figure 2. Elevated Kidney Oxidative Metabolism in Type 2 Diabetes",
+    subtitle = "18 T2D (RENAL-HEIRitage) vs 11 Healthy Controls (CROCODILE)",
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+# ------------------------------------------------------------------
+# Figure 3
+# ------------------------------------------------------------------
+fig3_full <- (fig3a | fig3b) / (fig3c | fig3d) +
+  plot_annotation(
+    title    = "Figure 3. Kidney Oxidative Metabolism Correlates with Albuminuria",
+    subtitle = "Spearman correlations in 40 participants (CROCODILE + RENAL-HEIRitage)",
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+# ------------------------------------------------------------------
+# Figure 4
+# ------------------------------------------------------------------
+fig4_full <- (fig4a | fig4b | fig4c) +
+  plot_annotation(
+    title    = "Figure 4. Kidney Oxidative Metabolism and GBM Thickening",
+    subtitle = paste0(
+      "GBM Thickening (n=", sum(dat_fig4$GBM_Status == "GBM\nThickening"),
+      ") vs No GBM Thickening (n=", sum(dat_fig4$GBM_Status == "No GBM\nThickening"), ")"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+# ------------------------------------------------------------------
+# Figure 5
+# ------------------------------------------------------------------
+fig5_full <- (fig5a | fig5b | fig5c) +
+  plot_annotation(
+    title    = "Figure 5. Kidney Oxidative Metabolism and Arteriosclerosis",
+    subtitle = paste0(
+      "Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "Arteriosclerosis"),
+      ") vs No Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "No\nArteriosclerosis"), ")"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+# ------------------------------------------------------------------
+# Save each page at its NATURAL dimensions
+# ------------------------------------------------------------------
+pages <- c(
+  save_page(fig1_full, "_tmp_fig1.pdf", w = 16,  h = 22),    # tall multi-row
+  
+  save_page(fig2_full, "_tmp_fig2.pdf", w = 13,  h = 5.5),   # single row of 3
+  save_page(fig3_full, "_tmp_fig3.pdf", w = 12,  h = 9),     # 2 x 2 grid
+  save_page(fig4_full, "_tmp_fig4.pdf", w = 13,  h = 5.5),   # single row of 3
+  save_page(fig5_full, "_tmp_fig5.pdf", w = 13,  h = 5.5)    # single row of 3
+)
+
+# ------------------------------------------------------------------
+# Figures 6 & 7 (cowplot objects — use ggsave2 or pdf() directly)
+# ------------------------------------------------------------------
+if (exists("fig6")) {
+  f6 <- paste0(base_path, "_tmp_fig6.pdf")
+  pdf(f6, width = 14, height = 10.5)
+  print(fig6)
+  dev.off()
+  pages <- c(pages, f6)
+}
+
+if (exists("fig7")) {
+  f7 <- paste0(base_path, "_tmp_fig7.pdf")
+  pdf(f7, width = 14, height = 10.5)
+  print(fig7)
+  dev.off()
+  pages <- c(pages, f7)
+}
+
+# ------------------------------------------------------------------
+# Merge into one PDF — each page keeps its own size
+# ------------------------------------------------------------------
+combined_path <- paste0(base_path, "ROCKIES_All_Figures_Combined.pdf")
+qpdf::pdf_combine(pages, output = combined_path)
+
+# Clean up temp files
+file.remove(pages)
+
+cat("\n========================================================\n")
+cat("  Combined PDF saved (per-figure page sizes):\n")
+cat("  ", combined_path, "\n")
+cat("========================================================\n")
+
+
+
+
 

@@ -2,7 +2,7 @@
 # 05_volcano_reference.R
 #
 # PURPOSE:
-#   Run all 5 DE methods (NEBULA, edgeR, limma-voom+dupCor, Wilcoxon, MAST) on the
+#   Run all 6 DE methods (NEBULA-NBLMM, NEBULA-LN, edgeR, limma-voom+dupCor, Wilcoxon, MAST) on the
 #   ACTUAL ATTEMPT reference dataset (not simulated data) and produce volcano
 #   plots of the interaction term for each method.
 #
@@ -400,8 +400,136 @@ nebula_stats <- tryCatch({
 })
 
 t_neb_elapsed <- (proc.time() - t_neb)["elapsed"]
-message(sprintf("  NEBULA done: %.1f s  (%s genes)",
+message(sprintf("  NEBULA-NBLMM done: %.1f s  (%s genes)",
                 t_neb_elapsed, if (!is.null(nebula_stats)) nrow(nebula_stats) else "0"))
+
+# =============================================================================
+# 6b. NEBULA — LN (lognormal) model
+# =============================================================================
+t_neb_ln <- proc.time()
+message("  Running NEBULA-LN...")
+
+nebula_ln_stats <- tryCatch({
+  nc <- meta
+  nc$visit     <- factor(nc$visit,      levels = c("timepoint1", "timepoint2"))
+  nc$treatment <- factor(nc$treatment,  levels = c("Placebo",     "Treatment"))
+  nc$subject_id <- as.character(nc$subject_id)
+  counts_rounded <- round(counts)
+  genes_list <- rownames(counts_rounded)
+
+  # Reuse the same pooled offset from NBLMM section (already computed above)
+  # If nebula_stats errored before offset was created, recompute
+  if (!exists("pooled_offset")) {
+    sce_offset <- SingleCellExperiment(assays = list(counts = counts_rounded))
+    sce_offset <- computeSumFactors(sce_offset,
+                                    BPPARAM = BiocParallel::MulticoreParam(opt$n_cores))
+    pooled_offset <- sizeFactors(sce_offset)
+    rm(sce_offset); gc(verbose = FALSE)
+  }
+
+  message(sprintf("  NEBULA-LN: fitting %d genes across %d cells, %d subjects",
+                  length(genes_list), ncol(counts_rounded),
+                  length(unique(nc$subject_id))))
+
+  cl <- makeCluster(opt$n_cores)
+  registerDoParallel(cl)
+
+  nebula_ln_res_list <- foreach(
+    g = genes_list,
+    .packages = c("nebula", "Matrix"),
+    .export   = c("counts_rounded", "nc", "pooled_offset", "group_cell_mod"),
+    .errorhandling = "pass"
+  ) %dopar% {
+    warn <- err <- res <- NULL
+    tryCatch({
+      count_gene <- counts_rounded[g, , drop = FALSE]
+      pred_gene  <- model.matrix(~ treatment * visit, data = nc)
+      data_gene  <- group_cell_mod(count  = count_gene,
+                                   id     = nc$subject_id,
+                                   pred   = pred_gene,
+                                   offset = pooled_offset)
+
+      if (is.null(data_gene)) {
+        data_gene <- list(count = count_gene, id = nc$subject_id,
+                          pred = pred_gene, offset = pooled_offset)
+      }
+
+      res <- withCallingHandlers(
+        nebula(
+          count      = data_gene$count,
+          id         = data_gene$id,
+          pred       = data_gene$pred,
+          offset     = data_gene$offset,
+          ncore      = 1,
+          output_re  = TRUE,
+          covariance = TRUE,
+          model      = "LN",
+        ),
+        warning = function(w) {
+          warn <<- conditionMessage(w)
+          invokeRestart("muffleWarning")
+        }
+      )
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+  }
+
+  stopCluster(cl)
+
+  names(nebula_ln_res_list) <- vapply(nebula_ln_res_list, `[[`, "", "gene")
+  result_list <- lapply(nebula_ln_res_list, `[[`, "result")
+  result_list <- Filter(Negate(is.null), result_list)
+
+  converged <- sapply(result_list, function(r) {
+    if (!is.null(r$convergence)) all(r$convergence == 1) else TRUE
+  })
+  n_returned  <- length(result_list)
+  n_converged <- sum(converged)
+  n_total     <- length(genes_list)
+  result_list <- result_list[converged]
+
+  message(sprintf("  NEBULA-LN: %d/%d returned results, %d converged (%.1f%% failed)",
+                  n_returned, n_total, n_converged,
+                  100 * (n_total - n_converged) / n_total))
+
+  parsed <- lapply(names(result_list), function(g) {
+    res  <- result_list[[g]]
+    summ <- res$summary
+    lfc_col <- grep("logFC.*treatment.*visit|logFC.*Treatment.*timepoint",
+                    colnames(summ), value = TRUE, ignore.case = TRUE)
+    if (!length(lfc_col)) {
+      lfc_col <- grep("^logFC_.*:", colnames(summ), value = TRUE)
+    }
+    if (!length(lfc_col)) return(NULL)
+
+    pval_col <- sub("^logFC_", "p_", lfc_col[1])
+    if (!pval_col %in% colnames(summ)) return(NULL)
+
+    lfc_val <- summ[[lfc_col[1]]] / log(2)
+    if (!is.finite(lfc_val) || abs(lfc_val) > 20) return(NULL)
+
+    data.frame(
+      gene      = g,
+      logFC_int = lfc_val,
+      pval_int  = summ[[pval_col]],
+      stringsAsFactors = FALSE
+    )
+  })
+  parsed <- Filter(Negate(is.null), parsed)
+  df <- do.call(rbind, parsed)
+  df$padj_int <- p.adjust(df$pval_int, method = "BH")
+  df
+
+}, error = function(e) {
+  message("  NEBULA-LN error: ", conditionMessage(e))
+  NULL
+})
+
+t_neb_ln_elapsed <- (proc.time() - t_neb_ln)["elapsed"]
+message(sprintf("  NEBULA-LN done: %.1f s  (%s genes)",
+                t_neb_ln_elapsed, if (!is.null(nebula_ln_stats)) nrow(nebula_ln_stats) else "0"))
 
 # =============================================================================
 # 7. PSEUDOBULK AGGREGATION (shared by edgeR and limma)
@@ -623,11 +751,12 @@ gc(verbose = FALSE)
 # =============================================================================
 # 13. TIMING SUMMARY
 # =============================================================================
-timing <- c(nebula = t_neb_elapsed,
-            edger  = t_er_elapsed,
-            limma  = t_limma_elapsed,
-            wilcox = t_wilcox_elapsed,
-            mast   = t_mast_elapsed)
+timing <- c(nebula    = t_neb_elapsed,
+            nebula_ln = t_neb_ln_elapsed,
+            edger     = t_er_elapsed,
+            limma     = t_limma_elapsed,
+            wilcox    = t_wilcox_elapsed,
+            mast      = t_mast_elapsed)
 message(sprintf("  Timing: %s",
                 paste(sprintf("%s=%.1fs", names(timing), timing), collapse = " | ")))
 
@@ -839,15 +968,17 @@ make_volcano <- function(data, p_col, fc, title = NULL,
 message("  Preparing analyses...")
 
 methods <- list(
-  list(name = "NEBULA",    data = nebula_stats, test_name = "(Interaction)",
+  list(name = "NEBULA",    data = nebula_stats,    test_name = "(Interaction)",
        formula_text = "~ visit * treatment", note = "Cell-level NBLMM + REML + pooled offset"),
-  list(name = "edgeR",     data = edger_stats,  test_name = "(Interaction)",
+  list(name = "NEBULA-LN", data = nebula_ln_stats, test_name = "(Interaction)",
+       formula_text = "~ visit * treatment", note = "Cell-level LN (lognormal) + pooled offset"),
+  list(name = "edgeR",     data = edger_stats,     test_name = "(Interaction)",
        formula_text = "~ visit + treatment + visit:treatment", note = "Pseudobulk QL F-test"),
-  list(name = "limma",     data = limma_stats,  test_name = "(Interaction)",
+  list(name = "limma",     data = limma_stats,     test_name = "(Interaction)",
        formula_text = "~ visit * treatment + duplicateCorrelation", note = "Pseudobulk voom + dupCor"),
-  list(name = "Wilcoxon",  data = wilcox_stats, test_name = "(Trt POST vs Plc POST)",
+  list(name = "Wilcoxon",  data = wilcox_stats,    test_name = "(Trt POST vs Plc POST)",
        formula_text = NULL, note = "Cell-level naive; tests b_trt + b_int"),
-  list(name = "MAST",      data = mast_stats,   test_name = "(Trt POST vs Plc POST)",
+  list(name = "MAST",      data = mast_stats,      test_name = "(Trt POST vs Plc POST)",
        formula_text = NULL, note = "Cell-level hurdle; subject as fixed covariate")
 )
 
@@ -855,8 +986,8 @@ methods <- list(
 methods_ok <- Filter(function(m) !is.null(m$data), methods)
 method_names <- sapply(methods_ok, `[[`, "name")
 
-method_colors <- c(NEBULA = "#e63946", edgeR = "#2a9d8f", limma = "#457b9d",
-                   Wilcoxon = "#e9c46a", MAST = "#264653")
+method_colors <- c(NEBULA = "#e63946", `NEBULA-LN` = "#f4845f", edgeR = "#2a9d8f",
+                   limma = "#457b9d", Wilcoxon = "#e9c46a", MAST = "#264653")
 
 subtitle_text <- sprintf("ATTEMPT reference | Cell type: %s | %d HVGs | %d subjects",
                          opt$cell_type, opt$n_hvg, n_subjects)
@@ -1099,18 +1230,26 @@ summary_rows <- lapply(methods_ok, function(m) {
   n_up   <- sum(sig_genes$logFC_int > 0, na.rm = TRUE)
   n_down <- sum(sig_genes$logFC_int < 0, na.rm = TRUE)
   
+  # Nominal p < 0.05 sig genes
+  sig_nom <- df %>% dplyr::filter(pval_int < 0.05)
+  n_up_nom   <- sum(sig_nom$logFC_int > 0, na.rm = TRUE)
+  n_down_nom <- sum(sig_nom$logFC_int < 0, na.rm = TRUE)
+  
   data.frame(
     Method             = m$name,
     Contrast           = m$test_name,
     Genes_Tested       = n_tested,
     Sig_p05            = n_sig_p,
+    Pct_Sig_p05        = sprintf("%.1f%%", 100 * n_sig_p / n_tested),
+    Up_p05             = n_up_nom,
+    Down_p05           = n_down_nom,
     Sig_FDR05          = n_sig_fdr,
     Pct_Sig_FDR        = sprintf("%.1f%%", 100 * n_sig_fdr / n_tested),
     Up_FDR05           = n_up,
     Down_FDR05         = n_down,
     Median_absFC_Sig   = round(median_fc, 3),
     Median_absFC_All   = round(median_fc_all, 3),
-    Time_sec           = round(timing[paste0(tolower(gsub("Wilcoxon", "wilcox", m$name)), ".elapsed")], 1),
+    Time_sec           = round(timing[paste0(tolower(gsub("Wilcoxon", "wilcox", gsub("-", "_", m$name))), ".elapsed")], 1),
     stringsAsFactors   = FALSE
   )
 })
@@ -1321,11 +1460,12 @@ unlink(tmp_pdf)
 
 # Also save stats results + summary table to S3 for downstream use
 ref_results <- list(
-  nebula_stats  = nebula_stats,
-  edger_stats   = edger_stats,
-  limma_stats   = limma_stats,
-  wilcox_stats  = wilcox_stats,
-  mast_stats    = mast_stats,
+  nebula_stats    = nebula_stats,
+  nebula_ln_stats = nebula_ln_stats,
+  edger_stats     = edger_stats,
+  limma_stats     = limma_stats,
+  wilcox_stats    = wilcox_stats,
+  mast_stats      = mast_stats,
   summary_table = summary_table,
   timing        = timing,
   cor_logfc     = cor_logfc,
