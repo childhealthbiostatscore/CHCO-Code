@@ -151,6 +151,10 @@ colnames(plasma_ceramides) <- temp
 temp <- str_replace_all(colnames(plasma_ceramides),"\\:","_")
 colnames(plasma_ceramides) <- temp
 
+#create new ceramide ratios (as suggested by Kumar + group):
+plasma_ceramides$c16_c24_ratio.in.uM<-plasma_ceramides$C16d18_1_16_0.in.uM/plasma_ceramides$C24d18_1_24_0.in.uM
+plasma_ceramides$c18_c24_ratio.in.uM<-plasma_ceramides$C18d18_1_18_0.in.uM/plasma_ceramides$C24d18_1_24_0.in.uM
+
 #merge plasma with plasma ceramides
 plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
 plasma_ceramides$Date.Drawn<-as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
