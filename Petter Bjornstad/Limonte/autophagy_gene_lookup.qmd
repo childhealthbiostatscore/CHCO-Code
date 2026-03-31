@@ -99,17 +99,15 @@ pb90_so <- s3readRDS("data_clean/pb90_processed.rds", "scrna", region = "")
 # remove obese controls:
 pb90_sub<- subset(pb90_so, group %in% c("Lean Control", "Type 1 Diabetes", "Type 2 Diabetes"))
 
-# only use baseline samples: (removes post)
-# use "visit" variable instead:
+# only use baseline samples: 
+# use "visit" variable:
 pb90_sub<- subset(pb90_sub, visit %in% c("baseline"))
 
 # only use proximal tubular cells:
-# KPMP_celltype: 
+# use KPMP_celltype 
 # celltype_harmony: functional-based annotations (from Michigan)
 pb90_sub<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
 
-#immune_so <- s3readRDS("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_Immune.rds", "scrna", region = "")
-#tcell_so <- subset(immune_so, KPMP_celltype %in% c("CD4+ T", "CD8+ T", "cycT"))
 
 ```
 # Module scores
@@ -125,7 +123,7 @@ overall_autophagy_genes <- c(
 autophagy_induction_genes <- c(
   gene_lists$`Autophagy.induction.genes.(n=20)`[!is.na(gene_lists$`Autophagy.induction.genes.(n=20)`)]
 )
-lyosomal_biogenesis_genes <- c(
+lysosomal_biogenesis_genes <- c(
   gene_lists$`Lysosomal.biogenesis.genes.(n=26)`[!is.na(gene_lists$`Lysosomal.biogenesis.genes.(n=26)`)]
 )
 tfeb_genes <- c(
@@ -134,42 +132,50 @@ tfeb_genes <- c(
 ```
 
 ```{r}
-# list the ones that were not measured 
+#create a function that returns the updated seurat object plus the warning
+run_module_score <- function(seurat_obj, features, name) {
+  warning_message <- NULL
+  
+  withCallingHandlers(
+    {
+      seurat_obj <- AddModuleScore(
+        seurat_obj,
+        features = list(features),
+        name = name
+      )
+    },
+    warning = function(w) {
+      warning_message <<- conditionMessage(w)
+      invokeRestart("muffleWarning")
+    }
+  )
+  
+  list(seurat_obj = seurat_obj, warning = warning_message)
+}
 
-# overall autophagy-related signature
-pb90_sub <- AddModuleScore(
-  pb90_sub,
-  features = list(overall_autophagy_genes),
-  name = "overall_autophagy_signature"
-)
+result <- run_module_score(pb90_sub, overall_autophagy_genes, "overall_autophagy_signature")
+pb90_sub <- result$seurat_obj
+missing_genes_overall_autophagy <- result$warning
 
-# autophagy induction signature
-pb90_sub <- AddModuleScore(
-  pb90_sub,
-  features = list(autophagy_induction_genes),
-  name = "autophagy_induction_signature"
-)
+result <- run_module_score(pb90_sub, autophagy_induction_genes, "autophagy_induction_signature")
+pb90_sub <- result$seurat_obj
+missing_genes_autophagy_induction <- result$warning
 
-# lysosomal biogenesis signature
-pb90_sub <- AddModuleScore(
-  pb90_sub,
-  features = list(lyosomal_biogenesis_genes),
-  name = "lyosomal_biogenesis_genes"
-)
+result <- run_module_score(pb90_sub, lysosomal_biogenesis_genes, "lysosomal_biogenesis_signature")
+pb90_sub <- result$seurat_obj
+missing_genes_lysosomal <- result$warning
 
-# TFEB signature
-pb90_sub <- AddModuleScore(
-  pb90_sub,
-  features = list(tfeb_genes),
-  name = "tfeb_genes"
-)
+result <- run_module_score(pb90_sub, tfeb_genes, "tfeb_signature")
+pb90_sub <- result$seurat_obj
+missing_genes_tfeb <- result$warning
 
 
 features<-c("overall_autophagy_signature1", "autophagy_induction_signature1",
                          "lyosomal_biogenesis_genes1","tfeb_genes1")
 # grouping variables
-table(pb90_sub@meta.data$group)
-table(pb90_sub@meta.data$sglt2i_ever, pb90_sub@meta.data$group) #SGLT2i ever yes/no, only wihtin t2d?
+pb90_sub@meta.data$diabetes_reference<-ifelse(pb90_sub@meta.data$group%in%c("Lean Control"),"Lean Controls","Diabetes (T1 or T2)")
+table(pb90_sub@meta.data$diabetes_reference)
+table(pb90_sub@meta.data$sglt2i_ever, pb90_sub@meta.data$group) #SGLT2i ever yes/no, only within t2d
 
 pb90_t2d <- subset(pb90_sub, group %in% c("Type 2 Diabetes"))
 table(pb90_t2d@meta.data$group)
@@ -179,13 +185,13 @@ table(pb90_t2d@meta.data$sglt2i_ever,useNA="always")
 RidgePlot(pb90_sub, 
           features = features,
           ncol = 2, 
-          group.by="group")
+          group.by="diabetes_reference")
 
 VlnPlot(pb90_sub, 
         features = features,
         ncol = 2,
         pt.size = 0,
-        group.by="group")
+        group.by="diabetes_reference")
 
 FeaturePlot(pb90_sub, 
             features = features, 
@@ -193,7 +199,7 @@ FeaturePlot(pb90_sub,
 
 DotPlot(pb90_sub, 
         features = features, 
-        group.by="group") + RotatedAxis()
+        group.by="diabetes_reference") + RotatedAxis()
 
 #### compare across sglt2i
 RidgePlot(pb90_t2d, 
@@ -221,6 +227,7 @@ DotPlot(pb90_t2d,
 df <- data.frame(
   record_id = pb90_sub$record_id,
   group = pb90_sub$group,
+  diabetes_reference = pb90_sub$diabetes_reference,
   sglt2i_ever= pb90_sub$sglt2i_ever,
   overall_score = pb90_sub$overall_autophagy_signature1,
   induction_score = pb90_sub$autophagy_induction_signature1,
@@ -262,7 +269,7 @@ pvalue_wcx <- function(x, ...) {
 tab_group<-table1(~ mean_overall_score+
                     mean_induction_score+
                     mean_lysomal_score+
-                    mean_tfeb_score|factor(group),
+                    mean_tfeb_score|factor(diabetes_reference),
                   data=df.1,
                   overall=F,
                   render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
@@ -300,8 +307,8 @@ mixed <- function(data, outcome, grouping_var){
 }
 df$group_2<-NA
 df$group_2[df$group=="Lean Control"]<-"control"
-df$group_2[df$group=="Type 1 Diabetes"]<-"t1d"
-df$group_2[df$group=="Type 2 Diabetes"]<-"t2d"
+df$group_2[df$group=="Type 1 Diabetes"]<-"diabetes"
+df$group_2[df$group=="Type 2 Diabetes"]<-"diabetes"
 
 mod_overall_bygroup<-mixed(df,"overall_score","group_2")
 mod_induction_bygroup<-mixed(df,"induction_score","group_2")
@@ -316,6 +323,12 @@ mod_tfeb_bysgl<-mixed(df.t2d,"tfeb_score","sglt2i_ever")
 ```
 
 #### Mixed Models by group (control vs. t1s vs. t2d)
+### Missing genes in our data:
+- Overall Autophagy: `r missing_genes_overall_autophagy`
+- Autophagy Induction: `r missing_genes_autophagy_induction`
+- Lysosomal biogenesis: `r missing_genes_lysosomal`
+- TFEB: `r missing_genes_tfeb`
+
 ### Overall gene score by group 
 
 ```{r echo=FALSE}
