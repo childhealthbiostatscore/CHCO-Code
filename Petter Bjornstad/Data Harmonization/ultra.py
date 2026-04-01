@@ -81,7 +81,6 @@ def clean_ultra():
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
-
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
@@ -164,7 +163,9 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
-    
+    print("studyvisit_type unique values:", vital["visit"].unique())
+    print("studyvisit_type value counts:\n",
+          vital["visit"].value_counts(dropna=False))
     vital["procedure"] = "labs"
 
     # --------------------------------------------------------------------------
@@ -239,16 +240,19 @@ def clean_ultra():
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
     df["visit"] = df["visit"].replace({
-    np.nan: "baseline",
-    '1': "baseline",
-    '2': "month_3",
-    '3': "month_6",
-    '4': "month_12"
-})
+        np.nan: "baseline",
+        "": "baseline",
+        1: "baseline",
+        '1': "baseline",
+        2: "1_week",
+        '2': "1_week",
+    })
     df["visit"] = pd.Categorical(df["visit"],
-                                 categories=["baseline", "3_months_post_surgery",
-                                 "12_months_post_surgery"],
+                                 categories=["baseline", "1_week"],
                                  ordered=True)
+    print("visit unique values:", df["visit"].unique())
+    print("visit value counts:\n",
+          df["visit"].value_counts(dropna=False))
     # Fix subject IDs
     #df["subject_id"] = df["subject_id"].str.replace(r"2D-", "_", regex=True)
     # Sort

@@ -232,129 +232,207 @@ im_vars_2_labels <- c(
 ```
 
 ```{r}
+# import dataset
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
+# identify ULTRA participants coenrolled into SWEETHEART
 ultra_swht_coenrolled <- harm_dat %>%
   filter(study == "ULTRA" & !is.na(swht_id)) %>%
   pull(swht_id) %>%
   unique()
 
+# identify SWEETHEART participants coenrolled into ULTRA
 ultra_swht_coenrolled_ultra <- harm_dat %>%
   filter(study == "ULTRA" & !is.na(swht_id)) %>%
   pull(ultra_id) %>%
   unique()
 
+# identify SWEETHEART participants coenrolled into IMPROVE
+swht_imp_coenrolled_ultra <- harm_dat %>%
+  filter(study == "SWEETHEART" & !is.na(improve_id)) %>%
+  pull(swht_id) %>%
+  unique()
+
+# identify IMPROVE participants coenrolled into SWEETHEART
+imp_swht_coenrolled_ultra <- harm_dat %>%
+  filter(study == "IMPROVE" & !is.na(swht_id)) %>%
+  pull(improve_id) %>%
+  unique()
+
+# ── Build analysis subset ─────────────────────────────────────────────────────
+# Keep ULTRA, SWEETHEART, and IMPROVE participants
 harm_dat_subset <- harm_dat %>%
-  filter(study == "ULTRA" | !is.na(swht_id)) %>%
-  mutate(imaging_visit_id = case_when(record_id %in% ultra_swht_coenrolled_ultra & study == "ULTRA" & imaging_visit == 1 ~ "ultra_swht_baseline",
-                                      imaging_visit == 1 ~ "ultra_baseline", 
-                                      imaging_visit == 2 ~ "ultra_follow_up",
-                                      record_id %in% ultra_swht_coenrolled & study == "SWEETHEART" ~ "ultra_swht_follow_up",
-                                      study == "SWEETHEART" ~ "swht_cs"),
-         coenrolled_id = case_when(!is.na(swht_id) ~ "swht_coenrolled",
-                                   !is.na(ultra_id) ~ "ultra_coenrolled"),
-         sex = case_when(study == "ULTRA" ~ "Male", T ~ sex),
-         age = interval(dob, imaging_date) / years(1),
-         cmri_date = case_when(procedure == "cardio_abdominal_mri" ~ date)) %>%
-  dplyr::select(swht_id, record_id, mrn, group, sex, age, imaging_visit_id, date, imaging_date, cmri_date, study, all_of(im_vars)) %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, imaging_visit_id)) %>%
-  filter(study != "ULTRA" | study == "ULTRA" & !is.na(imaging_visit_id)) %>%
+  filter((study %in%  c("ULTRA", "IMPROVE", "SWEETHEART"))) %>%
+
+  # ── Assign imaging visit identifiers ──────────────────────────────────────
+  # co-enrolled ULTRA/SWEETHEART baseline first, then generic
+  # ULTRA baseline/follow-up, then co-enrollment follow-ups, then
+  # cross-sectional SWEETHEART, then IMPROVE
+  mutate(
+    imaging_visit_id = case_when(
+      record_id %in% ultra_swht_coenrolled_ultra & study == "ULTRA" & imaging_visit == 1  ~ "ultra_swht_baseline",
+      imaging_visit == 1                                                                  ~ "ultra_baseline",
+      imaging_visit == 2                                                                  ~ "ultra_follow_up",
+      record_id %in% ultra_swht_coenrolled & study == "SWEETHEART"                        ~ "ultra_swht_follow_up",
+      record_id %in% imp_swht_coenrolled_ultra & study == "IMPROVE"                       ~ "improve_swht_baseline",
+      record_id %in% swht_imp_coenrolled_ultra & study == "SWEETHEART"                    ~ "improve_swht_follow_up",
+      study == "IMPROVE" & visit == "baseline"                                            ~ "improve_baseline",
+      study == "IMPROVE" & visit == "3_months_post_surgery"                               ~ "improve_3mo",
+      study == "IMPROVE" & visit == "12_months_post_surgery"                              ~ "improve_12mo",
+      study == "SWEETHEART"                                                               ~ "swht_cs",
+    ),
+
+    # Flag which parent study a co-enrolled participant came from
+    coenrolled_id = case_when(
+      !is.na(swht_id) & !is.na(improve_id) ~ "swht_improve_coenrolled",
+      !is.na(swht_id)    ~ "swht_coenrolled",
+      !is.na(ultra_id)   ~ "ultra_coenrolled",
+      !is.na(improve_id) ~ "improve_coenrolled"
+    ),
+
+    # ULTRA is an all-male cohort
+    sex = case_when(study == "ULTRA" ~ "Male", TRUE ~ sex),
+
+    # Extract the cardiac MRI date; NA for non-cMRI procedures
+    cmri_date = case_when(procedure == "cardio_abdominal_mri" ~ date),
+    age       = interval(dob, cmri_date) / years(1)
+  ) %>%
+
+  # ── Collapse duplicate rows per participant × cMRI date ───────────────────
+  # Character columns: keep last non-NA value; numeric columns: take the mean.
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+    .by = c(record_id, cmri_date)
+  ) %>%
+
+  # Drop ULTRA rows that lack an imaging visit label, and rows with no cMRI
+
+  filter(study != "ULTRA" | !is.na(imaging_visit_id)) %>%
+
+  # ── Carry forward within co-enrolled participants ─────────────────────────
   group_by(mrn, coenrolled_id) %>%
   fill(everything(), .direction = "down") %>%
   ungroup() %>%
-  filter(!is.na(imaging_date)) %>%
-  mutate(uacr_100 = case_when(acr_u >= 100 ~ "UACR >=100 mg/g",
-                              acr_u < 100 ~ "UACR <100 mg/g"),
-         uacr_group = case_when(
-           eGFR_CKD_epi < 90 | acr_u >= 100 ~ "eGFR < 90 and/or UACR >=100 mg/g",
-           eGFR_CKD_epi >= 90 & acr_u < 100 ~ "eGFR >= 90 and UACR <100 mg/g",
-           TRUE ~ NA_character_
-         ),
-         uacr_group = factor(
-           uacr_group,
-           levels = c("eGFR >= 90 and UACR <100 mg/g",
-                      "eGFR < 90 and/or UACR >=100 mg/g")
-         ),
-         
-         dkd_group_100 = case_when(
-           eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
-           eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
-           TRUE ~ NA_character_
-         ),
+  filter(!is.na(cmri_date)) %>%
 
-         dkd_group_30 = case_when(
-           eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
-           eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD",
-           TRUE ~ NA_character_
-         ),
-         # eGFR categories
-         egfr_cat = case_when(
-           eGFR_CKD_epi < 60                      ~ "<60",
-           eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
-           eGFR_CKD_epi >= 90                     ~ "≥90",
-           TRUE ~ NA_character_
-         ),
-         egfr_cat = factor(egfr_cat, levels = c("<60", "60–<90", "≥90")),
-         # ACR categories
-         acr_u_cat3 = case_when(
-           acr_u < 30                  ~ "<30",
-           acr_u >= 30 & acr_u < 300   ~ "30–<300",
-           acr_u >= 300                ~ "≥300",
-           TRUE ~ NA_character_
-         ),
-         acr_u_cat3 = factor(acr_u_cat3, levels = c("<30", "30–<300", "≥300")),
-         acr_u_cat300 = case_when(
-           acr_u < 300                  ~ "<300",
-           acr_u >= 300                ~ "≥300",
-           TRUE ~ NA_character_
-         ),
-         tr2 = (1/tt2)*1000,
-         lspeak   = case_when(lspeak   == 0 ~ NA_real_, TRUE ~ lspeak),
-         cspeak = case_when(cspeak == 0 ~ NA_real_, TRUE ~ cspeak),
-         rspeak = case_when(rspeak == 0 ~ NA_real_, TRUE ~ rspeak),
-         log_acr_u = log(acr_u),
-         bsa_monsteller = sqrt(height * weight / 3600),
-         lvesv_bsa = lvesv/bsa_monsteller,
-         rvesv_bsa = rvesv/bsa_monsteller,
-         lvedv_bsa = lvedv/bsa_monsteller,
-         rvedv_bsa = rvedv/bsa_monsteller,
-         lv_stroke_volume_bsa = lv_stroke_volume/bsa_monsteller,
-         rv_stroke_volume_bsa = rv_stroke_volume/bsa_monsteller,
-         lv_stroke_volume_bsa = lv_stroke_volume/bsa_monsteller,
-         rv_stroke_volume_bsa = rv_stroke_volume/bsa_monsteller,
-         lved_mass_bsa = lved_mass/bsa_monsteller,
-         lves_mass_bsa = lves_mass/bsa_monsteller,
-         
-         lvesv_height = lvesv/(height/100),
-         rvesv_height = rvesv/(height/100),
-         lvedv_height = lvedv/(height/100),
-         rvedv_height = rvedv/(height/100),
-         lv_stroke_volume_height = lv_stroke_volume/(height/100),
-         rv_stroke_volume_height = rv_stroke_volume/(height/100),
-         lv_stroke_volume_height = lv_stroke_volume/(height/100),
-         rv_stroke_volume_height = rv_stroke_volume/(height/100),
-         lved_mass_height = lved_mass/(height/100),
-         lves_mass_height = lves_mass/(height/100))
+  # ── Derived clinical variables ────────────────────────────────────────────
+  mutate(
+    # -- Kidney function groupings ----
+    uacr_100 = case_when(
+      acr_u >= 100 ~ "UACR >=100 mg/g",
+      acr_u <  100 ~ "UACR <100 mg/g"
+    ),
 
+    # DKD vs non-DKD at two UACR thresholds
+    dkd_group_100 = case_when(
+      eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+      eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD"
+    ),
+    dkd_group_30 = case_when(
+      eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+      eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD"
+    ),
+
+    # Combined eGFR + UACR risk group (factor for ordered output)
+    uacr_group = factor(
+      case_when(
+        eGFR_CKD_epi < 90  | acr_u >= 100 ~ "eGFR < 90 and/or UACR >=100 mg/g",
+        eGFR_CKD_epi >= 90 & acr_u < 100  ~ "eGFR >= 90 and UACR <100 mg/g"
+      ),
+      levels = c("eGFR >= 90 and UACR <100 mg/g",
+                 "eGFR < 90 and/or UACR >=100 mg/g")
+    ),
+
+    # eGFR categories (CKD staging)
+    egfr_cat = factor(
+      case_when(
+        eGFR_CKD_epi < 60                       ~ "<60",
+        eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
+        eGFR_CKD_epi >= 90                      ~ "≥90"
+      ),
+      levels = c("<60", "60–<90", "≥90")
+    ),
+
+    # Albuminuria categories (3-tier and binary)
+    acr_u_cat3 = factor(
+      case_when(
+        acr_u < 30                ~ "<30",
+        acr_u >= 30 & acr_u < 300 ~ "30–<300",
+        acr_u >= 300              ~ "≥300"
+      ),
+      levels = c("<30", "30–<300", "≥300")
+    ),
+    acr_u_cat300 = case_when(
+      acr_u < 300  ~ "<300",
+      acr_u >= 300 ~ "≥300"
+    ),
+
+    # -- Tissue characterisation ----
+    tr2      = (1 / tt2) * 1000,            # T2 relaxation rate (ms⁻¹ × 1000)
+    log_acr_u = log(acr_u),
+
+    # Replace zero strain peaks with NA (physiologically implausible)
+    lspeak = na_if(lspeak, 0),
+    cspeak = na_if(cspeak, 0),
+    rspeak = na_if(rspeak, 0),
+
+    # -- BSA-indexed and height-indexed cardiac volumes/mass ----
+    bsa_monsteller = sqrt(height * weight / 3600),   # Mosteller formula (m²)
+
+    lvesv_bsa              = lvesv / bsa_monsteller,
+    rvesv_bsa              = rvesv / bsa_monsteller,
+    lvedv_bsa              = lvedv / bsa_monsteller,
+    rvedv_bsa              = rvedv / bsa_monsteller,
+    lv_stroke_volume_bsa   = lv_stroke_volume / bsa_monsteller,
+    rv_stroke_volume_bsa   = rv_stroke_volume / bsa_monsteller,
+    lved_mass_bsa          = lved_mass / bsa_monsteller,
+    lves_mass_bsa          = lves_mass / bsa_monsteller,
+
+    lvesv_height            = lvesv / (height / 100),
+    rvesv_height            = rvesv / (height / 100),
+    lvedv_height            = lvedv / (height / 100),
+    rvedv_height            = rvedv / (height / 100),
+    lv_stroke_volume_height = lv_stroke_volume / (height / 100),
+    rv_stroke_volume_height = rv_stroke_volume / (height / 100),
+    lved_mass_height        = lved_mass / (height / 100),
+    lves_mass_height        = lves_mass / (height / 100)
+  )
+
+# ── Analysis subsets ──────────────────────────────────────────────────────────
+# Baseline only (exclude ULTRA follow-up)
 harm_dat_subset_baseline <- harm_dat_subset %>%
   filter(imaging_visit_id != "ultra_follow_up")
 
+# Obesity / T2D only (no lean controls, baseline only)
 harm_dat_subset_obt2d <- harm_dat_subset %>%
   filter(group != "Lean Control" & imaging_visit_id != "ultra_follow_up")
 
+# T2D only (baseline only)
 harm_dat_subset_t2d <- harm_dat_subset %>%
   filter(group == "Type 2 Diabetes" & imaging_visit_id != "ultra_follow_up")
 
+# ── IMPROVE baseline cardiac structure/function ───────────────────────────────
+# Summarised per participant; used for comparison with the main cohort.
 harm_dat_improve <- harm_dat %>%
   filter(study == "IMPROVE" & visit == "baseline") %>%
-    dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id)) %>%
-  dplyr::select(record_id, lvedv, lvesv, lv_stroke_volume, lvef, lved_mass, lves_mass,
-                lv_cardiac_output, lv_cardiac_index, rvedv, rvesv, rv_stroke_volume, rvef, rv_cardiac_output, rv_cardiac_index,
-                aorta_net_flow, aorta_forward_flow, aorta_reverse_flow, aorta_regurgitant_fraction, aorta_qp_qs)
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+    .by = record_id
+  ) %>%
+  dplyr::select(
+    record_id,
+    # LV structure & function
+    lvedv, lvesv, lv_stroke_volume, lvef, lved_mass, lves_mass,
+    lv_cardiac_output, lv_cardiac_index,
+    # RV structure & function
+    rvedv, rvesv, rv_stroke_volume, rvef,
+    rv_cardiac_output, rv_cardiac_index,
+    # Aortic flow
+    aorta_net_flow, aorta_forward_flow, aorta_reverse_flow,
+    aorta_regurgitant_fraction, aorta_qp_qs
+  )
 
 # write.csv(harm_dat_improve, file.path(root_path, "IMPROVE T2D/Data_Cleaned/improve_bl_cmri.csv"), row.names = F, na = "")
 ```
@@ -384,14 +462,6 @@ summary(arsenal::tableby(sex ~ rvedv + rvedv_bsa + kwt(rvesv, "Nmiss", "medianq1
 summary(arsenal::tableby(sex ~ lvedv_height + kwt(lvesv_height, "Nmiss", "medianq1q3") + lv_stroke_volume_height + kwt(lved_mass_height, "Nmiss", "medianq1q3") + lves_mass_height, data = subset(harm_dat_subset_baseline,  group != "Lean Control")))
 
 summary(arsenal::tableby(sex ~ rvedv_height +  kwt(rvesv_height, "Nmiss", "medianq1q3") +  kwt(rv_stroke_volume_height, "Nmiss", "medianq1q3") , data = subset(harm_dat_subset_baseline, group != "Lean Control")))
-
-
-# hist(subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$rv_stroke_volume_bsa)
-
-subset(harm_dat_subset_baseline, rvef < 40 & group != "Lean Control")$record_id
-subset(harm_dat_subset_baseline, rvef < 40 & group != "Lean Control")$rvef
-
-table(subset(harm_dat_subset_baseline, group != "Lean Control")$acr_u_cat300)
 ```
 
 ```{r}
