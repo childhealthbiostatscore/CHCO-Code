@@ -2,7 +2,10 @@
 title: "PFAS_Analysis"
 author: "Savanah leidholt"
 date: "2026-03-12"
-output: html_document
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -34,8 +37,8 @@ library(ggpubr)
 #---------------------------------------------------
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
@@ -48,7 +51,7 @@ if (computer == "mac studio") {
   if (user == "savanahleidholt") {
     dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/unadjusted_pfas_results")
-    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Panther PFAS"
   } 
 }
 ```
@@ -224,7 +227,7 @@ meta <- bind_rows(dat_base, dat_full)
 ```{r}
 pfas_raw <- dat_raw %>%
   filter(study == "PANTHER", visit == "baseline") %>%
-  select(record_id, all_of(pfas_all)) %>%
+  dplyr::select(record_id, all_of(pfas_all)) %>%
   collapse_visit(by_vars = "record_id")
 
 lod <- lod_raw %>%
@@ -251,7 +254,7 @@ impute_pfas_lod <- function(pfas_dat, lod, pfas_vars, threshold = 2/3) {
   })
 
   pfas_imputed <- pfas_dat %>%
-    select(record_id, all_of(pfas_to_keep))
+    dplyr::select(record_id, all_of(pfas_to_keep))
 
   for (pf in pfas_to_keep) {
     pfas_imputed[[pf]] <- ifelse(
@@ -274,22 +277,30 @@ pfas_results <- impute_pfas_lod(
 )
 
 pfas_imputed <- pfas_results$imputed_data %>%
-  select(record_id, all_of(pfas_vars)) %>%
+  dplyr::select(record_id, all_of(pfas_vars)) %>%
   rename_with(~ paste0(.x, "_bl"), -record_id)
 
 #write_rds(x = pfas_imputed, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
 ```
+
+```{r}
+"acr_u" %in% names(dat_raw)
+"acr_u" %in% names(dat_base)
+"acr_u" %in% names(dat_full)
+"acr_u" %in% names(meta)
+```
+
 #----------------------------------------
 #Joining PFAS data to metadata
 #----------------------------------------
 ```{r}
 baseline_acru <- meta %>%
-  filter(visit == "baseline_screening") %>%
-  select(record_id, acr_u) %>%
-  rename(acr_u_bl = acr_u)
+  dplyr::filter(visit == "baseline_screening") %>%
+  dplyr::select(record_id, acr_u) %>%
+  dplyr::rename(acr_u_bl = acr_u)
 
 meta_nopfas <- meta %>%
-  select(-any_of(pfas_all))
+  dplyr::select(-any_of(pfas_all))
 
 dat_baseline <- meta_nopfas %>%
   filter(visit == "baseline_screening") %>%
@@ -354,7 +365,7 @@ dat_baseline <- dat_baseline %>%
     ),
     log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
   ) %>%
-  select(-n_pfas_nonmiss)
+  dplyr::select(-n_pfas_nonmiss)
 
 dat_long <- dat_long %>%
   mutate(
@@ -366,7 +377,7 @@ dat_long <- dat_long %>%
     ),
     log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
   ) %>%
-  select(-n_pfas_nonmiss)
+  dplyr::select(-n_pfas_nonmiss)
 
 dat_baseline <- dat_baseline %>%
   mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
@@ -999,7 +1010,7 @@ run_group_time_lmm <- function(data, outcome, adjust_acr = TRUE) {
   )
   
   model_data <- data %>%
-    select(record_id, all.vars(m0)) %>%
+    dplyr::select(record_id, all.vars(m0)) %>%
     drop_na()
   
   m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
@@ -1052,7 +1063,7 @@ plot_group_time_set <- function(data,
     )
     
     plot_data <- data %>%
-      select(record_id, all.vars(m0)) %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
       drop_na()
     
     if (nrow(plot_data) == 0) {
@@ -1133,7 +1144,7 @@ run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   )
   
   model_data <- data %>%
-    select(record_id, all.vars(m0)) %>%
+    dplyr::select(record_id, all.vars(m0)) %>%
     drop_na()
   
   m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
@@ -1363,7 +1374,7 @@ heatmap_longitudinal_df <- longitudinal_results_fdr %>%
     beta_visit1 = beta_main + beta_int,
     beta_visit2 = beta_main + 2 * beta_int
   ) %>%
-  select(
+  dplyr::select(
     outcome, exposure,
     beta_visit0, beta_visit1, beta_visit2,
     pval_main, pval_main_fdr,

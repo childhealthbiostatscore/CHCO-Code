@@ -20,8 +20,8 @@ library(stringr)
 library(ggpubr)
 
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
@@ -238,18 +238,18 @@ pfas_results <- impute_pfas_lod(
 )
 
 pfas_imputed <- pfas_results$imputed_data %>%
-  select(record_id, all_of(pfas_vars)) %>%
+  dplyr::select(record_id, all_of(pfas_vars)) %>%
   rename_with(~ paste0(.x, "_bl"), -record_id)
 
 #write_rds(x = pfas_imputed, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
 
 baseline_acru <- meta %>%
   filter(visit == "baseline_screening") %>%
-  select(record_id, acr_u) %>%
-  rename(acr_u_bl = acr_u)
+  dplyr::select(record_id, acr_u) %>%
+  dplyr::rename(acr_u_bl = acr_u)
 
 meta_nopfas <- meta %>%
-  select(-any_of(pfas_all))
+  dplyr::select(-any_of(pfas_all))
 
 dat_baseline <- meta_nopfas %>%
   filter(visit == "baseline_screening") %>%
@@ -310,7 +310,7 @@ dat_baseline <- dat_baseline %>%
     ),
     log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
   ) %>%
-  select(-n_pfas_nonmiss)
+  dplyr::select(-n_pfas_nonmiss)
 
 dat_long <- dat_long %>%
   mutate(
@@ -322,7 +322,7 @@ dat_long <- dat_long %>%
     ),
     log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
   ) %>%
-  select(-n_pfas_nonmiss)
+  dplyr::select(-n_pfas_nonmiss)
 
 dat_baseline <- dat_baseline %>%
   mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
@@ -896,7 +896,7 @@ run_group_time_lmm <- function(data, outcome, adjust_acr = TRUE) {
   )
   
   model_data <- data %>%
-    select(record_id, all.vars(m0)) %>%
+    dplyr::select(record_id, all.vars(m0)) %>%
     drop_na()
   
   m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
@@ -945,7 +945,7 @@ plot_group_time_set <- function(data,
     )
     
     plot_data <- data %>%
-      select(record_id, all.vars(m0)) %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
       drop_na()
     
     if (nrow(plot_data) == 0) {
@@ -1238,7 +1238,7 @@ heatmap_longitudinal_df <- longitudinal_results_fdr %>%
     beta_visit1 = beta_main + beta_int,
     beta_visit2 = beta_main + 2 * beta_int
   ) %>%
-  select(
+  dplyr::select(
     outcome, exposure,
     beta_visit0, beta_visit1, beta_visit2,
     pval_main, pval_main_fdr,
