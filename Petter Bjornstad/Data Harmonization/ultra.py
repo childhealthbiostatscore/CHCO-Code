@@ -177,7 +177,7 @@ def clean_ultra():
     mri.replace(rep, np.nan, inplace=True)  # Replace missing values
     mri.drop(redcap_cols, axis=1, inplace=True)#+ ["mri_cardio", "mri_abdo",
                             #"mri_aortic", "study_visit_mri"],
-             
+    print([c for c in mri.columns if 'date' in c.lower() or 'imaging' in c.lower()]) 
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
     mri.columns = mri.columns.str.replace(
@@ -193,8 +193,9 @@ def clean_ultra():
                 "af_pwv_xcor3": "af_pwv"}, axis=1, inplace=True)
     print("af_pwv PULLED?")                                                       
     print("af_pwv" in mri.columns)                            
-    print("TOTAL NOT NULLS IN af_pwv:")                                           
-    print(mri["af_pwv"].notna().sum())
+    print("TOTAL NOT NULLS IN date:")                                           
+    print(mri["date"].notna().sum())
+     
                 
     mri["procedure"] = "cardio_abdominal_mri"
 
