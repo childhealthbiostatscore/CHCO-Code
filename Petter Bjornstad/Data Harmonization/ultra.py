@@ -189,7 +189,7 @@ def clean_ultra():
     mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output", 
                 "lvco": "lv_cardiac_output", "myo_mass_dias" : "lved_mass", "myo_mass_syst": "lves_mass",
                 "lv_myo_mass_dias" : "lv_myo_mass_diast",
-                "imaging_hr": "lv_hr",
+                "imaging_hr": "lv_hr", "imaging_date": "date",
                 "af_pwv_xcor3": "af_pwv"}, axis=1, inplace=True)
     print("af_pwv PULLED?")                                                       
     print("af_pwv" in mri.columns)                            
