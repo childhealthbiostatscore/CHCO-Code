@@ -1,0 +1,654 @@
+---
+title: "Metabolomics_Analysis"
+author: "Savanah leidholt"
+date: "2026-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#---------------------------------------------------
+# inputting all directories and storage locations
+#---------------------------------------------------
+```{r}
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+
+user <- Sys.info()[["user"]]
+
+if (computer == "mac studio") {
+  
+  if (user == "sleidholt") {
+    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    
+  } else if (user == "hhampson") {
+    dir.dat <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results"
+    git_path <- "/Users/hhampson/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+    
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+
+} else if (computer == "mac laptop") {
+
+  if (user == "savanahleidholt") {
+    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "hhampson") {
+    dir.dat <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
+    dir.results <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Results"
+    git_path <- "/Users/hhampson/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+  }
+}
+```
+
+
+#============
+#libraries
+#=============
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(limma)
+library(ggplot2)
+library(EnhancedVolcano)
+library(patchwork)
+```
+
+# ============================================================
+# RAW METABOLOMICS QC / SUMMARY PLOTS
+# ============================================================
+```{r}
+omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+meta_qc <- omics_objects$meta_metab
+mat_qc  <- omics_objects$metabolites
+
+meta_qc$record_id <- trimws(as.character(meta_qc$record_id))
+meta_qc$study     <- trimws(as.character(meta_qc$study))
+meta_qc$group     <- trimws(as.character(meta_qc$group))
+
+meta_qc$study6 <- dplyr::recode(
+  meta_qc$study,
+  "ATTEMPT"         = "ATT",
+  "CROCODILE"       = "CRC",
+  "RENAL-HEIR"      = "RH",
+  "IMPROVE"         = "IT",
+  "RENAL-HEIRitage" = "RH2",
+  .default = meta_qc$study
+)
+
+rownames(mat_qc) <- trimws(as.character(rownames(mat_qc)))
+
+# keep only overlapping samples
+ids_qc <- intersect(meta_qc$record_id, rownames(mat_qc))
+meta_qc <- meta_qc[match(ids_qc, meta_qc$record_id), , drop = FALSE]
+mat_qc  <- mat_qc[ids_qc, , drop = FALSE]
+
+stopifnot(identical(meta_qc$record_id, rownames(mat_qc)))
+
+cat("QC samples:", nrow(mat_qc), "\n")
+cat("QC metabolites:", ncol(mat_qc), "\n")
+
+```
+
+```{r}
+# ------------------------------------------------------------
+# SAMPLE-LEVEL COVERAGE
+# ------------------------------------------------------------
+sample_qc <- meta_qc %>%
+  mutate(
+    n_metabolites_detected = rowSums(!is.na(mat_qc)),
+    n_metabolites_missing  = rowSums(is.na(mat_qc)),
+    pct_detected           = 100 * n_metabolites_detected / ncol(mat_qc),
+    pct_missing            = 100 * n_metabolites_missing / ncol(mat_qc)
+  )
+
+# boxplot: number of detected metabolites per sample by study
+p_cov_n <- ggplot(sample_qc, aes(x = study6, y = n_metabolites_detected, fill = study6)) +
+  scale_fill_brewer(palette = "Dark2") + 
+  geom_boxplot(alpha = 0.75, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+  theme_bw() +
+  labs(
+    title = "Raw metabolite coverage per sample",
+    x = "Study",
+    y = "Number of detected metabolites"
+  ) +
+  theme(legend.position = "none")
+
+# boxplot: percent missing per sample by study
+p_miss_sample <- ggplot(sample_qc, aes(x = study6, y = pct_missing, fill = study6)) +
+  scale_fill_brewer(palette = "Dark2") +
+  geom_boxplot(alpha = 0.75, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+  theme_bw() +
+  labs(
+    title = "Percent missingness per sample",
+    x = "Study",
+    y = "% missing metabolites"
+  ) +
+  theme(legend.position = "none")
+
+p_cov_n | p_miss_sample
+```
+```{r}
+# ------------------------------------------------------------
+# STUDY-LEVEL METABOLITE COVERAGE
+# ------------------------------------------------------------
+study_idx <- split(seq_len(nrow(mat_qc)), meta_qc$study6)
+
+present_by_study <- sapply(study_idx, function(idx) {
+  colSums(!is.na(mat_qc[idx, , drop = FALSE])) > 0
+})
+
+present_by_study <- as.matrix(present_by_study)
+
+study_coverage <- tibble(
+  study6 = colnames(present_by_study),
+  n_metabolites_present = colSums(present_by_study),
+  pct_metabolites_present = 100 * n_metabolites_present / nrow(present_by_study)
+)
+
+p_study_cov <- ggplot(study_coverage, aes(x = study6, y = pct_metabolites_present, fill = study6)) +
+  scale_fill_brewer(palette = "Dark2")+
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = round(pct_metabolites_present, 1)), vjust = -0.3, size = 3.5) +
+  theme_bw() +
+  labs(
+    title = "Raw metabolite coverage in each study",
+    x = "Study",
+    y = "% of metabolites observed in at least one sample"
+  ) +
+  ylim(0, 105) +
+  theme(legend.position = "none")
+
+p_study_cov
+
+```
+
+```{r}
+# =================================================
+# METABOLOMICS-ONLY ANALYSIS WORKFLOW
+# 1) all metabolomics samples
+# 2) metabolomics samples that also have proteomics
+# =================================================
+
+contrast_names <- c(
+  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
+  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+)
+
+# ------------------
+# METABOLOMICS ONLY
+# ------------------
+meta_metab <- omics_objects$meta_metab
+mat_metab  <- omics_objects$metabolites
+
+meta_metab$record_id <- trimws(as.character(meta_metab$record_id))
+meta_metab$study     <- trimws(as.character(meta_metab$study))
+meta_metab$group     <- trimws(as.character(meta_metab$group))
+meta_metab$sex       <- trimws(as.character(meta_metab$sex))
+
+meta_metab$age <- suppressWarnings(as.numeric(meta_metab$age))
+meta_metab$bmi <- suppressWarnings(as.numeric(meta_metab$bmi))
+
+meta_metab <- meta_metab[
+  !is.na(meta_metab$age) & !is.na(meta_metab$sex) & meta_metab$sex != "",
+  ,
+  drop = FALSE
+]
+
+meta_metab$group4 <- factor(
+  meta_metab$group,
+  levels = c("Lean Control", "Obese Control", "Type 1 Diabetes", "Type 2 Diabetes"),
+  labels = c("LC", "OC", "T1D", "T2D")
+)
+
+# recode study names directly into study
+meta_metab$study <- dplyr::recode(
+  meta_metab$study,
+  "ATTEMPT"         = "ATT",
+  "CROCODILE"       = "CRC",
+  "RENAL-HEIR"      = "RH",
+  "IMPROVE"         = "IT",
+  "RENAL-HEIRitage" = "RH2",
+  .default = meta_metab$study
+)
+
+# remove ATTEMPT from all downstream analyses
+meta_metab <- meta_metab %>%
+  filter(study != "ATT")
+
+meta_metab$study <- factor(meta_metab$study)
+meta_metab$sex   <- factor(meta_metab$sex)
+
+rownames(mat_metab) <- trimws(as.character(rownames(mat_metab)))
+
+# keep only IDs remaining after ATT removal
+keep_ids <- intersect(meta_metab$record_id, rownames(mat_metab))
+
+meta_metab <- meta_metab[match(keep_ids, meta_metab$record_id), , drop = FALSE]
+mat_metab  <- mat_metab[keep_ids, , drop = FALSE]
+
+stopifnot(identical(meta_metab$record_id, rownames(mat_metab)))
+
+cat("ATT removed from all analyses\n")
+cat("Remaining samples:", nrow(meta_metab), "\n")
+cat("Remaining metabolites:", ncol(mat_metab), "\n")
+print(table(meta_metab$study, useNA = "ifany"))
+```
+
+```{r}
+# --------------
+# IDS WITH DATA
+# --------------
+ids_metab <- rownames(mat_metab)[rowSums(!is.na(mat_metab)) > 0]
+
+prot_tmp <- omics_objects$prot_plasma
+rownames(prot_tmp) <- trimws(as.character(rownames(prot_tmp)))
+ids_prot <- rownames(prot_tmp)[rowSums(!is.na(prot_tmp)) > 0]
+
+ids_metab <- trimws(as.character(ids_metab))
+ids_prot  <- trimws(as.character(ids_prot))
+
+ids_metab_prot <- intersect(ids_metab, ids_prot)
+
+cat("Total metabolomics IDs with data after ATT removal:", length(ids_metab), "\n")
+cat("Total metabolomics + proteomics overlap IDs:", length(ids_metab_prot), "\n")
+
+```
+
+
+```{r}
+# =====================================
+# ANALYSIS 1: ALL METABOLOMICS SAMPLES
+# =====================================
+ids_use_all <- intersect(meta_metab$record_id, rownames(mat_metab))
+
+meta_all <- meta_metab[match(ids_use_all, meta_metab$record_id), , drop = FALSE]
+mat_all  <- mat_metab[ids_use_all, , drop = FALSE]
+
+stopifnot(identical(meta_all$record_id, rownames(mat_all)))
+
+cat("All metabolomics analysis-ready N:", nrow(meta_all), "\n")
+cat("All metabolomics features before filtering:", ncol(mat_all), "\n")
+print(table(meta_all$study, meta_all$group4, useNA = "ifany"))
+```
+
+```{r}
+# -------------------------------
+# PREP MATRIX: ALL METABOLOMICS
+# -------------------------------
+mat_all <- as.matrix(mat_all)
+rownames(mat_all) <- trimws(as.character(rownames(mat_all)))
+
+mat_log_all <- log2(mat_all + 1)
+mat_log_all[!is.finite(mat_log_all)] <- NA_real_
+```
+
+
+```{r}
+# ------------------------------------------------------------
+# METABOLITE FILTER: PRESENT IN >= 2 STUDIES
+# ------------------------------------------------------------
+study_idx_all <- split(seq_len(nrow(mat_log_all)), meta_all$study)
+
+present_by_study_all <- sapply(study_idx_all, function(idx) {
+  colSums(!is.na(mat_log_all[idx, , drop = FALSE])) > 0
+})
+
+present_by_study_all <- as.matrix(present_by_study_all)
+
+n_studies_present_all <- colSums(present_by_study_all)
+keep_study_all <- n_studies_present_all >= 2
+
+cat("All metabolomics features before study filter:", ncol(mat_log_all), "\n")
+cat("Removed (<2 studies):", sum(!keep_study_all), "\n")
+cat("Kept (>=2 studies):", sum(keep_study_all), "\n")
+
+mat_filt_all <- mat_log_all[, keep_study_all, drop = FALSE]
+```
+
+```{r}
+# =================================
+# IMPUTING SAMPLES
+# =================================
+meds_all <- apply(mat_filt_all, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+mat_imp_all <- mat_filt_all
+
+for (j in seq_len(ncol(mat_imp_all))) {
+  if (!is.na(meds_all[j])) {
+    mat_imp_all[is.na(mat_imp_all[, j]), j] <- meds_all[j]
+  }
+}
+
+vars_all <- apply(mat_imp_all, 2, var, na.rm = TRUE)
+
+keep_cols_all <- colSums(is.na(mat_imp_all)) == 0 &
+  vars_all > 0 &
+  is.finite(vars_all)
+
+mat_imp_all <- mat_imp_all[, keep_cols_all, drop = FALSE]
+
+cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
+stopifnot(identical(rownames(mat_imp_all), meta_all$record_id))
+```
+
+```{r}
+# ==================================================
+# PCA plot creation
+# ==================================================
+make_pca_plot <- function(mat_in, meta_df, title_str) {
+  pca <- prcomp(mat_in, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1 = pca$x[, 1],
+    PC2 = pca$x[, 2],
+    group4 = meta_df$group4,
+    study  = meta_df$study
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group4, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC  = "#2166AC",
+        OC  = "#F4A582",
+        T1D = "#D6604D",
+        T2D = "#4DAC26"
+      )
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw()
+}
+```
+
+```{r}
+# ------------------------------------------------------------
+# PCA: ALL METABOLOMICS
+# ------------------------------------------------------------
+p0_all <- make_pca_plot(mat_imp_all, meta_all, "Metabolomics - No adjustment")
+
+cov1_all <- model.matrix(~ age + sex, data = meta_all)[, -1, drop = FALSE]
+mat_adj1_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov1_all))
+p1_all <- make_pca_plot(mat_adj1_all, meta_all, "Metabolomics - Age + Sex")
+
+cov2_all <- model.matrix(~ age + sex + study, data = meta_all)[, -1, drop = FALSE]
+mat_adj2_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov2_all))
+p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Study")
+
+(p0_all | p1_all | p2_all) +
+  plot_annotation(
+    title = "PCA: All metabolomics samples",
+    subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only"
+  )
+```
+
+
+```{r}
+# ------------------------------------------------------------
+# LIMMA: ALL METABOLOMICS
+# ------------------------------------------------------------
+Y_all <- t(as.matrix(mat_imp_all))
+
+design_all <- model.matrix(~ 0 + group4 + age + sex + study, data = meta_all)
+colnames(design_all) <- sub("^group4", "", colnames(design_all))
+colnames(design_all) <- make.names(colnames(design_all))
+
+contr_all <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_all
+)
+
+fit_all <- lmFit(Y_all, design_all)
+fit_all <- contrasts.fit(fit_all, contr_all)
+fit_all <- eBayes(fit_all)
+
+out_all <- list()
+for (cc in colnames(contr_all)) {
+  tt <- topTable(fit_all, coef = cc, number = Inf, adjust.method = "BH", sort.by = "P")
+  tt$feature_id <- rownames(tt)
+  tt$contrast <- cc
+  out_all[[cc]] <- tt
+}
+
+sig_all <- tibble(
+  contrast = names(out_all),
+  n_FDR05 = sapply(out_all, function(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_all, function(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE)),
+  model = "metabolomics_age_sex_study_all",
+  n_samples = nrow(meta_all)
+)
+
+print(sig_all)
+```
+
+
+```{r}
+# ------------------------------------------------------------
+# VOLCANO PLOTS: ALL METABOLOMICS
+# ------------------------------------------------------------
+volcano_list_all <- lapply(contrast_names, function(cc) {
+  tt <- out_all[[cc]]
+
+  EnhancedVolcano(
+    tt,
+    lab = tt$feature_id,
+    x = "logFC",
+    y = "adj.P.Val",
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    title = gsub("_", " ", cc),
+    subtitle = "Age + sex + study",
+    pointSize = 2.0,
+    labSize = 3.0
+  )
+})
+
+wrap_plots(volcano_list_all, ncol = 3)
+```
+
+
+
+
+# ============================================================
+# ANALYSIS 2: METABOLOMICS SAMPLES THAT ALSO HAVE PROTEOMICS
+# ============================================================
+```{r}
+#identify participants that have both proteomic and metabolomic data
+ids_use_mp <- intersect(ids_metab_prot, intersect(meta_metab$record_id, rownames(mat_metab)))
+
+
+meta_mp <- meta_metab[match(ids_use_mp, meta_metab$record_id), , drop = FALSE]
+mat_mp  <- mat_metab[ids_use_mp, , drop = FALSE]
+
+mat_mp_df <- as.data.frame(mat_mp)
+range(mat_mp_df$c00021, na.rm = TRUE)
+
+
+stopifnot(identical(meta_mp$record_id, rownames(mat_mp)))
+
+cat("Metabolomics + proteomics subset N:", nrow(meta_mp), "\n")
+cat("Metabolomics + proteomics subset features before filtering:", ncol(mat_mp), "\n")
+
+tbl_mp <- meta_mp %>%
+  count(study, group4) %>%
+  pivot_longer(names_from = study, values_from = n, values_fill = 0) %>%
+  mutate(Total = rowSums(across(c("CRC", "IT", "RH", "RH2")))) %>%
+  arrange(study)
+
+tbl_mp
+```
+
+```{r}
+# ------------------------------------------------------------
+# PREP MATRIX: METABOLOMICS + PROTEOMICS SUBSET
+# ------------------------------------------------------------
+mat_mp <- as.matrix(mat_mp)
+rownames(mat_mp) <- trimws(as.character(rownames(mat_mp)))
+
+mat_log_mp <- log2(mat_mp + 1)
+mat_log_mp[!is.finite(mat_log_mp)] <- NA_real_
+
+study_idx_mp <- split(seq_len(nrow(mat_log_mp)), meta_mp$study)
+
+present_by_study_mp <- sapply(study_idx_mp, function(idx) {
+  colSums(!is.na(mat_log_mp[idx, , drop = FALSE])) > 0
+})
+
+present_by_study_mp <- as.matrix(present_by_study_mp)
+
+n_studies_present_mp <- colSums(present_by_study_mp)
+keep_study_mp <- n_studies_present_mp >= 2
+
+cat("Subset features before study filter:", ncol(mat_log_mp), "\n")
+cat("Removed (<2 studies):", sum(!keep_study_mp), "\n")
+cat("Kept (>=2 studies):", sum(keep_study_mp), "\n")
+
+mat_filt_mp <- mat_log_mp[, keep_study_mp, drop = FALSE]
+
+meds_mp <- apply(mat_filt_mp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+mat_imp_mp <- mat_filt_mp
+for (j in seq_len(ncol(mat_imp_mp))) {
+  if (!is.na(meds_mp[j])) {
+    mat_imp_mp[is.na(mat_imp_mp[, j]), j] <- meds_mp[j]
+  }
+}
+
+vars_mp <- apply(mat_imp_mp, 2, var, na.rm = TRUE)
+
+keep_cols_mp <- colSums(is.na(mat_imp_mp)) == 0 &
+  vars_mp > 0 &
+  is.finite(vars_mp)
+
+mat_imp_mp <- mat_imp_mp[, keep_cols_mp, drop = FALSE]
+
+cat("Subset features kept for PCA/LIMMA:", ncol(mat_imp_mp), "\n")
+stopifnot(identical(rownames(mat_imp_mp), meta_mp$record_id))
+```
+```{r}
+# ------------------------------------------------------------
+# PCA: METABOLOMICS + PROTEOMICS SUBSET
+# ------------------------------------------------------------
+p0_mp <- make_pca_plot(mat_imp_mp, meta_mp, "Metabolomics - No adjustment (metab+prot subset)")
+
+cov1_mp <- model.matrix(~ age + sex, data = meta_mp)[, -1, drop = FALSE]
+mat_adj1_mp <- t(removeBatchEffect(t(mat_imp_mp), covariates = cov1_mp))
+p1_mp <- make_pca_plot(mat_adj1_mp, meta_mp, "Metabolomics - Age + Sex (metab+prot subset)")
+
+cov2_mp <- model.matrix(~ age + sex + study, data = meta_mp)[, -1, drop = FALSE]
+mat_adj2_mp <- t(removeBatchEffect(t(mat_imp_mp), covariates = cov2_mp))
+p2_mp <- make_pca_plot(mat_adj2_mp, meta_mp, "Metabolomics - Age + Sex + Study (metab+prot subset)")
+
+(p0_mp | p1_mp | p2_mp) +
+  plot_annotation(
+    title = "PCA: Metabolomics samples with proteomics overlap",
+    subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only"
+  )
+```
+```{r}
+# ------------------------------------------------------------
+# LIMMA: METABOLOMICS + PROTEOMICS SUBSET
+# ------------------------------------------------------------
+Y_mp <- t(as.matrix(mat_imp_mp))
+
+design_mp <- model.matrix(~ 0 + group4 + age + sex + study, data = meta_mp)
+colnames(design_mp) <- sub("^group4", "", colnames(design_mp))
+colnames(design_mp) <- make.names(colnames(design_mp))
+
+contr_mp <- makeContrasts(
+  T1D_vs_LC  = T1D - LC,
+  T2D_vs_LC  = T2D - LC,
+  T1D_vs_T2D = T1D - T2D,
+  OC_vs_LC   = OC - LC,
+  T1D_vs_OC  = T1D - OC,
+  T2D_vs_OC  = T2D - OC,
+  levels = design_mp
+)
+
+fit_mp <- lmFit(Y_mp, design_mp)
+fit_mp <- contrasts.fit(fit_mp, contr_mp)
+fit_mp <- eBayes(fit_mp)
+
+out_mp <- list()
+for (cc in colnames(contr_mp)) {
+  tt <- topTable(fit_mp, coef = cc, number = Inf, adjust.method = "BH", sort.by = "P")
+  tt$feature_id <- rownames(tt)
+  tt$contrast <- cc
+  out_mp[[cc]] <- tt
+}
+
+sig_mp <- tibble(
+  contrast = names(out_mp),
+  n_FDR05 = sapply(out_mp, function(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
+  n_FDR01 = sapply(out_mp, function(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE)),
+  model = "metabolomics_age_sex_study_metab_prot_subset",
+  n_samples = nrow(meta_mp)
+)
+
+print(sig_mp)
+```
+```{r}
+# ------------------------------------------------------------
+# VOLCANO PLOTS: METABOLOMICS + PROTEOMICS SUBSET
+# ------------------------------------------------------------
+volcano_list_mp <- lapply(contrast_names, function(cc) {
+  tt <- out_mp[[cc]]
+
+  EnhancedVolcano(
+    tt,
+    lab = tt$feature_id,
+    x = "logFC",
+    y = "adj.P.Val",
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    title = gsub("_", " ", cc),
+    subtitle = "Age + sex + study (metabolomics samples with proteomics overlap)",
+    pointSize = 2.0,
+    labSize = 3.0
+  )
+})
+
+wrap_plots(volcano_list_mp, ncol = 3)
+```
+
