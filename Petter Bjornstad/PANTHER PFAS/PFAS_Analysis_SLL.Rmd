@@ -383,7 +383,7 @@ dat_long <- dat_long %>%
     log_acr_u_bl = log1p(acr_u_bl)
   )
 
-#Creating column of total pfas burden and then log transforming all PFAS data
+# Creating column of total PFAS burden and ln transforming all PFAS data
 pfas_bl_vars <- paste0(pfas_vars, "_bl")
 
 dat_baseline <- dat_baseline %>%
@@ -394,7 +394,7 @@ dat_baseline <- dat_baseline %>%
       NA_real_,
       rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
     ),
-    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+    ln_total_pfas_bl = ifelse(total_pfas_bl > 0, log(total_pfas_bl), NA_real_)
   ) %>%
   dplyr::select(-n_pfas_nonmiss)
 
@@ -406,17 +406,17 @@ dat_long <- dat_long %>%
       NA_real_,
       rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
     ),
-    log2_total_pfas_bl = ifelse(total_pfas_bl > 0, log2(total_pfas_bl), NA_real_)
+    ln_total_pfas_bl = ifelse(total_pfas_bl > 0, log(total_pfas_bl), NA_real_)
   ) %>%
   dplyr::select(-n_pfas_nonmiss)
 
 dat_baseline <- dat_baseline %>%
-  mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
+  mutate(across(all_of(pfas_bl_vars), ~ log(.x), .names = "ln_{.col}"))
 
 dat_long <- dat_long %>%
-  mutate(across(all_of(pfas_bl_vars), log2, .names = "log2_{.col}"))
+  mutate(across(all_of(pfas_bl_vars), ~ log(.x), .names = "ln_{.col}"))
 
-log2_pfas_bl_vars <- paste0("log2_", pfas_bl_vars)
+ln_pfas_bl_vars <- paste0("ln_", pfas_bl_vars)
 ```
 #---------------------------
 #Correlation matrix of PFAS
@@ -424,7 +424,7 @@ log2_pfas_bl_vars <- paste0("log2_", pfas_bl_vars)
 ```{r}
 # data for correlation matrix
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(log2_pfas_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_bl_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 # correlation matrix using pairwise complete observations
@@ -439,8 +439,8 @@ pfas_corr_mat
 
 ```{r}
 pfas_cor_tests <- expand.grid(
-  var1 = log2_pfas_bl_vars,
-  var2 = log2_pfas_bl_vars,
+  var1 = ln_pfas_bl_vars,
+  var2 = ln_pfas_bl_vars,
   stringsAsFactors = FALSE
 ) %>%
   dplyr::filter(var1 < var2) %>%
@@ -493,7 +493,7 @@ cor_mtest <- function(mat, method = "spearman") {
 
 ```{r}
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(log2_pfas_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_bl_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 pfas_corr_mat <- cor(
@@ -522,8 +522,9 @@ corrplot::corrplot(
   pch.col = "black",
   pch.cex = 1.2,
   mar = c(0, 0, 1, 0),
-  title = "Spearman correlation matrix of baseline log2-transformed PFAS"
+  title = "Spearman correlation matrix of baseline ln-transformed PFAS"
 )
+
 ```
 
 #-------------------------------
@@ -705,7 +706,7 @@ for (outcome in baseline_model_outcomes) {
 # Baseline PFAS differences by group
 #-----------------------------------
 ```{r}
-pfas_group_vars <- c(log2_pfas_bl_vars, "log2_total_pfas_bl")
+pfas_group_vars <- c(ln_pfas_bl_vars, "ln_total_pfas_bl")
 
 baseline_group_pfas_results <- lapply(
   pfas_group_vars,
@@ -827,10 +828,7 @@ grDevices::dev.off()
 ```{r}
 run_baseline_pfas_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   
-  rhs <- c(exposure, "age", "sex", "group")
-  if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
-   rhs <- c(rhs, "log_acr_u_bl")
-  }
+  rhs <- c(exposure, "age", "sex")
   
   m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
   
@@ -913,7 +911,6 @@ baseline_table
 plot_baseline_pfas_set <- function(data,
                                    outcome,
                                    exposures = pfas_group_vars,
-                                   adjust_acr = TRUE,
                                    results_tbl = baseline_results_final,
                                    save_pdf = FALSE,
                                    out_dir = dir.results) {
@@ -924,10 +921,7 @@ plot_baseline_pfas_set <- function(data,
   for (i in seq_along(exposures)) {
     exposure <- exposures[i]
     
-    rhs <- c(exposure, "age", "sex", "group")
-    if (adjust_acr && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
-    }
+    rhs <- c(exposure, "age", "sex")
     
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "))
@@ -1011,7 +1005,7 @@ plot_baseline_pfas_set <- function(data,
 ```
 
 ```{r}
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma",save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg",save_pdf = T, out_dir = dir.results)
@@ -1060,7 +1054,7 @@ plot_list[[outcome]] <- p
 ```
 
 ```{r}
-wrap_plots(plot_list, ncol = 2)
+plot_list
 ```
 #--------------------------------------------
 # Model 2: changes over time by group
@@ -1598,12 +1592,12 @@ plot_group_time_acr_tan_set(data = dat_long)
 run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   
   # -----------------------------
-  # 1. age, sex, and group as covariates
+  # age, sex, and group as covariates
   # -----------------------------
   covars <- c("age", "sex", "group")
   
   # -----------------------------
-  # 2. Keep needed columns only
+  # Keep needed columns only
   # -----------------------------
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
@@ -1612,7 +1606,7 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
     tidyr::drop_na()
   
   # -----------------------------
-  # 3. Outlier removal per outcome
+  # Outlier removal per outcome
   # -----------------------------
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)

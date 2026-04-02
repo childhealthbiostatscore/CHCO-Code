@@ -246,7 +246,7 @@ dat_long <- dat_long %>%
 
 ```{r}
 # Create summed plasma-total PFAS burden
-# and log2-transform summed burden
+# and ln-transform summed burden
 
 dat_baseline <- dat_baseline %>%
   mutate(
@@ -256,9 +256,9 @@ dat_baseline <- dat_baseline %>%
       NA_real_,
       rowSums(across(all_of(pfas_total_ng_bl_vars)), na.rm = TRUE)
     ),
-    log2_total_plasma_pfas_bl = ifelse(
+    ln_total_plasma_pfas_bl = ifelse(
       total_plasma_pfas_bl > 0,
-      log2(total_plasma_pfas_bl),
+      log(total_plasma_pfas_bl),
       NA_real_
     )
   ) %>%
@@ -272,16 +272,14 @@ dat_long <- dat_long %>%
       NA_real_,
       rowSums(across(all_of(pfas_total_ng_bl_vars)), na.rm = TRUE)
     ),
-    log2_total_plasma_pfas_bl = ifelse(
+    ln_total_plasma_pfas_bl = ifelse(
       total_plasma_pfas_bl > 0,
-      log2(total_plasma_pfas_bl),
+      log(total_plasma_pfas_bl),
       NA_real_
     )
   ) %>%
   select(-n_pfas_total_nonmiss)
 ```
-
-
 # -----------------------------------------
 # Log2-transform each plasma-total PFAS
 # -----------------------------------------
@@ -290,8 +288,8 @@ dat_baseline <- dat_baseline %>%
   mutate(
     across(
       all_of(pfas_total_ng_bl_vars),
-      ~ ifelse(.x > 0, log2(.x), NA_real_),
-      .names = "log2_{.col}"
+      ~ ifelse(.x > 0, log(.x), NA_real_),
+      .names = "ln_{.col}"
     )
   )
 
@@ -299,13 +297,13 @@ dat_long <- dat_long %>%
   mutate(
     across(
       all_of(pfas_total_ng_bl_vars),
-      ~ ifelse(.x > 0, log2(.x), NA_real_),
-      .names = "log2_{.col}"
+      ~ ifelse(.x > 0, log(.x), NA_real_),
+      .names = "ln_{.col}"
     )
   )
 
 # vector of log2 plasma-total PFAS variables for modeling
-log2_pfas_total_bl_vars <- paste0("log2_", pfas_total_ng_bl_vars)
+ln_pfas_total_bl_vars <- paste0("ln_", pfas_total_ng_bl_vars)
 ```
 
 #-------------------------------------------------------
@@ -388,7 +386,7 @@ emmeans(model, ~ 1)  # intercept = adjusted mean difference
 ```{r}
 # data for correlation matrix
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(log2_pfas_total_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_total_bl_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 # correlation matrix using pairwise complete observations
@@ -403,8 +401,8 @@ pfas_corr_mat
 
 ```{r}
 pfas_cor_tests <- expand.grid(
-  var1 = log2_pfas_total_bl_vars,
-  var2 = log2_pfas_total_bl_vars,
+  var1 = ln_pfas_total_bl_vars,
+  var2 = ln_pfas_total_bl_vars,
   stringsAsFactors = FALSE
 ) %>%
   dplyr::filter(var1 < var2) %>%
@@ -456,7 +454,7 @@ cor_mtest <- function(mat, method = "spearman") {
 
 ```{r}
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(log2_pfas_total_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_total_bl_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 pfas_corr_mat <- cor(
@@ -535,7 +533,7 @@ run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
 ```
 
 ```{r}
-pfas_group_vars <- c(log2_pfas_total_bl_vars, "log2_total_plasma_pfas_bl")
+pfas_group_vars <- c(ln_pfas_total_bl_vars, "ln_total_plasma_pfas_bl")
 
 baseline_group_pfas_results <- lapply(
   pfas_group_vars,
@@ -650,7 +648,7 @@ dev.off()
 ```{r}
 run_baseline_pfas_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   
-  rhs <- c(exposure, "age", "sex", "group")
+  rhs <- c(exposure, "age", "sex")
   
   m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
   
@@ -765,7 +763,7 @@ plot_list
 ```{r}
 run_baseline_pfas_acr_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   
-  rhs <- c(exposure, "age", "sex", "group")
+  rhs <- c(exposure, "age", "sex")
   if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
    rhs <- c(rhs, "log_acr_u_bl")
   }
@@ -883,7 +881,7 @@ plot_list
 ```{r}
 run_baseline_pfas_tanner_lm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   
-  rhs <- c(exposure, "age", "sex", "group", "tan_stage")
+  rhs <- c(exposure, "age", "sex", "tan_stage")
   
   
   m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
@@ -1014,12 +1012,12 @@ plot_list
 run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   
   # -----------------------------
-  # age, sex, and group as covariates
+  # age, sex as covariates
   # -----------------------------
-  covars <- c("age", "sex", "group")
+  covars <- c("age", "sex")
   
   # -----------------------------
-  # eep needed columns only
+  # keep needed columns only
   # -----------------------------
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
@@ -1030,16 +1028,16 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   # ----------------------------------------------------------------------------
   # Outlier removal per outcome-not sure about this with such small sample sizes
   # ----------------------------------------------------------------------------
-  #m_out <- mean(model_data[[outcome]], na.rm = TRUE)
-  #s_out <- sd(model_data[[outcome]], na.rm = TRUE)
+  m_out <- mean(model_data[[outcome]], na.rm = TRUE)
+  s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
-  #removed_ids <- model_data %>%
-   # dplyr::filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
-    #dplyr::pull(record_id) %>%
-    #unique()
+  removed_ids <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
+    dplyr::pull(record_id) %>%
+    unique()
   
-  #model_data <- model_data %>%
-   # dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+  model_data <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
   
   # -----------------------------
   # Sample size info
@@ -1091,25 +1089,6 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   # --------------------------------------
   # Tidy output for removal of outliers
   # --------------------------------------
-  #tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
-  #  dplyr::mutate(
-   #   analysis = "baseline_pfas_longitudinal_base",
-    #  outcome = outcome,
-     # exposure = exposure,
-      #n_subj = n_subj,
-      #n_obs = n_obs,
-      #removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
-      #model_formula = paste(deparse(formula(m1)), collapse = " ")
-    #)
-  
-  #list(
-   # model = m1,
-    #tidy = tidy_tbl
-  #)
-  
-  # ---------------
-  # Tidy output
-  # ---------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
       analysis = "baseline_pfas_longitudinal_base",
@@ -1117,6 +1096,7 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
       exposure = exposure,
       n_subj = n_subj,
       n_obs = n_obs,
+      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
       model_formula = paste(deparse(formula(m1)), collapse = " ")
     )
   
@@ -1282,7 +1262,7 @@ run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   # -----------------------------
   # Build covariate list
   # -----------------------------
-  covars <- c("age", "sex", "group")
+  covars <- c("age", "sex")
   
   if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
     covars <- c(covars, "log_acr_u_bl")
@@ -1487,7 +1467,7 @@ heatmap_longitudinal_df <- longitudinal_results_fdr %>%
   )
 ```
 
-#non-standardized heatmap
+
 ```{r}
 beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
 
@@ -1595,7 +1575,7 @@ run_baseline_pfas_lmm_tanner <- function(data, outcome, exposure) {
   # -----------------------------
   # 1. Build covariate list
   # -----------------------------
-  covars <- c("age", "sex", "group", "tan_stage")
+  covars <- c("age", "sex", "tan_stage")
   
   # -----------------------------
   # 2. Keep needed columns only
