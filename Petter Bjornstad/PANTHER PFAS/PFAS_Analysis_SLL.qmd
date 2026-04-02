@@ -59,11 +59,11 @@ if (computer == "mac studio") {
   if (user == "savanahleidholt") {
     dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/unadjusted_pfas_results")
-    git_path <- c("/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/PANTHER PFAS/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Panther PFAS"
   } 
 }
 
-git_path
+
 source(file.path(git_path, "PFAS_Analysis_SLL.R"))
 
 
@@ -140,124 +140,387 @@ wrap_plots(plots_by_group, ncol = 3)
 # Model 1: Cross-Sectional PFAS–Outcome Associations
 
 ```{r}
-#| label: model1-table
+#| label: Forest Plots
+#| fig-width: 16
+#| fig-height: 14
 
-```
+forest_df <- baseline_table %>%
+  dplyr::mutate(
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
 
-## baseline uACR
-```{r}
-#| label: uACR-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
+plot_list <- list()
 
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "log_acr_u",
-  save_pdf = FALSE
-)
 
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+for (outcome in unique(forest_df$outcome)) {
+  df <- forest_df %>%
+    dplyr::filter(outcome == !!outcome)
+  p <- ggplot(df, aes(x = estimate, y = exposure)) +
+  geom_point(aes(shape = sig_fdr)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_bw() +
+  labs(
+    title = paste("PFAS associations with", get_outcome_label(outcome)),
+    x = "Effect size (β)",
+    y = "PFAS",
+    shape = "FDR <0.05"
+  )
+plot_list[[outcome]] <- p
+}
 
-wrap_plots(plot_list, ncol = 3)
-```
-## baseline microalbumin
-```{r}
-#| label: microalbumin-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
-
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "microalbumin_u",
-  save_pdf = FALSE
-)
-
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
 
 wrap_plots(plot_list, ncol = 3)
 ```
 
-## baseline ERPF
-```{r}
-#| label: ERPF-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
 
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "erpf_bsa_plasma",
-  save_pdf = FALSE
-)
-
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-
-wrap_plots(plot_list, ncol = 3)
-```
-
-## baseline eGFR
-```{r}
-#| label: eGFR-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
-
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "eGFR_CKiD_U25_avg",
-  save_pdf = FALSE
-)
-
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-
-wrap_plots(plot_list, ncol = 3)
-```
-
-## baseline PAH_clear_bsa
-```{r}
-#| label: PAH_clear_bsa-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
-
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "pah_clear_bsa",
-  save_pdf = FALSE
-)
-
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-
-wrap_plots(plot_list, ncol = 3)
-```
-
-## baseline lean mass
-```{r}
-#| label: lean_mass-scatter-plots
-#| fig-width: 20
-#| fig-height: 18
-
-plot_list <- plot_baseline_pfas_set(
-  data = dat_baseline,
-  outcome = "dexa_lean_kg",
-  save_pdf = FALSE
-)
-
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-
-wrap_plots(plot_list, ncol = 3)
-```
 ------------------------------------------------------------------------
 
 # Model 2: Outcome Trajectories Over Time by Group
-
+##Model 2A: Trajectory Plots Base Model
 ```{r}
-#| label: model2-trajectory-plots
+#| label: model2a-trajectory-plots
 #| fig-width: 20
 #| fig-height: 18
-plot_list <- plot_group_time_set(
-  data = dat_long,
-  outcome = group_time_outcomes
-)
+plot_group_time_set_unadjusted <- function(data,
+                                           outcomes = group_time_outcomes,
+                                           save_pdf = FALSE,
+                                           out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
+    
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
+      tidyr::drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      dplyr::filter(stringr::str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C") +
+      theme_bw() +
+      labs(
+        title = paste("Unadjusted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
 
-plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+wrap_plots(plot_list, ncol = 3)
+
+```
+##Model 2B: Trajectory Plots Base Model Adjusted for Baseline ACR
+```{r}
+#| label: model2b-trajectory-plots
+#| fig-width: 20
+#| fig-height: 18
+plot_group_time_set <- function(data,
+                                outcomes = group_time_outcomes,
+                                adjust_acr = TRUE,
+                                save_pdf = FALSE,
+                                out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex") 
+    
+    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+    }
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
+      drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C")+
+      theme_bw() +
+      labs(
+        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
+
+
+wrap_plots(plot_list, ncol = 3)
+```
+##Model 2C: Trajectory Plots Base Model Adjusted for Tanner Stage
+```{r}
+#| label: model2c-trajectory-plots
+#| fig-width: 20
+#| fig-height: 18
+plot_group_time_set_tanner <- function(data,
+                                       outcomes = group_time_outcomes,
+                                       save_pdf = FALSE,
+                                       out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage")
+    
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
+      tidyr::drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      dplyr::filter(stringr::str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C") +
+      theme_bw() +
+      labs(
+        title = paste("Tanner-adjusted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes_tanner.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
+
+wrap_plots(plot_list, ncol = 3)
+```
+##Model 2D: Trajectory Plots Base Model Adjusted for Baseline uACR & Tanner Stage
+```{r}
+#| label: model2d-trajectory-plots
+#| fig-width: 20
+#| fig-height: 18
+plot_group_time_acr_tan_set <- function(data,
+                                outcomes = group_time_outcomes,
+                                adjust_acr = TRUE,
+                                save_pdf = FALSE,
+                                out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
+    
+    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+    }
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
+      drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C")+
+      theme_bw() +
+      labs(
+        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
 
 wrap_plots(plot_list, ncol = 3)
 ```
@@ -266,16 +529,34 @@ wrap_plots(plot_list, ncol = 3)
 
 # Model 3: Baseline PFAS Predicting Longitudinal Outcomes
 
-## Beta Coefficient Heatmap
-
+## Model 3A: Longitudinal Heatmap of Base Model
 ```{r}
-#| label: model3-heatmap-beta
+#| label: model3a-heatmap
 #| fig-width: 12
 #| fig-height: 7
-p_longitudinal_heatmap_raw
+p_longitudinal_heatmap_base
 ```
-
-
+## Model 3B: Longitudinal Heatmap Adjusted for Baseline uACR
+```{r}
+#| label: model3b-heatmap
+#| fig-width: 12
+#| fig-height: 7
+p_longitudinal_heatmap_acr
+```
+## Model 3C: Longitudinal Heatmap Adjusted for Tanner Stage
+```{r}
+#| label: model3c-heatmap
+#| fig-width: 12
+#| fig-height: 7
+p_longitudinal_heatmap_tanner
+```
+## Model 3D: Longitudinal Heatmap Adjusted for Baseline uACR & Tanner Stage
+```{r}
+#| label: model3d-heatmap
+#| fig-width: 12
+#| fig-height: 7
+p_longitudinal_heatmap_acr_tanner
+```
 ------------------------------------------------------------------------
 
 # Appendix
