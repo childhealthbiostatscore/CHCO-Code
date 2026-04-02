@@ -3,9 +3,9 @@ title: "PFAS_Analysis"
 author: "Savanah leidholt"
 date: "2026-03-12"
 output:
-  word_document: default
-  pdf_document: default
   html_document: default
+  pdf_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 #load libraries
-
 library(ggplot2)
 library(tidyverse)
 library(janitor)
@@ -57,7 +56,7 @@ if (computer == "mac studio") {
 ```
 
 ```{r}
-source(file.path(git_path, "Functions.R"))
+source(file.path(git_path, "Functions.R")) 
 
 dat_raw <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
 lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
@@ -1028,10 +1027,44 @@ plot_baseline_pfas_set <- function(data,
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "mm_di",save_pdf = T, out_dir = dir.results)
 ```
 
+```{r}
+forest_df <- baseline_table %>%
+  dplyr::mutate(
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
+```
+
+```{r}
+plot_list <- list()
+
+
+for (outcome in unique(forest_df$outcome)) {
+  df <- forest_df %>%
+    dplyr::filter(outcome == !!outcome)
+  p <- ggplot(df, aes(x = estimate, y = exposure)) +
+  geom_point(aes(shape = sig_fdr)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_bw() +
+  labs(
+    title = paste("PFAS associations with", get_outcome_label(outcome)),
+    x = "Effect size (β)",
+    y = "PFAS",
+    shape = "FDR <0.05"
+  )
+plot_list[[outcome]] <- p
+}
+```
+
+```{r}
+for (p in plot_list) print(p)
+```
+
 
 #--------------------------------------------
 # Model 2: changes over time by group
-# a) no covariate adjustments
+# a) base model of age + sex + group
 # b) baseline uACR adjustement
 # c) tanner stage adjustement
 #--------------------------------------------
@@ -1039,7 +1072,7 @@ plot_baseline_pfas_set <- function(data,
 #--------------Model 2A-----------------------------------
 run_group_time_lmm_unadjusted <- function(data, outcome) {
   
-  rhs <- c("visit_f", "group", "visit_f:group")
+  rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
   
   m0 <- as.formula(
     paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
@@ -1088,7 +1121,7 @@ plot_group_time_set_unadjusted <- function(data,
   for (i in seq_along(outcomes)) {
     outcome <- outcomes[i]
     
-    rhs <- c("visit_f", "group", "visit_f:group")
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
     
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
@@ -1164,7 +1197,6 @@ plot_group_time_set_unadjusted(
   #out_dir = dir.results
 )
 ```
-
 
 ```{r}
 #-----------------Model 2B ----------------------------------------
@@ -1423,12 +1455,142 @@ plot_group_time_set_tanner <- function(data,
 plot_group_time_set_tanner(
   data = dat_long)
 ```
+```{r}
+#-----------------Model 2D ----------------------------------------
+run_group_time_acr_tan_lmm <- function(data, outcome, adjust_acr = TRUE) {
+  rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
+  
+    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+  }
+  
+  m0 <- as.formula(
+    paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+  )
+  
+  model_data <- data %>%
+    dplyr::select(record_id, all.vars(m0)) %>%
+    drop_na()
+  
+  m1 <- lmerTest::lmer(m0, data = model_data, REML = FALSE)
+  
+  list(
+    model = m1,
+    tidy = broom.mixed::tidy(m1, effects = "fixed") %>%
+      mutate(
+        analysis = "time_by_group",
+        outcome = outcome,
+        model_formula = paste(deparse(m0), collapse = " ")
+      )
+  )
+}
 
+```
+
+```{r}
+group_time_results_acr_tan_list <- lapply(group_time_outcomes, function(outcome) {
+  run_group_time_lmm(dat_long, outcome)
+})
+names(group_time_results_list) <- group_time_outcomes
+
+group_time_results <- bind_rows(
+  lapply(group_time_results_list, `[[`, "tidy")
+)
+
+group_time_results
+```
+
+```{r}
+plot_group_time_acr_tan_set <- function(data,
+                                outcomes = group_time_outcomes,
+                                adjust_acr = TRUE,
+                                save_pdf = FALSE,
+                                out_dir = dir.results) {
+  
+  plot_list <- vector("list", length(outcomes))
+  names(plot_list) <- outcomes
+  
+  for (i in seq_along(outcomes)) {
+    outcome <- outcomes[i]
+    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
+    
+    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
+      rhs <- c(rhs, "log_acr_u_bl")
+    }
+    m0 <- as.formula(
+      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
+    )
+    
+    plot_data <- data %>%
+      dplyr::select(record_id, all.vars(m0)) %>%
+      drop_na()
+    
+    if (nrow(plot_data) == 0) {
+      plot_list[[i]] <- NULL
+      next
+    }
+    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
+    
+    pred_df <- as.data.frame(
+      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
+    )
+    
+    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
+      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
+    
+    subtitle_text <- if (nrow(int_rows) > 0) {
+      paste0(
+        "Visit × Group: ",
+        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
+      )
+    } else {
+      NULL
+    }
+    
+    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
+      geom_line(linewidth = 1.1) +
+      geom_point(size = 2.5) +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
+      scale_color_viridis_d(option = "C")+
+      theme_bw() +
+      labs(
+        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
+        subtitle = subtitle_text,
+        x = "Visit",
+        y = get_outcome_label(outcome),
+        color = "Group"
+      )
+    
+    plot_list[[i]] <- p
+  }
+  
+  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
+  
+  if (save_pdf && length(plot_list) > 0) {
+    pdf(
+      file.path(out_dir, "group_time_all_outcomes.pdf"),
+      width = 8,
+      height = 6
+    )
+    for (nm in names(plot_list)) {
+      print(plot_list[[nm]])
+    }
+    dev.off()
+  }
+  
+  return(plot_list)
+}
+```
+
+```{r}
+plot_group_time_acr_tan_set(data = dat_long)
+```
 #-------------------------------------------------------------------------------
 # Model 3: baseline PFAS predicting longitudinal outcomes 
 # a) age and sex adjusted
 # b) adjusted for baseline acr
 # c) adjusted for tanner stage
+# d) adjusted for baseline acr and tanner stage
 #-------------------------------------------------------------------------------
 
 #trying to mimic hailey's code
@@ -1641,10 +1803,10 @@ heatmap_longitudinal_df_base <- longitudinal_results_fdr_base %>%
 ```{r}
 #pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"))
 #pdf(file=file.path(dir.results, "tanner_longitudinal_outcomes_hm.pdf"))
-beta_limit_unadjusted <- max(abs(heatmap_longitudinal_df_unadjusted$beta), na.rm = TRUE)
+beta_limit_base <- max(abs(heatmap_longitudinal_df_base$beta), na.rm = TRUE)
 
-p_longitudinal_heatmap_unadjusted <- ggplot(
-  heatmap_longitudinal_df_unadjusted,
+p_longitudinal_heatmap_base<- ggplot(
+  heatmap_longitudinal_df_base,
   aes(x = exposure, y = outcome, fill = beta)
 ) +
   geom_tile(color = "white", linewidth = 0.4) +
@@ -1654,7 +1816,7 @@ p_longitudinal_heatmap_unadjusted <- ggplot(
     mid = "white",
     high = "#B2182B",
     midpoint = 0,
-    limits = c(-beta_limit_unadjusted, beta_limit_unadjusted),
+    limits = c(-beta_limit_base, beta_limit_base),
     name = "Beta"
   ) +
   facet_wrap(~ visit, nrow = 1) +
@@ -1673,7 +1835,7 @@ p_longitudinal_heatmap_unadjusted <- ggplot(
     panel.grid = element_blank()
   )
 
-p_longitudinal_heatmap_unadjusted
+p_longitudinal_heatmap_base
 ```
 #-------------------------------------------------------------------------------
 # Model 3B: baseline PFAS predicting longitudinal outcomes, baseline ACR-adjusted
