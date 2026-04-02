@@ -178,351 +178,59 @@ wrap_plots(plot_list, ncol = 3)
 ------------------------------------------------------------------------
 
 # Model 2: Outcome Trajectories Over Time by Group
-##Model 2A: Trajectory Plots Base Model
+
+## Model 2A: Trajectory Plots Base Model
 ```{r}
 #| label: model2a-trajectory-plots
 #| fig-width: 20
 #| fig-height: 18
-plot_group_time_set_unadjusted <- function(data,
-                                           outcomes = group_time_outcomes,
-                                           save_pdf = FALSE,
-                                           out_dir = dir.results) {
-  
-  plot_list <- vector("list", length(outcomes))
-  names(plot_list) <- outcomes
-  
-  for (i in seq_along(outcomes)) {
-    outcome <- outcomes[i]
-    
-    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
-    
-    m0 <- as.formula(
-      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
-    )
-    
-    plot_data <- data %>%
-      dplyr::select(record_id, all.vars(m0)) %>%
-      tidyr::drop_na()
-    
-    if (nrow(plot_data) == 0) {
-      plot_list[[i]] <- NULL
-      next
-    }
-    
-    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
-    
-    pred_df <- as.data.frame(
-      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
-    )
-    
-    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
-      dplyr::filter(stringr::str_detect(term, "visit_f.*:group|group.*:visit_f"))
-    
-    subtitle_text <- if (nrow(int_rows) > 0) {
-      paste0(
-        "Visit × Group: ",
-        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
-      )
-    } else {
-      NULL
-    }
-    
-    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
-      geom_line(linewidth = 1.1) +
-      geom_point(size = 2.5) +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
-      scale_color_viridis_d(option = "C") +
-      theme_bw() +
-      labs(
-        title = paste("Unadjusted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
-      )
-    
-    plot_list[[i]] <- p
-  }
-  
-  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
-  
-  return(plot_list)
-}
 
-wrap_plots(plot_list, ncol = 3)
+plots <- plot_group_time_set_unadjusted(
+  data = dat_long
+)
+wrap_plots(plots, ncol = 3)
 
 ```
-##Model 2B: Trajectory Plots Base Model Adjusted for Baseline ACR
+## Model 2B: Trajectory Plots Base Model Adjusted for Baseline ACR
 ```{r}
 #| label: model2b-trajectory-plots
 #| fig-width: 20
 #| fig-height: 18
-plot_group_time_set <- function(data,
-                                outcomes = group_time_outcomes,
-                                adjust_acr = TRUE,
-                                save_pdf = FALSE,
-                                out_dir = dir.results) {
-  
-  plot_list <- vector("list", length(outcomes))
-  names(plot_list) <- outcomes
-  
-  for (i in seq_along(outcomes)) {
-    outcome <- outcomes[i]
-    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex") 
-    
-    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
-    }
-    m0 <- as.formula(
-      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
-    )
-    
-    plot_data <- data %>%
-      dplyr::select(record_id, all.vars(m0)) %>%
-      drop_na()
-    
-    if (nrow(plot_data) == 0) {
-      plot_list[[i]] <- NULL
-      next
-    }
-    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
-    
-    pred_df <- as.data.frame(
-      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
-    )
-    
-    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
-      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
-    
-    subtitle_text <- if (nrow(int_rows) > 0) {
-      paste0(
-        "Visit × Group: ",
-        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
-      )
-    } else {
-      NULL
-    }
-    
-    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
-      geom_line(linewidth = 1.1) +
-      geom_point(size = 2.5) +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
-      scale_color_viridis_d(option = "C")+
-      theme_bw() +
-      labs(
-        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
-      )
-    
-    plot_list[[i]] <- p
-  }
-  
-  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
-  
-  return(plot_list)
-}
 
 
-wrap_plots(plot_list, ncol = 3)
+plots <- plot_group_time_set(
+  data = dat_long,
+  adjust_acr = TRUE
+)
+
+wrap_plots(plots, ncol = 3)
 ```
-##Model 2C: Trajectory Plots Base Model Adjusted for Tanner Stage
+## Model 2C: Trajectory Plots Base Model Adjusted for Tanner Stage
 ```{r}
 #| label: model2c-trajectory-plots
 #| fig-width: 20
 #| fig-height: 18
-plot_group_time_set_tanner <- function(data,
-                                       outcomes = group_time_outcomes,
-                                       save_pdf = FALSE,
-                                       out_dir = dir.results) {
-  
-  plot_list <- vector("list", length(outcomes))
-  names(plot_list) <- outcomes
-  
-  for (i in seq_along(outcomes)) {
-    outcome <- outcomes[i]
-    
-    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage")
-    
-    m0 <- as.formula(
-      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
-    )
-    
-    plot_data <- data %>%
-      dplyr::select(record_id, all.vars(m0)) %>%
-      tidyr::drop_na()
-    
-    if (nrow(plot_data) == 0) {
-      plot_list[[i]] <- NULL
-      next
-    }
-    
-    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
-    
-    pred_df <- as.data.frame(
-      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
-    )
-    
-    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
-      dplyr::filter(stringr::str_detect(term, "visit_f.*:group|group.*:visit_f"))
-    
-    subtitle_text <- if (nrow(int_rows) > 0) {
-      paste0(
-        "Visit × Group: ",
-        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
-      )
-    } else {
-      NULL
-    }
-    
-    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
-      geom_line(linewidth = 1.1) +
-      geom_point(size = 2.5) +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
-      scale_color_viridis_d(option = "C") +
-      theme_bw() +
-      labs(
-        title = paste("Tanner-adjusted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
-      )
-    
-    plot_list[[i]] <- p
-  }
-  
-  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes_tanner.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
-  
-  return(plot_list)
-}
 
-wrap_plots(plot_list, ncol = 3)
+
+plots <- plot_group_time_set_tanner(
+  data = dat_long
+)
+
+wrap_plots(plots, ncol = 3)
+
 ```
-##Model 2D: Trajectory Plots Base Model Adjusted for Baseline uACR & Tanner Stage
+## Model 2D: Trajectory Plots Base Model Adjusted for Baseline uACR & Tanner Stage
 ```{r}
 #| label: model2d-trajectory-plots
 #| fig-width: 20
 #| fig-height: 18
-plot_group_time_acr_tan_set <- function(data,
-                                outcomes = group_time_outcomes,
-                                adjust_acr = TRUE,
-                                save_pdf = FALSE,
-                                out_dir = dir.results) {
-  
-  plot_list <- vector("list", length(outcomes))
-  names(plot_list) <- outcomes
-  
-  for (i in seq_along(outcomes)) {
-    outcome <- outcomes[i]
-    rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
-    
-    if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
-    }
-    m0 <- as.formula(
-      paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
-    )
-    
-    plot_data <- data %>%
-      dplyr::select(record_id, all.vars(m0)) %>%
-      drop_na()
-    
-    if (nrow(plot_data) == 0) {
-      plot_list[[i]] <- NULL
-      next
-    }
-    m1 <- lmerTest::lmer(m0, data = plot_data, REML = FALSE)
-    
-    pred_df <- as.data.frame(
-      ggeffects::ggpredict(m1, terms = c("visit_f", "group"))
-    )
-    
-    int_rows <- broom.mixed::tidy(m1, effects = "fixed") %>%
-      filter(str_detect(term, "visit_f.*:group|group.*:visit_f"))
-    
-    subtitle_text <- if (nrow(int_rows) > 0) {
-      paste0(
-        "Visit × Group: ",
-        paste0(int_rows$term, " p = ", fmt_p(int_rows$p.value), collapse = "; ")
-      )
-    } else {
-      NULL
-    }
-    
-    p <- ggplot(pred_df, aes(x = x, y = predicted, color = group, group = group)) +
-      geom_line(linewidth = 1.1) +
-      geom_point(size = 2.5) +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.08) +
-      scale_color_viridis_d(option = "C")+
-      theme_bw() +
-      labs(
-        title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
-      )
-    
-    plot_list[[i]] <- p
-  }
-  
-  plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
-  
-  return(plot_list)
-}
 
-wrap_plots(plot_list, ncol = 3)
+plots <- plot_group_time_acr_tan_set(
+  data = dat_long,
+  adjust_acr = TRUE
+)
+
+wrap_plots(plots, ncol = 3)
 ```
 
 ------------------------------------------------------------------------
