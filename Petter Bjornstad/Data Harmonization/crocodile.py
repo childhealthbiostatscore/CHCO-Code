@@ -46,7 +46,7 @@ def clean_crocodile():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -68,14 +68,14 @@ def clean_crocodile():
                               base_name="ethnicity",
                               levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
-                        "1": "Male", "2": "Female", "3": "Other"}, inplace=True)
-    demo["group"].replace({1: "Type 1 Diabetes", 2: "Lean Control",
-                           "1": "Type 1 Diabetes", "2": "Lean Control"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 2: "Female", 3: "Other",
+                        "1": "Male", "2": "Female", "3": "Other"})
+    demo["group"] = demo["group"].replace({1: "Type 1 Diabetes", 2: "Lean Control",
+                           "1": "Type 1 Diabetes", "2": "Lean Control"})
     demo["group_risk"] = np.where(
         demo.group.str.contains("lean", case=False), "Low", "High")
-    demo["participation_status"].replace(
-        {"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace(
+        {"1": "Participated", "2": "Removed", "3": "Will Participate"})
     
     dictionary.loc[dictionary['variable_name'].isin(demo.columns), 'form_name'] = 'demographics'
 
@@ -126,8 +126,9 @@ def clean_crocodile():
     med = med.assign(insulin_med_timepoint=np.maximum(pd.to_numeric(
         med["insulin_pump_timepoint"]), pd.to_numeric(med["insulin_injections_timepoint"])))
     # Replace 0/1 values with yes/no
-    med.iloc[:, 1:] = med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    replace_dict = {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"}
+    for col in med.columns[1:]:
+        med[col] = med[col].replace(replace_dict)
     med["procedure"] = "medications"
     med["visit"] = "baseline"
     dictionary.loc[dictionary['variable_name'].isin(med.columns), 'form_name'] = 'medical_history'
@@ -143,8 +144,15 @@ def clean_crocodile():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    print("First 5 valid values in epic_ever_sglt2i_1 before replacement:")
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head())
+    print("Data type of first epic_ever_sglt2i_1 value:")   
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head().apply(type))
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    print("First 5 valid values in epic_ever_sglt2i_1 after replacement:")
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head())
     epic_med["procedure"] = "epic_medications"
     epic_med["visit"] = "baseline"
 
@@ -388,7 +396,7 @@ def clean_crocodile():
                "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
     rct["procedure"] = "renal_clearance_testing"
     rct["visit"] = "baseline"
-
+    rct["date"] = labs["date"]
     dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'renal_clearance'
 
 
@@ -499,7 +507,7 @@ def clean_crocodile():
     var = var + ["pavel_wbc", "pavel_neutrophils", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
     pavel = pd.DataFrame(proj.export_records(fields=var))
     pavel.replace(rep, np.nan, inplace=True)
-    pavel["procedure"] = "labs"
+    pavel["procedure"] = "pavel_labs"
     pavel["visit"] = "baseline"
 
     # --------------------------------------------------------------------------
@@ -552,6 +560,7 @@ def clean_crocodile():
     lip.replace(rep, np.nan, inplace=True)
     lip["procedure"] = "lipidomics"
     lip["visit"] = "baseline"
+    lip["date"] = labs["date"]
     dictionary.loc[dictionary['variable_name'].isin(lip.columns), 'form_name'] = 'lipidomics'
 
     
@@ -624,6 +633,6 @@ def clean_crocodile():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Print final data
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
     return df

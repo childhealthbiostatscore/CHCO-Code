@@ -49,8 +49,26 @@ library(doParallel)
 library(quantreg)
 library(aws.s3)
 library(biomaRt)
-# Set up environment for Kopah
-keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+
+# Set up paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
@@ -59,11 +77,6 @@ Sys.setenv(
   "AWS_REGION" = "",
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
-
-# Set up paths
-user <- "yejichoi"
-root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
 
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
@@ -81,12 +94,13 @@ rh_rh2_croc_improve_unique <-
 # subset to T2D and OB from RH/RH2/IMPROVE Baseline, HC from CROC
 pb90_subset <- subset(pb90, group != "Type_1_Diabetes" & T2D_HC_Phil != "HC_igA" & visit == "baseline")
 length(unique(pb90_subset$record_id)) # 49 people with biopsies
-
+rm(pb90)
+gc()
 # add metadata to PB90 subset
 meta_subset <- left_join(subset(pb90_subset@meta.data, select = -c(age, eGFR_CKD_epi, hba1c)), 
-                         rh_rh2_croc_improve_unique,
-                         by = "kit_id") 
-length(unique(meta_subset$record_id.x)) # matches 49 people with biopsies
+                         subset(rh_rh2_croc_improve_unique, select = -c(record_id, group, sex, 
+                                                                        sglt2i_ever, cryostor_id, visit))) 
+length(unique(meta_subset$record_id)) # matches 49 people with biopsies
 rownames(meta_subset) <- meta_subset$barcode
 pb90_subset@meta.data <- meta_subset
 
@@ -171,7 +185,7 @@ hist(max_proportion_per_gene)
 
 # Filter the Seurat object
 pb90_subset <- subset(pb90_subset, features = genes_to_keep)
-
+gc()
 
 #Check the number of Mitochondrial genes to start
 sum(grepl("^MT-", rownames(pb90_subset))) 
@@ -195,7 +209,7 @@ ribo_genes <- c(
 ) # grep("^RPL|^RPS", rownames(attempt_so_raw), value = TRUE) captures some none ribosomal genes
 
 pb90_subset <- subset(pb90_subset, features = setdiff(rownames(pb90_subset), ribo_genes))
-
+gc()
 
 # Check if data are normalized
 Assays(pb90_subset)  # Should show e.g., "RNA" with "counts" and "data"
@@ -209,25 +223,27 @@ head(GetAssayData(pb90_subset, layer = "data")[, 1:5])    # Normalized data
 genes <- sample(rownames(pb90_subset), 100)
 
 # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
-par(mfrow = c(2, 3))
-
-# Loop over each randomly selected gene
-for (g in genes) {
-  
-  # Plot a histogram of the expression values for gene 'g'
-  # using normalized expression values from the "data" slot
-  hist(GetAssayData(pb90_subset, layer = "data")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Normalized Expression")     # Label for x-axis
-  
-  # using raw counts expression values from the "counts" slot
-  hist(GetAssayData(pb90_subset, layer = "counts")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Raw Counts Expression")     # Label for x-axis
-}
+# par(mfrow = c(2, 3))
+# 
+# # Loop over each randomly selected gene
+# for (g in genes) {
+#   
+#   # Plot a histogram of the expression values for gene 'g'
+#   # using normalized expression values from the "data" slot
+#   hist(GetAssayData(pb90_subset, layer = "data")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Normalized Expression")     # Label for x-axis
+#   
+#   # using raw counts expression values from the "counts" slot
+#   hist(GetAssayData(pb90_subset, layer = "counts")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Raw Counts Expression")     # Label for x-axis
+# }
 
 # Save Seurat object for downstream analysis
-s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
+          bucket = "scrna", region = "",
+          multipart = TRUE)
 
 # Subset Seurat object into general cell types and save
 for (cell in names(celltype_groups)) {
@@ -239,7 +255,8 @@ for (cell in names(celltype_groups)) {
   
 }
 
-pb90_subset <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+pb90_subset <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
+                         bucket = "scrna", region = "")
 
 length(unique(pb90_subset$kit_id))
 

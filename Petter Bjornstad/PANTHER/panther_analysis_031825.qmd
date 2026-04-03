@@ -1,14 +1,17 @@
 ---
-title: "PANTHER Baseline (Mar 18, 2025)"
+title: "PANTHER Baseline"
 author: "Ye Ji Choi"
 date: "`r lubridate::today()`"
 format: 
-  html:
-    toc: true
-    toc-depth: 5
-    toc-location: left
-    code-fold: true
-    embed-resources: true
+  docx:
+    fig-cap-location: top
+    tbl-cap-location: top
+    title-block-banner: false
+    title-block-style: none
+execute:
+  echo: false
+  warning: false
+  message: false
 ---
 
 ```{r libraries, echo=F, include = F}
@@ -30,12 +33,37 @@ library(readxl)
 library(limma)
 library(glue)
 library(purrr)
+library(aws.s3)
+library(jsonlite)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 ```
 
 ```{r load-data, echo = F, include = F}
 # Load SOMAScan analytes data
-load("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes.Rdata")
-write.csv(analytes, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes.csv", row.names = F)
+load(file.path(root_path, "Data Harmonization/Combined SomaScan/analytes.Rdata"))
+write.csv(analytes, file.path(root_path, "Data Harmonization/Combined SomaScan/analytes.csv"), row.names = F)
 # Load dictionary function and file
 source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
 source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
@@ -43,8 +71,8 @@ source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Function
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "")
+exclude <- read.csv(file.path(root_path, "PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv"))$record_id
 
 dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
                              study == "RENAL-HEIRitage" | (study == "IMPROVE" & visit == "baseline")) %>%
@@ -157,7 +185,7 @@ cleanData_sens <- cleanData_comb %>%
 analytes <- analytes %>% dplyr::mutate(Target_nodup = paste0(Target, " (", AptName, ")"))
 
 # Load and modify dictionary file
-dict <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+dict <- read.csv(file.path(root_path, "Data Harmonization/data_dictionary_master.csv"))
 
 dict <- label_harmonized_dict(dat, dict) %>%
   dplyr::mutate(tanner_stage_comp = "Tanner stage",
@@ -240,33 +268,33 @@ sens_dat <- label_harmonized(sens_dat, dict)
 
 ```{r save-data, include = F}
 # save(analytes,
-#      file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_analytes_050925.RData")
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_analytes_050925.RData"))
 # save(dict,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_dict_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_050925.RData"))
 # save(dat,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_050925.RData"))
 # save(panther,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_050925.RData"))
 # save(sens_dat,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_050925.RData"))
 # save(cleanData_comb,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_050925.RData"))
 # save(cleanData_panther,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_soma_std_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_050925.RData"))
 # save(cleanData_sens,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_050925.RData")
+#         file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_050925.RData"))
 ```
 
 
-```{r load-data, include = F}
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_analytes_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_dict_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_soma_std_050925.RData")
-# load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_050925.RData")
+```{r, include = F}
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_analytes_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_050925.RData"))
+# load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_050925.RData"))
 ```
 
 ```{r echo = F}
@@ -276,12 +304,24 @@ sens_dat <- label_harmonized(sens_dat, dict)
 #   filter(!is.na(visit)) %>%
 #   distinct(record_id, visit, .keep_all = T) %>%
 #   select(record_id, visit, avg_c_t1, avg_c_r2)
-# write.csv(missing_t1, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_T1_ids.csv", row.names = F, na = "")
+# write.csv(missing_t1, file.path(root_path, "PANTHER/Data_Cleaned/panther_T1_ids.csv", row.names = F, na = ""))
 ```
 
 ## Table 1
 
 ### By risk
+
+```{r include = F}
+table_controls <- tableby.control(
+  total = T,
+  numeric.stats = c("meansd"),
+  cat.stats = c("countpct"),
+  digits = 1, 
+  numeric.simplify = TRUE,
+  test.always = T,
+  cat.droplevels = F
+)
+```
 
 ```{r desc-risk, results = 'asis', echo = F}
 # Descriptive tables
@@ -291,7 +331,7 @@ sens_dat <- label_harmonized(sens_dat, dict)
 
 panther_uacr <- (subset(panther, select = c(record_id, group_2, u24_mab, acr_u, creatinine_u, microalbumin_u))) %>%
   arrange(desc(u24_mab))
-# write.csv(panther_uacr, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_uacr.csv", row.names = F)
+# write.csv(panther_uacr, file.path(root_path, "PANTHER/Data_Cleaned/panther_uacr.csv", row.names = F))
 
 panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
   mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
@@ -308,18 +348,22 @@ panther_uacr_wide <- panther_uacr_2 %>%
     values_from = 4:8   # the numeric columns
   ) %>%
   dplyr::select(where(~ !all(is.na(.x))))
-# write.csv(panther_uacr_wide, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_uacr_allvisits.csv", row.names = F, na = "")
+# write.csv(panther_uacr_wide, file.path(root_path, "PANTHER/Data_Cleaned/panther_uacr_allvisits.csv", row.names = F, na = ""))
 
 # summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_di < 10000), total = T, test = F))
 # summary(tableby(group_risk ~ kwt(mm_si, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_si < 100), total = T, test = F))
 
-summary(tableby(group_risk ~ age + sex + height + weight + bmi + bmip +  bmiz + group + group_2 + eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg+ sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + uacr_cat + kwt(u24_mab, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + anova(rvr, digits = 3) + glomerular_pressure + cpeptide, data = panther, total = T, test = T,  numeric.simplify = T, numeric.stats = c("meansd", "Nmiss"), digits = 1))
+kable(summary(tableby(group_risk ~ age + sex + height + weight + bmi + bmip +  bmiz + group + group_2 + eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg+ sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + uacr_cat + kwt(u24_mab, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + anova(rvr, digits = 3) + glomerular_pressure + cpeptide, data = panther,                      control = table_controls, test = T), 
+      digits = 1))
 ```
 
 ```{r, results = 'asis', echo = F}
 # Descriptive tables
 ## By risk
-summary(tableby(group_risk ~ age + height + weight + bmi + bmiz + birthweight + group_2 + eGFR_CKD_epi + eGFR_fas_cr + sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "Nmiss", "medianq1q3", "range") + kwt(lh, "Nmiss", "medianq1q3", "range") + kwt(estrad, "Nmiss", "medianq1q3", "range") + kwt(tot_test, "Nmiss", "medianq1q3", "range") + kwt(free_test, "Nmiss", "medianq1q3", "range") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell+ mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + anova(rvr, digits = 3) + glomerular_pressure, data = panther, total = T, test = T, digits = 1))
+kable(summary(tableby(group_risk ~ 
+                        age + height + weight + bmi + bmiz + birthweight + group_2 + eGFR_CKD_epi + eGFR_fas_cr + sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell+ mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + anova(rvr, digits = 3) + glomerular_pressure, data = panther,  
+                      control = table_controls, test = T), 
+      digits = 1))
 ```
 
 #### Sex & risk
@@ -420,7 +464,7 @@ plots <- map(vars, ~ iqr_plot(
   x_var_lab = "Tanner stage",
   y_var_lab = label(panther[[.x]])))
 walk(plots, print)
-out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Pooled"
+out_dir <- file.path(root_path, "PANTHER/Results/Figures/050925/IQR Pooled")
 walk2(
   .x = plots,
   .y = vars,
@@ -510,7 +554,7 @@ plots <- map(vars, ~ iqr_plot_grp(
   group_lab = "Risk group_2"))
 walk(plots, print)
 
-out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Risk"
+out_dir <- file.path(root_path, "PANTHER/Results/Figures/050925/IQR Risk")
 walk2(
   .x = plots,
   .y = vars,
@@ -533,7 +577,7 @@ plots <- map(vars, ~ iqr_plot_grp(
   group_lab = "Sex"))
 walk(plots, print)
 
-out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Sex"
+out_dir <- file.path(root_path, "PANTHER/Results/Figures/050925/IQR Sex")
 walk2(
   .x = plots,
   .y = vars,
@@ -549,7 +593,7 @@ walk2(
 
 ```{r echo = F}
 xvars <- c("age", "tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test", "log_estrad", "bl_dheas", "igf_1", "mm_si", "mm_di", "mm_bcell")
-png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor1.png", res = 170)
+png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor1.png"), res = 170)
 corr_plot_modified(panther, 
                    X = xvars, 
                    Y = c("gfr_raw_plasma", "erpf_raw_plasma", "erpf_bsa_plasma","eGFR_fas_cr", 
@@ -557,7 +601,7 @@ corr_plot_modified(panther,
                    dict = dict)
 dev.off()
 
-png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor2.png", res = 170)
+png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor2.png"), res = 170)
 corr_plot_modified(panther, 
                    X = xvars, 
                    Y = c("total_kidney_volume_ml", "ht_adj_tkv","avg_c_r2",
@@ -565,14 +609,14 @@ corr_plot_modified(panther,
                    dict = dict)
 dev.off()
 
-# png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor3.png", res = 170)
+# png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor3.png"), res = 170)
 # corr_plot_modified(panther, 
 #                    X = xvars, 
 #                    Y = c("mm_si", "mm_ir", "mm_bcell", "mm_di"),
 #                    dict = dict)
 # dev.off()
 
-png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor4.png", res = 170)
+png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor4.png"), res = 170)
 corr_plot_modified(panther, 
                    X = xvars, 
                    Y = c("dexa_lean_mass", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass",
@@ -583,7 +627,7 @@ dev.off()
 xvars2 <- c("dexa_lean_mass", "dexa_lean_kg", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass", "dexa_trunk_kg",
                          "bmi")
 
-png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor5.png", res = 170)
+png(height = 1500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor5.png"), res = 170)
 corr_plot_modified(panther, 
                    X = xvars2, 
                    Y = c("total_kidney_volume_ml", "ht_adj_tkv","glomerular_pressure", "ra", "re", "rvr", "rbf"),
@@ -602,7 +646,7 @@ summary(lm(log_estrad ~ tanner_stage_comp_panther + age, panther))
 Partial correlations adjusting for age (tiles with black rectangles are significant at p < 0.05 in partial correlation adjusting for age).
 ```{r echo = F}
 # partial correlations adjusting for age
-png(height = 500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor5.png", res = 170)
+png(height = 500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor5.png"), res = 170)
 corr_plot_modified(panther, 
                    X = "tanner_stage_comp_panther", 
                    Y = c("log_lh", "fsh", "log_tot_test", "log_free_test",
@@ -613,7 +657,7 @@ dev.off()
 ```
 ```{r echo = F}
 # correlations, regression adjusting for age
-png(height = 500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor6.png", res = 170)
+png(height = 500, width = 1500, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor6.png"), res = 170)
 corr_plot_ver2(panther, 
                    X = c("tanner_stage_comp_panther"), 
                    Y = c("log_lh", "fsh", "log_tot_test", "log_free_test",
@@ -624,7 +668,7 @@ dev.off()
 ```
 ```{r echo = F}
 # correlations, regression adjusting for sex and age
-png(height = 800, width = 1000, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor7.png", res = 170)
+png(height = 800, width = 1000, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor7.png"), res = 170)
 corr_plot_ver2(panther, 
                    X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
                          "log_estrad"), 
@@ -633,7 +677,7 @@ corr_plot_ver2(panther,
                    adj_var = "age+sex+bmi")
 dev.off()
 
-png(height = 800, width = 1400, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor8.png", res = 170)
+png(height = 800, width = 1400, file = file.path(root_path, "PANTHER/Results/Figures/panther_cor8.png"), res = 170)
 corr_plot_ver2(panther, 
                    X = c("tanner_stage_comp_panther", "log_lh", "fsh", "log_tot_test", "log_free_test",
                          "log_estrad"), 
@@ -695,7 +739,7 @@ EnhancedVolcano(res_risk_save,
                 boxedLabels = TRUE,
                 max.overlaps=30, 
                 caption = "")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/volcano_risk_dep.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_risk_dep.jpeg"), 
        width = 12, height = 10)
 
 ```
@@ -747,7 +791,7 @@ EnhancedVolcano(res_ts_save,
                 boxedLabels = TRUE,
                 max.overlaps=30, 
                 caption = "")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/volcano_ts_dep.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_dep.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -799,7 +843,7 @@ EnhancedVolcano(res_ts_high_save,
                 boxedLabels = TRUE,
                 max.overlaps=30, 
                 caption = "")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/volcano_ts_high_highrisk_dep.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_high_highrisk_dep.jpeg"), 
        width = 12, height = 10)
 ```
 ### Across Tanner stage 1-2 vs. 3-5 (Low risk only)
@@ -850,7 +894,7 @@ EnhancedVolcano(res_ts_low_save,
                 boxedLabels = TRUE,
                 max.overlaps=30, 
                 caption = "")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/volcano_ts_low_lowrisk_dep.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_ts_low_lowrisk_dep.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -900,7 +944,7 @@ EnhancedVolcano(res_sex_save,
                 boxedLabels = TRUE,
                 max.overlaps=30, 
                 caption = "")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/volcano_sex_dep.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/volcano_sex_dep.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1099,7 +1143,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/gfr_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/gfr_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1143,7 +1187,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/erpf_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/erpf_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1188,7 +1232,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/egfr_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/egfr_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1233,7 +1277,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/pglo_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/pglo_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1278,7 +1322,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/ra_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/ra_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1323,7 +1367,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/rvr_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/rvr_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1368,7 +1412,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)")
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/tkv_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/tkv_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1413,7 +1457,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/httkv_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/httkv_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1458,7 +1502,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/asl_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/asl_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1503,7 +1547,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/adc_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/adc_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1548,7 +1592,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/si_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/si_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1593,7 +1637,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/fatkg_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/fatkg_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1638,7 +1682,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/trunkmass_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/trunkmass_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1683,7 +1727,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/bmd_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/bmd_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1728,7 +1772,7 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/weight_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/weight_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
@@ -1773,19 +1817,19 @@ plotVolcano_mod(data = pearson_cor_mat,
                 fc_lab_col = "#dad7cd",
                 sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
                 sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
- ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/height_cor_plot.jpeg", 
+ ggsave(file.path(root_path, "PANTHER/Results/Figures/height_cor_plot.jpeg"), 
        width = 12, height = 10)
 ```
 
 ## Pathway analysis
 ```{r echo = F}
-# write.csv(res_risk_save, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/ipa/panther_risk_dep.csv", row.names = F)
-# write.csv(res_ts_save, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/ipa/panther_ts_dep.csv", row.names = F)
-# write.csv(res_sex_save, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/ipa/panther_sex_dep.csv", row.names = F)
+# write.csv(res_risk_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_risk_dep.csv"), row.names = F)
+# write.csv(res_ts_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_ts_dep.csv"), row.names = F)
+# write.csv(res_sex_save, file.path(root_path, "PANTHER/Data_Cleaned/ipa/panther_sex_dep.csv"), row.names = F)
 
-risk_pathway <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/IPA/panther_risk_dep_pathway.xls", skip = 1) 
-sex_pathway <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/IPA/panther_sex_dep_pathway.xls", skip = 1) 
-ts_pathway <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/IPA/panther_ts_dep_pathway.xls", skip = 1) 
+risk_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_risk_dep_pathway.xls"), skip = 1) 
+sex_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_sex_dep_pathway.xls"), skip = 1) 
+ts_pathway <- read_excel(file.path(root_path, "PANTHER/results/IPA/panther_ts_dep_pathway.xls"), skip = 1) 
 
 colnames(risk_pathway) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
 colnames(sex_pathway) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
@@ -1835,7 +1879,7 @@ n_pathways_negative <- pathways_negative %>%
 
 top50_negative 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_risk_negative_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_negative_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z < -2
@@ -1867,7 +1911,7 @@ top50_negative <- pathways_negative_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 0.2)) 
 
 top50_negative 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_risk_negative_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_negative_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -1910,7 +1954,7 @@ n_pathways_positive <- pathways_positive %>%
   nrow()
 
 top50_positive 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_risk_positive_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_positive_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z > 2
@@ -1942,7 +1986,7 @@ top50_positive <- pathways_positive_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 1)) 
 
 top50_positive
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_risk_positive_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_risk_positive_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```
 ### Sex DEP pathways
@@ -1984,7 +2028,7 @@ n_pathways_negative <- pathways_negative %>%
 
 top50_negative 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_sex_negative_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z < -2
@@ -2016,7 +2060,7 @@ top50_negative <- pathways_negative_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 1)) 
 
 top50_negative 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -2059,7 +2103,7 @@ n_pathways_positive <- pathways_positive %>%
   nrow()
 
 top50_positive 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_sex_positive_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_positive_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z > 2
@@ -2091,7 +2135,7 @@ top50_positive <- pathways_positive_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 1)) 
 
 top50_positive
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_sex_negative_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -2134,7 +2178,7 @@ n_pathways_negative <- pathways_negative %>%
 
 top50_negative 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_ts_negative_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_negative_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z < -2
@@ -2166,7 +2210,7 @@ top50_negative <- pathways_negative_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 1)) 
 
 top50_negative 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_ts_negative_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_negative_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -2209,7 +2253,7 @@ n_pathways_positive <- pathways_positive %>%
   nrow()
 
 top50_positive 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_ts_positive_pathways.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_positive_pathways.jpeg"),
        width = 27.5, height = 14, scale = 1)
 
 ########## Limited to z > 2
@@ -2241,6 +2285,6 @@ top50_positive <- pathways_positive_sig[1:50,] %>%
   scale_y_discrete(expand = expansion(add = 1)) 
 
 top50_positive
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/results/Figures/top50_ts_positive_pathways_2.jpeg",
+ggsave(file.path(root_path, "PANTHER/results/Figures/top50_ts_positive_pathways_2.jpeg"),
        width = 27.5, height = 14, scale = 1)
 ```

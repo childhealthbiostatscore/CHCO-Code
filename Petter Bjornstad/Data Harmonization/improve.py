@@ -57,7 +57,7 @@ def clean_improve():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
     # --------------------------------------------------------------------------
@@ -91,13 +91,12 @@ def clean_improve():
                                       "Not Hispanic or Latino",
                                       "Unknown/Not Reported"])
     # Relevel sex and group
-    demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
-                        "1": "Male", "0": "Female", "2": "Other"}, inplace=True)
-    demo["sglt2i"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"},
-                           inplace=True)
+    demo["sex"] = demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
+                        "1": "Male", "0": "Female", "2": "Other"})
+    demo["sglt2i"] = demo["sglt2i"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"})
     demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
     demo.rename({"sglt2i": "sglt2i_ever"}, axis=1, inplace=True)
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
 
     # --------------------------------------------------------------------------
     # Medications
@@ -113,64 +112,49 @@ def clean_improve():
     med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
-    med["diabetes_med_other___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med_other___3"] = med["diabetes_med_other___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___3": "sglti_timepoint"},
                axis=1, inplace=True)
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
-    med["raasi_timepoint"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["raasi_timepoint"] = med["raasi_timepoint"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     # Metformin
-    med["diabetes_med___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___1"] = med["diabetes_med___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___1": "metformin_timepoint"},
                axis=1, inplace=True)
     # Insulin
-    med["diabetes_med___2"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["diabetes_med___2"] = med["diabetes_med___2"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med___2": "insulin_med_timepoint"},
                axis=1, inplace=True)
     # Hypertension Y/N
-    med["hypertension"].replace(
-        {2: "No", "2": "No", 1: "Yes", "1": "Yes"}, inplace=True)
-    med["htn_med_type___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["hypertension"] = med["hypertension"].replace(
+        {2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    med["htn_med_type___1"] = med["htn_med_type___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___1": "ace_inhibitor"},
                axis=1, inplace=True)
-    med["htn_med_type___3"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___3"] = med["htn_med_type___3"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___3": "beta_blocker"},
                axis=1, inplace=True)
-    med["htn_med_type___5"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["htn_med_type___5"] = med["htn_med_type___5"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"htn_med_type___5": "diuretic"},
                axis=1, inplace=True)
 
     # Statin
-    med["addl_hld_meds___1"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
+    med["addl_hld_meds___1"] = med["addl_hld_meds___1"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"addl_hld_meds___1": "statin"},
            axis=1, inplace=True)
     med.rename({"med_date": "date"},
            axis=1, inplace=True)
     med["procedure"] = "medications"
-    
-    # --------------------------------------------------------------------------
-    # EPIC Medications
-    # --------------------------------------------------------------------------
-
-    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
-                                               == "epic_meds", "field_name"]]
-    epic_med = pd.DataFrame(proj.export_records(fields=var))
-    epic_med.drop(redcap_cols, axis=1, inplace=True)
-    # Replace missing values
-    epic_med.replace(rep, np.nan, inplace=True)
-    # Replace 0/1 values with yes/no
-    epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
-        {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
-    epic_med["procedure"] = "epic_medications"
     
     # --------------------------------------------------------------------------
     # Physical exam
@@ -238,11 +222,15 @@ def clean_improve():
                                                                == "cardioabdominal_mri", "field_name"]]
     mri = pd.DataFrame(proj.export_records(fields=var))
     mri.replace(rep, np.nan, inplace=True)  # Replace missing values
-    mri.drop(redcap_cols + ["mri_cardio", "mri_abdo",
-                            "mri_aortic", "study_visit_mri"],
-             axis=1, inplace=True)
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
+    mri.rename({"lv_grs" : "grs", "lv_gcs": "gcs", "lv_gls": "gls", "af_pwv_xcor3": "af_pwv",
+                    "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
+                    "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
+    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri",
+              "lvedvi", "lvesvi","lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
+             axis=1, inplace=True)
+
     mri["procedure"] = "cardio_abdominal_mri"
 
     dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'cardioabdominal_mri'
@@ -311,7 +299,7 @@ def clean_improve():
                 "bodcomp_date": "date"}, axis=1, inplace=True)
     dxa["procedure"] = "dxa"
 
-    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'body_composition_dxa_bod_pod'
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
 
 
     # --------------------------------------------------------------------------
@@ -402,7 +390,7 @@ def clean_improve():
     # Outcomes
     # --------------------------------------------------------------------------
 
-    var = ["subject_id", "study_visit"] + ["hematocrit_90"] + ["hematocrit_120"] + ["map"] + ["clamp_map"] + ["total_protein"] + [v for v in meta.loc[meta["form_name"]
+    var = ["subject_id", "study_visit"] + ["hematocrit_90"] + ["hematocrit_120"] + ["map"] + ["clamp_map"] + ["total_protein"] + ["mri_visit_date"] + [v for v in meta.loc[meta["form_name"]
                                                                == "outcomes", "field_name"]]
     out = pd.DataFrame(proj.export_records(fields=var))
     out.replace(rep, np.nan, inplace=True)  # Replace missing values
@@ -413,8 +401,8 @@ def clean_improve():
     # necessarily the day of the MRI
     bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
     bold_mri = out[["subject_id", "study_visit",
-                    "mri_date"] + bold_mri_cols].copy()
-    bold_mri.rename({"mri_date": "date",
+                    "mri_visit_date"] + bold_mri_cols].copy()
+    bold_mri.rename({"mri_visit_date": "date",
                      "asl_left": "pcasl3d_left",
                      "asl_right": "pcasl3d_right"}, axis=1, inplace=True)
     out = out[list(set(out.columns).difference(bold_mri_cols))]
@@ -484,6 +472,23 @@ def clean_improve():
     biopsy["procedure"] = "kidney_biopsy"
 
     # --------------------------------------------------------------------------
+    # EPIC Medications
+    # --------------------------------------------------------------------------
+
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "epic_meds", "field_name"]]
+    epic_med = pd.DataFrame(proj.export_records(fields=var))
+    epic_med.drop(redcap_cols, axis=1, inplace=True)
+    # Replace missing values
+    epic_med.replace(rep, np.nan, inplace=True)
+    # Replace 0/1 values with yes/no
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med["procedure"] = "epic_medications"
+    epic_med["date"] = biopsy["date"]
+    
+    # --------------------------------------------------------------------------
     # Pavel Labs
     # --------------------------------------------------------------------------
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
@@ -491,15 +496,16 @@ def clean_improve():
     var = var + ["pavel_wbc", "pavel_neutrophil", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
     pavel = pd.DataFrame(proj.export_records(fields=var))
     pavel.replace(rep, np.nan, inplace=True)
-    pavel["procedure"] = "labs"
-    pavel["study_visit"] = "baseline"
+    pavel["study_visit"] = pavel["redcap_repeat_instance"].round().astype("Int64").astype("string")
+    pavel.drop(redcap_cols, axis=1, inplace=True)
+    pavel["procedure"] = "pavel_labs"
 
     # --------------------------------------------------------------------------
     # Astrazeneca urine metabolomics
     # --------------------------------------------------------------------------
     
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
-                                                  == "astrazeneca_urine_metabolomics", "field_name"]]
+                                                  == "az_urine_metabolites", "field_name"]]
     az_u_metab = pd.DataFrame(proj.export_records(fields=var))
     az_u_metab.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
@@ -514,11 +520,17 @@ def clean_improve():
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
                                                   == "metabolomics_blood_raw", "field_name"]]
     plasma_metab = pd.DataFrame(proj.export_records(fields=var))
+    plasma_metab["study_visit"] = (
+    pd.to_numeric(plasma_metab["redcap_repeat_instance"].astype(str).str.strip(), errors="coerce")
+      .astype("Int64")
+      .astype("string")
+    )
     plasma_metab.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
     plasma_metab.replace(rep, np.nan, inplace=True)
     plasma_metab["procedure"] = "plasma_metab"
     plasma_metab["date"] = clamp["date"]
+    
     # --------------------------------------------------------------------------
     # Lipidomics
     # --------------------------------------------------------------------------
@@ -538,11 +550,12 @@ def clean_improve():
     # --------------------------------------------------------------------------
 
     med.dropna(thresh=9, axis=0, inplace=True)
+    med = med[med['date'].notna()]
     epic_med.dropna(thresh=5, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
     accel.dropna(thresh=6, axis=0, inplace=True)
-    mri.dropna(thresh=4, axis=0, inplace=True)
+    mri.dropna(thresh=5, axis=0, inplace=True)
     mmtt.dropna(thresh=5, axis=0, inplace=True)
     dxa.dropna(thresh=4, axis=0, inplace=True)
     clamp.dropna(thresh=5, axis=0, inplace=True)
@@ -552,6 +565,7 @@ def clean_improve():
     az_u_metab.dropna(thresh=10, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
+    pavel.dropna(thresh=5, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -588,8 +602,8 @@ def clean_improve():
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
     # Change study visit names
-    df["visit"].replace({np.nan: "baseline", '1': "baseline",
-                         '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
+    df["visit"] = df["visit"].replace({np.nan: "baseline", '1': "baseline",
+                         '2': "3_months_post_surgery", '3': "12_months_post_surgery"})
     df["visit"] = pd.Categorical(df["visit"],
                                  categories=["baseline", "3_months_post_surgery",
                                  "12_months_post_surgery"],
@@ -603,6 +617,6 @@ def clean_improve():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False) 
     return df

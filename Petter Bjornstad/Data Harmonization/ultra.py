@@ -74,16 +74,13 @@ def clean_ultra():
             "American Indian or Alaskan Native", "Asian",
             "Hawaiian or Pacific Islander", "Black or African American",
             "White", "Unknown", "Other"])
-        print(type(demo))
         # Same for ethnicity
         combine_checkboxes(demo,
                                 base_name="ethnicity",
                                 levels=["Hispanic or Latino",
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
-        print(type(demo))
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
-
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
@@ -91,9 +88,6 @@ def clean_ultra():
     var = ["record_id", "diabetes_diag", "med_hx_hypertension"] #"insulin_type",met_hx
            #"cvd_type", "met_hx", "med_hx_hypertension"] #"diabetes_meds"]
     med = pd.DataFrame(proj.export_records(fields=var))
-    print(type(med))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
-    print(len(med))        # Number of records exported
-    print(med[:3]) 
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
     med.replace(rep, np.nan)#, inplace=True)
@@ -169,7 +163,9 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
-    
+    print("studyvisit_type unique values:", vital["visit"].unique())
+    print("studyvisit_type value counts:\n",
+          vital["visit"].value_counts(dropna=False))
     vital["procedure"] = "labs"
 
     # --------------------------------------------------------------------------
@@ -182,14 +178,23 @@ def clean_ultra():
     mri.replace(rep, np.nan, inplace=True)  # Replace missing values
     mri.drop(redcap_cols, axis=1, inplace=True)#+ ["mri_cardio", "mri_abdo",
                             #"mri_aortic", "study_visit_mri"],
-             
+    print([c for c in mri.columns if 'date' in c.lower() or 'imaging' in c.lower()]) 
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
+    mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output",
+                "lvco": "lv_cardiac_output", "myo_mass_dias" : "lved_mass", "myo_mass_syst": "lves_mass",
+                "lv_myo_mass_dias" : "lv_myo_mass_diast",
+                "imaging_hr": "lv_hr", "imaging_date": "date",
+                "af_pwv_xcor3": "af_pwv",
+                "radial_peak": "grs", "circum_peak": "gcs", "long_peak": "gls"}, axis=1, inplace=True)
+    print("af_pwv PULLED?")                                                       
+    print("af_pwv" in mri.columns)                            
+    print("TOTAL NOT NULLS IN date:")                                           
+    print(mri["date"].notna().sum())
+     
+                
     mri["procedure"] = "cardio_abdominal_mri"
-    # mri["visit"] = mri["redcap_repeat_instance"]
-    # mri["visit"] = mri["visit"].replace({0: "screening", "": "screening", 1: "baseline", "1": "baseline",2: "3_motnhs", "2": "3_months", 3: "6_months", "3": "6_months", 4:"12_months", "4": "12_months"})
 
-    
     # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------
@@ -199,7 +204,7 @@ def clean_ultra():
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
     demo.dropna(thresh=3, axis=0, inplace=True)
-    
+    mri.dropna(thresh=4, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -230,16 +235,19 @@ def clean_ultra():
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
     df["visit"] = df["visit"].replace({
-    np.nan: "baseline",
-    '1': "baseline",
-    '2': "month_3",
-    '3': "month_6",
-    '4': "month_12"
-})
+        np.nan: "baseline",
+        "": "baseline",
+        1: "baseline",
+        '1': "baseline",
+        2: "1_week",
+        '2': "1_week",
+    })
     df["visit"] = pd.Categorical(df["visit"],
-                                 categories=["baseline", "3_months_post_surgery",
-                                 "12_months_post_surgery"],
+                                 categories=["baseline", "1_week"],
                                  ordered=True)
+    print("visit unique values:", df["visit"].unique())
+    print("visit value counts:\n",
+          df["visit"].value_counts(dropna=False))
     # Fix subject IDs
     #df["subject_id"] = df["subject_id"].str.replace(r"2D-", "_", regex=True)
     # Sort

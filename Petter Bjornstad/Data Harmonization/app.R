@@ -36,7 +36,7 @@ if (user == "choiyej") {
   git_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "shivaniramesh") {
   base_data_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
 } else
 {
   stop("Unknown user: please specify root path for this user.")
@@ -392,7 +392,7 @@ server <- function(input, output, session) {
     
     # Transpose the table to have groups as columns and metrics as rows
     descriptive_table_display <- descriptive_summary %>%
-      rename(Category = group) %>%
+      dplyr::rename(Category = group) %>%
       tidyr::pivot_longer(cols = -Category, names_to = "Metric", values_to = "Count") %>%
       tidyr::pivot_wider(names_from = Category, values_from = Count) %>%
       select(Metric, everything())
@@ -456,10 +456,11 @@ server <- function(input, output, session) {
     }
     
     # Calculate group-level summaries
-    group_summary <- df %>%
-      group_by(group) %>%
-      summarise(counts = list(calculate_availability(cur_data()))) %>%
-      tidyr::unnest_wider(counts)
+    group_split_data <- split(df, df$group)
+    group_summary <- do.call(rbind, lapply(names(group_split_data), function(g) {
+      counts <- calculate_availability(group_split_data[[g]])
+      data.frame(group = g, t(counts), check.names = FALSE)
+    }))
     
     # Calculate grand total
     grand_total_counts <- as.data.frame(t(calculate_availability(df)))
@@ -470,7 +471,7 @@ server <- function(input, output, session) {
     
     # Make a final table for display
     final_table_display <- final_table %>%
-      rename(Category = group) %>%
+      dplyr::rename(Category = group) %>%
       tidyr::pivot_longer(cols = -Category, names_to = "Metric", values_to = "Count") %>%
       tidyr::pivot_wider(names_from = Category, values_from = Count) %>%
       select(Metric, everything())
@@ -706,7 +707,7 @@ server <- function(input, output, session) {
             .groups = 'drop'
           ) %>%
           mutate(across(where(is.numeric), ~ round(., 2))) %>%
-          rename(Category = group) %>%
+          dplyr::rename(Category = group) %>%
           tidyr::pivot_longer(cols = -Category, names_to = "Metric", values_to = "Count") %>%
           tidyr::pivot_wider(names_from = Category, values_from = Count) %>%
           select(Metric, everything())
@@ -747,16 +748,23 @@ server <- function(input, output, session) {
     }
   )
   
+  # Reactive value to store the current plot (for download) and message
+  current_plot    <- reactiveVal(NULL)
+  plot_message_rv <- reactiveVal("")
+
+  output$plot_message <- renderText({ plot_message_rv() })
+
   # Server-side download handler for the plot
   output$download_plot <- downloadHandler(
     filename = function() {
       paste("plot-", Sys.Date(), ".png", sep="")
     },
     content = function(file) {
-      ggsave(file, plot = output$data_plot, device = "png")
+      req(current_plot())
+      ggsave(file, plot = current_plot(), device = "png")
     }
   )
-  
+
   # Reactive list of columns suitable for plotting
   plot_variables <- reactive({
     names(filtered_data()) %>%
@@ -800,13 +808,13 @@ server <- function(input, output, session) {
     df <- filtered_data()
     x_var_type <- class(df[[input$plot_variable]])
     
-    output$plot_message <- renderText({""})
-    
+    plot_message_rv("")
+
     # Handle plotting logic based on the selected type
-    switch(input$plot_type,
+    p <- switch(input$plot_type,
            "Bar Chart" = {
              if (is.numeric(df[[input$plot_variable]])) {
-               output$plot_message <- renderText({"Please select a non-numeric variable for a Bar Chart."})
+               plot_message_rv("Please select a non-numeric variable for a Bar Chart.")
                return(NULL)
              }
              ggplot(df, aes(x = !!sym(input$plot_variable))) +
@@ -817,7 +825,7 @@ server <- function(input, output, session) {
            },
            "Histogram" = {
              if (!is.numeric(df[[input$plot_variable]])) {
-               output$plot_message <- renderText({"Please select a numeric variable for a Histogram."})
+               plot_message_rv("Please select a numeric variable for a Histogram.")
                return(NULL)
              }
              ggplot(df, aes(x = !!sym(input$plot_variable))) +
@@ -831,7 +839,7 @@ server <- function(input, output, session) {
                return(NULL)
              }
              if (!is.numeric(df[[input$plot_variable]]) || !is.numeric(df[[input$y_variable]])) {
-               output$plot_message <- renderText({"Please select two numeric variables for a Scatter Plot."})
+               plot_message_rv("Please select two numeric variables for a Scatter Plot.")
                return(NULL)
              }
              ggplot(df, aes(x = !!sym(input$plot_variable), y = !!sym(input$y_variable))) +
@@ -839,10 +847,10 @@ server <- function(input, output, session) {
                labs(title = paste("Scatter Plot of", input$plot_variable, "vs", input$y_variable), x = input$plot_variable, y = input$y_variable) +
                theme_minimal()
            },
-           {
-             return(NULL)
-           }
+           NULL
     )
+    current_plot(p)
+    p
   })
 }
 

@@ -8,7 +8,7 @@ identifiers <- c("last_name", "first_name", "mr_number", "dob",
                  "name_last", "name_first", "mrn",
                  "phone_number", "phone")
 
-tokens <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive//Data Harmonization/api_tokens.csv")
+tokens <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
 
 redcap_uri <- "https://redcap.ucdenver.edu/api/"
 

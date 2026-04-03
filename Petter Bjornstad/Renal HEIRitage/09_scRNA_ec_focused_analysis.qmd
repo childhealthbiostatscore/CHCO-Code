@@ -1,0 +1,856 @@
+---
+title: "09_scRNA EC focused analysis"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(msigdbr)
+library(ggpubr)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+
+entrez_map <- AnnotationDbi::select(
+ org.Hs.eg.db,
+ keys   = keys(org.Hs.eg.db, keytype = "ENTREZID"),
+ columns = c("SYMBOL", "GENENAME", "ALIAS"),
+ keytype = "ENTREZID"
+)
+
+
+s3write_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    # if object has an extension, keep it; otherwise make a generic tmp
+    ext <- tools::file_ext(object)
+    if (nzchar(ext)) tempfile(fileext = paste0(".", ext)) else tempfile()
+  }
+  
+  on.exit(unlink(tmp), add = TRUE)
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  FUN(tmp, ...)
+  
+  if (is.null(opts)) {
+    r <- put_object(file = tmp, bucket = bucket, object = object)
+  } else {
+    r <- do.call("put_object", c(list(file = tmp, bucket = bucket, object = object), opts))
+  }
+  
+  return(invisible(r))
+}
+
+ec_so <- s3readRDS("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_EC.rds", "scrna", region = "")
+
+```
+
+```{r}
+# Pull in nebula results
+folders <- c(
+  # Category A: Disease Signatures (vs. HC)
+  "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc", # Category A: Disease signature - diabetes/metabolic without DKD
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc", # Category A: Disease signature - early DKD
+  # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc", # Category A: Disease signature - advanced DKD
+  "DKD_30_vs_HC" = "dkd30_hc", # Category A: Disease signature - early DKD (alternative to comparison 2)
+  # "DKD_100_vs_HC" = "dkd100_hc", # Category A: Disease signature - advanced DKD (alternative to comparison 3)
+  "T2D_GLP_N_vs_HC" = "t2d_glpn_hc", # Category A: Disease signature - all T2D patients not on GLP-1RA
+  
+  # Category B: Treatment Effects (GLP+ vs. GLP-)
+  "GLP_Y_vs_GLP_N" = "glpy_glpn", # Category B: Overall GLP-1RA treatment effect
+  "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITHOUT DKD
+  "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITH early DKD
+  # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn", # Category B: GLP-1RA effect in patients WITH advanced DKD
+  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn", # Category B: GLP-1RA effect in all T2D patients (similar to comparison 7)
+
+  # Category C: Normalization Assessment (GLP+ vs. HC)
+  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc", # Category C: Normalization - GLP+ without DKD vs. HC
+  "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc", # Category C: Normalization - GLP+ with early DKD vs. HC
+  # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc", # Category C: Normalization - GLP+ with advanced DKD vs. HC
+  
+  # Category D: DKD Progression (within T2D/obesity)
+  "DKD_vs_nonDKD_30" = "dkd30" # Category D: DKD effect within T2D/obesity (GLP-1RA agnostic)
+  # "DKD_vs_nonDKD_100" = "dkd100" # Category D: Advanced DKD effect within T2D/obesity
+)
+
+# Define common parameters
+celltype_groups <- list(
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  `EC-AVR` = "EC-AVR",
+  `EC-GC`  = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC"
+)
+
+
+# Create dataframe with comparison information
+comparison_df <- data.frame(
+  run = c(
+    # Category A: Disease Signatures (vs. HC)
+    "nonDKD_30_GLP_N_vs_HC",
+    "DKD_30_GLP_N_vs_HC",
+    "DKD_30_vs_HC",
+    "T2D_GLP_N_vs_HC",
+    
+    # Category B: Treatment Effects (GLP+ vs. GLP-)
+    "GLP_Y_vs_GLP_N",
+    "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N",
+    "DKD_30_GLP_Y_vs_DKD_30_GLP_N",
+    "T2D_GLP_Y_vs_T2D_GLP_N",
+    
+    # Category C: Normalization Assessment (GLP+ vs. HC)
+    "nonDKD_30_GLP_Y_vs_HC",
+    "DKD_30_GLP_Y_vs_HC",
+    
+    # Category D: DKD Progression (within T2D/obesity)
+    "DKD_vs_nonDKD_30"
+  ),
+  
+  category = c(
+    # Category A
+    "A", "A", "A", "A",
+    # Category B
+    "B", "B", "B", "B",
+    # Category C
+    "C", "C",
+    # Category D
+    "D"
+  ),
+  
+  description = c(
+    # Category A
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    
+    # Category B
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    
+    # Category C
+    "Normalization Assessment (GLP+ vs. HC)",
+    "Normalization Assessment (GLP+ vs. HC)",
+    
+    # Category D
+    "DKD Progression (within T2D/obesity)"
+  ),
+  
+  folder_name = c(
+    # Category A
+    "nondkd30_glpn_hc",
+    "dkd30_glpn_hc",
+    "dkd30_hc",
+    "t2d_glpn_hc",
+    
+    # Category B
+    "glpy_glpn",
+    "nondkd_30_glpy_glpn",
+    "dkd_30_glpy_glpn",
+    "t2d_glpyn",
+    
+    # Category C
+    "nondkd30_glpy_hc",
+    "dkd30_glpy_hc",
+    
+    # Category D
+    "dkd30"
+  ),
+  
+  stringsAsFactors = FALSE
+)
+```
+
+```{r eval = F}
+# load all the necessary files (processed df and pathways)
+gsea_results <- list()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    assign(var_name, processed_df, envir = .GlobalEnv)
+    
+    file_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folders[[folder]], "_", tolower(gsub("/", "_", cell)), "_gsea.RDS"))
+    
+    # Check if file exists and read it
+    if (file.exists(file_path)) {
+      # Create a unique name for this combination
+      result_name <- paste0(folders[[folder]], "_", tolower(gsub("/", "_", cell)))
+      
+      # Read the RDS file
+      gsea_results[[result_name]] <- readRDS(file_path)
+    } else {
+      message(paste0("File not found: ", file_path))
+    }
+  }
+}
+```
+
+```{r eval = F}
+gene_search <- data.frame()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    
+    processed_df_subset <- processed_df %>%
+      dplyr::select(logFC = 2, pval = 6, 10, 9) %>%
+      mutate(cell = cell, run = folder) %>%
+      left_join(comparison_df, by = join_by(run))
+    
+    gene_search <- rbind(gene_search, processed_df_subset)
+      
+  }
+}
+
+gene_search <- gene_search %>%
+  arrange(Gene, cell)
+
+# write.csv(gene_search, file.path(root_path, "Renal HERITAGE/Results/Summary csv/ec_findings.csv"), row.names = F, na =)
+```
+
+# Module scores
+
+```{r}
+# Reactome gene sets (human)
+m <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:REACTOME")
+```
+
+```{r}
+# Vascular Endothelial Dysfunction Pathways
+no_signaling <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_NITRIC_OXIDE_STIMULATES_GUANYLATE_CYCLASE",
+    "REACTOME_METABOLISM_OF_NITRIC_OXIDE_NOS3_ACTIVATION_AND_REGULATION"
+  )) %>% pull(gene_symbol) %>% unique()
+endo_mt <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_SIGNALING_BY_TGF_BETA_RECEPTOR_COMPLEX",
+    "REACTOME_TRANSCRIPTIONAL_REGULATION_BY_SMAD2_SMAD3_SMAD4_HETEROTRIMER",
+    "REACTOME_DOWNREGULATION_OF_SMAD2_SMAD3_SMAD4_TRANSCRIPTIONAL_ACTIVITY"
+  )) %>% pull(gene_symbol) %>% unique()
+vascular_inflam_adh <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_CELL_SURFACE_INTERACTIONS_AT_THE_VASCULAR_WALL",
+    "REACTOME_CYTOKINE_SIGNALING_IN_IMMUNE_SYSTEM",
+    "REACTOME_TAK1_ACTIVATES_NFKB_BY_PHOSPHORYLATION_AND_ACTIVATION_OF_IKKS_COMPLEX"
+  )) %>% pull(gene_symbol) %>% unique()
+barrier_function <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_TIGHT_JUNCTION_INTERACTIONS",
+    "REACTOME_ECM_PROTEOGLYCANS",
+    "REACTOME_HYALURONAN_METABOLISM"
+  )) %>% pull(gene_symbol) %>% unique()
+
+# Metabolic Dysfunction in Endothelium
+glucose_metab <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_GLUCOSE_METABOLISM",
+    "REACTOME_GLYCOLYSIS",
+    "REACTOME_REGULATION_OF_GLYCOLYSIS_BY_FRUCTOSE_2_6_BISPHOSPHATE_METABOLISM"
+  )) %>% pull(gene_symbol) %>% unique()
+fa_metab <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_FATTY_ACID_METABOLISM",
+    "REACTOME_MITOCHONDRIAL_FATTY_ACID_BETA_OXIDATION",
+    "REACTOME_METABOLISM_OF_LIPIDS"
+  )) %>% pull(gene_symbol) %>% unique()
+tca_cycle <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_THE_CITRIC_ACID_TCA_CYCLE_AND_RESPIRATORY_ELECTRON_TRANSPORT",
+    "REACTOME_CITRIC_ACID_CYCLE_TCA_CYCLE",
+    "REACTOME_RESPIRATORY_ELECTRON_TRANSPORT"
+  )) %>% pull(gene_symbol) %>% unique()
+mitophagy <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_PINK1_PRKN_MEDIATED_MITOPHAGY",
+    "REACTOME_MITOPHAGY",
+    "REACTOME_AUTOPHAGY"
+  )) %>% pull(gene_symbol) %>% unique()
+oxidative_stress_pro <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_DETOXIFICATION_OF_REACTIVE_OXYGEN_SPECIES",
+    "REACTOME_NEUTROPHIL_DEGRANULATION",
+    "REACTOME_METABOLISM_OF_HYDROGEN_PEROXIDE"
+  )) %>% pull(gene_symbol) %>% unique()
+oxidative_stress_anti <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_DETOXIFICATION_OF_REACTIVE_OXYGEN_SPECIES",
+    "REACTOME_CELLULAR_RESPONSE_TO_CHEMICAL_STRESS",
+    "REACTOME_CELLULAR_RESPONSE_TO_OXIDATIVE_STRESS"
+  )) %>% pull(gene_symbol) %>% unique()
+
+# Fibrosis Signaling in Endothelium
+tgf_b <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_SIGNALING_BY_TGF_BETA_RECEPTOR_COMPLEX",
+    "REACTOME_TRANSCRIPTIONAL_ACTIVITY_OF_SMAD2_SMAD3_SMAD4_HETEROTRIMER",
+    "REACTOME_DOWNREGULATION_OF_SMAD2_SMAD3_SMAD4_TRANSCRIPTIONAL_ACTIVITY"
+  )) %>% pull(gene_symbol) %>% unique()
+collagens <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION",
+    "REACTOME_COLLAGEN_FORMATION",
+    "REACTOME_ASSEMBLY_OF_COLLAGEN_FIBRILS_AND_OTHER_MULTIMERIC_STRUCTURES"
+  )) %>% pull(gene_symbol) %>% unique()
+ecm_reg <- m %>%
+  filter(gs_name %in% c(
+    "REACTOME_DEGRADATION_OF_THE_EXTRACELLULAR_MATRIX",
+    "REACTOME_COLLAGEN_DEGRADATION",
+    "REACTOME_ACTIVATION_OF_MATRIX_METALLOPROTEINASES"
+  )) %>% pull(gene_symbol) %>% unique()
+```
+
+```{r}
+ec_so <- AddModuleScore(
+  ec_so, 
+  features = list(
+    no_signaling,
+    endo_mt,
+    vascular_inflam_adh,
+    barrier_function,
+    glucose_metab,
+    fa_metab,
+    tca_cycle,
+    mitophagy,
+    oxidative_stress_pro,
+    oxidative_stress_anti,
+    tgf_b,
+    collagens,
+    ecm_reg
+  ),
+  name = c(
+    "NO_Signaling",
+    "EndoMT",
+    "Vascular_Inflammation_Adhesion",
+    "Barrier_Function",
+    "Glucose_Metabolism",
+    "Fatty_Acid_Metabolism",
+    "TCA_Cycle",
+    "Mitophagy",
+    "Oxidative_Stress_Pro",
+    "Oxidative_Stress_Anti",
+    "TGF_Beta",
+    "Collagens",
+    "ECM_Regulators"
+  )
+)
+
+ec_pathway_scores <- ec_so@meta.data %>%
+  filter(group != "Obese_Control") %>%
+  dplyr::select(
+    kit_id, 
+    KPMP_celltype, 
+    group, 
+    epic_glp1ra_1, 
+    glp_t2dob,
+    NO_Signaling1, 
+    EndoMT2, 
+    Vascular_Inflmmation_Adhesion3, 
+    Barrier_Function4,
+    Glucose_Metabolism5,
+    Fatty_Acid_Metabolism6,
+    TCA_Cycle7,
+    Mitophagy8,
+    Oxidative_Stress_Pro9,
+    Oxidative_Stress_Anti10,
+    TGF_Beta11,
+    Collagens12,
+    ECM_Regulators13
+  ) %>%
+  pivot_longer(
+    cols = c(
+      NO_Signaling1, 
+      EndoMT2, 
+      Vascular_Inflmmation_Adhesion3, 
+      Barrier_Function4,
+      Glucose_Metabolism5,
+      Fatty_Acid_Metabolism6,
+      TCA_Cycle7,
+      Mitophagy8,
+      Oxidative_Stress_Pro9,
+      Oxidative_Stress_Anti10,
+      TGF_Beta11,
+      Collagens12,
+      ECM_Regulators13),
+    names_to = "Pathway",
+    values_to = "Score"
+  ) %>%
+  mutate(Pathway = gsub("_", " ", gsub("\\d+$", "", Pathway)),
+         Pathway_Category = case_when(Pathway %in% c("NO Signaling", "EndoMT", 
+                                                     "Vascular Inflmmation Adhesion", "Barrier Function") ~ 
+                                        "Vascular Endothelial Dysfunction",
+                                      Pathway %in% c("Glucose Metabolism", "Fatty Acid Metabolism",
+                                                     "TCA Cycle", "Mitophagy", "Oxidative Stress Pro",
+                                                     "Oxidative Stress Anti") ~ "Metabolic Dysfunction",
+                                      Pathway %in% c("TGF Beta", "Collagens", "ECM Regulators") ~ "Fibrosis Signaling",
+         )) %>%
+  mutate(glp_t2dob = factor(glp_t2dob, 
+                            levels = c("GLP_N","GLP_Y", "HC"),
+                            labels  = c("T2D GLP-", "T2D GLP+", "HC")))
+Pathway_Categories <- c("Vascular Endothelial Dysfunction", "Metabolic Dysfunction", "Fibrosis Signaling")
+# unique(ec_pathway_scores$Pathway)
+# hist(subset(ec_pathway_scores, kit_id == unique(ec_pathway_scores$kit_id)[1] &
+#               Pathway == unique(ec_pathway_scores$Pathway)[4])
+#      $Score)
+```
+
+```{r}
+for (pathway in Pathway_Categories) {
+  p1 <- ec_pathway_scores %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = glp_t2dob, y = Score, fill = glp_t2dob)) +
+    geom_boxplot() +
+    stat_compare_means(
+      comparisons = list(c("T2D GLP-", "T2D GLP+"),  c("HC", "T2D GLP-"), c("HC", "T2D GLP+")),
+      method = "wilcox.test",
+      label = "p.signif",
+      hide.ns = TRUE,
+      size = 5
+    ) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = 15),
+          axis.text.x = element_text(angle = 40, hjust = 1),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),  # Background color
+          strip.text = element_text(color = "black", size = 12),
+          plot.title = element_text(hjust = 0.5)) +  # Text color
+    scale_fill_manual(values = c("T2D GLP-" = "#83c5be",
+                                 "T2D GLP+" = "#006d77",
+                                 "HC" = "#f4978e")) +
+    labs(x = NULL, fill = "Group",
+         title = pathway) +
+    facet_grid(Pathway ~ KPMP_celltype, scales = "free_y") +
+    scale_y_continuous(expand = expansion(mult = c(0.0, 0.2)))
+  print(p1)
+  
+  p2 <-ec_pathway_scores %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = glp_t2dob, y = KPMP_celltype, fill = Score)) +
+    geom_tile() +
+    geom_vline(xintercept = 2.5, color = "black", linetype = "dashed") +
+    scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = 15),
+          axis.text.x = element_text(angle = 40, hjust = 1),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),  # Background color
+          strip.text = element_text(color = "black", size = 12),
+          plot.title = element_text(hjust = 0.5)) +
+    facet_wrap(~Pathway) +
+    labs(x = NULL, y = NULL)
+  print(p2)
+  
+  s3write_using_region(p1, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/ec_", tolower(pathway), "_boxplots.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+  
+  s3write_using_region(p2, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/ec_", tolower(pathway), "_heatmap.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+}
+```
+
+
+```{r eval = F}
+alias_genes <- entrez_map %>%
+  filter(SYMBOL %in% no_signaling) %>%
+  pull(ALIAS)
+
+no_signaling_res <- gene_search %>%
+  filter(Gene %in% alias_genes)
+
+# genes not found
+no_signaling[no_signaling %nin% no_signaling_res$Gene]
+
+no_signaling_res %>%
+  filter(category == "A") %>%
+  ggplot(aes(x = Gene, y = run, fill = logFC)) +
+  geom_tile() + 
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  facet_wrap(~cell) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15)) 
+
+no_signaling_res %>%
+  filter(category == "B") %>%
+  ggplot(aes(x = Gene, y = run, fill = logFC)) +
+  geom_tile() + 
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  facet_wrap(~cell) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15)) 
+
+no_signaling_res %>%
+  filter(category == "C") %>%
+  ggplot(aes(x = Gene, y = run, fill = logFC)) +
+  geom_tile() + 
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  facet_wrap(~cell) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15)) 
+
+no_signaling_res %>%
+  filter(category == "D") %>%
+  ggplot(aes(x = Gene, y = run, fill = logFC)) +
+  geom_tile() + 
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  facet_wrap(~cell) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15)) 
+```
+
+## Z-scores and pseudobulk
+
+```{r}
+# Step 1: Calculate HC mean and SD for each score and cell type
+hc_stats <- ec_so@meta.data %>%
+  filter(glp_t2dob == "HC") %>%
+  group_by(KPMP_celltype) %>%
+  summarize(
+    NO_Signaling_HC_mean = mean(NO_Signaling1, na.rm = TRUE),
+    NO_Signaling_HC_sd = sd(NO_Signaling1, na.rm = TRUE),
+    EndoMT_HC_mean = mean(EndoMT2, na.rm = TRUE),
+    EndoMT_HC_sd = sd(EndoMT2, na.rm = TRUE),
+    Vascular_Inflammation_HC_mean = mean(Vascular_Inflmmation_Adhesion3, na.rm = TRUE),
+    Vascular_Inflammation_HC_sd = sd(Vascular_Inflmmation_Adhesion3, na.rm = TRUE),
+    Barrier_Function_HC_mean = mean(Barrier_Function4, na.rm = TRUE),
+    Barrier_Function_HC_sd = sd(Barrier_Function4, na.rm = TRUE),
+    Glucose_Metabolism_HC_mean = mean(Glucose_Metabolism5, na.rm = TRUE),
+    Glucose_Metabolism_HC_sd = sd(Glucose_Metabolism5, na.rm = TRUE),
+    Fatty_Acid_Metabolism_HC_mean = mean(Fatty_Acid_Metabolism6, na.rm = TRUE),
+    Fatty_Acid_Metabolism_HC_sd = sd(Fatty_Acid_Metabolism6, na.rm = TRUE),
+    TCA_Cycle_HC_mean = mean(TCA_Cycle7, na.rm = TRUE),
+    TCA_Cycle_HC_sd = sd(TCA_Cycle7, na.rm = TRUE),
+    Mitophagy_HC_mean = mean(Mitophagy8, na.rm = TRUE),
+    Mitophagy_HC_sd = sd(Mitophagy8, na.rm = TRUE),
+    Oxidative_Stress_Pro_HC_mean = mean(Oxidative_Stress_Pro9, na.rm = TRUE),
+    Oxidative_Stress_Pro_HC_sd = sd(Oxidative_Stress_Pro9, na.rm = TRUE),
+    Oxidative_Stress_Anti_HC_mean = mean(Oxidative_Stress_Anti10, na.rm = TRUE),
+    Oxidative_Stress_Anti_HC_sd = sd(Oxidative_Stress_Anti10, na.rm = TRUE),
+    TGF_Beta_HC_mean = mean(TGF_Beta11, na.rm = TRUE),
+    TGF_Beta_HC_sd = sd(TGF_Beta11, na.rm = TRUE),
+    Collagens_HC_mean = mean(Collagens12, na.rm = TRUE),
+    Collagens_HC_sd = sd(Collagens12, na.rm = TRUE),
+    ECM_Regulators_HC_mean = mean(ECM_Regulators13, na.rm = TRUE),
+    ECM_Regulators_HC_sd = sd(ECM_Regulators13, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 2: Add HC-referenced z-scores to Seurat object
+ec_so@meta.data <- ec_so@meta.data %>%
+  left_join(hc_stats, by = "KPMP_celltype") %>%
+  mutate(
+    NO_Signaling_vs_HC = (NO_Signaling1 - NO_Signaling_HC_mean) / NO_Signaling_HC_sd,
+    EndoMT_vs_HC = (EndoMT2 - EndoMT_HC_mean) / EndoMT_HC_sd,
+    Vascular_Inflammation_vs_HC = (Vascular_Inflmmation_Adhesion3 - Vascular_Inflammation_HC_mean) / Vascular_Inflammation_HC_sd,
+    Barrier_Function_vs_HC = (Barrier_Function4 - Barrier_Function_HC_mean) / Barrier_Function_HC_sd,
+    Glucose_Metabolism_vs_HC = (Glucose_Metabolism5 - Glucose_Metabolism_HC_mean) / Glucose_Metabolism_HC_sd,
+    Fatty_Acid_Metabolism_vs_HC = (Fatty_Acid_Metabolism6 - Fatty_Acid_Metabolism_HC_mean) / Fatty_Acid_Metabolism_HC_sd,
+    TCA_Cycle_vs_HC = (TCA_Cycle7 - TCA_Cycle_HC_mean) / TCA_Cycle_HC_sd,
+    Mitophagy_vs_HC = (Mitophagy8 - Mitophagy_HC_mean) / Mitophagy_HC_sd,
+    Oxidative_Stress_Pro_vs_HC = (Oxidative_Stress_Pro9 - Oxidative_Stress_Pro_HC_mean) / Oxidative_Stress_Pro_HC_sd,
+    Oxidative_Stress_Anti_vs_HC = (Oxidative_Stress_Anti10 - Oxidative_Stress_Anti_HC_mean) / Oxidative_Stress_Anti_HC_sd,
+    TGF_Beta_vs_HC = (TGF_Beta11 - TGF_Beta_HC_mean) / TGF_Beta_HC_sd,
+    Collagens_vs_HC = (Collagens12 - Collagens_HC_mean) / Collagens_HC_sd,
+    ECM_Regulators_vs_HC = (ECM_Regulators13 - ECM_Regulators_HC_mean) / ECM_Regulators_HC_sd
+  ) %>%
+  # Remove the HC stats columns (keep metadata clean)
+  select(-ends_with("_HC_mean"), -ends_with("_HC_sd"))
+
+# Step 3: Create plotting dataframe with HC-referenced scores
+ec_pathway_scores_zscores <- ec_so@meta.data %>%
+  filter(group != "Obese_Control") %>%
+  dplyr::select(
+    kit_id, 
+    KPMP_celltype, 
+    group, 
+    epic_glp1ra_1, 
+    glp_t2dob,
+    NO_Signaling_vs_HC,
+    EndoMT_vs_HC,
+    Vascular_Inflammation_vs_HC,
+    Barrier_Function_vs_HC,
+    Glucose_Metabolism_vs_HC,
+    Fatty_Acid_Metabolism_vs_HC,
+    TCA_Cycle_vs_HC,
+    Mitophagy_vs_HC,
+    Oxidative_Stress_Pro_vs_HC,
+    Oxidative_Stress_Anti_vs_HC,
+    TGF_Beta_vs_HC,
+    Collagens_vs_HC,
+    ECM_Regulators_vs_HC
+  ) %>%
+  pivot_longer(
+    cols = ends_with("_vs_HC"),
+    names_to = "Pathway",
+    values_to = "z_score"
+  ) %>%
+  mutate(
+    Pathway = gsub("_vs_HC", "", Pathway),
+    Pathway = gsub("_", " ", Pathway),
+    Pathway_Category = case_when(
+      Pathway %in% c("NO Signaling", "EndoMT", "Vascular Inflammation", "Barrier Function") ~ 
+        "Vascular Endothelial Dysfunction",
+      Pathway %in% c("Glucose Metabolism", "Fatty Acid Metabolism", "TCA Cycle", 
+                     "Mitophagy", "Oxidative Stress Pro", "Oxidative Stress Anti") ~ 
+        "Metabolic Dysfunction",
+      Pathway %in% c("TGF Beta", "Collagens", "ECM Regulators") ~ 
+        "Fibrosis Signaling"
+    )
+  ) %>%
+  mutate(glp_t2dob = factor(glp_t2dob, 
+                            levels = c("GLP_N", "GLP_Y", "HC"),
+                            labels = c("T2D GLP-", "T2D GLP+", "HC")))
+
+ec_pathway_scores_zscores <- ec_pathway_scores_zscores %>%
+  mutate(zscore_category = case_when(abs(z_score) < 0.5 ~ "Within HC range",
+                                     z_score > 0.5 & z_score < 1 ~ "Mildly elevated",
+                                     z_score > 1 & z_score < 2 ~ "Moderately elevated",
+                                     z_score > 2 ~ "Highly elevated",
+                                   z_score < -0.5 & z_score > -1 ~ "Mildly reduced",
+                                   z_score < -1 & z_score > -2 ~ "Moderately reduced",
+                                   z_score < -2 ~ "Highly reduced"),
+         zscore_category = factor(zscore_category, levels = c("Highly reduced", "Moderately reduced", "Mildly reduced",
+                                                              "Within HC range", "Mildly elevated", "Moderately elevated",
+                                                              "Highly elevated")))
+ec_pathway_scores_zscores_n <- ec_pathway_scores_zscores %>%
+  summarise(n_zscore_category = n(), .by = c(glp_t2dob, zscore_category, Pathway, Pathway_Category, KPMP_celltype)) %>%
+  group_by(glp_t2dob, Pathway, KPMP_celltype) %>%
+  mutate(
+    total_cells = sum(n_zscore_category),
+    percentage = (n_zscore_category / total_cells) * 100
+  ) %>%
+  ungroup() %>%
+  arrange(glp_t2dob, Pathway_Category, Pathway, zscore_category)
+
+# pseudobulk
+ec_pathway_scores_pseudobulk <- ec_pathway_scores %>%
+  dplyr::summarise(mean_score = mean(Score),
+                   .by = c(kit_id, Pathway, glp_t2dob, Pathway_Category, KPMP_celltype))
+```
+
+```{r}
+# figures
+for (pathway in Pathway_Categories) {
+  p1 <- ec_pathway_scores_zscores_n %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = glp_t2dob, y = percentage, fill = zscore_category)) +
+    geom_col() +
+    geom_hline(yintercept = 50, linetype = "dashed", color = "black") +
+    scale_fill_manual(values = c("Highly reduced" = "#61a5c2", 
+                                 "Moderately reduced" = "#89c2d9", 
+                                 "Mildly reduced" = "#a9d6e5",
+                                 "Within HC range" = "#84a98c", 
+                                 "Mildly elevated" = "#fbc4ab", 
+                                 "Moderately elevated" = "#f8ad9d",
+                                 "Highly elevated" = "#f4978e")) +
+    facet_grid(Pathway ~ KPMP_celltype) +
+    theme_bw() + 
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(angle = 60, hjust = 1),
+          text = element_text(size = 15),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),
+          strip.text = element_text(color = "black", size = 13),
+          plot.title = element_text(hjust = 0.5))+
+    labs(x = NULL, y = "Percentage", fill = "Z-Score Category",
+         title = pathway
+    )
+  print(p1)
+  
+  p2 <- ec_pathway_scores_zscores_n %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = zscore_category, y = n_zscore_category, fill = zscore_category)) +
+    geom_col(position = "nudge") +
+    theme_bw() + 
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(angle = 60, hjust = 1),
+          text = element_text(size = 15),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),
+          strip.text = element_text(color = "black", size = 13),
+          plot.title = element_text(hjust = 0.5)) +
+    scale_fill_manual(values = c("Highly reduced" = "#61a5c2", 
+                                 "Moderately reduced" = "#89c2d9", 
+                                 "Mildly reduced" = "#a9d6e5",
+                                 "Within HC range" = "#84a98c", 
+                                 "Mildly elevated" = "#fbc4ab", 
+                                 "Moderately elevated" = "#f8ad9d",
+                                 "Highly elevated" = "#f4978e")) +
+    
+    facet_grid(glp_t2dob ~ Pathway) +
+    labs(x = NULL, y = "Count", fill = "Z-Score Category",
+         title = pathway
+    )
+  print(p2)
+  
+  p3 <- ec_pathway_scores_zscores_n %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = zscore_category, y = percentage, fill = zscore_category)) +
+    geom_col(position = "nudge") +
+    theme_bw() + 
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(angle = 60, hjust = 1),
+          text = element_text(size = 15),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),
+          strip.text = element_text(color = "black", size = 13),
+          plot.title = element_text(hjust = 0.5))+
+    scale_fill_manual(values = c("Highly reduced" = "#61a5c2", 
+                                 "Moderately reduced" = "#89c2d9", 
+                                 "Mildly reduced" = "#a9d6e5",
+                                 "Within HC range" = "#84a98c", 
+                                 "Mildly elevated" = "#fbc4ab", 
+                                 "Moderately elevated" = "#f8ad9d",
+                                 "Highly elevated" = "#f4978e")) +
+    
+    facet_grid(glp_t2dob ~ Pathway) +
+    labs(x = NULL, y = "Percentage", fill = "Z-Score Category",
+         title = pathway
+    )
+  print(p3)
+  
+  p4 <- ec_pathway_scores_zscores %>%
+    filter(Pathway_Category == "Fibrosis Signaling") %>%
+    ggplot(aes(x = glp_t2dob, y = z_score, fill = glp_t2dob)) +
+    geom_hline(yintercept = 0, linetype = "solid", color = "#f4978e", linewidth = 1) +
+    geom_boxplot() +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      text = element_text(size = 15),
+      axis.text.x = element_text(angle = 40, hjust = 1),
+      legend.position = "bottom",
+      strip.background = element_rect(fill = "transparent", color = "transparent"),
+      strip.text = element_text(color = "black", size = 13),
+          plot.title = element_text(hjust = 0.5))+
+    scale_fill_manual(
+      values = c("T2D GLP-" = "#83c5be",
+                 "T2D GLP+" = "#006d77",
+                 "HC" = "#f4978e")
+    ) +
+    labs(
+      x = NULL,
+      y = "Z-score (SD from HC mean)",
+      fill = "Group",
+      caption = "HC centered at 0; values in standard deviation units",
+      title = pathway
+    ) +
+    facet_grid(Pathway ~ KPMP_celltype, scales = "free_y")
+  print(p4)
+  
+  p5 <- ec_pathway_scores_pseudobulk %>%
+    filter(Pathway_Category == pathway) %>%
+    ggplot(aes(x = glp_t2dob, y = mean_score, fill = glp_t2dob)) +
+    geom_boxplot() +
+    stat_compare_means(
+      comparisons = list(c("T2D GLP-", "T2D GLP+"),  c("HC", "T2D GLP-"), c("HC", "T2D GLP+")),
+      method = "wilcox.test",
+      label = "p.signif",
+      hide.ns = TRUE,
+      size = 5
+    ) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = 15),
+          axis.text.x = element_text(angle = 40, hjust = 1),
+          strip.background = element_rect(fill = "transparent", color = "transparent"),  # Background color
+          strip.text = element_text(color = "black", size = 12),
+          plot.title = element_text(hjust = 0.5)) +  # Text color
+    scale_fill_manual(values = c("T2D GLP-" = "#83c5be",
+                                 "T2D GLP+" = "#006d77",
+                                 "HC" = "#f4978e")) +
+    labs(x = NULL, fill = "Group", y = "Score",
+         title = pathway) +
+    facet_grid(Pathway ~ KPMP_celltype, scales = "free_y") +
+    scale_y_continuous(expand = expansion(mult = c(0.0, 0.2)))
+  print(p5)
+  
+  s3write_using_region(p1, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/Z scores/ec_", tolower(pathway), "_zscore_proportions.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+  s3write_using_region(p2, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/Z scores/ec_", tolower(pathway), "_zscore_count.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+  s3write_using_region(p3, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/Z scores/ec_", tolower(pathway), "_zscore_percentage.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+  s3write_using_region(p4, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/Z scores/ec_", tolower(pathway), "_zscore_boxplots.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+  s3write_using_region(p5, FUN = ggsave, object = paste0("Projects/CKD/RH_RH2/Results/Figures/pathway_scores/Pseudobulk/ec_", tolower(pathway), "_pseudobulk_boxplots.png"), bucket = "scrna", 
+                       region = "", height = 12, width = 12)
+}
+
+```
+

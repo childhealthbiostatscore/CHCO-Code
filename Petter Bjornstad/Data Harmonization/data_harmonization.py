@@ -22,6 +22,25 @@ def harmonize_data():
     import sys
     sys.path.insert(0, os.path.expanduser('~') +
                     "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
+    import getpass
+    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+        sys.path.insert(0, os.path.expanduser('~') +
+                    "/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/Data Harmonization")
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+        
     import pandas as pd
     import numpy as np
     from natsort import natsorted, ns
@@ -73,6 +92,8 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, panda],
                            join='outer', ignore_index=True)
+    print("Final number of rows with CGM data:  ", harmonized['cgm_avg_glucose'].notnull().sum())
+
     harmonized = pd.concat([harmonized, attempt],
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, rpc2],
@@ -97,27 +118,29 @@ def harmonize_data():
 
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
-    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
                            
     # Fix levels of categorical variables
     harmonized["visit"] = \
         pd.Categorical(harmonized["visit"],
-                       categories=['screening', 'baseline', 'pre_surgery',
+                       categories=['screening', 'baseline', 'pre_surgery', '1_week',
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
                                    'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy",
                                    "treatment_period_1", "treatment_period_2", "treatment_period_3", 
                                    "treatment_period_4", "post_treatment"], ordered=True)
-    harmonized["race"].replace(
+    print("Final number of rows with CGM data:  ", harmonized['cgm_avg_glucose'].notnull().sum())
+
+    harmonized["race"] = harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
          "Black or African American & White",
          'American Indian or Alaskan Native & Black or African American',
-         'Asian & White'], "More Than One", inplace=True)
-    harmonized["race"].replace(
+         'Asian & White'], "More Than One")
+    harmonized["race"] = harmonized["race"].replace(
         {'Black/African American': 'Black or African American',
-         "": "Unknown"}, inplace=True)
-    harmonized["ethnicity"].replace({"": "Unknown"}, inplace=True)
+         "": "Unknown"})
+    harmonized["ethnicity"] = harmonized["ethnicity"].replace({"": "Unknown"})
     race_ethnicity = harmonized["race"] + \
         ", " + harmonized["ethnicity"]
     harmonized = pd.concat([harmonized, race_ethnicity], axis=1)
@@ -138,7 +161,9 @@ def harmonize_data():
     dates = ["dob", "date", "diabetes_dx_date"]
     for col in harmonized.columns:
         try:
-            harmonized[col] = pd.to_numeric(harmonized[col], errors="ignore")
+            converted = pd.to_numeric(harmonized[col], errors="coerce")
+            if converted.notna().sum() == harmonized[col].notna().sum():
+                harmonized[col] = converted
         except Exception as e:
             print(f"Skipping numeric conversion for {col}: {e}")
 
@@ -235,6 +260,9 @@ def harmonize_data():
     print(harmonized.groupby('study')['age'].apply(lambda x: x.notna().sum()))
     # set column x to 'a' where column y == 'b'
     dictionary.loc[dictionary['variable_name'] == 'age', 'form_name'] = 'demographics'
+    # Merge ATTEMPT-specific variables before derived computations (bmi, diabetes_duration, eGFR)
+    # so that filled height, diabetes_dx_date, and creatinine_s benefit all three.
+
     # BMI
     harmonized["bmi"] = pd.to_numeric(harmonized["weight"])/((pd.to_numeric(harmonized["height"])/100)**2)
     dictionary.loc[dictionary['variable_name'] == 'bmi', 'form_name'] = 'physical_exam'
@@ -258,6 +286,27 @@ def harmonize_data():
     harmonized["cystatin_c_s"] = pd.to_numeric(harmonized["cystatin_c_s"], errors="coerce")
     harmonized["bun"] = pd.to_numeric(harmonized["bun"], errors="coerce")
     harmonized["height"] = pd.to_numeric(harmonized["height"], errors="coerce")
+    
+    # Coalesce creatinine_s and cystatin_c_s between screening and baseline visits
+    # when one is missing at either visit
+    if "visit" in harmonized.columns and "record_id" in harmonized.columns:
+        for analyte in ["creatinine_s", "cystatin_c_s"]:
+          # Build a lookup of screening and baseline values per subject (take first non-null)
+          scr_vals = (harmonized.loc[harmonized["visit"] == "screening", ["record_id", analyte]]
+                      .dropna(subset=[analyte])
+                      .drop_duplicates(subset="record_id", keep="first")
+                      .set_index("record_id")[analyte])
+          bsl_vals = (harmonized.loc[harmonized["visit"] == "baseline", ["record_id", analyte]]
+                      .dropna(subset=[analyte])
+                      .drop_duplicates(subset="record_id", keep="first")
+                      .set_index("record_id")[analyte])
+  
+          mask_scr = (harmonized["visit"] == "screening") & (harmonized[analyte].isna())
+          mask_bsl = (harmonized["visit"] == "baseline") & (harmonized[analyte].isna())
+  
+          harmonized.loc[mask_scr, analyte] = harmonized.loc[mask_scr, "record_id"].map(bsl_vals).values
+          harmonized.loc[mask_bsl, analyte] = harmonized.loc[mask_bsl, "record_id"].map(scr_vals).values
+    
     harmonized = calc_egfr(harmonized, age="age",
                            serum_creatinine="creatinine_s", cystatin_c="cystatin_c_s",
                            bun="bun", height="height", sex="sex", male="Male", female="Female", alpha=0.5)
@@ -265,7 +314,6 @@ def harmonize_data():
          'eGFR_fas_cr_cysc', 'eGFR_CKD_epi',
          'eGFR_CKiD_U25_Creat', 'eGFR_CKiD_U25_CystatinC', 'eGFR_CKiD_U25_avg']
     dictionary.loc[dictionary['variable_name'].isin(egfr), 'form_name'] = 'eGFR'
-
     # Kidney volume
     harmonized["total_kidney_volume_ml"] = \
         harmonized["left_kidney_volume_ml"] + \
@@ -461,8 +509,8 @@ def harmonize_data():
     
     # Merge copeptin values (CASPER, RH2, CROCODILE)
     # Step 1: Replace empty strings with NaN in both columns
-    harmonized['copeptin'].replace("", np.nan, inplace=True)
-    harmonized['pi_copeptin'].replace("", np.nan, inplace=True)
+    harmonized['copeptin'] = harmonized['copeptin'].replace("", np.nan)
+    harmonized['pi_copeptin'] = harmonized['pi_copeptin'].replace("", np.nan)
 
     # Step 2: Convert both columns to numeric (coerce errors to NaN)
     harmonized['copeptin'] = pd.to_numeric(harmonized['copeptin'], errors='coerce')
@@ -561,8 +609,11 @@ def harmonize_data():
     # Format dates nicely
     harmonized[dates] = harmonized[dates].apply(
         lambda x: x.dt.strftime('%Y-%m-%d'))
-    # Return
-    harmonized = harmonized.astype(object)
-    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    # Write to temp CSV and return path (reticulate pandas 3.x conversion workaround)
+    harmonized = harmonized.astype(object).reset_index(drop=True)
+    tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
-    return harmonized
+    import tempfile
+    temp_path = os.path.join(tempfile.gettempdir(), "harmonized_temp.csv")
+    harmonized.to_csv(temp_path, index=False, na_rep="")
+    return temp_path

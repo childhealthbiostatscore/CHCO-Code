@@ -15,7 +15,7 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") { # hyak version
@@ -29,6 +29,10 @@ if (user == "choiyej") { # local version
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else if (user == "kristenmiller") {
+  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/kristenmiller/keys.json")
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -506,4 +510,466 @@ make_overlap_table <- function(
   cols_front <- c("Gene", "n_overlap", "overlaps")
   wide %>%
     relocate(any_of(cols_front))
+}
+
+
+# ===========================================================================
+# Function: prepare_umap_metadata
+# ===========================================================================
+prepare_umap_metadata <- function(
+    seurat_obj,
+    genes,
+    celltype_col = "KPMP_celltype",
+    umap_reduction = "umap.harmony",
+    color_palette = "Set3",        # RColorBrewer palette name
+    custom_colors = NULL           # named vector to override palette entirely
+) {
+  
+  # Determine cell type levels
+  celltypes <- levels(seurat_obj@meta.data[[celltype_col]])
+  n_celltypes <- length(celltypes)
+  
+  # Build color mapping
+  if (!is.null(custom_colors)) {
+    # Use provided named color vector as-is
+    celltype_colors <- custom_colors
+  } else {
+    # Generate from RColorBrewer palette, expanding as needed
+    umap_colors <- colorRampPalette(brewer.pal(min(brewer.pal.info[color_palette, "maxcolors"], n_celltypes), color_palette))(n_celltypes)
+    celltype_colors <- setNames(umap_colors, celltypes)
+  }
+  
+  # Fetch gene expression
+  expr_df <- Seurat::FetchData(seurat_obj, vars = genes) %>%
+    as.data.frame()
+  colnames(expr_df) <- genes  # ensure clean names
+  
+  # Build metadata with UMAP embeddings and expression
+  umap_embed_cols <- colnames(seurat_obj@reductions[[umap_reduction]]@cell.embeddings)
+  metadata <- seurat_obj@meta.data %>%
+    cbind(seurat_obj@reductions[[umap_reduction]]@cell.embeddings) %>%
+    cbind(expr_df)
+  colnames(metadata)[colnames(metadata) %in% umap_embed_cols] <- c("umapharmony_1", "umapharmony_2")
+  
+  # Compute cell type centers
+  centers <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(x = median(umapharmony_1),
+              y = median(umapharmony_2), .groups = "drop")
+  
+  list(
+    metadata = metadata,
+    centers = centers,
+    celltype_colors = celltype_colors
+  )
+}
+
+# ===========================================================================
+# Function: plot_feature_umap
+# ===========================================================================
+plot_feature_umap <- function(
+    genes,
+    metadata,          # pb90_subset_meta equivalent
+    centers,           # UMAP label centers df with x, y, KPMP_celltype
+    celltype_colors,   # named vector of colors
+    pct_threshold = 10,  # minimum % expressed to highlight
+    save_to_s3 = FALSE,
+    s3_prefix = "Projects/CKD/RH_RH2/Results/Figures/UMAP/REMODEL genes/",
+    s3_suffix = "",
+    s3_bucket = "scrna",
+    plot_height = 10,
+    plot_width = 10
+) {
+  
+  plots <- list()
+  
+  for (gene in genes) {
+    
+    # Calculate expression stats per cell type
+    expr_stats <- metadata %>%
+      group_by(KPMP_celltype) %>%
+      summarise(
+        pct_expressed = round(mean(.data[[gene]] > 0) * 100, 1),
+        n_total = n(),
+        .groups = "drop"
+      ) %>%
+      filter(pct_expressed > pct_threshold)
+    
+    # Tag centers by whether they pass expression threshold
+    centers_filtered <- centers %>%
+      mutate(pct_expressed_5 = case_when(
+        KPMP_celltype %in% expr_stats$KPMP_celltype ~ "Y",
+        TRUE ~ "N"
+      ))
+    
+    # Build caption
+    caption_text <- expr_stats %>%
+      arrange(desc(pct_expressed)) %>%
+      mutate(
+        color = celltype_colors[KPMP_celltype],
+        label = paste0("<span style='color:", color, "'>&#9679; </span>**", KPMP_celltype, "**: ", pct_expressed, "%"),
+        group = ceiling(row_number() / 5)
+      ) %>%
+      group_by(group) %>%
+      summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
+      rbind(data.frame(group = 0, line = paste0("**% Expressed (>", pct_threshold, "%):**"))) %>%
+      arrange(group) %>%
+      pull(line) %>%
+      paste(collapse = "<br><br>")
+    
+    # Build plot
+    feature_p <- metadata %>%
+      dplyr::mutate(feature_color_logic = case_when(
+        .data[[gene]] > 0 ~ KPMP_celltype,
+        TRUE ~ "No"
+      )) %>%
+      ggplot(aes(x = umapharmony_1, y = umapharmony_2, color = feature_color_logic)) +
+      geom_point(alpha = 0.4) +
+      geom_text_repel(
+        data = centers_filtered,
+        aes(x = x, y = y, label = KPMP_celltype),
+        inherit.aes = FALSE,
+        size = 4,
+        fontface = ifelse(centers_filtered$pct_expressed_5 == "Y", "bold", "plain"),
+        color = ifelse(centers_filtered$pct_expressed_5 == "Y", "black", "#495057"),
+        max.overlaps = Inf
+      ) +
+      scale_color_manual(values = c(celltype_colors, "No" = "#edede9")) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        text = element_text(size = 15),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_markdown(size = 12, hjust = 0.5),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0)
+      ) +
+      labs(x = "UMAP1", y = "UMAP2", title = gene, caption = caption_text)
+    
+    print(feature_p)
+    plots[[gene]] <- feature_p
+    
+    if (save_to_s3) {
+      s3write_using_region(
+        feature_p,
+        FUN = ggsave,
+        object = paste0(s3_prefix, gene, "_FeaturePlot", s3_suffix, ".png"),
+        bucket = s3_bucket,
+        region = "",
+        height = plot_height,
+        width = plot_width
+      )
+    }
+  }
+  
+  invisible(plots)  # Return list of plots silently
+}
+
+# ── S3 / Multi-user setup ─────────────────────────────────────────────────────
+setup_s3 <- function() {
+  user <- Sys.info()[["user"]]
+  
+  if (user == "choiyej") {
+    # --- local (choiyej Mac) ---
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
+  } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
+    # --- Hyak HPC ---
+    keys_path <- "/mmfs1/home/yejichoi/keys.json"
+  } else {
+    stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
+  }
+  
+  keys <- jsonlite::fromJSON(keys_path)
+  Sys.setenv(
+    AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
+    AWS_SECRET_ACCESS_KEY = keys$MY_SECRET_KEY,
+    AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+  )
+  message(sprintf("S3 configured for user '%s'", user))
+}
+
+
+
+
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                 region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+
+#' ggplot2 version of CellChat's netAnalysis_signalingRole_heatmap
+#'
+#' Recreates the signaling role heatmap using ggplot2 + patchwork,
+#' producing a heatmap with top barplot (per-cell-type strength),
+#' right barplot (per-pathway strength), and a color annotation strip.
+#'
+#' @param object CellChat object
+#' @param signaling Character vector of signaling pathways to include (NULL = all)
+#' @param pattern "outgoing", "incoming", or "all"
+#' @param slot.name Slot name, default "netP"
+#' @param color.use Named vector of colors for cell types (NULL = auto)
+#' @param color.heatmap RColorBrewer palette name for heatmap fill
+#' @param title Optional title suffix
+#' @param font.size Base font size
+#' @param cluster.rows Whether to cluster rows
+#' @param cluster.cols Whether to cluster columns
+#' @return A patchwork object (ggplot)
+
+netAnalysis_signalingRole_ggplot <- function(
+    object,
+    signaling = NULL,
+    pattern = c("outgoing", "incoming", "all"),
+    slot.name = "netP",
+    color.use = NULL,
+    color.heatmap = "#457b9d",
+    title = NULL,
+    font.size = 15,
+    cluster.rows = FALSE,
+    cluster.cols = FALSE,
+    filepath = NULL,
+    bucket = NULL,
+    width = 7,
+    height = 7
+) {
+  
+  # ---- dependencies ----
+  library(ggplot2)
+  library(patchwork)
+  library(reshape2)
+  library(RColorBrewer)
+  
+  pattern <- match.arg(pattern)
+  
+  # ---- 1. Extract centrality scores ----
+  centr <- slot(object, slot.name)$centr
+  if (length(centr) == 0) {
+    stop("Run `netAnalysis_computeCentrality` first!")
+  }
+  
+  cell_types <- levels(object@idents)
+  pathway_names <- names(centr)
+  
+  outgoing <- matrix(0, nrow = length(cell_types), ncol = length(centr))
+  incoming <- matrix(0, nrow = length(cell_types), ncol = length(centr))
+  dimnames(outgoing) <- list(cell_types, pathway_names)
+  dimnames(incoming) <- dimnames(outgoing)
+  
+  for (i in seq_along(centr)) {
+    outgoing[, i] <- centr[[i]]$outdeg
+    incoming[, i] <- centr[[i]]$indeg
+  }
+  
+  # ---- 2. Build matrix based on pattern ----
+  if (pattern == "outgoing") {
+    mat <- t(outgoing)
+    legend.name <- "Outgoing"
+  } else if (pattern == "incoming") {
+    mat <- t(incoming)
+    legend.name <- "Incoming"
+  } else {
+    mat <- t(outgoing + incoming)
+    legend.name <- "Overall"
+  }
+  
+  # Title
+  plot_title <- paste0(legend.name, " signaling patterns")
+  if (!is.null(title)) {
+    plot_title <- paste0(plot_title, " - ", title)
+  }
+  
+  # ---- 3. Subset to requested signaling pathways ----
+  if (!is.null(signaling)) {
+    mat1 <- mat[rownames(mat) %in% signaling, , drop = FALSE]
+    mat_new <- matrix(0, nrow = length(signaling), ncol = ncol(mat))
+    dimnames(mat_new) <- list(signaling, colnames(mat))
+    idx <- match(rownames(mat1), signaling)
+    mat_new[idx[!is.na(idx)], ] <- mat1
+    mat <- mat_new
+  }
+  
+  # Keep original values for barplots
+  mat.ori <- mat
+  
+  # ---- 4. Row-normalize (relative strength) ----
+  row_max <- apply(mat, 1, max)
+  mat_norm <- sweep(mat, 1, row_max, "/", check.margin = FALSE)
+  mat_norm[mat_norm == 0] <- NA
+  
+  # ---- 5. Clustering (optional) ----
+  if (cluster.rows && nrow(mat_norm) > 2) {
+    mat_for_clust <- mat_norm
+    mat_for_clust[is.na(mat_for_clust)] <- 0
+    row_order <- rownames(mat_norm)[hclust(dist(mat_for_clust))$order]
+  } else {
+    row_order <- rownames(mat_norm)
+  }
+  
+  if (cluster.cols && ncol(mat_norm) > 2) {
+    mat_for_clust <- mat_norm
+    mat_for_clust[is.na(mat_for_clust)] <- 0
+    col_order <- colnames(mat_norm)[hclust(dist(t(mat_for_clust)))$order]
+  } else {
+    col_order <- colnames(mat_norm)
+  }
+  
+  # ---- 6. Colors ----
+  if (is.null(color.use)) {
+    n_ct <- length(col_order)
+    if (n_ct <= 9) {
+      color.use <- brewer.pal(max(3, n_ct), "Set1")[1:n_ct]
+    } else {
+      color.use <- colorRampPalette(brewer.pal(9, "Set1"))(n_ct)
+    }
+    names(color.use) <- col_order
+  }
+  
+  heatmap_colors <- colorRampPalette(c("#FFFFFF", color.heatmap))(100)
+  
+  # ---- 7. Melt matrix for ggplot ----
+  df_heatmap <- melt(mat_norm, varnames = c("pathway", "celltype"), value.name = "strength")
+  df_heatmap$pathway <- factor(df_heatmap$pathway, levels = rev(row_order))
+  df_heatmap$celltype <- factor(df_heatmap$celltype, levels = col_order)
+  
+  # ---- 8. Heatmap ----
+  p_heat <- ggplot(df_heatmap, aes(x = celltype, y = pathway, fill = strength)) +
+    geom_tile(color = "transparent", linewidth = 0.3) +
+    scale_fill_gradientn(
+      colors = heatmap_colors,
+      na.value = "white",
+      name = "Relative\nstrength"
+    ) +
+    scale_x_discrete(position = "bottom") +
+    labs(x = NULL, y = NULL, title = NULL) +
+    theme_minimal(base_size = font.size) +
+    theme(
+      axis.text.x = element_text(angle = 60, hjust = 1, size = font.size),
+      axis.text.y = element_text(size = font.size),
+      panel.grid = element_blank(),
+      legend.position = "bottom",
+      legend.key.height = unit(0.8, "cm"),
+      legend.key.width = unit(1.8, "cm"),
+      plot.margin = margin(0, 0, 0, 0),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      legend.box.background = element_rect(fill = "transparent", color = NA)
+    )
+  
+  # ---- 9. Top barplot (per-cell-type strength) ----
+  col_strength <- colSums(mat.ori)
+  df_top <- data.frame(
+    celltype = factor(names(col_strength), levels = col_order),
+    strength = col_strength
+  )
+  
+  p_top <- ggplot(df_top, aes(x = celltype, y = strength, fill = celltype)) +
+    geom_col(width = 0.8, show.legend = FALSE) +
+    scale_fill_manual(values = color.use) +
+    labs(x = NULL, y = NULL, title = plot_title) +
+    theme_minimal(base_size = font.size) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(size = font.size + 5, hjust = 0.5),
+      plot.margin = margin(5, 0, 0, 0),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      legend.box.background = element_rect(fill = "transparent", color = NA)
+    )
+  
+  # ---- 10. Color annotation strip ----
+  df_annot <- data.frame(
+    celltype = factor(col_order, levels = col_order),
+    y = 1
+  )
+  
+  p_annot <- ggplot(df_annot, aes(x = celltype, y = y, fill = celltype)) +
+    geom_tile(show.legend = FALSE) +
+    scale_fill_manual(values = color.use) +
+    theme_void() +
+    theme(plot.margin = margin(0, 0, 0, 0),
+          plot.background = element_rect(fill = "transparent", color = NA),
+          panel.background = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.box.background = element_rect(fill = "transparent", color = NA))
+  
+  # ---- 11. Right barplot (per-pathway strength) ----
+  pSum <- rowSums(mat.ori)
+  pSum_display <- -1 / log(pSum)
+  pSum_display[is.na(pSum_display)] <- 0
+  
+  # Handle infinite / negative values (same logic as original)
+  idx1 <- which(is.infinite(pSum_display) | pSum_display < 0)
+  if (length(idx1) > 0) {
+    values.assign <- seq(max(pSum_display[!is.infinite(pSum_display)]) * 1.1,
+                         max(pSum_display[!is.infinite(pSum_display)]) * 1.5,
+                         length.out = length(idx1))
+    position <- sort(pSum[idx1], index.return = TRUE)$ix
+    pSum_display[idx1] <- values.assign[match(1:length(idx1), position)]
+  }
+  
+  df_right <- data.frame(
+    pathway = factor(names(pSum_display), levels = rev(row_order)),
+    strength = pSum_display
+  )
+  
+  p_right <- ggplot(df_right, aes(x = pathway, y = strength)) +
+    geom_col(width = 0.8, fill = color.heatmap) +
+    coord_flip() +
+    labs(x = NULL, y = NULL) +
+    theme_minimal(base_size = font.size) +
+    theme(
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      panel.grid.major.y = element_blank(),
+      plot.margin = margin(0, 5, 0, 0),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      legend.box.background = element_rect(fill = "transparent", color = NA)
+    )
+  
+  # ---- 12. Assemble with patchwork ----
+  # Layout:
+  #   A = top barplot,  B = spacer (top-right)
+  #   C = color strip,  D = spacer (strip-right)
+  #   E = heatmap,      F = right barplot
+  
+  layout <- "
+  AB
+  CD
+  EF
+  "
+  plot_blank <- plot_spacer() +
+    theme(plot.background = element_rect(fill = "transparent", color = NA))
+  
+  combined <- p_top + plot_blank +
+    p_annot + plot_blank +
+    p_heat + p_right +
+    plot_layout(
+      design = layout,
+      heights = c(0.6, 0.1, 6),
+      widths = c(6, 1.5)) &
+    plot_annotation(theme = theme(plot.background = 
+                                    element_rect(fill = "transparent", color = NA))
+    )
+  
+  if(!is.null(filepath) & !is.null(bucket)) {
+    s3write_using_region(combined, FUN = ggsave,
+                         object = filepath, bucket = bucket,
+                         region = "",
+                         width = width, height = height,
+                         bg = "transparent")
+  }
+  return(combined)
+  
 }

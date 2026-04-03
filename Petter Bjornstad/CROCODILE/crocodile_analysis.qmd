@@ -2,7 +2,7 @@
 title: CROCODILE Analysis
 author: Ye Ji Choi and Tim Vigers
 date: "`r lubridate::today()`"
-format: 
+format:
   html:
     toc: true
     toc-depth: 5
@@ -12,8 +12,8 @@ format:
 ---
 
 ```{r setup, include=F}
+# loading libraries
 library(dplyr)
-library(reticulate)
 library(corrplot)
 library(knitr)
 library(Hmisc)
@@ -33,87 +33,95 @@ library(knitr)
 library(MASS)
 library(ppcor)
 options(scipen = 999)
-use_python("/usr/bin/python3", required = TRUE)
+
+# setting user-specific paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "shivaniramesh") {
+  root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 ```
 
-```{python, include=F}
-import pandas as pd
-import numpy as np
-import statistics
-import rpy2
-import rpy2.robjects as ro
-import seaborn as sns
-import matplotlib.pyplot as plt
-from tableone import TableOne
-from rpy2.robjects.packages import importr
-from rpy2.robjects import pandas2ri
-from scipy.stats import mannwhitneyu
+```{r include=F}
+# reading harmonized dataset
+df <- read.csv(file.path(root_path, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
 
-# Import data and variable names
-df = pd.read_csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", low_memory=False)
-exclude = pd.read_csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/exclude_list.csv", low_memory=False)
-var_names = pd.read_csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv", low_memory=False)
-# Create dictionary of variable names
-var_dict = var_names.set_index('variable_name')['label'].to_dict()
-# Subset to CROCODILE
-df = df.loc[df["study"]=="CROCODILE"]
-# Get last values for each visit
-df = df.groupby(by=["record_id", "visit"]).agg("last").reset_index()
-# Create urine albumin excretion variable (general 24 hrs)
-df = df.assign(aer_24 = (df.u24_mab * df.u24_vl) / 1440)
-# Height-adjusted
-df["height_adj_total_kidney_volume"] = df["total_kidney_volume_ml"] / (df["height"] / 100)
-df["height_adj_right_kidney_volume"] = df["right_kidney_volume_ml"] / (df["height"] / 100)
-df["height_adj_left_kidney_volume"] = df["left_kidney_volume_ml"] / (df["height"] / 100)
-# Exclude any removed participants
-df = df.loc[df["participation_status"] == "Participated"]
-# Average left/right cortex
-df["avg_c_f"] = df[["lc_f", "rc_f"]].mean(axis=1)
-df["avg_c_k1"] = df[["lc_k1", "rc_k1"]].mean(axis=1)
-df["avg_c_k2"] = df[["lc_k2", "rc_k2"]].mean(axis=1)
-df["avg_c_vb"] = df[["lc_vb", "rc_vb"]].mean(axis=1)
-# Average left/right medulla
-df["avg_m_f"] = df[["lm_f", "rm_f"]].mean(axis=1)
-df["avg_m_k1"] = df[["lm_k1", "rm_k1"]].mean(axis=1)
-df["avg_m_k2"] = df[["lm_k2", "rm_k2"]].mean(axis=1)
-df["avg_m_vb"] = df[["lm_vb", "rm_vb"]].mean(axis=1)
-# Average left/right MRI (Pre-Furoside)
-df["avg_pcascl"] = df[["pcasl3d_left", "pcasl3d_right"]].mean(axis=1)
-df["avg_k_r2_bl"] = df[["bold_l_bl_kidney", "bold_r_bl_kidney"]].mean(axis=1)
-df["avg_c_r2_bl"] = df[["bold_l_bl_cortex", "bold_r_bl_cortex"]].mean(axis=1)
-df["avg_m_r2_bl"] = df[["bold_l_bl_medulla", "bold_r_bl_medulla"]].mean(axis=1)
-df["avg_k_r2_pf"] = df[["bold_l_pf_kidney", "bold_r_pf_kidney"]].mean(axis=1)
-df["avg_c_r2_pf"] = df[["bold_l_pf_cortex", "bold_r_pf_cortex"]].mean(axis=1)
-df["avg_m_r2_pf"] = df[["bold_l_pf_medulla", "bold_r_pf_medulla"]].mean(axis=1)
-df["avg_k_fsoc"] = df[["fsoc_l_kidney", "fsoc_r_kidney"]].mean(axis=1)
-df["avg_c_fsoc"] = df[["fsoc_l_cortex", "fsoc_r_cortex"]].mean(axis=1)
-df["avg_m_fsoc"] = df[["fsoc_l_medulla", "fsoc_r_medulla"]].mean(axis=1)
-df["avg_c_adc"] = df[["adc_left", "adc_right"]].mean(axis=1)
-# Average left/right PET Voxel wise
-df["avg_m_k2_wo_cyst_vw"] = df[["lm_k2_wo_cyst_vw", "rm_k2_wo_cyst_vw"]].mean(axis=1)
-df["avg_c_k2_wo_cyst_vw"] = df[["lc_k2_wo_cyst_vw", "rc_k2_wo_cyst_vw"]].mean(axis=1)
-# M/I
-df["m_i"] = df["p2_raw_m"] / df["p2_steady_state_insulin"]
-excluded_df = pd.merge(df, exclude, on='record_id')
+# reading exclude list
+exclude <- read.csv(file.path(root_path, "CROCODILE", "Data_Cleaned", "exclude_list.csv"))
 
-# Categorical variables
-cat = ["sex","race","statin", "angiotensin_receptor_blocker", "ace_inhibitor", "insulin_pump_timepoint", "raasi_timepoint", "statin", "metformin_timepoint", "sglti_timepoint", "glp1_agonist_timepoint", "cgm_yn", "kidney_side"]
-groupby = "group"
+# reading variable names dictionary
+var_names <- read.csv(file.path(root_path, "Data Harmonization", "data_dictionary_master.csv"))
+
+# creating dictionary of variable names
+var_dict <- setNames(var_names$label, var_names$variable_name)
+
+# subsetting to CROCODILE study
+df <- df %>% filter(study == "CROCODILE")  %>%
+  group_by(record_id, visit) %>%
+  dplyr::summarise(across(everything(), last), .groups = "drop") %>% 
+  dplyr::mutate(aer_24 = (u24_mab * u24_vl) / 1440,
+         height_adj_total_kidney_volume = total_kidney_volume_ml / (height / 100),
+         height_adj_right_kidney_volume = right_kidney_volume_ml / (height / 100),
+         height_adj_left_kidney_volume = left_kidney_volume_ml / (height / 100),
+         avg_c_f = rowMeans(dplyr::select(., lc_f, rc_f), na.rm = TRUE),
+         avg_c_k1 = rowMeans(dplyr::select(., lc_k1, rc_k1), na.rm = TRUE),
+         avg_c_k2 = rowMeans(dplyr::select(., lc_k2, rc_k2), na.rm = TRUE),
+         avg_c_vb = rowMeans(dplyr::select(., lc_vb, rc_vb), na.rm = TRUE),
+         avg_m_f = rowMeans(dplyr::select(., lm_f, rm_f), na.rm = TRUE),
+         avg_m_k1 = rowMeans(dplyr::select(., lm_k1, rm_k1), na.rm = TRUE),
+         avg_m_k2 = rowMeans(dplyr::select(., lm_k2, rm_k2), na.rm = TRUE),
+         avg_m_vb = rowMeans(dplyr::select(., lm_vb, rm_vb), na.rm = TRUE),
+         avg_pcascl = rowMeans(dplyr::select(., pcasl3d_left, pcasl3d_right), na.rm = TRUE),
+         avg_k_r2_bl = rowMeans(dplyr::select(., bold_l_bl_kidney, bold_r_bl_kidney), na.rm = TRUE),
+         avg_c_r2_bl = rowMeans(dplyr::select(., bold_l_bl_cortex, bold_r_bl_cortex), na.rm = TRUE),
+         avg_m_r2_bl = rowMeans(dplyr::select(., bold_l_bl_medulla, bold_r_bl_medulla), na.rm = TRUE),
+         avg_k_r2_pf = rowMeans(dplyr::select(., bold_l_pf_kidney, bold_r_pf_kidney), na.rm = TRUE),
+         avg_c_r2_pf = rowMeans(dplyr::select(., bold_l_pf_cortex, bold_r_pf_cortex), na.rm = TRUE),
+         avg_m_r2_pf = rowMeans(dplyr::select(., bold_l_pf_medulla, bold_r_pf_medulla), na.rm = TRUE),
+         avg_k_fsoc = rowMeans(dplyr::select(., fsoc_l_kidney, fsoc_r_kidney), na.rm = TRUE),
+         avg_c_fsoc = rowMeans(dplyr::select(., fsoc_l_cortex, fsoc_r_cortex), na.rm = TRUE),
+         avg_m_fsoc = rowMeans(dplyr::select(., fsoc_l_medulla, fsoc_r_medulla), na.rm = TRUE),
+         avg_c_adc = rowMeans(dplyr::select(., adc_left, adc_right), na.rm = TRUE),
+         avg_m_k2_wo_cyst_vw = rowMeans(dplyr::select(., lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw), na.rm = TRUE),
+         avg_c_k2_wo_cyst_vw = rowMeans(dplyr::select(., lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw), na.rm = TRUE),
+         m_i = p2_raw_m / p2_steady_state_insulin
+  ) %>% 
+  filter(participation_status == "Participated")
+
+# merging with exclude list
+excluded_df <- df %>% left_join(exclude, by = "record_id")
+
+# defining categorical variables
+cat <- c("sex", "race", "statin", "angiotensin_receptor_blocker", "ace_inhibitor",
+         "insulin_pump_timepoint", "raasi_timepoint", "statin", "metformin_timepoint",
+         "sglti_timepoint", "glp1_agonist_timepoint", "cgm_yn", "kidney_side")
+groupby <- "group"
 ```
 
 # Descriptive Tables
 
 ```{r include = F}
-source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
-source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+# loading custom functions
+source(file.path(git_path, "Resources", "YC", "R Functions", "correlation_function.R"))
+source(file.path(git_path, "Resources", "YC", "R Functions", "label_harmonized_function.R"))
 
-# dat <- py$df
-# dat_exc <- py$excluded_df
-# crc_dxa <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_extremities_lean_mass.csv")
+# note: the following commented code shows the original data processing
+# the processed data is loaded from RData file below
+# dat <- df
+# crc_dxa <- read.csv(file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_extremities_lean_mass.csv"))
 # dat <- dat %>% left_join(crc_dxa)
 # dat <- dat %>% mutate(appendicular_lean_mass = left_arm_lean_g + right_arm_lean_g + left_leg_lean_g + right_leg_lean_g,
 #                       musclemass = (1.12 * appendicular_lean_mass) - 0.63)
-# dict <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+# dict <- read.csv(file.path(root_path, "Data Harmonization", "data_dictionary_master.csv"))
 # dict <- label_harmonized_dict(dat, dict)
 # dict <- dict %>%
 #   mutate(gbm_thick_artmean = "GBM thickness (nm)",
@@ -121,11 +129,12 @@ source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Function
 #          appendicular_lean_mass = "Appendicular lean mass",
 #          musclemass = "Muscle mass")
 # dat$kidney_side <- as.factor(dat$kidney_side)
+# save(dat, file = file.path(root_path, "CROCODILE", "Data_Cleaned", "croc_data.RData"))
 
-# save(dat, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/croc_data.RData")
+# loading processed data
+load(file = file.path(root_path, "CROCODILE", "Data_Cleaned", "croc_data.RData"))
 
-load(file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/croc_data.RData")
-
+# creating descriptive tables
 table_one <- tableby(group ~ age + sex + fe(race) + weight + height + kwt(bmi, "Nmiss", "median", "q1q3", "range") +  hba1c + diabetes_duration + sbp + dbp + pulse + creatinine_s + eGFR_fas_cr + eGFR_CKD_epi+  kwt(acr_u, "Nmiss", "median", "q1q3", "range") + kwt(aer_24, "Nmiss", "median", "q1q3", "range")  + fe(metformin_timepoint) + fe(insulin_med_timepoint) +  fe(sglti_timepoint) + fe(tzd_timepoint) + fe(raasi_timepoint) + fe(statin) + kidney_side + appendicular_lean_mass + musclemass, data = dat, total=F)
 
 table_dxa <- tableby(group ~ dexa_body_fat + dexa_fat_kg + dexa_lean_kg + dexa_trunk_kg + p2_raw_m + p2_raw_leanm + p2_gc_m + p2_gc_leanm + baseline_ffa, data = dat, total=F)
@@ -134,10 +143,13 @@ table_kidney <- tableby(group ~ gfr_raw_plasma + erpf_raw_plasma + rvr + glomeru
 
 table_morpho <- tableby(group ~ fia +	glom_tuft_area +	glom_volume_weibel +	glom_volume_wiggins +	glom_volume_con +	mes_matrix_area +	mes_index +	mes_volume_weibel +	mes_volume_wiggins +	mes_volume_con +	glom_nuc_count + kwt(gbm_thick_harmmean, "Nmiss", "median", "q1q3", "range") + kwt(gbm_thick_artmean, "Nmiss", "median", "q1q3", "range"), data = dat, total=F)
 
-
-table_pet <- tableby(group ~ lc_f +	rc_f +	avg_c_f +	lm_f +	rm_f +	avg_m_f +	lc_k1 +	rc_k1 +	avg_c_k1 +	lm_k1 +	rm_k1 + avg_m_k1 + lc_k2_wo_cyst_vw + rc_k2_wo_cyst_vw + avg_c_k2_wo_cyst_vw + lm_k2_wo_cyst_vw + rm_k2_wo_cyst_vw + avg_m_k2_wo_cyst_vw + lc_k2 + rc_k2 + avg_c_k2 + lm_k2 + rm_k2 + avg_m_k2 , data = dat_exc, total=F)
+table_pet <- tableby(group ~ lc_f +	rc_f +	avg_c_f +	lm_f +	rm_f +	avg_m_f +	lc_k1 +	rc_k1 +	avg_c_k1 +	lm_k1 +	rm_k1 + avg_m_k1 + lc_k2_wo_cyst_vw + rc_k2_wo_cyst_vw + avg_c_k2_wo_cyst_vw + lm_k2_wo_cyst_vw + rm_k2_wo_cyst_vw + avg_m_k2_wo_cyst_vw + lc_k2 + rc_k2 + avg_c_k2 + lm_k2 + rm_k2 + avg_m_k2 , data = dat, total=F)
 
 table_lipids <- tableby(group ~ cholesterol + ldl + hdl + kwt(triglycerides, "median", "q1q3"), data = dat, total=F)
+
+croc_diabetes_duration <- subset(dat, group == "Type 1 Diabetes", select = c(record_id, group, diabetes_duration))
+write.csv(croc_diabetes_duration, file.path(root_path, "CROCODILE/Data_Cleaned/croc_diabetes_duration.csv"),
+          na = "", row.names = F)
 ```
 
 ```{r results='asis'}
@@ -152,15 +164,16 @@ summary(tableby(group ~ p2_raw_m + p2_raw_leanm + p2_gc_m + p2_gc_leanm + gir_19
 ```
 
 ```{r include = F}
-t1_dat <- dat %>% 
+# selecting variables for export tables
+t1_dat <- dat %>%
   dplyr::select(group, age, sex, race, height, weight, bmi, hba1c, diabetes_duration, sbp, dbp, pulse, cholesterol, ldl, hdl, triglycerides, creatinine_s, acr_u, cgm_yn, dexa_body_fat, dexa_fat_kg, dexa_lean_kg, dexa_trunk_kg, dexa_lean_kg, p2_raw_m, p2_raw_leanm, baseline_ffa, p1_ffa_suppression, p2_ffa_suppression) %>%
   arrange(group)
 
-t2_dat <- dat_exc %>% 
+t2_dat <- excluded_df %>%
   dplyr::select(group, gfr_raw_plasma, erpf_raw_plasma, rvr, glomerular_pressure, total_kidney_volume_ml, avg_pcascl, avg_c_r2, avg_m_r2, avg_m_fsoc, avg_c_adc, avg_c_f, avg_m_f, avg_c_k1, avg_m_k1, avg_c_k2, avg_m_k2, avg_c_k2_wo_cyst_vw, avg_m_k2_wo_cyst_vw) %>%
   arrange(group)
 
-t3_dat <- dat %>% 
+t3_dat <- dat %>%
   dplyr::select(group, fia, glom_tuft_area, glom_volume_con, mes_matrix_area, mes_index, mes_volume_con, glom_nuc_count, gbm_thick_harmmean, gbm_thick_artmean) %>%
   arrange(group)
 
@@ -169,15 +182,19 @@ fig1_dat <- dat %>%
   arrange(group) %>%
   filter(!is.na(avg_c_k1))
 
-# write.csv(t1_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_t1_dat.csv", row.names = F)
-# write.csv(t2_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_t2_dat.csv", row.names = F)
-# write.csv(t3_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_t3_dat.csv", row.names = F)
-# write.csv(fig1_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_fig1_dat.csv", row.names = F)
+# exporting tables (commented out)
+# write.csv(t1_dat, file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_t1_dat.csv"), row.names = F)
+# write.csv(t2_dat, file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_t2_dat.csv"), row.names = F)
+# write.csv(t3_dat, file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_t3_dat.csv"), row.names = F)
+# write.csv(fig1_dat, file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_fig1_dat.csv"), row.names = F)
 
 ```
 
 ```{r include = F}
+# testing age difference between groups
 t.test(dat$age ~ dat$group, var.equal=F)
+
+# testing NEFA suppression adjusted for baseline and body fat
 p1_nefa <- lm(p1_ffa_suppression ~ group + baseline_ffa + dexa_body_fat, data = dat)
 summary(p1_nefa)
 lsmeans(p1_nefa, "group")
@@ -188,6 +205,7 @@ lsmeans(p2_nefa, "group")
 
 
 ```{r include = F}
+# testing M-value adjusted for GFR and body fat
 m_raw <- lm(p2_gc_m ~ group + gfr_raw_plasma + dexa_body_fat, data = dat)
 summary(m_raw)
 lsmeans(m_raw, "group")
@@ -197,6 +215,7 @@ lsmeans(m_lean, "group")
 ```
 
 ```{r include = F}
+# testing MRI outcomes adjusted for perfusion
 summary(lm(avg_m_r2 ~ group + avg_m_f, data = dat))
 lsmeans(lm(avg_m_r2 ~ group + avg_m_f, data = dat), specs = "group")
 summary(lm(avg_m_fsoc ~ group + avg_m_f, data = dat))
@@ -204,11 +223,13 @@ lsmeans(lm(avg_m_fsoc ~ group + avg_m_f, data = dat), specs = "group")
 ```
 
 ```{r include = F}
+# testing associations between PET and M-value
 summary(lm(avg_c_f ~ p2_gc_m + age + sex + hba1c, data = dat))
 summary(lm(avg_m_f ~ p2_gc_m + age + sex + hba1c, data = dat))
-summary(lm(avg_c_k2 ~ p2_gc_m + age + sex + hba1c, data = dat)) #
-summary(lm(avg_m_k2 ~ p2_gc_m + age + sex + hba1c, data = dat)) #
+summary(lm(avg_c_k2 ~ p2_gc_m + age + sex + hba1c, data = dat))
+summary(lm(avg_m_k2 ~ p2_gc_m + age + sex + hba1c, data = dat))
 
+# testing associations between PET and GBM thickness
 summary(lm(avg_c_f ~ gbm_thick_artmean + age + sex + hba1c, data = dat))
 summary(lm(avg_m_f ~ gbm_thick_artmean + age + sex + hba1c, data = dat))
 summary(lm(avg_c_k2 ~ gbm_thick_artmean + age + sex + hba1c, data = dat))
@@ -224,48 +245,49 @@ summary(lm(avg_m_k2 ~ gbm_thick_artmean + age + sex + hba1c, data = dat))
 #                           relevant_vars = c("lc_f", "lm_f","lc_k2", "lm_k2",
 #                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
 #                           n_cols = 4, dict = dict, cor_method = "spearman")
-# correlation_table_minimal(data = dat, 
-#                           relevant_vars = c("rc_f", "rm_f","rc_k2", "rm_k2", 
-#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+# correlation_table_minimal(data = dat,
+#                           relevant_vars = c("rc_f", "rm_f","rc_k2", "rm_k2",
+#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
 #                           n_cols = 4, dict = dict, cor_method = "spearman")
-correlation_table_minimal(data = dat, 
-                          relevant_vars = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2", 
-                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+correlation_table_minimal(data = dat,
+                          relevant_vars = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2",
+                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
                           n_cols = 4, dict = dict, cor_method = "spearman")
 ```
 
 ## Type 1 Diabetes
 
 ```{r include = F}
-# correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"), 
-#                           relevant_vars = c("lc_f", "lm_f","lc_k2", "lm_k2", 
-#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+# correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"),
+#                           relevant_vars = c("lc_f", "lm_f","lc_k2", "lm_k2",
+#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
 #                           n_cols = 4, dict = dict, cor_method = "spearman")
-# 
-# correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"), 
-#                           relevant_vars = c("rc_f", "rm_f","rc_k2", "rm_k2", 
-#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+#
+# correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"),
+#                           relevant_vars = c("rc_f", "rm_f","rc_k2", "rm_k2",
+#                                             "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
 #                           n_cols = 4, dict = dict, cor_method = "spearman")
 
-correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"), 
-                          relevant_vars = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2", 
-                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+correlation_table_minimal(data = subset(dat, group == "Type 1 Diabetes"),
+                          relevant_vars = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2",
+                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
                           n_cols = 4, dict = dict, cor_method = "spearman")
 ```
 
 ## Misc correlations
 
 ```{r include = F}
-correlation_table_minimal(data = dat, 
+correlation_table_minimal(data = dat,
                           relevant_vars = c("pcasl3d_left", "pcasl3d_right", "avg_pcascl",
-                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"), 
+                                            "p2_raw_m", "p2_gc_m", "gbm_thick_artmean", "gbm_thick_harmmean"),
                           n_cols = 3, dict = dict, cor_method = "spearman")
 ```
 
 # Heatmap of correlation
 
 ```{r include = T}
-pdf(height = 4000, width = 3000, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical.pdf")
+# generating correlation plots
+pdf(height = 4000, width = 3000, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical.pdf"))
 
 corr_plot_modified(data = dat,
                    X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
@@ -274,24 +296,24 @@ corr_plot_modified(data = dat,
                    cor_method = "spearman")
 dev.off()
 
-# partial suggested by JCI reviewer (adjusting by age)
-png(height = 1200, width = 800, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical_age.png", res = 170)
-pcor.plot(data = dat, 
+# partial correlation adjusting by age
+png(height = 1200, width = 800, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical_age.png"), res = 170)
+pcor.plot(data = dat,
           X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
           Y = c("gbm_thick_artmean", "p2_gc_m"),
           Z = c("age"), cor_method = "pearson", dict = dict)
 dev.off()
 
-# partial suggested by JCI reviewer (adjusting by hba1c)
-png(height = 1200, width = 800, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical_hba1c.png", res = 170)
-pcor.plot(data = dat, 
+# partial correlation adjusting by hba1c
+png(height = 1200, width = 800, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical_hba1c.png"), res = 170)
+pcor.plot(data = dat,
           X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
           Y = c("gbm_thick_artmean", "p2_gc_m"),
           Z = c("hba1c"), cor_method = "spearman", dict = dict)
 dev.off()
 
-# suggested by JCI reviewer (adjusting by sex)
-png(height = 1200, width = 800, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical_sex.png", res = 170)
+# correlation adjusting by sex
+png(height = 1200, width = 800, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical_sex.png"), res = 170)
 corr_plot_modified(data = dat,
                    X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
                    Y = c("gbm_thick_artmean", "p2_gc_m"),
@@ -300,13 +322,15 @@ corr_plot_modified(data = dat,
                    dict = dict)
 dev.off()
 
-png(height = 1200, width = 800, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical_gfr_bodyfat.png", res = 170)
-pcor.plot(data = dat, 
+# partial correlation adjusting by GFR and body fat
+png(height = 1200, width = 800, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical_gfr_bodyfat.png"), res = 170)
+pcor.plot(data = dat,
           X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
           Y = c("gbm_thick_artmean", "p2_gc_m"),
           Z = c("gfr_raw_plasma","dexa_body_fat"), cor_method = "spearman", dict = dict)
 dev.off()
 
+# testing PET associations with GBM and M-value adjusted by sex
 summary(lm(gbm_thick_artmean ~ avg_c_f + sex, data = dat))
 summary(lm(gbm_thick_artmean ~ avg_m_f + sex, data = dat))
 summary(lm(gbm_thick_artmean ~ avg_c_k2 + sex, data = dat))
@@ -337,13 +361,14 @@ plot(lm(p2_gc_m ~ avg_m_k2 + sex, data = dat))
 #   geom_point(size = 3, alpha = 0.7) + theme_bw()
 # p8 <- ggplot(data = dat, aes(x = avg_m_k2, y = p2_gc_m, color = sex)) +
 #   geom_point(size = 3, alpha = 0.7) + theme_bw()
-# 
+#
 # ggarrange(p1, p5, p2, p6, p3, p7, p4, p8, nrow = 4, ncol = 2)
 
 ```
 # PT morphometrics
 ```{r echo = F, message=F}
-png(height = 1200, width = 800, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Dissemination/Figures/YC/Correlation_clinical_w_pt.png", res = 170)
+# generating correlation plots with PT morphometrics
+png(height = 1200, width = 800, file = file.path(root_path, "CROCODILE", "Dissemination", "Figures", "YC", "Correlation_clinical_w_pt.png"), res = 170)
 corr_plot_modified(data = dat,
                    X = c("avg_c_f", "avg_m_f","avg_c_k2", "avg_m_k2"),
                    Y = c("gbm_thick_artmean","pt_total_area", "p2_gc_m"),
@@ -366,7 +391,8 @@ corr_plot_modified(data = dat,
 
 
 ```{r echo = F, message = F}
-tissue_met <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_tissue_metabolomics_011624.csv", na.strings = c("NA", "")) %>% 
+# reading tissue metabolomics data
+tissue_met <- read.csv(file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_tissue_metabolomics_011624.csv"), na.strings = c("NA", "")) %>%
   mutate(record_id = case_when(record_id < 10 ~ paste0("CRC-0", record_id),
                                T ~ paste0("CRC-",record_id))) %>%
   left_join(subset(dat, select = c(record_id, group, bmi, hba1c, age)))
@@ -376,15 +402,16 @@ tissue_met <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #   group_by(record_id) %>%
 #   dplyr::summarise(count = n()) %>%
 #   filter(count == 1) %>% mutate(redcap_repeat_instance = 2,
-#                                 redcap_repeat_instrument = "metabolomics_tissue") %>% 
+#                                 redcap_repeat_instrument = "metabolomics_tissue") %>%
 #   dplyr::select(-count) %>%
 #   full_join(tissue_met) %>%
 #   group_by(record_id) %>%
 #   tidyr::fill(group, .direction = "up")
 
+# imputing missing values with min/5
 impute_values <- tissue_met %>%
   dplyr::summarise(across(
-    .cols = everything(), 
+    .cols = everything(),
     .fns = ~ if(cur_column() %in% c("record_id", "redcap_repeat_instrument", "group", "redcap_repeat_instance", "age", "bmi", "hba1c")) {
                 NA
               } else {
@@ -400,17 +427,18 @@ for (col in colnames(tissue_met)) {
   )
 }
 
-tissue_met <- tissue_met %>% 
+tissue_met <- tissue_met %>%
                arrange(group)
 record_id_order <- unique(tissue_met$record_id)
 tissue_met$record_id <- factor(tissue_met$record_id, levels = record_id_order)
 
+# averaging tissue metabolites per participant
 tissue_met_avg <- tissue_met %>%
   group_by(record_id) %>%
   dplyr::summarise(
     across(where(is.numeric), ~mean(., na.rm = TRUE)),
     across(where(is.character), ~first(.))
-  ) 
+  )
 ```
 
 # Tissue metabolites descriptive
@@ -3118,7 +3146,7 @@ layout(1)
 dat_vb_hct <- dat %>%
   dplyr::select(record_id, group, avg_c_vb, avg_c_r2_bl, avg_c_r2_pf, avg_m_vb, avg_m_r2_bl, avg_m_r2_pf, hematocrit_210)
 
-write.csv(dat_vb_hct, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Data_Cleaned/CRC_vb_hct.csv", row.names = F)
+write.csv(dat_vb_hct, file.path(root_path, "CROCODILE", "Data_Cleaned", "CRC_vb_hct.csv"), row.names = F)
 ```
 
 # Adding FDR adjusted q-values to spatial metabolomics (sqrt-transformed)

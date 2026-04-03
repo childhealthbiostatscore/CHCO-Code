@@ -1,0 +1,274 @@
+---
+title: "Mito paper Mitchell Sullivan"
+author: "Ye Ji Choi"
+format: html
+editor: visual
+---
+
+```{r}
+library(dplyr)
+library(Seurat)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+```
+
+```{r}
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+  
+  on.exit(unlink(tmp))
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket, 
+                                       object = object, 
+                                       file = tmp), opts))
+  }
+  
+  return(FUN(tmp, ...))
+}
+```
+
+```{r}
+schaub_ids <- s3read_using_region(FUN = read.csv, 
+                                  object = "data_clean/jci2023_schaub_ids.csv", 
+                                  bucket = "scrna", region = "") %>%
+  filter(SGLT2i == "NO") %>%
+  pull(ID)
+
+pb90 <- s3readRDS("data_clean/pb90_processed.rds", bucket = "scrna", region = "")
+
+pb90_sub <- subset(pb90, record_id %in% schaub_ids)
+
+table((pb90_sub@meta.data %>%
+  distinct(record_id, .keep_all = T))$group) # should be 6 and 6
+table((pb90_sub@meta.data %>%
+  distinct(record_id, .keep_all = T))$study)
+```
+
+UMAP colored by cell type — the primary ask. All cells, colored/labeled by your 18 clusters. Make sure PT, DCT, TAL, PC, and IC (the cell types in your bubble plot) are visually prominent.
+UMAP colored by condition (control vs. T2D) — this lets the reviewer see that both groups contribute cells across all clusters, and that you're not comparing clusters driven entirely by one condition. A split UMAP (side-by-side, control vs. T2D) works well here too.
+UMAP colored by study/dataset (CROCODILE vs. RENAL-HEIR) — this addresses potential batch effect concerns and shows the datasets integrate well.
+
+```{r}
+DimPlot(pb90_sub, group.by = "KPMP_celltype_general", reduction = "umap.harmony")
+
+my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
+# Read Seurat object and run UMAP, obtain cell numbers, etc
+pb90_sub_meta <- pb90_sub@meta.data %>%
+  cbind(pb90_sub@reductions$umap.harmony@cell.embeddings)
+
+centers <- pb90_sub_meta %>%
+  group_by(KPMP_celltype_general) %>%
+  summarise(x = median(umapharmony_1),
+            y = median(umapharmony_2), .groups = "drop")
+
+UMAP_p <- ggplot(pb90_sub_meta,
+                 aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype_general)) +
+  geom_point(alpha = 0.4, shape = 16) +
+  geom_text_repel(data = centers,
+                  aes(x = x, y = y,
+                      label = KPMP_celltype_general),
+                  inherit.aes = FALSE,
+                  size = 4, color = "black") +
+  scale_color_manual(values = my_colors[14:43]) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        # legend.position = "none",
+        axis.title.x = element_text(hjust = 0),   # move x label to left
+        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  labs(x = "UMAP1", y = "UMAP2", color = "Cell type") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+UMAP_p
+
+# Save to a temporary connection
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp, plot = UMAP_p, width = 10, height = 8, dpi = 300)
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/Mitchell Sullivan Mito/Results/Figures/umap_kpmp_celltype.png",
+  bucket = "scrna",
+  region = ""
+)
+
+centers <- pb90_sub_meta %>%
+  group_by(KPMP_celltype) %>%
+  summarise(x = median(umapharmony_1),
+            y = median(umapharmony_2), .groups = "drop")
+
+UMAP_p <- ggplot(pb90_sub_meta,
+                 aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype)) +
+  geom_point(alpha = 0.4, shape = 16) +
+  geom_text_repel(data = centers,
+                  aes(x = x, y = y,
+                      label = KPMP_celltype),
+                  inherit.aes = FALSE,
+                  size = 4, color = "black") +
+  scale_color_manual(values = my_colors[1:43]) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        # legend.position = "none",
+        axis.title.x = element_text(hjust = 0),   # move x label to left
+        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  labs(x = "UMAP1", y = "UMAP2", color = "Cell type") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+UMAP_p
+
+# Save to a temporary connection
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp, plot = UMAP_p, width = 10, height = 8, dpi = 300)
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/Mitchell Sullivan Mito/Results/Figures/umap_kpmp_subcelltype.png",
+  bucket = "scrna",
+  region = ""
+)
+
+# Read Seurat object and run UMAP, obtain cell numbers, etc
+pb90_sub_meta <- pb90_sub@meta.data %>%
+  cbind(pb90_sub@reductions$umap.harmony@cell.embeddings)
+
+centers <- pb90_sub_meta %>%
+  group_by(celltype_harmony) %>%
+  summarise(x = median(umapharmony_1),
+            y = median(umapharmony_2), .groups = "drop")
+
+UMAP_p <- ggplot(pb90_sub_meta,
+                 aes(x = umapharmony_1, y = umapharmony_2, color = celltype_harmony)) +
+  geom_point(alpha = 0.4, shape = 16) +
+  geom_text_repel(data = centers,
+                  aes(x = x, y = y,
+                      label = celltype_harmony),
+                  inherit.aes = FALSE,
+                  size = 4, color = "black") +
+  scale_color_manual(values = my_colors[11:43]) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        # legend.position = "none",
+        axis.title.x = element_text(hjust = 0),   # move x label to left
+        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  labs(x = "UMAP1", y = "UMAP2", color = "Cell type") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+UMAP_p
+
+# Save to a temporary connection
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp, plot = UMAP_p, width = 10, height = 8, dpi = 300)
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/Mitchell Sullivan Mito/Results/Figures/umap_celltype.png",
+  bucket = "scrna",
+  region = ""
+)
+```
+
+```{r}
+pb90_sub_meta %>%
+  filter(KPMP_celltype_general == "PT") %>%
+  mutate(KPMP_celltype = factor(KPMP_celltype, levels = c("aPT", "PT-S1/S2", "PT-S3")),
+         group = case_when(group == "Lean Control" ~ "HC", T ~ "T2D")) %>%
+  ggplot(aes(group, fill = KPMP_celltype)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Proportion of PT cells") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file, height = 10, width = 6)
+put_object(
+  file = temp_file,
+  object = "Projects/Mitchell Sullivan Mito/Results/Figures/PT_kpmp_celltype_prop.png",
+  bucket = "scrna",
+  region = ""
+)
+
+pb90_sub_meta %>%
+  filter(celltype_harmony %in% c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5")) %>%
+  mutate(celltype_harmony = factor(celltype_harmony, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5")),
+         group = case_when(group == "Lean Control" ~ "HC", T ~ "T2D")) %>%
+  ggplot(aes(group, fill = celltype_harmony)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Proportion of PT cells") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file, height = 10, width = 6)
+put_object(
+  file = temp_file,
+  object = "Projects/Mitchell Sullivan Mito/Results/Figures/PT_celltype_prop.png",
+  bucket = "scrna",
+  region = ""
+)
+```

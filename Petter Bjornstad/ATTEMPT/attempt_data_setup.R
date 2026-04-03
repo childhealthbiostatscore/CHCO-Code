@@ -22,16 +22,42 @@ library(MAST)
 library(limma)      # For linear modeling of microarray and RNA-seq data
 library(muscat)
 
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+## Create an S3 client
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
 # clinical data clean & save
 # Load dictionary function and file
-source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/CROCODILE/crocodile_functions.R")
+source(file.path(git_path, "/Resources/YC/R Functions/label_harmonized_function.R"))
+source(file.path(git_path, "/CROCODILE/crocodile_functions.R"))
 
-token_dat <- read.csv("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Data Harmonization/api_tokens.csv")
+token_dat <- read.csv(file.path(root_path, "Data Harmonization/api_tokens.csv"))
 attempt_token <- token_dat$Token[token_dat$Study == "ATTEMPT"]
 attempt_dat <- redcap_read(redcap_uri = "https://redcap.ucdenver.edu/api/",
                            token = attempt_token)
-attempt_grp <- read.csv("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Raw/ATTEMPT_unblinding.csv")
+attempt_grp <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_unblinding.csv"))
 
 race_names <- c(
   "American Indian or Alaskan Native",
@@ -85,12 +111,12 @@ dat[nrow(dat), "treatment"] <- "Placebo"
 
 dat$visit <- factor(dat$visit, levels = c("PRE", "POST"))
 
-saveRDS(dat, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_clinical_data.RDS")
+saveRDS(dat, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_clinical_data.RDS"))
 
 # scRNA
 plan(multisession, workers = 16)
 options(future.globals.maxSize=2e9)
-so_attempt <- readRDS("/home/choiyej/Documents/Local data/PB_attempt_harmony_rpca_Sept2024.RDS")
+so_attempt <- s3readRDS("Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_Sept2024.RDS", "scrna", region = "")
 so_attempt_meta <- so_attempt@meta.data %>%
   mutate(subject_id = Subject.ID,
          visit = case_when(Visit == "BL" ~ "PRE", 
@@ -98,7 +124,7 @@ so_attempt_meta <- so_attempt@meta.data %>%
 so_attempt_meta <- left_join(so_attempt_meta, dat, by = c("subject_id", "visit"))
 rownames(so_attempt_meta) <- so_attempt_meta$barcode
 so_attempt <- AddMetaData(so_attempt, so_attempt_meta)
-saveRDS(so_attempt, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/so_attempt.RDS")
+saveRDS(so_attempt, file = file.path(root_path, "ATTEMPT/Data Clean/so_attempt.RDS"))
 
 # PT cells
 so_attempt$celltype_pt <- ifelse(grepl("PT-", so_attempt$celltype),
@@ -117,7 +143,7 @@ so_attempt_pt$visit <- factor(so_attempt_pt$visit, levels = c("PRE", "POST"))
 so_attempt_pt$treatment <- factor(so_attempt_pt$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_pt, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pt.RDS")
+saveRDS(so_attempt_pt, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_pt.RDS"))
 
 
 # TAL cells
@@ -138,7 +164,7 @@ so_attempt_tal$visit <- factor(so_attempt_tal$visit, levels = c("PRE", "POST"))
 so_attempt_tal$treatment <- factor(so_attempt_tal$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_tal, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_tal.RDS")
+saveRDS(so_attempt_tal, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_tal.RDS"))
 
 # POD cells
 so_attempt$celltype_pod <- ifelse(grepl("POD", so_attempt$celltype),
@@ -158,7 +184,7 @@ so_attempt_pod$visit <- factor(so_attempt_pod$visit, levels = c("PRE", "POST"))
 so_attempt_pod$treatment <- factor(so_attempt_pod$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_pod, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pod.RDS")
+saveRDS(so_attempt_pod, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_pod.RDS"))
 
 # EC cells
 so_attempt$celltype_ec <- ifelse(grepl("EC-", so_attempt$celltype),
@@ -178,7 +204,7 @@ so_attempt_ec$visit <- factor(so_attempt_ec$visit, levels = c("PRE", "POST"))
 so_attempt_ec$treatment <- factor(so_attempt_ec$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_ec, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_ec.RDS")
+saveRDS(so_attempt_ec, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_ec.RDS"))
 
 # PEC cells
 so_attempt$celltype_pec <- ifelse(grepl("PEC", so_attempt$celltype),
@@ -198,7 +224,7 @@ so_attempt_pec$visit <- factor(so_attempt_pec$visit, levels = c("PRE", "POST"))
 so_attempt_pec$treatment <- factor(so_attempt_pec$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_pec, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pec.RDS")
+saveRDS(so_attempt_pec, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_pec.RDS"))
 
 # immune cells
 so_attempt$celltype_immune <- ifelse(grepl("MAC|MON|B|T|NKT/NKC", so_attempt$celltype),
@@ -216,7 +242,7 @@ so_attempt_immune$visit <- factor(so_attempt_immune$visit, levels = c("PRE", "PO
 so_attempt_immune$treatment <- factor(so_attempt_immune$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_immune, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_immune.RDS")
+saveRDS(so_attempt_immune, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_immune.RDS"))
 
 # DTL cells
 so_attempt$celltype_dtl <- ifelse(grepl("DTL-", so_attempt$celltype),
@@ -235,7 +261,7 @@ so_attempt_dtl$visit <- factor(so_attempt_dtl$visit, levels = c("PRE", "POST"))
 so_attempt_dtl$treatment <- factor(so_attempt_dtl$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_dtl, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_dtl.RDS")
+saveRDS(so_attempt_dtl, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_dtl.RDS"))
 
 # ATL cells
 so_attempt$celltype_atl <- ifelse(grepl("ATL", so_attempt$celltype),
@@ -254,7 +280,7 @@ so_attempt_atl$visit <- factor(so_attempt_atl$visit, levels = c("PRE", "POST"))
 so_attempt_atl$treatment <- factor(so_attempt_atl$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_atl, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_atl.RDS")
+saveRDS(so_attempt_atl, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_atl.RDS"))
 
 # DCT cells
 so_attempt$celltype_dct <- ifelse(grepl("DCT", so_attempt$celltype),
@@ -273,7 +299,7 @@ so_attempt_dct$visit <- factor(so_attempt_dct$visit, levels = c("PRE", "POST"))
 so_attempt_dct$treatment <- factor(so_attempt_dct$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_dct, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_dct.RDS")
+saveRDS(so_attempt_dct, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_dct.RDS"))
 
 # CNT cells
 so_attempt$celltype_cnt <- ifelse(grepl("CNT", so_attempt$celltype),
@@ -292,7 +318,7 @@ so_attempt_cnt$visit <- factor(so_attempt_cnt$visit, levels = c("PRE", "POST"))
 so_attempt_cnt$treatment <- factor(so_attempt_cnt$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_cnt, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_cnt.RDS")
+saveRDS(so_attempt_cnt, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_cnt.RDS"))
 
 # PC cells
 so_attempt$celltype_pc <- ifelse(grepl("PC-", so_attempt$celltype),
@@ -311,7 +337,7 @@ so_attempt_pc$visit <- factor(so_attempt_pc$visit, levels = c("PRE", "POST"))
 so_attempt_pc$treatment <- factor(so_attempt_pc$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                    labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_pc, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pc.RDS")
+saveRDS(so_attempt_pc, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_pc.RDS"))
 
 # IC cells
 so_attempt$celltype_ic <- ifelse(grepl("IC-", so_attempt$celltype),
@@ -330,7 +356,7 @@ so_attempt_ic$visit <- factor(so_attempt_ic$visit, levels = c("PRE", "POST"))
 so_attempt_ic$treatment <- factor(so_attempt_ic$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_ic, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_ic.RDS")
+saveRDS(so_attempt_ic, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_ic.RDS"))
 
 # MC cells
 so_attempt$celltype_mc <- ifelse(grepl("MC-", so_attempt$celltype),
@@ -349,7 +375,7 @@ so_attempt_mc$visit <- factor(so_attempt_mc$visit, levels = c("PRE", "POST"))
 so_attempt_mc$treatment <- factor(so_attempt_mc$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_mc, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_mc.RDS")
+saveRDS(so_attempt_mc, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_mc.RDS"))
 
 # VSMC/P cells
 so_attempt$celltype_vsmc_p <- ifelse(grepl("VSMC/P", so_attempt$celltype),
@@ -368,7 +394,7 @@ so_attempt_vsmc_p$visit <- factor(so_attempt_vsmc_p$visit, levels = c("PRE", "PO
 so_attempt_vsmc_p$treatment <- factor(so_attempt_vsmc_p$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_vsmc_p, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_vsmc_p.RDS")
+saveRDS(so_attempt_vsmc_p, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_vsmc_p.RDS"))
 
 # FIB cells
 so_attempt$celltype_fib <- ifelse(grepl("FIB", so_attempt$celltype),
@@ -387,7 +413,7 @@ so_attempt_fib$visit <- factor(so_attempt_fib$visit, levels = c("PRE", "POST"))
 so_attempt_fib$treatment <- factor(so_attempt_fib$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
                                   labels = c("Placebo", "Dapagliflozin"))
 
-saveRDS(so_attempt_fib, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_fib.RDS")
+saveRDS(so_attempt_fib, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_fib.RDS"))
 
 # Fetch all data upfront
 gene_names <- rownames(so_attempt_pt)
@@ -405,4 +431,4 @@ gc()
 
 all_data$treatment <- factor(all_data$treatment)
 all_data$treatment <- relevel(all_data$treatment, ref = "Placebo")
-saveRDS(all_data, file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_pb.RDS")
+saveRDS(all_data, file = file.path(root_path, "ATTEMPT/Data Clean/attempt_pb.RDS"))

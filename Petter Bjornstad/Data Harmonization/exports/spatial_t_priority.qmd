@@ -3,32 +3,62 @@ title: "Spatial transcriptomics priority list"
 ---
 
 ```{r}
-mrn_map <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data clean/mrn_uuid_map.csv")
+library(readxl)
+library(dplyr)
+library(janitor)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+uuid_map <- read.csv(file.path(root_path, "Data Harmonization/Data clean/uuid_uuid_map.csv"))
 biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
-colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
-colnames(biopsy_master) <- gsub("/", "_", colnames(biopsy_master))  # Replace slashes with underscores
-colnames(biopsy_master) <- gsub("\\(", "_", colnames(biopsy_master))  # Replace opening parentheses with underscores
-colnames(biopsy_master) <- gsub("\\)", "", colnames(biopsy_master))  # Remove closing parentheses
+biopsy_master <- clean_names(biopsy_master)
 
 biopsy_master <- biopsy_master %>%
-  dplyr::rename(record_id=Study_ID,
-                visit=Visit_ID) %>%
-  mutate(visit = case_when(Study == "ATTEMPT" ~ visit,
-                           Study == "REMODEL" ~ visit, 
-                           Study == "IMPROVE" & visit == "4M" ~ "3_months_post_surgery",
+  dplyr::rename(record_id=study_id,
+                visit=visit_id,
+                cryostor_id_bx = cryostor_id, 
+                kit_id_bx = kit_id,
+                ln2_id_bx = ln2_id,
+                site_bx = site) %>%
+  mutate(visit = case_when(study == "ATTEMPT" & visit == "BL" ~ "baseline",
+                           study == "ATTEMPT" & visit == "4M" ~ "4_months_post",
+                           study == "REMODEL" ~ visit, 
+                           study == "IMPROVE" & visit == "4M" ~ "3_months_post_surgery",
                            visit == "12M" ~ "12_months_post_surgery",
                            visit == "Follow-up" ~ "follow-up",
                            T ~ "baseline"),
-         record_id = case_when(startsWith(record_id, "RPC") & !is.na(Coenroll_ID__Same_visit_only) ~ Coenroll_ID__Same_visit_only,
-                               T ~ record_id)) # RH2-60-T and RH2-48-T coenrolled into RPC2 as of 02/03/25 data pull
+         record_id = case_when(startsWith(record_id, "RPC") & !is.na(coenroll_id_same_visit_only) ~ coenroll_id_same_visit_only,
+                               T ~ record_id)) %>% # RH2-60-T and RH2-48-T coenrolled into RPC2 as of 02/03/25 data pull
+  select(-c(study, sex, group)) 
 
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "") %>%
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "") %>%
   dplyr::select(
     -starts_with("seq."),
     any_of(c("seq.10000.28_urine_cradj", "seq.10000.28"))
   )
 
-harm_dat <- harm_dat %>% 
+harm_dat_sub <- harm_dat %>% 
   mutate(bx_date = case_when(procedure == "kidney_biopsy" ~ date),
          visit = case_when(kit_id == "KL-0024005" ~ "12_months_post_surgery", T ~ visit)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -42,23 +72,23 @@ harm_dat <- harm_dat %>%
          mgfr = case_when(!is.na(gfr_bsa_plasma) ~ 1, T ~ 0),
          erpf = case_when(!is.na(erpf_bsa_plasma) ~ 1, T ~ 0),
          egfr = case_when(!is.na(eGFR_CKD_epi) ~ 1, T ~ 0)) %>%
-  arrange(mrn)
+  arrange(uuid)
 
-harm_biopsy <- harm_dat %>% left_join(biopsy_master)
+harm_biopsy <- harm_dat_sub %>% left_join(biopsy_master)
 ```
 
 ```{r}
 bx_dat <- harm_biopsy %>%
-  filter(!is.na(Biopsy_date)|!is.na(kit_id)) %>%
-  arrange(mrn) %>%
+  filter(!is.na(biopsy_date)|!is.na(kit_id)) %>%
+  arrange(uuid) %>%
   filter(study %in% c("ATTEMPT", "CROCODILE", "RENAL-HEIRitage", "RENAL-HEIR", "IMPROVE")) %>%
   filter(record_id %nin% c("CRC-55", "RH-87-T", "RH-88-T",
                            "RH2-48-T", "RH2-60-T")) %>%
   filter(is.na(rpc2_id)) %>%
-  mutate(kit_id = coalesce(kit_id, Kit_ID),
+  mutate(kit_id = coalesce(kit_id, kit_id_bx),
          kit_id = gsub("Kl", "KL", kit_id)) %>%
   distinct(kit_id, .keep_all = T) %>%
-  add_count(mrn, name = "mrn_count") %>%
+  add_count(uuid, name = "uuid_count") %>%
   rowwise() %>%
   mutate(n_vars = sum(pet, mri, urine_soma, blood_soma, 
                       clamp, mgfr, erpf, egfr,
@@ -67,7 +97,7 @@ bx_dat <- harm_biopsy %>%
   mutate(acr_u_cat = case_when(acr_u > 30 ~ ">30", acr_u <=30 ~ "<=30"),
     priority = case_when(study %in% c("ATTEMPT")  ~ 1,
                          study == "CROCODILE" & group == "Lean Control" ~ 1.2,
-                         mrn_count >1 ~ 2,
+                         uuid_count > 1 ~ 2,
                          n_vars == 8 ~ 3,
                          n_vars == 7 ~ 4,
                          n_vars == 6 ~ 5,
@@ -78,30 +108,30 @@ bx_dat <- harm_biopsy %>%
                          n_vars == 1 ~ 10,
                          n_vars == 0 ~ 11,
                          study =="CROCODILE" & group == "Type 1 Diabetes" ~ 9)) %>%
-  group_by(mrn) %>%
-  mutate(mrn_n = row_number()) %>%
+  group_by(uuid) %>%
+  mutate(uuid_n = row_number()) %>%
   fill(c(epic_glp1ra_1, epic_glp1ra_2)) %>%
   ungroup() %>%
-  mutate(visit = case_when(visit == "baseline" & mrn_n == 2 ~ "follow_up_from_rh",
+  mutate(visit = case_when(visit == "baseline" & uuid_n == 2 ~ "follow_up_from_rh",
                            T ~ visit),
-         glp1ra = case_when(mrn_n == 1 ~ epic_glp1ra_1,
-                            mrn_n == 2 ~ epic_glp1ra_2)) %>%
-  dplyr::select(mrn,mrn_count,mrn_n,rh_id, rh2_id, record_id, visit, kit_id,
+         glp1ra = case_when(uuid_n == 1 ~ epic_glp1ra_1,
+                            uuid_n == 2 ~ epic_glp1ra_2)) %>%
+  dplyr::select(uuid,uuid_count,uuid_n,rh_id, rh2_id, record_id, visit, kit_id,
                 study, group, bx_date, age,
                 glp1ra, acr_u_cat, pet, urine_soma, blood_soma, 
                       clamp, mri, mgfr, erpf, egfr, n_vars, priority) %>%
   arrange(priority)
 
-# Build a block id so duplicate MRNs stay together (pairs treated as a single unit)
+# Build a block id so duplicate uuids stay together (pairs treated as a single unit)
 bx_dat <- bx_dat %>%
   group_by(priority) %>%
   mutate(
-    # if an MRN appears >1 time, use MRN as the block id; otherwise make a unique id for the row
-    block_id = if_else(mrn_count > 1, as.character(mrn),
-                       paste0(mrn, "__", row_number()))
+    # if an uuid appears >1 time, use uuid as the block id; otherwise make a unique id for the row
+    block_id = if_else(uuid_count > 1, as.character(uuid),
+                       paste0(uuid, "__", row_number()))
   ) %>%
   ungroup() %>%
-  left_join(mrn_map)
+  left_join(uuid_map)
 
 # Create one row per block to compute an alternating block order
 block_tbl <- bx_dat %>%
@@ -128,16 +158,48 @@ block_order <- block_tbl %>%
 bx_dat <- bx_dat %>%
   left_join(block_order, by = c("priority", "block_id")) %>%
   group_by(block_id) %>%
-  # keep paired rows adjacent; choose your intra-block order (e.g., by mrn or date)
+  # keep paired rows adjacent; choose your intra-block order (e.g., by uuid or date)
   arrange(bx_date, .by_group = TRUE) %>%
   ungroup() %>%
   arrange(priority, block_order) %>% 
   # move Crocodile T1D blocks to the end
   arrange(study == "CROCODILE" & group == "Type 1 Diabetes") %>%
   dplyr::select(-c(priority, block_order,
-                   mrn, mrn_count, mrn_n, block_id, rh_id, rh2_id)) %>%
+                   uuid, uuid_count, uuid_n, block_id, rh_id, rh2_id)) %>%
   select(uuid, everything())
 
-write.csv(bx_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Spatial transcriptomics/spatial_transcriptomics_priority_list.csv", na = "")
+# write.csv(bx_dat, file.path(root_path, "Spatial transcriptomics/spatial_transcriptomics_priority_list.csv"), na = "")
+```
 
+```{r}
+# priority list for VP (40-60 samples)
+bx_dat_vp <- harm_biopsy %>%
+  filter(!is.na(adequecy_for_spatial) & adequecy_for_spatial != "NO") %>%
+  arrange(uuid) %>%
+  mutate(kit_id = coalesce(kit_id, kit_id_bx),
+         kit_id = gsub("Kl", "KL", kit_id)) %>%
+  distinct(kit_id, .keep_all = T) %>%
+  add_count(uuid, name = "uuid_count") %>%
+  rowwise() %>%
+  mutate(n_vars = sum(pet, mri, urine_soma, blood_soma, 
+                      clamp, mgfr, erpf, egfr,
+                      na.rm = T)) %>%
+  ungroup() %>%
+  mutate(acr_u_cat = case_when(acr_u > 30 ~ ">30", acr_u <=30 ~ "<=30")) %>%
+  group_by(uuid) %>%
+  mutate(uuid_n = row_number()) %>%
+  fill(c(epic_glp1ra_1, epic_glp1ra_2, epic_sglti2_1, epic_sglt2i_2)) %>%
+  ungroup() %>%
+  mutate(visit = case_when(visit == "baseline" & uuid_n == 2 ~ "follow_up_from_rh",
+                           T ~ visit),
+         glp1ra = case_when(uuid_n == 1 ~ epic_glp1ra_1,
+                            uuid_n == 2 ~ epic_glp1ra_2),
+         sglt2 = case_when(uuid_n == 1 ~ epic_sglti2_1,
+                           uuid_n == 2 ~ epic_sglt2i_2)) %>%
+  dplyr::select(uuid, rh_id, rh2_id, record_id, visit, treatment_arm, kit_id,
+                study, group, age, adequecy_for_spatial, block_used_before,
+                glp1ra, sglt2, acr_u, acr_u_cat, pet, urine_soma, blood_soma, 
+                      clamp, mri, mgfr, erpf, egfr, n_vars)
+
+write.csv(bx_dat_vp, file.path(root_path, "Spatial transcriptomics/spatial_transcriptomics_priority_list_032326.csv"), na = "")
 ```

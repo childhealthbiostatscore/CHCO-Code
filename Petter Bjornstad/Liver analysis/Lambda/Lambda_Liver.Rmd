@@ -527,7 +527,7 @@ cellcount$celltype2 <- factor(cellcount$celltype)
 prop_plot <- ggplot(data=cellcount,aes(steatosis_cat, fill = celltype2)) + 
   geom_bar(stat = "count", position = "fill") +
   theme_classic() +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  scale_fill_manual(values = c("#9C3A7A","#A0522D","#FFC000","#7A9E7E","#4472C4"))+
   labs(x = NULL,
        y = "Proportion of Immune Cells",
        fill = "Cell Type") +
@@ -706,17 +706,52 @@ png("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared 
 print(prop_plot_grade)
 dev.off()
 
+# Set factor levels to control legend order
+cellcount$celltype2 <- factor(cellcount$celltype2, levels = c(
+  "Hep-1",
+  "Hep-2", 
+  "Hep-3",
+  "Hep-4",
+  "Hep-5",
+  "dHep",
+  "Hep/Immune",
+  "NKC/NKT",
+  "Kup/MON",
+  "Kup/MAC",
+  "B/Plasma",
+  "cFIB/cImmune"
+))
 # Your color palette - extended with similar tones if needed
 base_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "#a01a50", "darkred")
 
 # If you need more colors, extend with similar tones
+# extended_colors <- c(base_colors,
+#                      "#bd5743",# darker coral
+#                      "#1a3a42",  # darker teal
+#                      "#237a6f",  # darker green
+#                      "#d4a855",  # darker gold
+#                      "#e09051")  # darker orange
 extended_colors <- c(base_colors,
-                     "#bd5743",# darker coral
-                     "#1a3a42",  # darker teal
-                     "#237a6f",  # darker green
-                     "#d4a855",  # darker gold
-                     "#e09051")  # darker orange
+                     "#6a4c93",  # muted purple
+                     "#7b9e87",  # sage green
+                     "#c9ada7",  # dusty mauve/rose
+                     "#4a6fa5",  # slate blue
+                     "#b5838d")  # muted rose-pink
 
+extended_colors <- c(
+  "#264653",  # Hep-1
+  "#2a9d8f",  # Hep-2
+  "#e9c46a",  # Hep-3
+  "#f4a261",  # Hep-4
+  "#e76f51",  # Hep-5
+  "#a01a50",  # dHep
+  "darkred",  # Hep/Immune
+  "#4a6fa5",  # NKC/NKT
+  "#7b9e87",  # Kup/MON
+  "#6a4c93",  # Kup/MAC
+  "#b58",  # B/Plasma
+  "lightpink"   # cFIB/cImmune
+)#b5838d
 
 # Create faceted plot with flipped coordinates
 prop_plot <- ggplot(data=cellcount, aes(steatosis_cat, fill = celltype2)) + 
@@ -732,8 +767,9 @@ prop_plot <- ggplot(data=cellcount, aes(steatosis_cat, fill = celltype2)) +
         text = element_text(size = 20),
         strip.text = element_text(size = 18, face = "bold"))
 
-png("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/Tables and Figures/Barchart_Steatosis_Cat_Immune_Hepatocytes_Faceted.png",
-    width = 3000, height = 2000, res = 300)
+# png("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/Tables and Figures/Barchart_Steatosis_Cat_Immune_Hepatocytes_Faceted.png",
+#     width = 3000, height = 2000, res = 300)
+png("/home/hhampson/Results/Barchart_Steatosis_Cat_Immune_Hepatocytes_Faceted.png",res=300,height=2000,width=3000)
 print(prop_plot)
 dev.off()
 
@@ -762,6 +798,59 @@ prop_df <- data.frame(
 
 write.csv(prop_df,fs::path(dir.results,"Proportion_of_LR_Celltypes.csv"))
 
+
+# Calculate proportions within immune cells only
+immune_props <- cellcount %>%
+  filter(celltype_LR == "Immune") %>%
+  group_by(steatosis_cat, celltype2) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(steatosis_cat) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Calculate proportions within hepatocytes only
+hep_props <- cellcount %>%
+  filter(celltype_LR == "Hep") %>%
+  group_by(steatosis_cat, celltype2) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(steatosis_cat) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Combine
+all_props <- bind_rows(
+  immune_props %>% mutate(celltype_LR = "Immune"),
+  hep_props %>% mutate(celltype_LR = "Hep")
+)
+
+
+# Immune cells only
+immune_cellcount <- cellcount %>% 
+  filter(celltype_LR == "Immune")
+immune_cellcount$celltype2 <- factor(immune_cellcount$celltype2)
+
+propeller_results_immune <- propeller(
+  clusters = immune_cellcount$celltype2,
+  sample   = immune_cellcount$Kit_Lot,
+  group    = immune_cellcount$steatosis_cat
+)
+propeller_results_immune 
+
+# Hepatocytes only
+hep_cellcount <- cellcount %>% filter(celltype_LR == "Hep")
+hep_cellcount$celltype2 <- factor(hep_cellcount$celltype2)
+
+propeller_results_hep <- propeller(
+  clusters = hep_cellcount$celltype2,
+  sample   = hep_cellcount$Kit_Lot,
+  group    = hep_cellcount$steatosis_cat
+)
+propeller_results_hep
+
+# Save results
+write.csv(propeller_results_immune, "/home/hhampson/Results/Propeller_Immune_Steatosis.csv")
+write.csv(propeller_results_hep,"/home/hhampson/Results/Propeller_Hep_Steatosis.csv")
+                      
 ```
 ### ii. Hepatocytes Only
 ```{r}
@@ -1610,6 +1699,8 @@ table1(~ alt + ast + ggt +lobular_inflammation_percent + fibrosis_cat| steatosis
 table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
        +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt +lobular_inflammation_percent + fibrosis_cat+study| steatosis_cat, data=dat)
 
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)
 
 t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
              +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)
@@ -27159,4 +27250,463 @@ for(pet in pet_variables) {
 ```
 
 
+#12. Example Plots for Single Cell Class
+```{r}
+# ============================================================
+#  Three DE Approaches — so_liver_sn  |  LC vs. T2D
+#  Methods: FindMarkers | Pseudobulk DESeq2 | NEBULA
+#
+#  Object  : so_liver_sn
+#  Group   : so_liver_sn$group       ("LC" vs "T2D")
+#  Donor   : so_liver_sn$Kit_Lot     (per-sample / donor ID)
+#  CellType: so_liver_sn$celltype
+# ============================================================
+#
+#  PACKAGES:
+#    install.packages(c("Seurat","ggplot2","dplyr","patchwork",
+#                       "ggrepel","tibble","scales"))
+#    BiocManager::install(c("DESeq2","apeglm"))
+#    install.packages("nebula")
+# ============================================================
 
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(patchwork)
+library(ggrepel)
+library(DESeq2)
+library(nebula)
+
+
+# ============================================================
+#  CONFIG
+# ============================================================
+
+group_col    <- "group"       # LC vs T2D
+sample_col   <- "Kit_Lot"     # per-donor/kit ID
+celltype_col <- "celltype"    # cell type labels
+
+ref_level    <- "T2D"         # denominator (reference)
+test_level   <- "LC"          # numerator (test condition)
+
+# Set to a specific cell type string, or NULL to loop over ALL cell types
+cell_type_run <- NULL         # e.g. "Hepatocyte"  or  NULL
+
+fc_thresh  <- 1.0             # |log2FC| threshold for colouring
+p_thresh   <- 0.05            # adjusted p-value threshold
+n_label    <- 15              # top N genes to label on each volcano
+min_cells  <- 10              # min cells per donor per cell type to keep donor
+out_prefix <- "liver_sn_LC_vs_T2D"
+
+
+# ============================================================
+#  QUICK SANITY CHECK  (prints to console — read before running)
+# ============================================================
+
+cat("── Group counts ──────────────────────────────────\n")
+print(table(so_liver_sn@meta.data[[group_col]]))
+
+cat("\n── Donors (Kit_Lot) per group ────────────────────\n")
+print(table(so_liver_sn@meta.data[[group_col]],
+            so_liver_sn@meta.data[[sample_col]]))
+
+cat("\n── Cell types (sorted by frequency) ─────────────\n")
+print(sort(table(so_liver_sn@meta.data[[celltype_col]]), decreasing = TRUE))
+
+
+# ============================================================
+#  SHARED THEME & HELPERS
+# ============================================================
+
+col_up   <- "#EF4444"
+col_down <- "#3B82F6"
+col_ns   <- "#CBD5E1"
+col_navy <- "#0D1F3C"
+
+theme_volcano <- function() {
+  theme_classic(base_size = 13) +
+    theme(
+      plot.title       = element_text(face = "bold", colour = col_navy,
+                                      size = 14, margin = margin(b = 4)),
+      plot.subtitle    = element_text(colour = "#64748B", size = 10,
+                                      margin = margin(b = 8)),
+      axis.title       = element_text(colour = "#475569"),
+      axis.text        = element_text(colour = "#475569"),
+      panel.grid.major = element_line(colour = "#F1F5F9", linewidth = 0.4),
+      panel.grid.minor = element_blank(),
+      legend.position  = "bottom",
+      legend.text      = element_text(size = 10),
+      plot.margin      = margin(12, 14, 12, 14)
+    )
+}
+
+# Classify genes into Up / Down / NS and compute -log10(padj)
+make_volcano_df <- function(df) {
+  df %>%
+    filter(!is.na(padj), !is.na(log2FoldChange)) %>%
+    mutate(
+      sig = case_when(
+        padj < p_thresh & log2FoldChange >  fc_thresh ~ "Up",
+        padj < p_thresh & log2FoldChange < -fc_thresh ~ "Down",
+        TRUE ~ "NS"
+      ),
+      sig         = factor(sig, levels = c("Up", "Down", "NS")),
+      neg_log10_p = pmin(-log10(padj + 1e-300), 350)   # cap at 350 to avoid Inf
+    )
+}
+
+# Draw a single volcano from a tidy df (needs: gene, log2FoldChange, padj, sig, neg_log10_p)
+draw_volcano <- function(df, title, subtitle) {
+
+  top_up   <- df %>% filter(sig == "Up")   %>% arrange(padj) %>% head(ceiling(n_label / 2))
+  top_down <- df %>% filter(sig == "Down") %>% arrange(padj) %>% head(floor(n_label / 2))
+  to_label <- bind_rows(top_up, top_down)
+
+  n_up   <- sum(df$sig == "Up",   na.rm = TRUE)
+  n_down <- sum(df$sig == "Down", na.rm = TRUE)
+  n_ns   <- sum(df$sig == "NS",   na.rm = TRUE)
+
+  ggplot(df, aes(x = log2FoldChange, y = neg_log10_p, colour = sig)) +
+    geom_point(data = filter(df, sig == "NS"),
+               size = 0.7, alpha = 0.3, shape = 16) +
+    geom_point(data = filter(df, sig != "NS"),
+               size = 1.6, alpha = 0.8, shape = 16) +
+    geom_hline(yintercept = -log10(p_thresh),
+               linetype = "dashed", colour = "#94A3B8", linewidth = 0.6) +
+    geom_vline(xintercept = c(-fc_thresh, fc_thresh),
+               linetype = "dashed", colour = "#94A3B8", linewidth = 0.6) +
+    geom_text_repel(
+      data          = to_label,
+      aes(label     = gene),
+      size          = 3.2,
+      fontface      = "italic",
+      colour        = col_navy,
+      box.padding   = 0.4,
+      point.padding = 0.3,
+      segment.colour = "#94A3B8",
+      segment.size  = 0.35,
+      max.overlaps  = 25,
+      show.legend   = FALSE
+    ) +
+    scale_colour_manual(
+      values = c(Up = col_up, Down = col_down, NS = col_ns),
+      labels = c(
+        Up   = paste0("Up in LC (",   n_up,   ")"),
+        Down = paste0("Down in LC (", n_down, ")"),
+        NS   = paste0("NS (",         n_ns,   ")")
+      ),
+      name = NULL
+    ) +
+    labs(
+      title    = title,
+      subtitle = subtitle,
+      x        = expression(log[2]~Fold~Change~(LC~vs~T2D)),
+      y        = expression(-log[10](p[adj]))
+    ) +
+    theme_volcano() +
+    guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1)))
+}
+
+
+# ============================================================
+#  MAIN FUNCTION — run all three methods for one cell type
+# ============================================================
+
+run_three_methods <- function(ct) {
+
+  cat("\n\n══════════════════════════════════════════════════\n")
+  cat(" Cell type:", ct, "\n")
+  cat("══════════════════════════════════════════════════\n")
+
+  # ── Subset to this cell type ────────────────────────────
+  seu <- subset(so_liver_sn,
+                subset = !!sym(celltype_col) == ct &
+                         !!sym(group_col)    %in% c("LC", "T2D"))
+
+  # Relevel so T2D is the reference
+  seu@meta.data[[group_col]] <- relevel(
+    factor(seu@meta.data[[group_col]]),
+    ref = ref_level
+  )
+
+  n_total <- ncol(seu)
+  cat("  Cells total:", n_total, "\n")
+  print(table(seu@meta.data[[group_col]]))
+
+  if (n_total < 30) {
+    warning("Fewer than 30 cells for ", ct, " — skipping.")
+    return(invisible(NULL))
+  }
+
+
+  # ── METHOD 1: FindMarkers (Wilcoxon, single cell) ────────
+  cat("\n── Method 1: FindMarkers ──\n")
+
+  Idents(seu) <- group_col
+
+  fm_raw <- FindMarkers(
+    seu,
+    ident.1         = test_level,
+    ident.2         = ref_level,
+    test.use        = "wilcox",
+    logfc.threshold = 0,          # return ALL genes, no pre-filter
+    min.pct         = 0.05,
+    verbose         = FALSE
+  )
+
+  fm_df <- fm_raw %>%
+    rownames_to_column("gene") %>%
+    rename(log2FoldChange = avg_log2FC,
+           padj           = p_val_adj) %>%
+    make_volcano_df()
+
+  p1 <- draw_volcano(
+    fm_df,
+    title    = "FindMarkers — Wilcoxon (single cell)",
+    subtitle = paste0(
+      "N = ", n_total, " cells treated as independent  |  ",
+      "⚠ Pseudoreplication: inflated significance, tiny effect sizes"
+    )
+  )
+
+  cat("  FindMarkers DEGs — Up:", sum(fm_df$sig == "Up"),
+      "  Down:", sum(fm_df$sig == "Down"), "\n")
+
+
+  # ── METHOD 2: Pseudobulk DESeq2 ─────────────────────────
+  cat("\n── Method 2: Pseudobulk DESeq2 ──\n")
+
+  counts_mat <- GetAssayData(seu, assay = "RNA", layer = "counts")
+
+  # If Seurat v4 (no layers), use: counts_mat <- GetAssayData(seu, slot = "counts")
+
+  meta_pb <- seu@meta.data %>%
+    select(all_of(c(sample_col, group_col))) %>%
+    mutate(pb_id = paste0(.data[[sample_col]], "__", .data[[group_col]]))
+
+  # Sum counts per Kit_Lot × group
+  pb_ids     <- unique(meta_pb$pb_id)
+  pb_counts  <- sapply(pb_ids, function(g) {
+    cells <- rownames(meta_pb)[meta_pb$pb_id == g]
+    rowSums(counts_mat[, cells, drop = FALSE])
+  })
+  colnames(pb_counts) <- pb_ids
+
+  # Column metadata
+  pb_meta <- data.frame(
+    pb_id     = pb_ids,
+    group     = sub(".*__", "", pb_ids),
+    donor     = sub("__.*", "", pb_ids),
+    row.names = pb_ids,
+    stringsAsFactors = FALSE
+  )
+  pb_meta$group <- relevel(factor(pb_meta$group), ref = ref_level)
+
+  # Drop pseudobulk samples with fewer than min_cells cells
+  cells_per_pb <- table(meta_pb$pb_id)
+  keep_pb      <- names(cells_per_pb)[cells_per_pb >= min_cells]
+  pb_counts    <- pb_counts[, keep_pb, drop = FALSE]
+  pb_meta      <- pb_meta[keep_pb, , drop = FALSE]
+
+  cat("  Pseudobulk samples kept:", nrow(pb_meta), "\n")
+  print(table(pb_meta$group))
+
+  if (sum(pb_meta$group == test_level) < 2 ||
+      sum(pb_meta$group == ref_level)  < 2) {
+    warning("Need ≥2 donors per group for DESeq2 — skipping pseudobulk for ", ct)
+    p2 <- ggplot() +
+      labs(title = "Pseudobulk DESeq2 — skipped (too few donors)") +
+      theme_void()
+    deseq2_df <- tibble(gene = character(), log2FoldChange = numeric(),
+                        padj = numeric(), sig = factor(), neg_log10_p = numeric())
+  } else {
+    dds <- DESeqDataSetFromMatrix(
+      countData = pb_counts,
+      colData   = pb_meta,
+      design    = ~ group
+    )
+    # Pre-filter: gene must have ≥10 counts in ≥2 samples
+    dds <- dds[rowSums(counts(dds) >= 10) >= 2, ]
+    dds <- DESeq(dds, quiet = TRUE)
+
+    res <- lfcShrink(
+      dds,
+      coef  = resultsNames(dds)[2],   # second term = group_LC_vs_T2D
+      type  = "apeglm",
+      quiet = TRUE
+    )
+
+    deseq2_df <- as.data.frame(res) %>%
+      rownames_to_column("gene") %>%
+      make_volcano_df()
+
+    p2 <- draw_volcano(
+      deseq2_df,
+      title    = "Pseudobulk — DESeq2 + apeglm shrinkage",
+      subtitle = paste0(
+        "N donors = ", length(unique(pb_meta$donor)),
+        "  |  Recommended for multi-donor designs"
+      )
+    )
+
+    cat("  DESeq2 DEGs — Up:", sum(deseq2_df$sig == "Up"),
+        "  Down:", sum(deseq2_df$sig == "Down"), "\n")
+  }
+
+
+  # ── METHOD 3: NEBULA ────────────────────────────────────
+  cat("\n── Method 3: NEBULA ──\n")
+
+  counts_neb <- GetAssayData(seu, assay = "RNA", layer = "counts")
+
+  # Remove cells missing group or donor info
+  valid_cells <- rownames(seu@meta.data)[
+    !is.na(seu@meta.data[[group_col]]) &
+    !is.na(seu@meta.data[[sample_col]])
+  ]
+  counts_neb <- counts_neb[, valid_cells, drop = FALSE]
+  meta_neb   <- seu@meta.data[valid_cells, ]
+
+  # Integer donor vector (required by nebula)
+  donor_vec  <- as.integer(factor(meta_neb[[sample_col]]))
+
+  # Binary condition: 0 = T2D (ref), 1 = LC (test)
+  cond_bin   <- as.integer(meta_neb[[group_col]] == test_level)
+
+  # Model matrix
+  pred_mat   <- model.matrix(~ cond_bin)
+  colnames(pred_mat) <- c("Intercept", "LC_vs_T2D")
+
+  # Filter genes expressed in ≥5% of cells
+  pct_expr   <- rowMeans(counts_neb > 0)
+  genes_use  <- names(pct_expr)[pct_expr >= 0.05]
+  counts_neb <- counts_neb[genes_use, , drop = FALSE]
+  cat("  Genes passed to NEBULA:", nrow(counts_neb), "\n")
+
+  neb_data <- group_cell(
+    count = counts_neb,
+    id    = donor_vec,
+    pred  = pred_mat
+  )
+
+  neb_fit <- nebula(
+    neb_data,
+    id      = donor_vec,
+    pred    = pred_mat,
+    method  = "LN",     # fast Laplace; swap to "HL" for higher accuracy
+    verbose = FALSE
+  )
+
+  nebula_df <- neb_fit$summary %>%
+    as.data.frame() %>%
+    rename(
+      log2FoldChange = logFC_LC_vs_T2D,
+      pval           = p_LC_vs_T2D
+    ) %>%
+    mutate(
+      # NEBULA returns natural-log FC — convert to log2
+      log2FoldChange = log2FoldChange / log(2),
+      padj           = p.adjust(pval, method = "BH")
+    ) %>%
+    make_volcano_df()
+
+  p3 <- draw_volcano(
+    nebula_df,
+    title    = "NEBULA-LN (single-cell negative binomial mixed model)",
+    subtitle = paste0(
+      "N = ", ncol(counts_neb), " cells  |  ",
+      "Kit_Lot as random effect — accounts for donor variability"
+    )
+  )
+
+  cat("  NEBULA DEGs — Up:", sum(nebula_df$sig == "Up"),
+      "  Down:", sum(nebula_df$sig == "Down"), "\n")
+
+
+  # ── COMBINE & SAVE ──────────────────────────────────────
+  ct_safe <- gsub("[^A-Za-z0-9_]", "_", ct)   # safe for filenames
+
+  combined <- (p1 / p2 / p3) +
+    plot_annotation(
+      title    = paste0(ct, "  |  LC vs. T2D  (so_liver_sn)"),
+      subtitle = paste0(
+        "Same cells, three methods. ",
+        "Note: FindMarkers inflates DEG counts vs. pseudobulk/NEBULA."
+      ),
+      theme = theme(
+        plot.title    = element_text(face = "bold", size = 16,
+                                     colour = col_navy, margin = margin(b = 4)),
+        plot.subtitle = element_text(size = 11, colour = "#64748B",
+                                     margin = margin(b = 10))
+      )
+    )
+
+  fname_pdf <- paste0(out_prefix, "_", ct_safe, "_stacked.pdf")
+  fname_png <- paste0(out_prefix, "_", ct_safe, "_stacked.png")
+
+  ggsave(fname_pdf, combined, width = 10, height = 22, device = cairo_pdf)
+  ggsave(fname_png, combined, width = 10, height = 22, dpi = 180)
+  cat("  Saved:", fname_png, "\n")
+
+  # Wide side-by-side layout
+  combined_wide <- (p1 | p2 | p3) +
+    plot_annotation(
+      title = paste0(ct, "  |  LC vs. T2D"),
+      theme = theme(
+        plot.title = element_text(face = "bold", size = 15, colour = col_navy)
+      )
+    )
+
+  fname_wide <- paste0(out_prefix, "_", ct_safe, "_wide.pdf")
+  ggsave(fname_wide, combined_wide, width = 22, height = 8, device = cairo_pdf)
+  cat("  Saved:", fname_wide, "\n")
+
+  # Return summary stats
+  tibble(
+    cell_type  = ct,
+    n_cells    = n_total,
+    n_donors   = length(unique(meta_neb[[sample_col]])),
+    FM_up      = sum(fm_df$sig     == "Up"),
+    FM_down    = sum(fm_df$sig     == "Down"),
+    DESeq2_up  = sum(deseq2_df$sig == "Up"),
+    DESeq2_down= sum(deseq2_df$sig == "Down"),
+    NEBULA_up  = sum(nebula_df$sig == "Up"),
+    NEBULA_down= sum(nebula_df$sig == "Down")
+  )
+}
+
+
+# ============================================================
+#  RUN
+# ============================================================
+
+all_celltypes <- sort(unique(so_liver_sn@meta.data[[celltype_col]]))
+
+# If cell_type_run is set, run only that type; otherwise run all
+run_these <- if (!is.null(cell_type_run)) cell_type_run else all_celltypes
+
+results_list <- lapply(run_these, function(ct) {
+  tryCatch(
+    run_three_methods(ct),
+    error = function(e) {
+      message("ERROR for cell type '", ct, "': ", conditionMessage(e))
+      return(NULL)
+    }
+  )
+})
+
+# ── Summary table ────────────────────────────────────────────
+summary_tbl <- bind_rows(results_list)
+
+cat("\n\n══════════════════════════════════════════════════\n")
+cat(" SUMMARY: DEG counts by cell type & method\n")
+cat("══════════════════════════════════════════════════\n")
+print(summary_tbl, n = Inf)
+
+write.csv(summary_tbl,
+          file = paste0(out_prefix, "_summary.csv"),
+          row.names = FALSE)
+cat("\nSummary saved to:", paste0(out_prefix, "_summary.csv"), "\n")
+
+```

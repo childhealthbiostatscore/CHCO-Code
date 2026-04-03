@@ -66,8 +66,8 @@ def clean_attempt():
     demo.replace(rep, np.nan, inplace=True)
     
     # Map categorical variables
-    demo["sex"].replace({"1": "Female", "2": "Male", "3": "Other"}, inplace=True)
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    demo["sex"] = demo["sex"].replace({"1": "Female", "2": "Male", "3": "Other"})
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
     
     # Combine checkbox variables
     demo = combine_checkboxes(demo, base_name="race", levels=["American Indian or Alaskan Native", "Asian", "Hawaiian or Pacific Islander", "Black or African American", "White", "Unknown", "Other"])
@@ -89,7 +89,7 @@ def clean_attempt():
     med.replace({"0": "No", "1": "Yes"}, inplace=True)
     med.rename({"study_visit_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
     med["procedure"] = "medications"
-    med["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
+    med["visit"] = med["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
 
     # --------------------------------------------------------------------------
     # Clamp
@@ -99,7 +99,7 @@ def clean_attempt():
     clamp.replace(rep, np.nan, inplace=True)
     clamp.rename({"sbp_clamp": "sbp", "dbp_clamp": "dbp", "clamp_height": "height", "weight_clamp": "weight", "date_clamp": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
     clamp["procedure"] = "clamp"
-    clamp["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
+    clamp["visit"] = clamp["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
 
     # --------------------------------------------------------------------------
     # Kidney Biopsy
@@ -117,7 +117,7 @@ def clean_attempt():
     biopsy.columns = biopsy.columns.str.replace(r"vitals_", "", regex=True)
     biopsy.rename({"redcap_event_name": "visit"}, axis=1, inplace=True)
     biopsy["procedure"] = "kidney_biopsy"
-    biopsy["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
+    biopsy["visit"] = biopsy["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
     
     # --------------------------------------------------------------------------
     # MRI
@@ -128,7 +128,7 @@ def clean_attempt():
     bold_mri.replace(rep, np.nan, inplace=True)
     bold_mri.rename({"mri_lab_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
     bold_mri["procedure"] = "bold_mri"
-    bold_mri["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
+    bold_mri["visit"] = bold_mri["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
 
 
     # --------------------------------------------------------------------------
@@ -139,7 +139,7 @@ def clean_attempt():
     labs = pd.DataFrame(proj.export_records(fields=var))
     labs.replace(rep, np.nan, inplace=True)
     labs.rename({"hgb": "hemoglobin", "hct": "hematocrit", "plt": "pltct", "creat": "creatinine_s", "redcap_event_name": "visit"}, axis=1, inplace=True)
-    labs["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
+    labs["visit"] = labs["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
     
     # --------------------------------------------------------------------------
     # Missingness

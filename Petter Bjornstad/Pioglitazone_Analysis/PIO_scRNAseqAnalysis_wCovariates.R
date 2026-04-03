@@ -1,0 +1,1514 @@
+#### Pioglitazone scRNAseq - Covariate Sensitivity Analysis
+#### Tests BMI, sex, metformin, and GLP-1RA as individual covariates
+#### Compares results against base model (pioglitazone only)
+
+library(scran)
+library(tidyverse)
+library(patchwork)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(data.table)
+library(pheatmap)
+library(readxl)
+library(SingleCellExperiment)
+library(scater)
+library(Seurat)
+library(dplyr)
+library(nebula)
+library(Matrix)
+library(ggplot2)
+library(gt)
+library(gtsummary)
+library(fgsea)
+library(msigdbr)
+library(stringr)
+library(gridExtra)
+library(grid)
+library(ggrepel)
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+setwd('C:/Users/netio/Documents/Harmonized_data/')
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/'
+
+dir.create(paste0(dir.results, 'NEBULA/'),       recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'Comparison/'),   recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'VolcanoPlots/'), recursive = TRUE, showWarnings = FALSE)
+
+COVARIATES <- list(
+  base      = NULL,
+  bmi       = "bmi",
+  sex       = "sex",
+  metformin = "epic_mfm_1",
+  glp1ra    = "epic_glp1ra_1"
+)
+
+celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'POD', 'DCT', 'IC')
+
+# ============================================================================
+# DATA LOADING
+# ============================================================================
+
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
+so_subset <- so_kpmp_sc
+remove(so_kpmp_sc)
+
+so_subset$celltype1 <- case_when(
+  grepl("PT-",  so_subset$celltype_rpca) ~ "PT",
+  grepl("TAL-", so_subset$celltype_rpca) ~ "TAL",
+  grepl("EC-",  so_subset$celltype_rpca) ~ "EC",
+  grepl("POD",  so_subset$celltype_rpca) ~ "POD",
+  grepl("MAC",  so_subset$celltype_rpca) ~ "MAC",
+  grepl("MON",  so_subset$celltype_rpca) ~ "MON",
+  grepl("PC-",  so_subset$celltype_rpca) ~ "PC",
+  grepl("FIB",  so_subset$celltype_rpca) ~ "FIB_MC_VSMC",
+  grepl("DTL",  so_subset$celltype_rpca) ~ "DTL",
+  so_subset$celltype_rpca == "DCT"       ~ "DCT",
+  so_subset$celltype_rpca == "ATL"       ~ "ATL",
+  so_subset$celltype_rpca == "B"         ~ "B",
+  so_subset$celltype_rpca == "T"         ~ "T"
+)
+so_subset$celltype1 <- as.character(so_subset$celltype1)
+
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2 <- ifelse(
+  so_subset$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"), "PT",
+  ifelse(grepl("TAL", so_subset$KPMP_celltype), "TAL",
+         ifelse(grepl("EC-", so_subset$KPMP_celltype), "EC", so_subset$KPMP_celltype2))
+)
+
+so_subset$DCT_celltype <- ifelse(
+  so_subset$KPMP_celltype %in% c("DCT", "dDCT"), "DCT", "Non-DCT"
+)
+
+so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
+so_subset <- subset(so_subset, subset = group == 'Type_2_Diabetes')
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/'
+
+# ============================================================================
+# MEDICATION & COVARIATE DATA
+# ============================================================================
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
+  na = '')
+
+harmonized_data <- harmonized_data %>% filter(group == 'Type 2 Diabetes')
+
+harmonized_data <- harmonized_data %>%
+  dplyr::select(-dob) %>%
+  arrange(date_of_screen) %>%
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm = TRUE))),
+    .by = c(record_id, visit)
+  )
+
+
+
+
+medications <- readxl::read_xlsx("Biopsies_w_mrn_Oct3.xlsx")
+medications <- medications %>% dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
+names(medications) <- str_replace(names(medications), pattern = '_1', replacement = '')
+# columns are now stripped: tzd, mfm, glp1ra, etc.
+
+meta.data <- so_subset@meta.data
+
+harmonized_data <- harmonized_data %>%
+  filter(rh_id %in% meta.data$record_id | croc_id %in% meta.data$record_id |
+           improve_id %in% meta.data$record_id | penguin_id %in% meta.data$record_id |
+           rh2_id %in% meta.data$record_id) %>%
+  dplyr::select(record_id, mrn, group, bmi, sex)
+
+medications <- medications %>%
+  dplyr::select(mrn, tzd, epic_mfm_1 = mfm, epic_glp1ra_1 = glp1ra) %>%
+  filter(mrn %in% harmonized_data$mrn)
+
+harmonized_data$mrn <- as.character(harmonized_data$mrn)
+
+final_df <- medications %>% left_join(harmonized_data, by = 'mrn')
+final_df$combined_id <- paste0(final_df$mrn, '_', final_df$record_id)
+final_df <- final_df %>% filter(!duplicated(combined_id))
+
+# ============================================================================
+# QC & APPLY GROUP LABELS / COVARIATES TO SEURAT OBJECT
+# ============================================================================
+
+scrna_small <- subset(so_subset, record_id %in% final_df$record_id)
+scrna_small <- subset(scrna_small,
+                      subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
+
+meta.data    <- scrna_small@meta.data
+meta.data <- meta.data %>% 
+  dplyr::select(-bmi, -epic_mfm_1, -epic_glp1ra_1)
+
+covar_lookup <- final_df %>%
+  dplyr::select(record_id, tzd, bmi,epic_mfm_1, epic_glp1ra_1) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+meta_joined <- meta.data %>%
+  left_join(covar_lookup, by = 'record_id')
+
+scrna_small$group_labels  <- meta_joined$tzd
+scrna_small$bmi           <- meta_joined$bmi
+scrna_small$sex           <- meta_joined$sex
+scrna_small$epic_mfm_1    <- meta_joined$epic_mfm_1
+scrna_small$epic_glp1ra_1 <- meta_joined$epic_glp1ra_1
+
+# ============================================================================
+# POOLED OFFSET
+# ============================================================================
+
+counts_full <- round(GetAssayData(scrna_small, layer = 'counts'))
+scrna_small$library_size <- Matrix::colSums(counts_full)
+sce_full <- SingleCellExperiment(assays = list(counts = counts_full))
+sce_full <- computeSumFactors(sce_full)
+scrna_small$pooled_offset <- sizeFactors(sce_full)
+remove(sce_full, counts_full)
+
+# ============================================================================
+# NEBULA SENSITIVITY FUNCTION
+# ============================================================================
+
+run_nebula_sensitivity <- function(so_obj, dir.results, celltype,
+                                   covariate_name = NULL, model_label = "base") {
+  if (celltype == 'All') {
+    so_celltype <- so_obj
+  } else if (celltype %in% c('TAL', 'EC', 'PT')) {
+    so_celltype <- subset(so_obj, celltype2 == celltype)
+  } else if (celltype == 'IC') {
+    so_celltype <- subset(so_obj, celltype1 %in% c("B", "T", "MON", "MAC"))
+  } else if (celltype == 'DCT') {
+    so_celltype <- subset(so_obj, DCT_celltype == "DCT")
+  } else if (celltype == 'POD') {
+    so_celltype <- subset(so_obj, celltype1 == "POD")
+  } else {
+    if (celltype %in% unique(so_obj$celltype2)) {
+      so_celltype <- subset(so_obj, celltype2 == celltype)
+    } else if (celltype %in% unique(so_obj$celltype1)) {
+      so_celltype <- subset(so_obj, celltype1 == celltype)
+    } else {
+      cat(paste0("Cell type '", celltype, "' not found. Skipping.\n"))
+      return(invisible(NULL))
+    }
+  }
+  
+  DefaultAssay(so_celltype) <- "RNA"
+  ct_clean <- str_replace_all(str_replace_all(celltype, "/", "_"), "-", "_")
+  cat(paste0("\n=== ", ct_clean, " | model: ", model_label, " ===\n"))
+  
+  counts_mat <- round(GetAssayData(so_celltype, layer = "counts"))
+  meta_gene  <- so_celltype@meta.data
+  
+  required_cols <- if (is.null(covariate_name)) "group_labels" else c("group_labels", covariate_name)
+  missing_cols  <- setdiff(required_cols, colnames(meta_gene))
+  if (length(missing_cols) > 0) {
+    cat(paste0("Missing columns in metadata: ", paste(missing_cols, collapse = ", "), " — skipping.\n"))
+    return(invisible(NULL))
+  }
+  complete_idx <- complete.cases(meta_gene[, required_cols, drop = FALSE])
+  cat("Cells with complete data:", sum(complete_idx), "\n")
+  
+  meta_gene  <- meta_gene[complete_idx, ]
+  counts_mat <- counts_mat[, complete_idx]
+  
+  tmp_df  <- meta_gene %>% dplyr::select(record_id, group_labels) %>% distinct(record_id, .keep_all = TRUE)
+  num_yes <- sum(tmp_df$group_labels == 'Yes', na.rm = TRUE)
+  num_no  <- sum(tmp_df$group_labels == 'No',  na.rm = TRUE)
+  cat("Participants - Yes:", num_yes, "No:", num_no, "\n")
+  
+  if (is.null(covariate_name)) {
+    formula_str <- "~group_labels"
+  } else {
+    formula_str <- paste0("~group_labels + ", covariate_name)
+  }
+  pred_gene <- model.matrix(as.formula(formula_str), data = meta_gene)
+  
+  lib    <- meta_gene$pooled_offset
+  data_g <- group_cell(count = counts_mat, id = meta_gene$record_id,
+                       pred = pred_gene, offset = lib)
+  if (is.null(data_g)) {
+    data_g <- list(count = counts_mat, id = meta_gene$record_id,
+                   pred = pred_gene, offset = lib)
+  }
+  
+  result <- nebula(count = data_g$count, id = data_g$id,
+                   pred = data_g$pred, ncore = 1, reml = TRUE,
+                   model = "NBLMM", output_re = TRUE, covariance = TRUE,
+                   offset = data_g$offset)
+  
+  full_results <- as.data.frame(result)
+  full_results$num_cells   <- nrow(meta_gene)
+  full_results$num_pio_yes <- num_yes
+  full_results$num_pio_no  <- num_no
+  full_results$model_label <- model_label
+  full_results$covariate   <- ifelse(is.null(covariate_name), "none", covariate_name)
+  
+  out_file <- paste0(dir.results, 'NEBULA/NEBULA_', ct_clean, '_', model_label, '.csv')
+  write.csv(full_results, out_file, row.names = FALSE)
+  cat("Saved:", out_file, "\n")
+  
+  return(invisible(full_results))
+}
+
+# ============================================================================
+# RUN ALL MODELS x ALL CELL TYPES
+# ============================================================================
+
+for (ct in celltypes_vec) {
+  for (model_label in names(COVARIATES)) {
+    run_nebula_sensitivity(
+      so_obj         = scrna_small,
+      dir.results    = dir.results,
+      celltype       = ct,
+      covariate_name = COVARIATES[[model_label]],
+      model_label    = model_label
+    )
+  }
+}
+
+# ============================================================================
+# HELPER: LOAD PIO EFFECT FROM NEBULA OUTPUT
+# ============================================================================
+
+load_pio_effect <- function(dir.results, ct_clean, model_label) {
+  fp <- paste0(dir.results, 'NEBULA/NEBULA_', ct_clean, '_', model_label, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  df %>%
+    dplyr::select(
+      gene   = summary.gene,
+      logFC  = summary.logFC_group_labelsYes,
+      pvalue = summary.p_group_labelsYes
+    ) %>%
+    mutate(model = model_label, fdr = p.adjust(pvalue, method = "BH"))
+}
+
+# ============================================================================
+# 1. LogFC CORRELATION MATRIX
+# ============================================================================
+
+cat("\n=== Building LogFC correlation matrices ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean  <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  model_dfs <- lapply(names(COVARIATES), function(m) load_pio_effect(dir.results, ct_clean, m))
+  names(model_dfs) <- names(COVARIATES)
+  model_dfs <- Filter(Negate(is.null), model_dfs)
+  if (length(model_dfs) < 2) next
+  
+  wide <- Reduce(function(a, b) full_join(a, b, by = "gene"),
+                 lapply(names(model_dfs), function(m) {
+                   model_dfs[[m]] %>% dplyr::select(gene, logFC) %>%
+                     rename_with(~ m, "logFC")
+                 }))
+  
+  cor_mat <- cor(wide[, names(model_dfs)], use = "pairwise.complete.obs")
+  
+  png(paste0(dir.results, 'Comparison/Corr_LogFC_', ct_clean, '.png'),
+      width = 900, height = 800, res = 150)
+  pheatmap::pheatmap(
+    cor_mat,
+    display_numbers = TRUE, number_format = "%.3f",
+    color  = colorRampPalette(c("white", "#4393c3"))(50),
+    breaks = seq(0.8, 1, length.out = 51),
+    main   = paste0(ct, ": PIO LogFC Correlation Across Models"),
+    fontsize = 12
+  )
+  dev.off()
+  cat("Saved correlation heatmap for", ct, "\n")
+}
+
+# ============================================================================
+# 2. EFFECT STABILITY SCATTER PLOTS
+# ============================================================================
+
+cat("\n=== Building effect-stability scatter plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  base_df  <- load_pio_effect(dir.results, ct_clean, "base")
+  if (is.null(base_df)) next
+  
+  plot_list <- list()
+  for (m in setdiff(names(COVARIATES), "base")) {
+    cov_df <- load_pio_effect(dir.results, ct_clean, m)
+    if (is.null(cov_df)) next
+    
+    merged <- inner_join(
+      base_df %>% dplyr::select(gene, logFC_base = logFC, pval_base = pvalue),
+      cov_df  %>% dplyr::select(gene, logFC_cov  = logFC, pval_cov  = pvalue),
+      by = "gene"
+    ) %>%
+      mutate(
+        status = case_when(
+          pval_base < 0.05 & pval_cov < 0.05  ~ "Sig in both",
+          pval_base < 0.05 & pval_cov >= 0.05 ~ "Lost after covariate",
+          pval_base >= 0.05 & pval_cov < 0.05 ~ "Gained after covariate",
+          TRUE                                 ~ "NS in both"
+        ),
+        delta = abs(logFC_cov - logFC_base),
+        label = ifelse(rank(-delta) <= 8 & status != "NS in both", gene, NA)
+      )
+    
+    r_val  <- round(cor(merged$logFC_base, merged$logFC_cov, use = "complete.obs"), 3)
+    n_lost <- sum(merged$status == "Lost after covariate")
+    n_gain <- sum(merged$status == "Gained after covariate")
+    
+    plot_list[[m]] <- ggplot(merged, aes(x = logFC_base, y = logFC_cov, color = status)) +
+      geom_point(alpha = 0.6, size = 1.5) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+      geom_hline(yintercept = 0, color = "grey60", linewidth = 0.3) +
+      geom_vline(xintercept = 0, color = "grey60", linewidth = 0.3) +
+      ggrepel::geom_text_repel(aes(label = label), size = 2.5, color = "black", max.overlaps = 15) +
+      scale_color_manual(values = c(
+        "Sig in both"            = "#d73027",
+        "Lost after covariate"   = "#fc8d59",
+        "Gained after covariate" = "#4575b4",
+        "NS in both"             = "grey80"
+      )) +
+      theme_bw() +
+      labs(x = "LogFC (base model)", y = paste0("LogFC (+", m, ")"), color = NULL,
+           title = paste0(ct, ": base vs +", m),
+           subtitle = paste0("r = ", r_val, "  |  Lost: ", n_lost, "  |  Gained: ", n_gain)) +
+      theme(plot.title = element_text(face = "bold", size = 11),
+            plot.subtitle = element_text(size = 9),
+            legend.position = "bottom")
+  }
+  
+  if (length(plot_list) > 0) {
+    combined <- wrap_plots(plot_list, ncol = 2) +
+      plot_annotation(title = paste0(ct, " — PIO Effect: Base vs Covariate-Adjusted Models"),
+                      theme = theme(plot.title = element_text(face = "bold", size = 14)))
+    ggsave(paste0(dir.results, 'Comparison/Scatter_BaseVsCov_', ct_clean, '.pdf'), combined, width = 14, height = 10)
+    ggsave(paste0(dir.results, 'Comparison/Scatter_BaseVsCov_', ct_clean, '.png'), combined, width = 14, height = 10, dpi = 200)
+    cat("Saved scatter plots for", ct, "\n")
+  }
+}
+
+# ============================================================================
+# 3. SIGNIFICANCE CHANGE SUMMARY TABLE
+# ============================================================================
+
+cat("\n=== Building significance summary table ===\n")
+
+summary_rows <- list()
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  base_df  <- load_pio_effect(dir.results, ct_clean, "base")
+  if (is.null(base_df)) next
+  
+  for (m in setdiff(names(COVARIATES), "base")) {
+    cov_df <- load_pio_effect(dir.results, ct_clean, m)
+    if (is.null(cov_df)) next
+    
+    merged <- inner_join(
+      base_df %>% dplyr::select(gene, logFC_base = logFC, pval_base = pvalue),
+      cov_df  %>% dplyr::select(gene, logFC_cov  = logFC, pval_cov  = pvalue),
+      by = "gene"
+    )
+    
+    summary_rows[[paste0(ct, "_", m)]] <- data.frame(
+      celltype       = ct,
+      covariate      = m,
+      n_genes_tested = nrow(merged),
+      n_sig_base     = sum(merged$pval_base < 0.05, na.rm = TRUE),
+      n_sig_adjusted = sum(merged$pval_cov  < 0.05, na.rm = TRUE),
+      n_sig_both     = sum(merged$pval_base < 0.05 & merged$pval_cov < 0.05, na.rm = TRUE),
+      n_lost         = sum(merged$pval_base < 0.05 & merged$pval_cov >= 0.05, na.rm = TRUE),
+      n_gained       = sum(merged$pval_base >= 0.05 & merged$pval_cov < 0.05, na.rm = TRUE),
+      r_logFC        = round(cor(merged$logFC_base, merged$logFC_cov, use = "complete.obs"), 4)
+    )
+  }
+}
+
+summary_df <- bind_rows(summary_rows)
+write.csv(summary_df, paste0(dir.results, 'Comparison/Significance_Change_Summary.csv'), row.names = FALSE)
+print(summary_df)
+
+# ============================================================================
+# 4. VOLCANO SIDE-BY-SIDE
+# ============================================================================
+
+cat("\n=== Building side-by-side volcano plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  vol_list <- list()
+  
+  for (m in names(COVARIATES)) {
+    df <- load_pio_effect(dir.results, ct_clean, m)
+    if (is.null(df)) next
+    
+    df <- df %>%
+      mutate(diffexp = case_when(
+        pvalue < 0.05 & logFC > 0 ~ "Up",
+        pvalue < 0.05 & logFC < 0 ~ "Down",
+        TRUE ~ "NS"
+      )) %>%
+      arrange(pvalue) %>%
+      mutate(label = ifelse(row_number() <= 8, gene, NA)) %>%
+      filter(abs(logFC) < 10)
+    
+    title_str <- if (m == "base") "Base model" else paste0("+", m)
+    
+    vol_list[[m]] <- ggplot(df, aes(x = logFC, y = -log10(pvalue), color = diffexp, label = label)) +
+      geom_point(size = 1.2, alpha = 0.7) +
+      ggrepel::geom_text_repel(size = 2.2, color = "black", max.overlaps = 12) +
+      scale_color_manual(values = c(Down = "orange", NS = "grey70", Up = "purple"),
+                         labels = c(Down = "Down in Pio", NS = "NS", Up = "Up in Pio")) +
+      geom_hline(yintercept = -log10(0.05), color = "blue", linetype = "dashed", linewidth = 0.4) +
+      geom_vline(xintercept = 0, color = "black", linetype = "dashed", linewidth = 0.4) +
+      theme_classic() +
+      labs(x = "LogFC", y = "-log10(p)", color = NULL, title = paste0(ct, ": ", title_str)) +
+      theme(plot.title = element_text(face = "bold", size = 10),
+            legend.position = "bottom", aspect.ratio = 1)
+  }
+  
+  if (length(vol_list) > 1) {
+    combined_vol <- wrap_plots(vol_list, ncol = 3) +
+      plot_layout(guides = "collect") & theme(legend.position = "bottom")
+    ggsave(paste0(dir.results, 'VolcanoPlots/Volcano_AllModels_', ct_clean, '.pdf'), combined_vol, width = 18, height = 6)
+    ggsave(paste0(dir.results, 'VolcanoPlots/Volcano_AllModels_', ct_clean, '.png'), combined_vol, width = 18, height = 6, dpi = 200)
+    cat("Saved volcano grid for", ct, "\n")
+  }
+}
+
+# ============================================================================
+# 5. ROBUSTLY SIGNIFICANT GENES
+# ============================================================================
+
+cat("\n=== Identifying robustly significant genes ===\n")
+
+robust_results <- list()
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  all_dfs  <- lapply(names(COVARIATES), function(m) load_pio_effect(dir.results, ct_clean, m))
+  names(all_dfs) <- names(COVARIATES)
+  all_dfs <- Filter(Negate(is.null), all_dfs)
+  if (length(all_dfs) < 2) next
+  
+  gene_sig_counts <- Reduce(function(a, b) full_join(a, b, by = "gene"),
+                            lapply(names(all_dfs), function(m) {
+                              all_dfs[[m]] %>%
+                                mutate(sig = as.integer(pvalue < 0.05)) %>%
+                                dplyr::select(gene, sig) %>%
+                                rename_with(~ paste0("sig_", m), "sig")
+                            }))
+  
+  sig_cols <- paste0("sig_", names(all_dfs))
+  gene_sig_counts$n_models_sig <- rowSums(gene_sig_counts[, sig_cols], na.rm = TRUE)
+  
+  robust <- gene_sig_counts %>%
+    left_join(all_dfs[["base"]] %>% dplyr::select(gene, logFC_base = logFC, pval_base = pvalue), by = "gene") %>%
+    arrange(desc(n_models_sig), pval_base) %>%
+    mutate(celltype = ct)
+  
+  robust_results[[ct]] <- robust
+  write.csv(robust, paste0(dir.results, 'Comparison/RobustGenes_', ct_clean, '.csv'), row.names = FALSE)
+}
+
+robust_combined <- bind_rows(robust_results)
+write.csv(robust_combined, paste0(dir.results, 'Comparison/RobustGenes_AllCelltypes.csv'), row.names = FALSE)
+
+cat("\n=== Sensitivity analysis complete! ===\n")
+cat("Outputs saved to:", dir.results, "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+###GSEA
+
+#### Pioglitazone scRNAseq - GSEA Sensitivity Analysis
+#### Runs fgsea for each covariate model and compares pathway results
+#### Assumes NEBULA sensitivity CSVs already exist from sensitivity script
+
+library(tidyverse)
+library(data.table)
+library(fgsea)
+library(msigdbr)
+library(ggplot2)
+library(patchwork)
+library(pheatmap)
+library(stringr)
+library(ggrepel)
+library(RColorBrewer)
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+dir.nebula  <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/NEBULA/'
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/GSEA/'
+
+dir.create(paste0(dir.results, 'DotPlots/'),   recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'Heatmaps/'),   recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'Comparison/'), recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.results, 'Raw/'),        recursive = TRUE, showWarnings = FALSE)
+
+COVARIATES    <- c("base", "bmi", "sex", "metformin", "glp1ra")
+celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'POD', 'DCT', 'IC')
+
+GSEA_PARAMS <- list(minSize = 15, maxSize = 500, nPermSimple = 10000)
+P_THRESH    <- 0.05   # nominal p-value threshold for "significant"
+NES_THRESH  <- 0      # filter for directional plots (keep all if 0)
+
+# ============================================================================
+# GENE SETS
+# ============================================================================
+
+cat("Loading gene sets...\n")
+hallmark_list <- split(msigdbr(species = "Homo sapiens", category = "H")$gene_symbol,
+                       msigdbr(species = "Homo sapiens", category = "H")$gs_name)
+go_bp_list    <- split(msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")$gene_symbol,
+                       msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")$gs_name)
+
+geneset_types <- list(Hallmark = hallmark_list, GO_BP = go_bp_list)
+# Add GO_CC / GO_MF if desired — kept to Hallmark + GO_BP for manageability
+
+# ============================================================================
+# HELPER: LOAD NEBULA RESULTS & BUILD RANKED GENE LIST
+# ============================================================================
+
+load_ranked_genes <- function(dir.nebula, ct_clean, model_label) {
+  fp <- paste0(dir.nebula, 'NEBULA_', ct_clean, '_', model_label, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  ranked <- df %>%
+    dplyr::select(gene = summary.gene, logFC = summary.logFC_group_labelsYes) %>%
+    filter(!is.na(logFC)) %>%
+    arrange(desc(logFC)) %>%
+    { setNames(.$logFC, .$gene) }
+  return(ranked)
+}
+
+# ============================================================================
+# HELPER: CLEAN PATHWAY NAMES
+# ============================================================================
+
+clean_pathway <- function(x) {
+  x %>%
+    gsub("HALLMARK_|GOBP_|GOCC_|GOMF_", "", .) %>%
+    gsub("_", " ", .) %>%
+    tools::toTitleCase() %>%
+    tolower() %>%
+    tools::toTitleCase()
+}
+
+# ============================================================================
+# RUN GSEA FOR ALL CELL TYPES x MODELS x GENE SETS
+# ============================================================================
+
+cat("\n=== Running GSEA for all models ===\n")
+all_gsea <- list()  # named: celltype_model_geneset
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (model in COVARIATES) {
+    ranked_genes <- load_ranked_genes(dir.nebula, ct_clean, model)
+    if (is.null(ranked_genes)) {
+      cat("  Missing:", ct_clean, model, "— skipping\n")
+      next
+    }
+    
+    for (gs_name in names(geneset_types)) {
+      key <- paste(ct, model, gs_name, sep = "__")
+      cat("  Running:", key, "\n")
+      
+      set.seed(42)
+      res <- fgsea(
+        pathways  = geneset_types[[gs_name]],
+        stats     = ranked_genes,
+        minSize   = GSEA_PARAMS$minSize,
+        maxSize   = GSEA_PARAMS$maxSize,
+        nPermSimple = GSEA_PARAMS$nPermSimple
+      )
+      
+      res$celltype     <- ct
+      res$model        <- model
+      res$geneset_type <- gs_name
+      res$pathway_clean <- clean_pathway(res$pathway)
+      
+      all_gsea[[key]] <- res
+    }
+  }
+}
+
+# Save raw results
+combined_raw <- bind_rows(all_gsea) %>%
+  mutate(leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+write.csv(combined_raw, paste0(dir.results, 'Raw/all_gsea_sensitivity.csv'), row.names = FALSE)
+cat("Raw GSEA saved.\n")
+
+# ============================================================================
+# COMPARISON FUNCTIONS
+# ============================================================================
+
+# Pull NES / pval for a given celltype + geneset, wide across models
+make_wide_table <- function(all_gsea, ct, gs_name, value_col = "NES") {
+  keys <- paste(ct, COVARIATES, gs_name, sep = "__")
+  dfs  <- lapply(COVARIATES, function(m) {
+    key <- paste(ct, m, gs_name, sep = "__")
+    df  <- all_gsea[[key]]
+    if (is.null(df)) return(NULL)
+    df %>% dplyr::select(pathway, pathway_clean, !!value_col) %>%
+      rename_with(~ m, all_of(value_col))
+  })
+  Reduce(function(a, b) full_join(a, b, by = c("pathway", "pathway_clean")),
+         Filter(Negate(is.null), dfs))
+}
+
+# ============================================================================
+# 1. NES HEATMAP: base vs covariate models, for pathways sig in base
+# ============================================================================
+
+cat("\n=== Building NES heatmaps ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    # Get pathways significant in the base model
+    base_key <- paste(ct, "base", gs_name, sep = "__")
+    base_df  <- all_gsea[[base_key]]
+    if (is.null(base_df)) next
+    
+    sig_paths <- base_df %>% filter(pval < P_THRESH) %>% pull(pathway)
+    if (length(sig_paths) == 0) {
+      cat("  No significant pathways in base for", ct, gs_name, "— skipping heatmap\n")
+      next
+    }
+    
+    # Wide NES table
+    wide_nes  <- make_wide_table(all_gsea, ct, gs_name, "NES")
+    wide_pval <- make_wide_table(all_gsea, ct, gs_name, "pval")
+    
+    mat <- wide_nes %>%
+      filter(pathway %in% sig_paths) %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(all_of(COVARIATES)) %>%
+      as.matrix()
+    
+    if (nrow(mat) == 0) next
+    
+    # Significance annotation (asterisks) from pval matrix
+    pval_mat <- wide_pval %>%
+      filter(pathway %in% sig_paths) %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(all_of(COVARIATES)) %>%
+      as.matrix()
+    
+    # Cell labels: NES rounded, asterisk if p<0.05
+    cell_labels <- matrix(
+      ifelse(pval_mat < 0.05,
+             paste0(round(mat, 2), "*"),
+             round(mat, 2)),
+      nrow = nrow(mat), ncol = ncol(mat),
+      dimnames = dimnames(mat)
+    )
+    
+    col_lim <- max(abs(mat), na.rm = TRUE)
+    
+    png(paste0(dir.results, 'Heatmaps/NES_Heatmap_', ct_clean, '_', gs_name, '.png'),
+        width = 1000, height = max(400, nrow(mat) * 22 + 200), res = 120)
+    pheatmap::pheatmap(
+      mat,
+      display_numbers = cell_labels,
+      number_fontsize = 7,
+      color  = colorRampPalette(rev(brewer.pal(9, "RdBu")))(100),
+      breaks = seq(-col_lim, col_lim, length.out = 101),
+      cluster_cols = FALSE,
+      cluster_rows = nrow(mat) > 1,
+      border_color = "white",
+      main = paste0(ct, " — ", gs_name, "\nNES across models (* = p<0.05)"),
+      fontsize_row = 8,
+      fontsize_col = 10
+    )
+    dev.off()
+    cat("  Saved NES heatmap:", ct, gs_name, "\n")
+  }
+}
+
+# ============================================================================
+# 2. NES SCATTER: base NES vs covariate-adjusted NES (per pathway)
+# ============================================================================
+
+cat("\n=== Building NES scatter plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    base_key <- paste(ct, "base", gs_name, sep = "__")
+    base_df  <- all_gsea[[base_key]]
+    if (is.null(base_df)) next
+    
+    cov_models <- setdiff(COVARIATES, "base")
+    plot_list  <- list()
+    
+    for (m in cov_models) {
+      cov_key <- paste(ct, m, gs_name, sep = "__")
+      cov_df  <- all_gsea[[cov_key]]
+      if (is.null(cov_df)) next
+      
+      merged <- inner_join(
+        base_df %>% dplyr::select(pathway, pathway_clean, NES_base = NES, pval_base = pval),
+        cov_df  %>% dplyr::select(pathway, NES_cov = NES, pval_cov = pval),
+        by = "pathway"
+      ) %>%
+        mutate(
+          status = case_when(
+            pval_base < P_THRESH & pval_cov < P_THRESH ~ "Sig in both",
+            pval_base < P_THRESH & pval_cov >= P_THRESH ~ "Lost",
+            pval_base >= P_THRESH & pval_cov < P_THRESH ~ "Gained",
+            TRUE ~ "NS in both"
+          ),
+          delta  = abs(NES_cov - NES_base),
+          label  = ifelse(
+            (status %in% c("Sig in both", "Lost", "Gained")) & rank(-delta) <= 10,
+            pathway_clean, NA
+          )
+        )
+      
+      r_val  <- round(cor(merged$NES_base, merged$NES_cov, use = "complete.obs"), 3)
+      n_lost  <- sum(merged$status == "Lost")
+      n_gained <- sum(merged$status == "Gained")
+      
+      p <- ggplot(merged, aes(x = NES_base, y = NES_cov, color = status, label = label)) +
+        geom_point(alpha = 0.7, size = 2) +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+        geom_hline(yintercept = 0, color = "grey60", linewidth = 0.3) +
+        geom_vline(xintercept = 0, color = "grey60", linewidth = 0.3) +
+        ggrepel::geom_text_repel(size = 2.3, color = "black", max.overlaps = 12) +
+        scale_color_manual(values = c(
+          "Sig in both" = "#d73027",
+          "Lost"        = "#fc8d59",
+          "Gained"      = "#4575b4",
+          "NS in both"  = "grey80"
+        )) +
+        theme_bw() +
+        labs(
+          x     = "NES (base model)",
+          y     = paste0("NES (+", m, ")"),
+          color = NULL,
+          title = paste0("+", m),
+          subtitle = paste0("r = ", r_val, "  |  Lost: ", n_lost, "  |  Gained: ", n_gained)
+        ) +
+        theme(plot.title = element_text(face = "bold", size = 10),
+              plot.subtitle = element_text(size = 8),
+              legend.position = "bottom",
+              aspect.ratio = 1)
+      
+      plot_list[[m]] <- p
+    }
+    
+    if (length(plot_list) > 0) {
+      combined <- wrap_plots(plot_list, ncol = 2) +
+        plot_annotation(
+          title = paste0(ct, " — ", gs_name, ": NES Stability Across Covariate Models"),
+          theme = theme(plot.title = element_text(face = "bold", size = 13))
+        ) +
+        plot_layout(guides = "collect") &
+        theme(legend.position = "bottom")
+      
+      ggsave(paste0(dir.results, 'Comparison/NES_Scatter_', ct_clean, '_', gs_name, '.pdf'),
+             combined, width = 12, height = 10)
+      ggsave(paste0(dir.results, 'Comparison/NES_Scatter_', ct_clean, '_', gs_name, '.png'),
+             combined, width = 12, height = 10, dpi = 200)
+      cat("  Saved NES scatter:", ct, gs_name, "\n")
+    }
+  }
+}
+
+# ============================================================================
+# 3. ROBUST PATHWAY TABLE
+#    Pathways significant in base + how many covariate models they survive
+# ============================================================================
+
+cat("\n=== Identifying robust pathways ===\n")
+
+robust_pathway_rows <- list()
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    # Collect sig flags across all models
+    sig_wide <- lapply(COVARIATES, function(m) {
+      key <- paste(ct, m, gs_name, sep = "__")
+      df  <- all_gsea[[key]]
+      if (is.null(df)) return(NULL)
+      df %>%
+        mutate(sig = as.integer(pval < P_THRESH)) %>%
+        dplyr::select(pathway, pathway_clean, NES, pval, sig) %>%
+        rename_with(~ paste0(c("NES", "pval", "sig"), "_", m),
+                    c("NES", "pval", "sig"))
+    })
+    sig_wide <- Filter(Negate(is.null), sig_wide)
+    if (length(sig_wide) == 0) next
+    
+    merged_wide <- as.data.frame(Reduce(function(a, b) full_join(a, b, by = c("pathway", "pathway_clean")),
+                                        sig_wide))
+    
+    sig_cols <- paste0("sig_", COVARIATES)
+    sig_cols_present <- intersect(sig_cols, names(merged_wide))
+    merged_wide$n_models_sig <- rowSums(merged_wide[, sig_cols_present], na.rm = TRUE)
+    
+    # NES direction consistency: flag if any covariate model flips sign
+    nes_cols <- paste0("NES_", COVARIATES)
+    nes_cols_present <- intersect(nes_cols, names(merged_wide))
+    if (length(nes_cols_present) > 1) {
+      nes_matrix <- merged_wide[, nes_cols_present]
+      merged_wide$direction_consistent <- apply(nes_matrix, 1, function(x) {
+        x <- na.omit(x)
+        if (length(x) == 0) return(NA)
+        all(x > 0) | all(x < 0)
+      })
+    }
+    
+    robust <- merged_wide %>%
+      filter(!is.na(NES_base)) %>%  # must have base model result
+      arrange(desc(n_models_sig), pval_base) %>%
+      mutate(celltype = ct, geneset_type = gs_name)
+    
+    key_out <- paste0(ct, "__", gs_name)
+    robust_pathway_rows[[key_out]] <- robust
+  }
+}
+
+robust_all <- bind_rows(robust_pathway_rows)
+write.csv(robust_all, paste0(dir.results, 'Comparison/RobustPathways_All.csv'), row.names = FALSE)
+
+# Focus table: sig in base AND all covariate models
+fully_robust <- robust_all %>%
+  filter(n_models_sig == length(COVARIATES)) %>%
+  dplyr::select(celltype, geneset_type, pathway_clean,
+                NES_base, pval_base, n_models_sig,
+                any_of("direction_consistent")) %>%
+  arrange(celltype, geneset_type, pval_base)
+
+write.csv(fully_robust, paste0(dir.results, 'Comparison/FullyRobustPathways.csv'), row.names = FALSE)
+cat("Fully robust pathways (sig in all models):", nrow(fully_robust), "\n")
+print(fully_robust %>% dplyr::select(celltype, geneset_type, pathway_clean, NES_base, pval_base))
+
+# ============================================================================
+# 4. SIGNIFICANCE SUMMARY TABLE (n sig pathways per model)
+# ============================================================================
+
+cat("\n=== Building pathway count summary ===\n")
+
+pathway_summary <- lapply(celltypes_vec, function(ct) {
+  lapply(names(geneset_types), function(gs_name) {
+    lapply(COVARIATES, function(m) {
+      key <- paste(ct, m, gs_name, sep = "__")
+      df  <- all_gsea[[key]]
+      if (is.null(df)) return(NULL)
+      data.frame(
+        celltype     = ct,
+        geneset_type = gs_name,
+        model        = m,
+        n_sig        = sum(df$pval < P_THRESH, na.rm = TRUE),
+        n_sig_up     = sum(df$pval < P_THRESH & df$NES > 0, na.rm = TRUE),
+        n_sig_down   = sum(df$pval < P_THRESH & df$NES < 0, na.rm = TRUE)
+      )
+    }) %>% bind_rows()
+  }) %>% bind_rows()
+}) %>% bind_rows()
+
+write.csv(pathway_summary, paste0(dir.results, 'Comparison/PathwayCount_Summary.csv'), row.names = FALSE)
+
+# Print as wide pivot
+pathway_summary_wide <- pathway_summary %>%
+  pivot_wider(names_from = model, values_from = c(n_sig, n_sig_up, n_sig_down))
+print(pathway_summary_wide)
+
+# ============================================================================
+# 5. DOT PLOT: top pathways across models for a given cell type
+#    One panel per covariate model; rows = top 20 pathways from base
+# ============================================================================
+
+cat("\n=== Building dot plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    base_key <- paste(ct, "base", gs_name, sep = "__")
+    base_df  <- all_gsea[[base_key]]
+    if (is.null(base_df)) next
+    
+    top_paths <- base_df %>%
+      filter(pval < P_THRESH) %>%
+      arrange(pval) %>%
+      slice_head(n = 20) %>%
+      pull(pathway)
+    
+    if (length(top_paths) == 0) {
+      # Fall back to top 20 by p-value even if none pass threshold
+      top_paths <- base_df %>% arrange(pval) %>% slice_head(n = 20) %>% pull(pathway)
+      if (length(top_paths) == 0) next
+    }
+    
+    # Collect NES + pval for all models, filtered to top_paths
+    plot_df <- lapply(COVARIATES, function(m) {
+      key <- paste(ct, m, gs_name, sep = "__")
+      df  <- all_gsea[[key]]
+      if (is.null(df)) return(NULL)
+      df %>%
+        filter(pathway %in% top_paths) %>%
+        dplyr::select(pathway, pathway_clean, NES, pval) %>%
+        mutate(model = m)
+    }) %>%
+      bind_rows() %>%
+      mutate(
+        model = factor(model, levels = COVARIATES),
+        pathway_clean = factor(pathway_clean,
+                               levels = base_df %>%
+                                 filter(pathway %in% top_paths) %>%
+                                 arrange(NES) %>%
+                                 pull(pathway_clean))
+      )
+    
+    p <- ggplot(plot_df, aes(x = model, y = pathway_clean,
+                             color = NES, size = -log10(pval))) +
+      geom_point() +
+      scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0,
+                            name = "NES") +
+      scale_size_continuous(range = c(1, 8), name = "-log10(p)") +
+      geom_point(data = plot_df %>% filter(pval < P_THRESH),
+                 aes(x = model, y = pathway_clean),
+                 shape = 8, color = "black", size = 1.5) +
+      theme_bw() +
+      theme(
+        axis.text.x  = element_text(angle = 30, hjust = 1, size = 10),
+        axis.text.y  = element_text(size = 8),
+        plot.title   = element_text(face = "bold", size = 11),
+        panel.grid   = element_line(color = "grey90")
+      ) +
+      labs(
+        x     = "Model",
+        y     = NULL,
+        title = paste0(ct, " — ", gs_name,
+                       "\nTop base-model pathways across covariate adjustments"),
+        caption = "★ = p < 0.05"
+      )
+    
+    h <- max(5, length(top_paths) * 0.35 + 2)
+    ggsave(paste0(dir.results, 'DotPlots/DotPlot_', ct_clean, '_', gs_name, '.pdf'),
+           p, width = 9, height = h)
+    ggsave(paste0(dir.results, 'DotPlots/DotPlot_', ct_clean, '_', gs_name, '.png'),
+           p, width = 9, height = h, dpi = 200)
+    cat("  Saved dot plot:", ct, gs_name, "\n")
+  }
+}
+
+cat("\n=== GSEA sensitivity analysis complete! ===\n")
+cat("Output directory:", dir.results, "\n\n")
+cat("Key outputs:\n")
+cat("  Raw/all_gsea_sensitivity.csv         — all fgsea results\n")
+cat("  Heatmaps/NES_Heatmap_*              — NES across models for base-sig pathways\n")
+cat("  Comparison/NES_Scatter_*            — NES stability scatter (base vs each covariate)\n")
+cat("  DotPlots/DotPlot_*                  — dot plot of top pathways across all models\n")
+cat("  Comparison/PathwayCount_Summary.csv — n sig pathways per model\n")
+cat("  Comparison/RobustPathways_All.csv   — all pathways with n_models_sig count\n")
+cat("  Comparison/FullyRobustPathways.csv  — pathways sig in ALL models\n")
+
+
+
+
+
+
+
+
+
+
+#Interaction Analysis 
+
+# ============================================================================
+# PIOGLITAZONE x GLP-1RA INTERACTION ANALYSIS
+# Appended to sensitivity script — uses same scrna_small object
+# ============================================================================
+
+cat("\n=== Running Pioglitazone x GLP-1RA Interaction Analysis ===\n")
+
+dir.interaction <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/Sensitivity/Interaction_PIO_GLP1/'
+dir.create(paste0(dir.interaction, 'NEBULA/'),       recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/Raw/'),     recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/DotPlots/'),recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'GSEA/Heatmaps/'),recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'VolcanoPlots/'), recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(dir.interaction, 'Comparison/'),   recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================================
+# CHECK CROSSTAB
+# ============================================================================
+
+cat("\n--- Patient-level PIO x GLP-1RA crosstab ---\n")
+patient_crosstab <- scrna_small@meta.data %>%
+  dplyr::select(record_id, group_labels, epic_glp1ra_1) %>%
+  filter(!duplicated(record_id)) %>%
+  filter(!is.na(group_labels) & !is.na(epic_glp1ra_1))
+print(table(PIO = patient_crosstab$group_labels, GLP1RA = patient_crosstab$epic_glp1ra_1))
+cat("\n")
+
+# ============================================================================
+# NEBULA INTERACTION FUNCTION
+# ============================================================================
+
+run_nebula_interaction <- function(so_obj, dir.out, celltype) {
+  
+  # --- cell type subsetting (same logic as sensitivity script) ---
+  if (celltype == 'All') {
+    so_celltype <- so_obj
+  } else if (celltype %in% c('TAL', 'EC', 'PT')) {
+    so_celltype <- subset(so_obj, celltype2 == celltype)
+  } else if (celltype == 'IC') {
+    so_celltype <- subset(so_obj, celltype1 %in% c("B", "T", "MON", "MAC"))
+  } else if (celltype == 'DCT') {
+    so_celltype <- subset(so_obj, DCT_celltype == "DCT")
+  } else if (celltype == 'POD') {
+    so_celltype <- subset(so_obj, celltype1 == "POD")
+  } else {
+    if (celltype %in% unique(so_obj$celltype2)) {
+      so_celltype <- subset(so_obj, celltype2 == celltype)
+    } else if (celltype %in% unique(so_obj$celltype1)) {
+      so_celltype <- subset(so_obj, celltype1 == celltype)
+    } else {
+      cat(paste0("Cell type '", celltype, "' not found. Skipping.\n"))
+      return(invisible(NULL))
+    }
+  }
+  
+  DefaultAssay(so_celltype) <- "RNA"
+  ct_clean <- str_replace_all(str_replace_all(celltype, "/", "_"), "-", "_")
+  cat(paste0("\n=== Interaction: ", ct_clean, " ===\n"))
+  
+  counts_mat <- round(GetAssayData(so_celltype, layer = "counts"))
+  meta_gene  <- so_celltype@meta.data
+  
+  # Complete cases for both variables
+  complete_idx <- complete.cases(meta_gene$group_labels, meta_gene$epic_glp1ra_1)
+  cat("Cells with complete PIO + GLP1RA data:", sum(complete_idx), "\n")
+  
+  meta_gene  <- meta_gene[complete_idx, ]
+  counts_mat <- counts_mat[, complete_idx]
+  
+  # Patient-level crosstab for this cell type
+  tmp_df <- meta_gene %>%
+    dplyr::select(record_id, group_labels, epic_glp1ra_1) %>%
+    distinct(record_id, .keep_all = TRUE)
+  cat("Cell-type patient crosstab:\n")
+  ct_tab <- table(PIO = tmp_df$group_labels, GLP1RA = tmp_df$epic_glp1ra_1)
+  print(ct_tab)
+  
+  if (any(ct_tab < 2)) {
+    cat("WARNING: Some interaction groups have <2 patients. Results may be unstable.\n")
+  }
+  
+  # Factor levels: No as reference
+  meta_gene$group_labels  <- factor(meta_gene$group_labels,  levels = c("No", "Yes"))
+  meta_gene$epic_glp1ra_1 <- factor(meta_gene$epic_glp1ra_1, levels = c("No", "Yes"))
+  
+  # Design matrix with interaction
+  pred_gene <- model.matrix(~ group_labels * epic_glp1ra_1, data = meta_gene)
+  cat("Design matrix columns:", paste(colnames(pred_gene), collapse = ", "), "\n")
+  
+  lib    <- meta_gene$pooled_offset
+  data_g <- group_cell(count = counts_mat, id = meta_gene$record_id,
+                       pred = pred_gene, offset = lib)
+  if (is.null(data_g)) {
+    data_g <- list(count = counts_mat, id = meta_gene$record_id,
+                   pred = pred_gene, offset = lib)
+  }
+  
+  result <- nebula(count = data_g$count, id = data_g$id,
+                   pred = data_g$pred, ncore = 1, reml = TRUE,
+                   model = "NBLMM", output_re = TRUE, covariance = TRUE,
+                   offset = data_g$offset)
+  
+  full_results <- as.data.frame(result)
+  full_results$num_cells <- nrow(meta_gene)
+  
+  out_file <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  write.csv(full_results, out_file, row.names = FALSE)
+  cat("Saved:", out_file, "\n")
+  
+  return(invisible(full_results))
+}
+
+# ============================================================================
+# RUN INTERACTION FOR ALL CELL TYPES
+# ============================================================================
+
+for (ct in celltypes_vec) {
+  run_nebula_interaction(so_obj = scrna_small, dir.out = dir.interaction, celltype = ct)
+}
+
+# ============================================================================
+# HELPER: LOAD INTERACTION EFFECT
+# ============================================================================
+
+load_interaction_effect <- function(dir.out, ct_clean) {
+  fp <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  
+  # Identify interaction columns from NEBULA output
+  # NEBULA names: summary.logFC_group_labelsYes.epic_glp1ra_1Yes (or similar with ":")
+  logfc_cols <- grep("logFC", names(df), value = TRUE)
+  p_cols     <- grep("^summary\\.p_", names(df), value = TRUE)
+  
+  # Interaction column contains both group_labels and glp1ra
+  int_logfc <- logfc_cols[grepl("group_labels", logfc_cols) & grepl("glp1ra", logfc_cols)]
+  int_p     <- p_cols[grepl("group_labels", p_cols) & grepl("glp1ra", p_cols)]
+  
+  if (length(int_logfc) == 0 | length(int_p) == 0) {
+    cat("  Could not find interaction columns. Available:\n")
+    cat("  LogFC cols:", paste(logfc_cols, collapse = ", "), "\n")
+    cat("  P cols:", paste(p_cols, collapse = ", "), "\n")
+    return(NULL)
+  }
+  
+  df %>%
+    transmute(
+      gene   = summary.gene,
+      logFC  = .data[[int_logfc[1]]],
+      pvalue = .data[[int_p[1]]],
+      fdr    = p.adjust(pvalue, method = "BH")
+    )
+}
+
+# Also load main effects for comparison
+load_pio_main_from_interaction <- function(dir.out, ct_clean) {
+  fp <- paste0(dir.out, 'NEBULA/Interaction_NEBULA_', ct_clean, '.csv')
+  if (!file.exists(fp)) return(NULL)
+  df <- read.csv(fp)
+  df %>%
+    transmute(
+      gene   = summary.gene,
+      logFC  = summary.logFC_group_labelsYes,
+      pvalue = summary.p_group_labelsYes,
+      fdr    = p.adjust(pvalue, method = "BH")
+    )
+}
+
+# ============================================================================
+# VOLCANO PLOTS FOR INTERACTION TERM
+# ============================================================================
+
+cat("\n=== Building interaction volcano plots ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  int_df <- load_interaction_effect(dir.interaction, ct_clean)
+  if (is.null(int_df)) next
+  
+  plot_df <- int_df %>%
+    filter(!is.na(pvalue) & !is.na(logFC)) %>%
+    mutate(
+      diffexp = case_when(
+        pvalue < 0.05 & logFC > 0 ~ "Up",
+        pvalue < 0.05 & logFC < 0 ~ "Down",
+        TRUE ~ "NS"
+      )
+    ) %>%
+    arrange(pvalue) %>%
+    mutate(label = ifelse(row_number() <= 10, gene, NA)) %>%
+    filter(abs(logFC) < 10)
+  
+  cat(ct, "— Interaction DEGs (p<0.05):", sum(plot_df$pvalue < 0.05),
+      "| FDR<0.05:", sum(plot_df$fdr < 0.05), "\n")
+  
+  # Save top 20
+  top20 <- plot_df %>% head(20) %>% dplyr::select(gene, logFC, pvalue, fdr)
+  write.csv(top20, paste0(dir.interaction, 'NEBULA/Top20_Interaction_', ct_clean, '.csv'),
+            row.names = FALSE)
+  
+  color_vals <- c(Down = "orange", NS = "grey70", Up = "purple")
+  color_labs <- c(Down = "Negative interaction", NS = "NS", Up = "Positive interaction")
+  present <- intersect(names(color_vals), unique(plot_df$diffexp))
+  
+  p <- ggplot(plot_df, aes(x = logFC, y = -log10(pvalue), color = diffexp, label = label)) +
+    geom_point(size = 1.5, alpha = 0.7) +
+    ggrepel::geom_text_repel(size = 2.5, color = "black", max.overlaps = 15) +
+    scale_color_manual(values = color_vals[present], labels = color_labs[present]) +
+    geom_hline(yintercept = -log10(0.05), color = "blue", linetype = "dashed") +
+    geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+    theme_classic() +
+    labs(x = "Interaction LogFC (PIO x GLP-1RA)",
+         y = "-log10(p-value)",
+         color = "Interaction Effect",
+         title = paste0(ct, ": PIO x GLP-1RA Interaction")) +
+    theme(plot.title = element_text(face = "bold", size = 12))
+  
+  ggsave(paste0(dir.interaction, 'VolcanoPlots/Volcano_Interaction_', ct_clean, '.pdf'),
+         p, width = 8, height = 7)
+  ggsave(paste0(dir.interaction, 'VolcanoPlots/Volcano_Interaction_', ct_clean, '.png'),
+         p, width = 8, height = 7, dpi = 300)
+}
+
+# ============================================================================
+# COMPARISON: BASE PIO EFFECT vs INTERACTION PIO EFFECT (scatter)
+# ============================================================================
+
+cat("\n=== Comparing base PIO effect vs interaction model PIO effect ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  base_df <- load_pio_effect(dir.results, ct_clean, "base")  # from sensitivity helper
+  int_pio <- load_pio_main_from_interaction(dir.interaction, ct_clean)
+  if (is.null(base_df) | is.null(int_pio)) next
+  
+  merged <- inner_join(
+    base_df %>% dplyr::select(gene, logFC_base = logFC, pval_base = pvalue),
+    int_pio %>% dplyr::select(gene, logFC_int = logFC, pval_int = pvalue),
+    by = "gene"
+  ) %>%
+    mutate(
+      status = case_when(
+        pval_base < 0.05 & pval_int < 0.05  ~ "Sig in both",
+        pval_base < 0.05 & pval_int >= 0.05 ~ "Lost in interaction model",
+        pval_base >= 0.05 & pval_int < 0.05 ~ "Gained in interaction model",
+        TRUE ~ "NS in both"
+      ),
+      delta = abs(logFC_int - logFC_base),
+      label = ifelse(rank(-delta) <= 8 & status != "NS in both", gene, NA)
+    )
+  
+  r_val  <- round(cor(merged$logFC_base, merged$logFC_int, use = "complete.obs"), 3)
+  n_lost <- sum(merged$status == "Lost in interaction model")
+  n_gain <- sum(merged$status == "Gained in interaction model")
+  
+  p <- ggplot(merged, aes(x = logFC_base, y = logFC_int, color = status, label = label)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+    ggrepel::geom_text_repel(size = 2.5, color = "black", max.overlaps = 15) +
+    scale_color_manual(values = c(
+      "Sig in both"                 = "#d73027",
+      "Lost in interaction model"   = "#fc8d59",
+      "Gained in interaction model" = "#4575b4",
+      "NS in both"                  = "grey80"
+    )) +
+    theme_bw() +
+    labs(x = "PIO LogFC (base model)",
+         y = "PIO LogFC (interaction model: PIO*GLP1RA)",
+         color = NULL,
+         title = paste0(ct, ": PIO main effect — Base vs Interaction model"),
+         subtitle = paste0("r = ", r_val, " | Lost: ", n_lost, " | Gained: ", n_gain)) +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9),
+          legend.position = "bottom")
+  
+  ggsave(paste0(dir.interaction, 'Comparison/Scatter_BaseVsInteraction_', ct_clean, '.pdf'),
+         p, width = 8, height = 7)
+  ggsave(paste0(dir.interaction, 'Comparison/Scatter_BaseVsInteraction_', ct_clean, '.png'),
+         p, width = 8, height = 7, dpi = 200)
+  cat("Saved base vs interaction scatter for", ct, "\n")
+}
+
+# ============================================================================
+# GSEA ON INTERACTION TERM
+# ============================================================================
+
+cat("\n=== Running GSEA on interaction term ===\n")
+
+all_interaction_gsea <- list()
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  int_df <- load_interaction_effect(dir.interaction, ct_clean)
+  if (is.null(int_df)) next
+  
+  # Rank genes by interaction logFC
+  ranked_genes <- int_df %>%
+    filter(!is.na(logFC)) %>%
+    arrange(desc(logFC)) %>%
+    { setNames(.$logFC, .$gene) }
+  
+  cat(paste0("\n=== GSEA Interaction: ", ct, " (", length(ranked_genes), " genes) ===\n"))
+  
+  for (gs_name in names(geneset_types)) {
+    cat("  Running fgsea for", gs_name, "...\n")
+    
+    set.seed(42)
+    gsea_res <- fgsea(
+      pathways    = geneset_types[[gs_name]],
+      stats       = ranked_genes,
+      minSize     = GSEA_PARAMS$minSize,
+      maxSize     = GSEA_PARAMS$maxSize,
+      nPermSimple = GSEA_PARAMS$nPermSimple
+    )
+    
+    gsea_res$celltype      <- ct
+    gsea_res$geneset_type  <- gs_name
+    gsea_res$pathway_clean <- clean_pathway(gsea_res$pathway)
+    
+    key <- paste0(ct, "__", gs_name)
+    all_interaction_gsea[[key]] <- gsea_res
+    
+    # Dot plot for top significant pathways
+    top_paths <- gsea_res %>%
+      filter(pval < P_THRESH) %>%
+      arrange(pval) %>%
+      slice_head(n = 20) %>%
+      mutate(pathway_clean = factor(pathway_clean, levels = rev(pathway_clean)))
+    
+    if (nrow(top_paths) > 0) {
+      p <- ggplot(top_paths, aes(x = NES, y = pathway_clean)) +
+        geom_point(aes(size = -log10(pval), color = NES)) +
+        scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+        scale_size_continuous(range = c(2, 10)) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+        theme_bw() +
+        theme(axis.text.y = element_text(size = 9),
+              plot.title = element_text(face = "bold", hjust = 0.5)) +
+        labs(x = "NES (Interaction)", y = "",
+             title = paste0(ct, " — ", gs_name, "\nPIO x GLP-1RA Interaction"))
+      
+      h <- max(5, nrow(top_paths) * 0.35 + 2)
+      ggsave(paste0(dir.interaction, 'GSEA/DotPlots/', gs_name, '_Interaction_', ct_clean, '.pdf'),
+             p, width = 10, height = h)
+      ggsave(paste0(dir.interaction, 'GSEA/DotPlots/', gs_name, '_Interaction_', ct_clean, '.png'),
+             p, width = 10, height = h, dpi = 300)
+    }
+  }
+}
+
+# Save combined interaction GSEA
+combined_int_gsea <- bind_rows(all_interaction_gsea) %>%
+  mutate(leadingEdge = sapply(leadingEdge, paste, collapse = ";"))
+write.csv(combined_int_gsea,
+          paste0(dir.interaction, 'GSEA/Raw/all_interaction_gsea_results.csv'),
+          row.names = FALSE)
+
+# ============================================================================
+# INTERACTION GSEA HEATMAP: compare interaction NES vs base PIO NES
+# ============================================================================
+
+cat("\n=== Building interaction vs base NES heatmaps ===\n")
+
+for (ct in celltypes_vec) {
+  ct_clean <- str_replace_all(str_replace_all(ct, "/", "_"), "-", "_")
+  
+  for (gs_name in names(geneset_types)) {
+    
+    base_key <- paste(ct, "base", gs_name, sep = "__")
+    int_key  <- paste0(ct, "__", gs_name)
+    
+    base_gsea <- all_gsea[[base_key]]
+    int_gsea  <- all_interaction_gsea[[int_key]]
+    if (is.null(base_gsea) | is.null(int_gsea)) next
+    
+    # Pathways significant in either base or interaction
+    sig_paths <- unique(c(
+      base_gsea %>% filter(pval < P_THRESH) %>% pull(pathway),
+      int_gsea  %>% filter(pval < P_THRESH) %>% pull(pathway)
+    ))
+    if (length(sig_paths) == 0) next
+    
+    merged <- full_join(
+      base_gsea %>% filter(pathway %in% sig_paths) %>%
+        dplyr::select(pathway, pathway_clean, NES_base = NES, pval_base = pval),
+      int_gsea %>% filter(pathway %in% sig_paths) %>%
+        dplyr::select(pathway, NES_interaction = NES, pval_interaction = pval),
+      by = "pathway"
+    )
+    
+    mat <- merged %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(NES_base, NES_interaction) %>%
+      as.matrix()
+    colnames(mat) <- c("Base (PIO effect)", "Interaction (PIO x GLP1)")
+    
+    pval_mat <- merged %>%
+      column_to_rownames("pathway_clean") %>%
+      dplyr::select(pval_base, pval_interaction) %>%
+      as.matrix()
+    
+    cell_labels <- matrix(
+      ifelse(pval_mat < 0.05,
+             paste0(round(mat, 2), "*"),
+             round(mat, 2)),
+      nrow = nrow(mat), ncol = ncol(mat),
+      dimnames = dimnames(mat)
+    )
+    
+    if (nrow(mat) > 50) {
+      # Too many rows — take top 30 by significance in either
+      top_idx <- order(pmin(pval_mat[,1], pval_mat[,2], na.rm = TRUE))[1:30]
+      mat <- mat[top_idx, , drop = FALSE]
+      cell_labels <- cell_labels[top_idx, , drop = FALSE]
+    }
+    
+    col_lim <- max(abs(mat), na.rm = TRUE)
+    
+    png(paste0(dir.interaction, 'GSEA/Heatmaps/Heatmap_BaseVsInteraction_', ct_clean, '_', gs_name, '.png'),
+        width = 800, height = max(400, nrow(mat) * 22 + 200), res = 120)
+    pheatmap::pheatmap(
+      mat,
+      display_numbers = cell_labels,
+      number_fontsize = 7,
+      color  = colorRampPalette(rev(brewer.pal(9, "RdBu")))(100),
+      breaks = seq(-col_lim, col_lim, length.out = 101),
+      cluster_cols = FALSE,
+      cluster_rows = nrow(mat) > 1,
+      border_color = "white",
+      main = paste0(ct, " — ", gs_name, "\nBase PIO effect vs Interaction (* = p<0.05)"),
+      fontsize_row = 8,
+      fontsize_col = 10
+    )
+    dev.off()
+    cat("  Saved heatmap:", ct, gs_name, "\n")
+  }
+}
+
+# ============================================================================
+# SUMMARY TABLE
+# ============================================================================
+
+interaction_summary <- combined_int_gsea %>%
+  filter(pval < P_THRESH) %>%
+  group_by(celltype, geneset_type) %>%
+  summarise(
+    n_sig = n(),
+    n_positive = sum(NES > 0),
+    n_negative = sum(NES < 0),
+    .groups = 'drop'
+  ) %>%
+  pivot_wider(names_from = geneset_type,
+              values_from = c(n_sig, n_positive, n_negative),
+              values_fill = 0)
+
+cat("\n=== Interaction GSEA summary ===\n")
+print(interaction_summary)
+write.csv(interaction_summary,
+          paste0(dir.interaction, 'GSEA/interaction_gsea_summary.csv'),
+          row.names = FALSE)
+
+cat("\n=== Pioglitazone x GLP-1RA interaction analysis complete! ===\n")
+cat("Output directory:", dir.interaction, "\n")
+
+
+
+
+
+
+

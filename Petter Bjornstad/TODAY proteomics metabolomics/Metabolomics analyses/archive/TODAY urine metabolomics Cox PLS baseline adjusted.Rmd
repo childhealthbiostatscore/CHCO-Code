@@ -1,0 +1,490 @@
+---
+title: "TODAY urine metabolomics baseline analyses - Cox models with PLS variable selection"
+author: "Laura Pyle"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+library(limma)
+library(dplyr)
+library(caret)
+library(purrr)
+library(multtest)
+library(openxlsx)
+library(tableone)
+library(EnhancedVolcano)
+library(knitr)
+library(survival)
+library(broom)
+library(stringr)
+library(plsRcox)
+library(forestmodel)
+library(survC1)
+
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
+
+# knitr::opts_chunk$set(echo = FALSE)
+# if(Sys.info()["sysname"] == "Windows"){
+#   home_dir = "E:/Petter Bjornstad/TODAY subaward"
+# } else if (Sys.info()["sysname"] == "Linux"){
+#   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# } else if (Sys.info()["sysname"] == "Darwin"){
+#   home_dir = "/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
+# }
+home_dir = paste0("/Users/",Sys.info()["user"],"/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward")
+knitr::opts_knit$set(root.dir = home_dir)
+```
+
+```{r, include=FALSE}
+load("./Metabolomic data/urine.Rdata")
+
+# load comorbidity data
+load("./Clinical data/comorb.Rdata")
+
+# load baseline risk factors
+load("./Clinical data/TODAY/baserisk.Rdata")
+
+# load CKM outcomes
+dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
+
+# take only the baseline samples
+urine$Date.Drawn <- as.Date(urine$Date.Drawn,format = "%m/%d/%Y")
+base <- urine %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base <- base %>% arrange(Date.Drawn)
+
+# merge in complication data
+base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
+
+# merge in baseline risk factors
+base <- merge(base, baserisk, by="releaseid",all.x=T, all.y=F)
+
+# merge in CKM data
+dat.ckm$releaseid<-dat.ckm$RELEASEID
+base <- merge(base, dat.ckm[,c("releaseid",
+                               "CKM_syn_base","CKM_max",
+                               "progress_CKM","days_to_first_ckm_prog",
+                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
+
+# identify columns corresponding to proteins
+#is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
+is_seq <- function(.x) grepl("nM/mM", .x)
+seq <- is_seq(names(base))
+
+# convert to numeric
+base[,seq] <- apply(base[,seq],2,as.numeric)
+
+# are there proteins with low variability?
+metabolites<-base[,seq]
+no_var = caret::nearZeroVar(metabolites)
+if (length(no_var)>0){
+  no_var_names<-names(metabolites[,no_var])
+  base <- base[,-which(colnames(base)%in%no_var_names)]  
+}
+seq <- is_seq(names(base))
+# log transform
+base_log <- base %>% modify_if(is_seq(names(.)), log)
+
+# scale by SD
+base_log_scale <- base_log
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])])
+}
+
+# now we need to change the format of the variable names
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"/","_")
+colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"-","_")
+colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"3","Three")
+colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"2","Two")
+colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"\\(s\\)","s")
+colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"5","Five")
+colnames(base_log_scale)[seq] <- temp
+
+base_log_scale$DAYSTOMAC <- as.numeric(base_log_scale$DAYSTOMAC)
+base_log_scale$MAC <- as.numeric(base_log_scale$MAC)
+```
+
+# MAC
+
+## Model with HbA1c, trig, SBP, and SI only
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOMAC, MAC)~","HbA1c+log_trig+sbp+si_1_ins0")
+null_mod_MAC_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_MAC_adj)
+```
+
+## Refit model for MAC with variables selected by PLS
+
+```{r, include=FALSE}
+set.seed(3654)
+plscox_MAC <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$DAYSTOMAC, time2=base_log_scale$MAC, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_MAC$Coeffs[!plscox_MAC$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(DAYSTOMAC, MAC)~",names_sig)
+final_mod_MAC <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_MAC)
+```
+
+## Refit model for MAC and adjust for HbA1c, trig, SBP, and SI
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOMAC, MAC)~",names_sig,"+HbA1c+log_trig+sbp+si_1_ins0")
+final_mod_MAC_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_MAC_adj)
+
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_MAC.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_MAC_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_MAC_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for MAC
+
+```{r, include=TRUE, comment=""}
+MACdata <- CompCase(base_log_scale[,c("DAYSTOMAC", "MAC","HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))])
+Inf.Cval.Delta(mydata=MACdata[,c("DAYSTOMAC", "MAC")], 
+               covs0=MACdata[,c("HbA1c","log_trig","sbp","si_1_ins0")],
+               covs1 = MACdata[,c("HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+
+```
+
+# MIC
+
+## Model with HbA1c, trig, SBP, and SI only
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOMIC, MIC)~","HbA1c+log_trig+sbp+si_1_ins0")
+null_mod_MIC_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_MIC_adj)
+```
+
+## Refit model for MIC with variables selected by PLS
+
+```{r, include=FALSE}
+plscox_MIC <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$DAYSTOMIC, time2=base_log_scale$MIC, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_MIC$Coeffs[!plscox_MIC$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(DAYSTOMIC, MIC)~",names_sig)
+final_mod_MIC <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_MIC)
+```
+
+## Refit model for MIC and adjust for HbA1c, trig, SBP, and SI
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOMIC, MIC)~",names_sig,"+HbA1c+log_trig+sbp+si_1_ins0")
+final_mod_MIC_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_MIC_adj)
+
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_MIC.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_MIC_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_MIC_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for MIC
+
+```{r, include=TRUE, comment=""}
+MICdata <- CompCase(base_log_scale[,c("DAYSTOMIC", "MIC","HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))])
+Inf.Cval.Delta(mydata=MICdata[,c("DAYSTOMIC", "MIC")], 
+               covs0=MICdata[,c("HbA1c","log_trig","sbp","si_1_ins0")],
+               covs1 = MICdata[,c("HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+
+```
+
+
+# GLYC
+
+## Model with BMI, Si, age, sex only
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOGLYC, GLYC)~","bmi+si_1_ins0+AGEBASE+sex")
+null_mod_glyc_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_glyc_adj)
+```
+
+## Refit model for GLYC with variables selected by PLS
+
+```{r, include=FALSE}
+plscox_glyc <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$DAYSTOGLYC, time2=base_log_scale$GLYC, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_glyc$Coeffs[!plscox_glyc$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(DAYSTOGLYC, GLYC)~",names_sig)
+final_mod_glyc <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_glyc)
+```
+
+## Refit model for GLYC and adjust for BMI, Si, age, sex
+
+```{r, include=FALSE}
+form <- paste("Surv(DAYSTOGLYC, GLYC)~",names_sig,"+bmi+si_1_ins0+AGEBASE+sex")
+final_mod_GLYC_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_GLYC_adj)
+
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_glyc.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_GLYC_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_GLYC_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for MIC
+
+```{r, include=TRUE, comment=""}
+glycdata <- CompCase(base_log_scale[,c("DAYSTOGLYC", "GLYC","bmi","AGEBASE","sex","si_1_ins0",names(coefs_sig))])
+# Inf.Cval.Delta(mydata=glycdata[,c("DAYSTOGLYC", "GLYC")], 
+#                covs0=glycdata[,c("bmi","AGEBASE","sex","si_1_ins0")],
+#                covs1 = glycdata[,c("bmi","AGEBASE","sex","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+```
+
+# CKM progression
+
+## Model with HbA1c, trig, SBP, and SI only
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_prog, progress_CKM)~","HbA1c+log_trig+sbp+si_1_ins0")
+null_mod_CKM_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_CKM_adj)
+```
+
+## Refit model for CKM with variables selected by PLS
+
+```{r, include=FALSE}
+set.seed(3654)
+plscox_CKM <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$days_to_first_ckm_prog, time2=base_log_scale$progress_CKM, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_CKM$Coeffs[!plscox_CKM$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(days_to_first_ckm_prog, progress_CKM)~",names_sig)
+final_mod_CKM <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_CKM)
+```
+
+## Refit model for CKM and adjust for HbA1c, trig, SBP, and SI
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_prog, progress_CKM)~",names_sig,"+HbA1c+log_trig+sbp+si_1_ins0")
+final_mod_CKM_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_CKM_adj)
+
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_CKM.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_CKM_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_CKM_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for CKM
+
+```{r, include=TRUE, comment=""}
+CKMdata <- CompCase(base_log_scale[,c("days_to_first_ckm_prog", "progress_CKM","HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))])
+Inf.Cval.Delta(mydata=CKMdata[,c("days_to_first_ckm_prog", "progress_CKM")], 
+               covs0=CKMdata[,c("HbA1c","log_trig","sbp","si_1_ins0")],
+               covs1 = CKMdata[,c("HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+
+```
+
+# CKM progression stage 3
+
+## Model with HbA1c, trig, SBP, and SI only
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~","HbA1c+log_trig+sbp+si_1_ins0")
+null_mod_CKM3_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_CKM3_adj)
+```
+
+## Refit model for CKM3 with variables selected by PLS
+
+```{r, include=FALSE}
+set.seed(3654)
+plscox_CKM3 <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$days_to_first_ckm_stage3_prog, time2=base_log_scale$progress_CKM_stage3, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_CKM3$Coeffs[!plscox_CKM3$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",names_sig)
+final_mod_CKM3 <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_CKM3)
+```
+
+## Refit model for CKM3 and adjust for HbA1c, trig, SBP, and SI
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",names_sig,"+HbA1c+log_trig+sbp+si_1_ins0")
+final_mod_CKM3_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_CKMstage3.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_CKM3_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_CKM3_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for CKM3
+
+```{r, include=TRUE, comment=""}
+CKM3data <- CompCase(base_log_scale[,c("days_to_first_ckm_stage3_prog", "progress_CKM_stage3","HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))])
+Inf.Cval.Delta(mydata=CKM3data[,c("days_to_first_ckm_stage3_prog", "progress_CKM_stage3")], 
+               covs0=CKM3data[,c("HbA1c","log_trig","sbp","si_1_ins0")],
+               covs1 = CKM3data[,c("HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+
+```
+
+# CKM progression stage 3
+
+## Model with HbA1c, trig, SBP, and SI only
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~","HbA1c+log_trig+sbp+si_1_ins0")
+null_mod_CKM4_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(null_mod_CKM4_adj)
+```
+
+## Refit model for CKM4 with variables selected by PLS
+
+```{r, include=FALSE}
+set.seed(3654)
+plscox_CKM4 <- plsRcoxmodel(Xplan = base_log_scale[seq], time=base_log_scale$days_to_first_ckm_stage4_prog, time2=base_log_scale$progress_CKM_stage4, 
+                           type="right", scaleX = FALSE, scaleY = FALSE, sparse=TRUE,nt=2)
+coefs_sig <- plscox_CKM4$Coeffs[!plscox_CKM4$Coeffs==0,]
+names_sig <- names(coefs_sig)
+names_sig <- paste(names_sig,collapse=" + ")
+# relaxed PLS - fit model with retained variables
+form <- paste("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",names_sig)
+final_mod_CKM4 <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+summary(final_mod_CKM4)
+```
+
+## Refit model for CKM4 and adjust for HbA1c, trig, SBP, and SI
+
+```{r, include=FALSE}
+form <- paste("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",names_sig,"+HbA1c+log_trig+sbp+si_1_ins0")
+final_mod_CKM4_adj <- coxph(data = base_log_scale, formula = as.formula(form))
+```
+
+```{r, include=TRUE, comment=""}
+# concordance is the same as Harrell's C
+jpeg("./Results/Metabolomics linear and Cox models/Plots/plsCox_urine_metabolomics_CKMstage4.jpg", pointsize = 24, quality = 100, res=600,
+     units="in", width=10, height=10)
+forest_model(final_mod_CKM4_adj, covariates = names(coefs_sig))
+dev.off()
+
+forest_model(final_mod_CKM4_adj, covariates = names(coefs_sig))
+```
+
+## Compare C-statistics for the models for CKM4
+
+```{r, include=TRUE, comment=""}
+CKM4data <- CompCase(base_log_scale[,c("days_to_first_ckm_stage4_prog", "progress_CKM_stage4","HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))])
+Inf.Cval.Delta(mydata=CKM4data[,c("days_to_first_ckm_stage4_prog", "progress_CKM_stage4")], 
+               covs0=CKM4data[,c("HbA1c","log_trig","sbp","si_1_ins0")],
+               covs1 = CKM4data[,c("HbA1c","log_trig","sbp","si_1_ins0",names(coefs_sig))], tau = 3650, seed=3654)
+
+
+```

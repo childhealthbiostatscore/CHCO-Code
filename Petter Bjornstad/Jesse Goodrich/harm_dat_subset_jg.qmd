@@ -1,0 +1,126 @@
+---
+title: "Jesse Data Subset"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r include = F}
+library(jsonlite)
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(purrr)
+library(Hmisc)
+library(tidyr)
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+# harmonized dataset
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+
+# jesse's request (ID and vars)
+jg_ids <- read.csv(file.path(root_path, "Goodrich/Data requests/sample_id.csv"))
+jg_vars <- read.csv(file.path(root_path, "Goodrich/Data requests/variables_020325.csv")) %>%
+  dplyr::filter(variable_name %nin% c("egfr_hyper_135", "mgfr_hyper_2sd", "microalbumin_u_mgdL")) %>%
+  rbind(data.frame(Category = NA,
+                   variable_name = c("creatinine_s",	"bsa_dubois",	"tot_protein",	"aer_24",	"aer_4_coltime"),
+                   variable_description = NA))
+
+# long format
+harm_dat_jg <- harm_dat %>%
+  filter(record_id %in% jg_ids$record_id) %>%
+  group_by(uuid) %>%
+  dplyr::mutate(screen_date = as.Date(screen_date),
+                date = as.Date(date),
+                days_since_baseline = as.numeric((screen_date) - min(screen_date))) %>%
+  dplyr::select(uuid, study, record_id, group,
+                croc_id, improve_id, rh_id, rh2_id,
+                visit, procedure, days_since_baseline, jg_vars$variable_name) %>%
+  ungroup()
+
+# collapsed version
+harm_dat_recid <- harm_dat_jg %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::select(uuid, study, record_id, group,
+                croc_id, improve_id, rh_id, rh2_id,
+                visit, days_since_baseline, jg_vars$variable_name) %>%
+  ungroup()
+
+write.csv(harm_dat_jg, file.path(root_path, "Goodrich/Data requests/long_datapull_022326.csv"), row.names = F, na = "")
+write.csv(harm_dat_recid, file.path(root_path, "Goodrich/Data requests/collapsed_datapull_022326.csv"), row.names = F, na = "")
+```
+
+```{r}
+# compare with SR's version
+sr_ver <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/rh_it_crc_02232026.csv"))
+
+# subset to the same participants
+sr_ver_subset <- sr_ver %>%
+  filter(record_id %in% jg_ids$record_id)
+# 195 participants
+
+# columns
+setdiff(names(sr_ver_subset), names(harm_dat_recid))
+setdiff(names(harm_dat_recid), names(sr_ver_subset)) 
+# study and rh2_id not in sr_ver_subset
+
+# spot check some vars
+# Add suffixes to each dataframe
+harm_dat_recid_yc <- harm_dat_recid %>%
+  dplyr::select(-rh2_id, -study) %>%
+  rename_with(~ paste0(., "_yc")) 
+
+sr_ver_subset_sr <- sr_ver_subset %>%
+  rename_with(~ paste0(., "_sr"))
+
+# Combine side by side
+combined <- bind_cols(harm_dat_recid_yc, sr_ver_subset_sr)
+
+# Interleave columns: _yc and _sr alternating
+yc_cols <- names(harm_dat_recid_yc)
+sr_cols <- names(sr_ver_subset_sr)
+
+# Pair up matching columns (assumes same base names)
+base_names <- names(sr_ver_subset)  # original names before suffix
+interleaved <- unlist(lapply(base_names, function(var) {
+  c(paste0(var, "_yc"), paste0(var, "_sr"), paste0(var, "_match"))
+}))
+
+
+for (var in base_names) {
+  combined <- combined %>%
+    mutate("{var}_match" := .data[[paste0(var, "_yc")]] == .data[[paste0(var, "_sr")]])
+}
+
+combined <- combined %>% dplyr::select(all_of(interleaved))
+
+```

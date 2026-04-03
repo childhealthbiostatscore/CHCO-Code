@@ -268,6 +268,21 @@ DXA$visit <- DXA$mvisit
 keepDXA <- DXA %>% select(releaseid, visit, WB_TOT_PFAT, WB_TOT_PFAT_P)
 baseDXA <- keepDXA %>% filter(visit=="M00")
 
+# LIPOSCIENCE
+lipo <- read.csv("./Clinical data/TODAY2/LIPO.csv")
+colnames(lipo)[5:ncol(lipo)] <- paste0("LIPO_", colnames(lipo)[5:ncol(lipo)])
+lipo <- lipo %>% mutate(visit = case_when(
+  LPMONTH == 0 ~ "M00",
+  LPMONTH == 12 ~ "M12",
+  LPMONTH == 24 ~ "M24",
+  LPMONTH == 36 ~ "M36",
+  LPMONTH == 48 ~ "M48",
+  LPMONTH == 60 ~ "M60"
+))
+lipo$releaseid <- lipo$RELEASEID
+lipo$RELEASEID <- NULL
+base_lipo <- lipo %>% filter(visit == "M00")
+
 # create new dataset of baseline risk factors
 basecbl <- CBL %>% filter(mvisit=="M00")
 baseaddcbl <- ADDCBL %>% filter(mvisit=="M00")
@@ -289,7 +304,10 @@ baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
   sex_char == "M" ~ 64 - ((20*height)/wastcirc)),
   TRUE == NA_real_
 )
-  
+baserisk <- full_join(baserisk, base_lipo, by = "releaseid")
+baserisk$homa_ir <- (baserisk$ins0min * baserisk$glu0min) / 405
+baserisk$waist_height <- baserisk$wastcirc / baserisk$height
+
 # Save
 save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
 
@@ -335,17 +353,19 @@ BASELINE$visit_days <- BASELINE$days
 BASELINE_keep <- BASELINE %>% select(releaseid,visit,bmi,visit_days,bmipct,wastcirc,height,weight)
 #BASELINE_keep$height <- NA
 #BASELINE_keep$weight <- NA
+BASELINE_keep$bsa_dubois <- 0.007184 * (BASELINE_keep$height^0.725) * (BASELINE_keep$weight^0.425)
 
 # TODAY VISIT - BMI 
 VISIT <- read.csv("./Clinical data/TODAY/VISIT.csv")
 VISIT$visit <- VISIT$mvisit
 VISIT$visit_days <- VISIT$days
 VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight,visit_days,bmipct,wastcirc)
+VISIT_keep$bsa_dubois <- 0.007184 * (VISIT_keep$height^0.725) * (VISIT_keep$weight^0.425)
 
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
 CBL$visit <- CBL$mvisit
-CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c,ALT,AST)
+CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c,ALT,AST,glu0min)
 CBL_keep <- CBL_keep %>% filter(!visit=="R")
 CBL_keep$trig <- CBL_keep$Trig
 CBL_keep$Trig <- NULL
@@ -374,12 +394,13 @@ VISIT_TODAY2_KEEP$weight <- VISIT_TODAY2_KEEP$WEIGHT
 VISIT_TODAY2_KEEP$HEIGHT <- NULL
 VISIT_TODAY2_KEEP$WEIGHT <- NULL
 VISIT_TODAY2_KEEP$wastcirc <- NA
+VISIT_TODAY2_KEEP$bsa_dubois <- 0.007184 * (VISIT_TODAY2_KEEP$height^0.725) * (VISIT_TODAY2_KEEP$weight^0.425)
 
 # TODAY2 CBL - eIS and coDI
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
 CBL_TODAY2$visit <- CBL_TODAY2$pvisit
 CBL_TODAY2$ins0min <- CBL_TODAY2$ins
-CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c, alt, ast)
+CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c, alt, ast, glu0min)
 
 # TODAY2 DXA - no DXA in TODAY2
 
@@ -411,6 +432,9 @@ long$visit_num <- as.numeric(str_sub(long$visit,2,length(long$visit)))
 # calculated variables - eIS
 long$si_1_ins0 <- 1/long$ins0min
 long <- merge(long, fup_length, by = "releaseid", all.x = T, all.y = T)
+long <- full_join(long, lipo, by = c("releaseid", "visit"))
+long$homa_ir <- (long$ins0min * long$glu0min) / 405
+long$waist_height <- long$wastcirc / long$height
 
 # length of follow-up
 long_unique <- long %>% select(releaseid, fup_years) %>% unique() 
