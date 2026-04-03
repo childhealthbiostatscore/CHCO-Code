@@ -125,7 +125,7 @@ def harmonize_data():
     # Fix levels of categorical variables
     harmonized["visit"] = \
         pd.Categorical(harmonized["visit"],
-                       categories=['screening', 'baseline', 'pre_surgery',
+                       categories=['screening', 'baseline', 'pre_surgery', '1_week',
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
                                    'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy",
                                    "treatment_period_1", "treatment_period_2", "treatment_period_3", 

@@ -231,6 +231,7 @@ def clean_sweetheart():
 
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "SWEETHEART"
+    df["visit"] = "baseline"
     id_cols = ["record_id", "study"] + \
         dem_cols[1:] + [ "procedure"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()

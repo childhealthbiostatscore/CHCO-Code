@@ -1109,7 +1109,7 @@ within_df <- cat_df %>%
   filter(comparison_type == "Within T1D") %>%
   mutate(
     comparison = factor(comparison,
-                        levels = c("Normal Vs Overweight", "Nonobese Vs Obese", "Normal Vs Obese"))
+                        levels = c("Normal Vs Overweight", "Nonobese Vs Obese", "Normal Vs Obese", "Normal Vs Ow Obese"))
   )
 
 # Build label with DEG count
