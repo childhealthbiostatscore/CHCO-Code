@@ -737,3 +737,561 @@ cat("Outputs written to:\n  ", dir_module, "\n  ", dir_sev, "\n")
 
 
 
+
+
+
+#Next steps
+################################################################################
+# Follow-up Analyses — Sex Differences
+# Requires objects already created by the main pipeline:
+#   nmf_results, morpha_results, so_full, clin, dir_module, dir_sev
+#
+# Sections:
+#   A. NMF_F3 TAL characterisation (top genes + pathway enrichment)
+#   B. aPT_sig TAL × Disease group interaction (LC vs T2D, by sex)
+#   C. PT pseudotime vs Morpha module score correlations
+#   D. NMF factor weights vs clinical severity variables
+################################################################################
+
+library(clusterProfiler)   # install.packages / BiocManager::install
+library(org.Hs.eg.db)
+library(enrichplot)
+library(ggcorrplot)        # install.packages("ggcorrplot")
+library(broom)
+
+dir_followup <- file.path(dir_base, "Followup_Analyses/")
+dir.create(dir_followup, showWarnings = FALSE, recursive = TRUE)
+
+################################################################################
+# A. CHARACTERISE NMF_F3 IN TAL
+#    - ranked gene list from factor loadings (W matrix)
+#    - ORA on top 100 genes (GO BP + KEGG)
+#    - GSEA on full ranked list
+#    - Dot plots saved to dir_followup
+################################################################################
+
+characterise_nmf_factor <- function(nmf_res_ct, factor_name = "NMF_F3",
+                                    celltype_label = "TAL",
+                                    top_n_ora = 100,
+                                    outdir = dir_followup) {
+  
+  cat("\n===== NMF Factor Characterisation:", factor_name, "-", celltype_label, "=====\n")
+  
+  W <- nmf_res_ct$W                              # genes × factors
+  if (!factor_name %in% colnames(W))
+    stop(factor_name, " not found in W matrix columns: ", paste(colnames(W), collapse = ", "))
+  
+  # ── Ranked gene list (all genes, sorted by loading) ──────────────────────
+  loadings   <- sort(W[, factor_name], decreasing = TRUE)
+  gene_syms  <- names(loadings)
+  
+  # Convert gene symbols → Entrez IDs (required by clusterProfiler)
+  id_map <- bitr(gene_syms, fromType = "SYMBOL",
+                 toType   = c("ENTREZID", "SYMBOL"),
+                 OrgDb    = org.Hs.eg.db)
+  
+  # Save top 50 genes with loadings
+  top50_df <- data.frame(gene = gene_syms[1:50],
+                         loading = loadings[1:50])
+  write.csv(top50_df,
+            file.path(outdir, paste0(factor_name, "_", celltype_label, "_top50genes.csv")),
+            row.names = FALSE)
+  cat("Top 10 genes in", factor_name, ":\n")
+  print(head(top50_df, 10))
+  
+  # ── ORA: top N genes ─────────────────────────────────────────────────────
+  top_syms    <- gene_syms[1:min(top_n_ora, length(gene_syms))]
+  top_entrez  <- id_map$ENTREZID[id_map$SYMBOL %in% top_syms]
+  bg_entrez   <- id_map$ENTREZID                                # background = all detected
+  
+  ora_go <- enrichGO(gene          = top_entrez,
+                     universe      = bg_entrez,
+                     OrgDb         = org.Hs.eg.db,
+                     ont           = "BP",
+                     pAdjustMethod = "BH",
+                     pvalueCutoff  = 0.05,
+                     qvalueCutoff  = 0.2,
+                     readable      = TRUE)
+  
+  ora_kegg <- enrichKEGG(gene          = top_entrez,
+                         universe      = bg_entrez,
+                         organism      = "hsa",
+                         pAdjustMethod = "BH",
+                         pvalueCutoff  = 0.05)
+  
+  # Save tables
+  write.csv(as.data.frame(ora_go),
+            file.path(outdir, paste0(factor_name, "_", celltype_label, "_ORA_GO.csv")),
+            row.names = FALSE)
+  write.csv(as.data.frame(ora_kegg),
+            file.path(outdir, paste0(factor_name, "_", celltype_label, "_ORA_KEGG.csv")),
+            row.names = FALSE)
+  
+  # ── GSEA: full ranked list ────────────────────────────────────────────────
+  ranked_vec <- setNames(loadings, gene_syms)
+  ranked_entrez <- id_map %>%
+    filter(SYMBOL %in% names(ranked_vec)) %>%
+    mutate(loading = ranked_vec[SYMBOL]) %>%
+    arrange(desc(loading)) %>%
+    distinct(ENTREZID, .keep_all = TRUE) %>%
+    { setNames(.$loading, .$ENTREZID) }
+  
+  gsea_go <- gseGO(geneList      = ranked_entrez,
+                   OrgDb         = org.Hs.eg.db,
+                   ont           = "BP",
+                   minGSSize     = 10,
+                   maxGSSize     = 500,
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.05,
+                   verbose       = FALSE)
+  
+  write.csv(as.data.frame(gsea_go),
+            file.path(outdir, paste0(factor_name, "_", celltype_label, "_GSEA_GO.csv")),
+            row.names = FALSE)
+  
+  # ── Plots ─────────────────────────────────────────────────────────────────
+  plots <- list()
+  
+  # Bar plot of top loadings
+  plots$loadings <- ggplot(top50_df[1:20, ], aes(x = reorder(gene, loading), y = loading)) +
+    geom_col(fill = "#0072B2", alpha = 0.8) +
+    coord_flip() +
+    labs(title = paste("Top 20 genes —", factor_name, "(", celltype_label, ")"),
+         x = NULL, y = "NMF Loading") +
+    theme_classic(base_size = 11)
+  
+  if (nrow(as.data.frame(ora_go)) > 0) {
+    plots$ora_dot <- dotplot(ora_go, showCategory = 20, font.size = 9) +
+      ggtitle(paste("GO BP ORA —", factor_name, "(", celltype_label, ")"))
+  }
+  
+  if (nrow(as.data.frame(gsea_go)) > 0) {
+    # Top 10 positive NES (high-loading gene enrichment)
+    gsea_df <- as.data.frame(gsea_go) %>% arrange(desc(NES))
+    plots$gsea_bar <- ggplot(head(gsea_df, 20),
+                             aes(x = reorder(Description, NES), y = NES,
+                                 fill = p.adjust)) +
+      geom_col() +
+      coord_flip() +
+      scale_fill_gradient(low = "#D55E00", high = "grey80",
+                          name = "FDR", limits = c(0, 0.05)) +
+      labs(title = paste("GSEA GO BP —", factor_name, "(", celltype_label, ")"),
+           x = NULL, y = "NES") +
+      theme_classic(base_size = 10)
+  }
+  
+  # Combined save
+  if (length(plots) > 0) {
+    ggsave(file.path(outdir, paste0(factor_name, "_", celltype_label, "_enrichment.png")),
+           wrap_plots(plots, ncol = 1),
+           width = 10, height = 6 * length(plots), dpi = 300)
+  }
+  
+  cat("Done. ORA GO terms:", nrow(as.data.frame(ora_go)),
+      "| GSEA GO terms:", nrow(as.data.frame(gsea_go)), "\n")
+  
+  return(list(top50 = top50_df, ora_go = ora_go, ora_kegg = ora_kegg, gsea_go = gsea_go))
+}
+
+# Run for NMF_F3 in TAL (primary interest from Image 5)
+# Also run for other significant/interesting factors you want to explore
+nmf_f3_tal <- characterise_nmf_factor(nmf_results[["TAL"]],
+                                      factor_name    = "NMF_F3",
+                                      celltype_label = "TAL")
+
+# To run for any other factor, e.g. NMF_F1 in EC:
+# nmf_f1_ec <- characterise_nmf_factor(nmf_results[["EC"]], "NMF_F1", "EC")
+
+################################################################################
+# B. aPT_sig TAL × DISEASE GROUP INTERACTION
+#    Tests whether the sex difference in aPT_sig is:
+#      (i)  present in LC only, T2D only, or both
+#      (ii) significantly amplified in T2D vs LC (interaction term)
+#    Output: faceted violin + stats table + interaction model
+################################################################################
+
+test_module_group_sex_interaction <- function(morpha_res, module_col = "morpha_aPT_sig",
+                                              celltype_label = "TAL",
+                                              clin_df = clin,
+                                              outdir = dir_followup) {
+  
+  cat("\n===== aPT_sig × Group Interaction:", celltype_label, "=====\n")
+  
+  score_df <- morpha_res$scores %>%
+    filter(!is.na(sex), group %in% c("Type_2_Diabetes", "Lean_Control")) %>%
+    mutate(group_fac = factor(group,
+                              levels = c("Lean_Control", "Type_2_Diabetes"),
+                              labels = c("LC", "T2D")),
+           sex_fac = factor(sex, levels = c("Female", "Male")))
+  
+  if (!module_col %in% names(score_df))
+    stop(module_col, " not found. Available: ", paste(names(score_df), collapse = ", "))
+  
+  # ── (i) Within-group sex tests ────────────────────────────────────────────
+  within_group <- score_df %>%
+    group_by(group_fac) %>%
+    summarise(
+      n_male    = sum(sex == "Male"),
+      n_female  = sum(sex == "Female"),
+      mean_m    = mean(.data[[module_col]][sex == "Male"],   na.rm = TRUE),
+      mean_f    = mean(.data[[module_col]][sex == "Female"], na.rm = TRUE),
+      delta_mf  = mean_m - mean_f,
+      p_wilcox  = wilcox.test(.data[[module_col]] ~ sex)$p.value,
+      .groups   = "drop"
+    ) %>%
+    mutate(p_fdr = p.adjust(p_wilcox, "BH"))
+  
+  cat("Within-group sex differences:\n"); print(within_group)
+  
+  # ── (ii) Interaction: sex × group (linear model, participant-level) ───────
+  # Also test whether the sex-difference *magnitude* is larger in T2D
+  lm_int <- lm(as.formula(paste(module_col, "~ sex_fac * group_fac")),
+               data = score_df)
+  int_tidy <- tidy(lm_int) %>%
+    mutate(p_fdr = p.adjust(p.value, "BH"))
+  cat("\nInteraction model:\n"); print(int_tidy)
+  
+  write.csv(within_group,
+            file.path(outdir, paste0("aPT_sig_within_group_", celltype_label, ".csv")),
+            row.names = FALSE)
+  write.csv(int_tidy,
+            file.path(outdir, paste0("aPT_sig_interaction_model_", celltype_label, ".csv")),
+            row.names = FALSE)
+  
+  # ── (iii) Violin: sex × group ─────────────────────────────────────────────
+  p_violin <- ggplot(score_df,
+                     aes(x = sex_fac, y = .data[[module_col]], fill = sex_fac)) +
+    geom_violin(alpha = 0.5, trim = FALSE) +
+    geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8) +
+    geom_jitter(width = 0.08, alpha = 0.5, size = 1.5) +
+    stat_compare_means(method = "wilcox.test", label = "p.format",
+                       label.x = 1.3, size = 3.5) +
+    facet_wrap(~ group_fac) +
+    scale_fill_manual(values = c(Female = "#D55E00", Male = "#0072B2")) +
+    labs(title  = paste("aPT_sig Score by Sex and Disease Group —", celltype_label),
+         x = NULL, y = "aPT_sig Module Score") +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "none")
+  
+  # ── (iv) Delta plot: visualise amplification ──────────────────────────────
+  delta_df <- within_group %>%
+    dplyr::select(group_fac, delta_mf, p_wilcox)
+  
+  p_delta <- ggplot(delta_df, aes(x = group_fac, y = delta_mf, fill = group_fac)) +
+    geom_col(alpha = 0.75, width = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_text(aes(label = paste0("p=", round(p_wilcox, 3))),
+              vjust = -0.5, size = 4) +
+    scale_fill_manual(values = c(LC = "#999999", T2D = "#CC0000")) +
+    labs(title  = paste("Sex Difference (Male − Female) in aPT_sig —", celltype_label),
+         x = NULL, y = "Δ (Male − Female) Module Score") +
+    theme_classic(base_size = 12) +
+    theme(legend.position = "none")
+  
+  ggsave(file.path(outdir, paste0("aPT_sig_interaction_", celltype_label, ".png")),
+         p_violin / p_delta + plot_layout(heights = c(3, 1)),
+         width = 8, height = 9, dpi = 300)
+  
+  return(list(within_group = within_group, interaction_model = int_tidy))
+}
+
+apt_interaction_TAL <- test_module_group_sex_interaction(
+  morpha_results[["TAL"]],
+  module_col     = "morpha_aPT_sig",
+  celltype_label = "TAL"
+)
+
+# Also run for PT (where the Morpha plots showed no significance — worth checking LC vs T2D)
+apt_interaction_PT <- test_module_group_sex_interaction(
+  morpha_results[["PT"]],
+  module_col     = "morpha_aPT_sig",
+  celltype_label = "PT"
+)
+
+################################################################################
+# C. PT PSEUDOTIME vs MORPHA MODULE CORRELATIONS
+#    Correlates per-cell pseudotime (from Slingshot stored in metadata) with
+#    Morpha module scores, split by sex and group.
+#    Adjust `pseudotime_col` to match the column name in your Seurat metadata.
+################################################################################
+
+correlate_pseudotime_modules <- function(so_obj, morpha_modules_list,
+                                         celltype_label  = "PT",
+                                         pseudotime_col  = "slingPseudotime_1",
+                                         outdir          = dir_followup) {
+  
+  cat("\n===== Pseudotime × Morpha Modules:", celltype_label, "=====\n")
+  
+  so_ct <- subset_celltype(so_obj, celltype_label)
+  
+  # Check pseudotime column exists
+  if (!pseudotime_col %in% colnames(so_ct@meta.data)) {
+    cat("Available metadata columns containing 'sling' or 'pseudo':\n")
+    print(grep("sling|pseudo|time", colnames(so_ct@meta.data),
+               ignore.case = TRUE, value = TRUE))
+    stop("Pseudotime column '", pseudotime_col, "' not found. ",
+         "Update pseudotime_col argument to the correct column name above.")
+  }
+  
+  # Score modules on cells
+  mods_ok <- Filter(function(g) length(g) >= 3,
+                    lapply(morpha_modules_list,
+                           function(g) intersect(g, rownames(so_ct))))
+  so_ct <- AddModuleScore(so_ct, features = mods_ok,
+                          name = "pseudocor_", ctrl = 100)
+  score_cols_raw  <- paste0("pseudocor_", seq_along(mods_ok))
+  score_cols_nice <- paste0("m_", names(mods_ok))
+  so_ct@meta.data <- so_ct@meta.data %>%
+    rename(setNames(score_cols_raw, score_cols_nice))
+  
+  # Cell-level data frame
+  cell_df <- so_ct@meta.data %>%
+    dplyr::select(record_id, sex, group,
+                  pseudotime = all_of(pseudotime_col),
+                  all_of(score_cols_nice)) %>%
+    filter(!is.na(pseudotime), !is.na(sex))
+  
+  cat("Cells with pseudotime:", nrow(cell_df), "\n")
+  
+  # ── Spearman correlations: pseudotime ~ each module, stratified by sex × group ──
+  strata <- cell_df %>%
+    distinct(sex, group) %>%
+    arrange(sex, group)
+  
+  cor_results <- map_dfr(seq_len(nrow(strata)), function(i) {
+    sx  <- strata$sex[i];   grp <- strata$group[i]
+    sub <- cell_df %>% filter(sex == sx, group == grp)
+    map_dfr(score_cols_nice, function(mc) {
+      ct_res <- cor.test(sub$pseudotime, sub[[mc]],
+                         method = "spearman", exact = FALSE)
+      data.frame(sex = sx, group = grp, module = mc,
+                 rho = ct_res$estimate, p_value = ct_res$p.value,
+                 n   = nrow(sub))
+    })
+  }) %>% mutate(p_fdr = p.adjust(p_value, "BH"))
+  
+  write.csv(cor_results,
+            file.path(outdir, paste0("Pseudotime_module_correlations_", celltype_label, ".csv")),
+            row.names = FALSE)
+  
+  cat("Significant correlations (FDR < 0.05):\n")
+  print(cor_results %>% filter(p_fdr < 0.05) %>% arrange(p_fdr))
+  
+  # ── Scatter plots for significant pairs ───────────────────────────────────
+  sig_pairs <- cor_results %>% filter(p_fdr < 0.05)
+  
+  if (nrow(sig_pairs) > 0) {
+    # One plot per module, faceted by sex × group
+    sig_modules <- unique(sig_pairs$module)
+    scatter_plots <- lapply(sig_modules, function(mc) {
+      ggplot(cell_df, aes(x = pseudotime, y = .data[[mc]], color = sex)) +
+        geom_point(alpha = 0.15, size = 0.6) +
+        geom_smooth(method = "loess", se = TRUE, linewidth = 0.9) +
+        facet_grid(sex ~ group) +
+        scale_color_manual(values = c(Female = "#D55E00", Male = "#0072B2")) +
+        labs(title = paste(mc, "vs Pseudotime —", celltype_label),
+             x     = "Slingshot Pseudotime",
+             y     = paste(mc, "Score")) +
+        theme_bw(base_size = 10) +
+        theme(legend.position = "none")
+    })
+    
+    ggsave(file.path(outdir, paste0("Pseudotime_scatter_", celltype_label, ".png")),
+           wrap_plots(scatter_plots, ncol = 2),
+           width = 12, height = 5 * ceiling(length(scatter_plots) / 2), dpi = 300)
+  } else {
+    cat("No significant pseudotime–module correlations after FDR correction.\n")
+  }
+  
+  # ── Correlation heatmap (all strata × modules) ────────────────────────────
+  cor_wide <- cor_results %>%
+    mutate(stratum = paste0(sex, "\n", group)) %>%
+    dplyr::select(stratum, module, rho) %>%
+    pivot_wider(names_from = module, values_from = rho) %>%
+    column_to_rownames("stratum")
+  
+  p_wide <- cor_results %>%
+    mutate(stratum = paste0(sex, "\n", group)) %>%
+    dplyr::select(stratum, module, p_fdr) %>%
+    pivot_wider(names_from = module, values_from = p_fdr) %>%
+    column_to_rownames("stratum")
+  
+  png(file.path(outdir, paste0("Pseudotime_rho_heatmap_", celltype_label, ".png")),
+      width = 900, height = 500)
+  ggcorrplot(as.matrix(cor_wide),
+             p.mat   = as.matrix(p_wide),
+             sig.lvl = 0.05,
+             insig   = "blank",
+             lab     = TRUE,
+             lab_size = 3,
+             title   = paste("Pseudotime ~ Module Spearman ρ —", celltype_label)) %>%
+    print()
+  dev.off()
+  
+  return(list(correlations = cor_results, cell_data = cell_df))
+}
+
+# !! Update pseudotime_col to the actual column in your Seurat metadata !!
+# Common names: "slingPseudotime_1", "Pseudotime", "PT_pseudotime"
+pt_pseudotime_cor <- correlate_pseudotime_modules(
+  so_full,
+  morpha_modules_list = morpha_modules,
+  celltype_label      = "PT",
+  pseudotime_col      = "slingPseudotime_1"   # <-- adjust if needed
+)
+
+################################################################################
+# D. NMF FACTOR WEIGHTS vs CLINICAL SEVERITY VARIABLES
+#    For each cell type: correlate participant-level NMF scores with
+#    HbA1c, eGFR, BMI — and test whether correlations differ by sex.
+#    Output: correlation matrix heatmap + scatter plots for sig pairs
+################################################################################
+
+correlate_nmf_clinical <- function(nmf_res_ct, clin_df,
+                                   celltype_label  = "TAL",
+                                   sev_vars        = SEVERITY_VARS,
+                                   group_filter    = "Type_2_Diabetes",
+                                   outdir          = dir_followup) {
+  
+  cat("\n===== NMF × Clinical Variables:", celltype_label, "=====\n")
+  
+  # Participant-level NMF scores (from nmf_results)
+  score_df <- nmf_res_ct$scores %>%
+    filter(group == group_filter, !is.na(sex)) %>%
+    left_join(clin_df %>%
+                dplyr::select(record_id, all_of(sev_vars)),
+              by = "record_id")
+  
+  factor_cols <- names(score_df) %>% keep(~ startsWith(.x, "NMF_F"))
+  cat("Factors:", paste(factor_cols, collapse = ", "), "\n")
+  cat("N participants:", nrow(score_df), "\n")
+  
+  # ── Spearman correlations: each NMF factor ~ each clinical variable ───────
+  cor_full <- map_dfr(factor_cols, function(fc) {
+    map_dfr(sev_vars, function(sv) {
+      complete <- score_df %>% filter(!is.na(.data[[fc]]), !is.na(.data[[sv]]))
+      if (nrow(complete) < 6) return(NULL)
+      ct_res <- cor.test(complete[[fc]], complete[[sv]],
+                         method = "spearman", exact = FALSE)
+      data.frame(factor = fc, clinical_var = sv,
+                 group  = "Combined",
+                 sex    = "All",
+                 rho    = ct_res$estimate, p_value = ct_res$p.value,
+                 n      = nrow(complete))
+    })
+  })
+  
+  # Stratify by sex
+  cor_sex <- map_dfr(c("Female", "Male"), function(sx) {
+    sub <- score_df %>% filter(sex == sx)
+    map_dfr(factor_cols, function(fc) {
+      map_dfr(sev_vars, function(sv) {
+        complete <- sub %>% filter(!is.na(.data[[fc]]), !is.na(.data[[sv]]))
+        if (nrow(complete) < 5) return(NULL)
+        ct_res <- cor.test(complete[[fc]], complete[[sv]],
+                           method = "spearman", exact = FALSE)
+        data.frame(factor = fc, clinical_var = sv,
+                   group  = group_filter, sex = sx,
+                   rho    = ct_res$estimate, p_value = ct_res$p.value,
+                   n      = nrow(complete))
+      })
+    })
+  })
+  
+  all_cor <- bind_rows(cor_full, cor_sex) %>%
+    mutate(p_fdr = p.adjust(p_value, "BH"))
+  
+  write.csv(all_cor,
+            file.path(outdir,
+                      paste0("NMF_clinical_correlations_", celltype_label, ".csv")),
+            row.names = FALSE)
+  
+  cat("Significant correlations (FDR < 0.05):\n")
+  print(all_cor %>% filter(p_fdr < 0.05) %>% arrange(p_fdr))
+  
+  # ── Heatmap: rho matrix (all participants) ─────────────────────────────────
+  rho_mat <- cor_full %>%
+    dplyr::select(factor, clinical_var, rho) %>%
+    pivot_wider(names_from = clinical_var, values_from = rho) %>%
+    column_to_rownames("factor") %>%
+    as.matrix()
+  
+  p_mat <- cor_full %>%
+    left_join(all_cor %>% filter(sex == "All") %>%
+                dplyr::select(factor, clinical_var, p_fdr),
+              by = c("factor", "clinical_var")) %>%
+    dplyr::select(factor, clinical_var, p_fdr) %>%
+    pivot_wider(names_from = clinical_var, values_from = p_fdr) %>%
+    column_to_rownames("factor") %>%
+    as.matrix()
+  
+  p_heat <- ggcorrplot(rho_mat,
+                       p.mat    = p_mat,
+                       sig.lvl  = 0.05,
+                       insig    = "blank",
+                       lab      = TRUE, lab_size = 3.5,
+                       colors   = c("#D55E00", "white", "#0072B2"),
+                       title    = paste("NMF Factor × Clinical Severity ρ —",
+                                        celltype_label))
+  ggsave(file.path(outdir,
+                   paste0("NMF_clinical_rho_heatmap_", celltype_label, ".png")),
+         p_heat, width = max(5, length(sev_vars) * 2),
+         height = max(4, length(factor_cols) * 0.6 + 2), dpi = 300)
+  
+  # ── Sex-stratified comparison for significant pairs ────────────────────────
+  sig_pairs <- all_cor %>%
+    filter(sex == "All", p_fdr < 0.05) %>%
+    dplyr::select(factor, clinical_var)
+  
+  if (nrow(sig_pairs) > 0) {
+    scatter_plots <- lapply(seq_len(nrow(sig_pairs)), function(i) {
+      fc <- sig_pairs$factor[i];  sv <- sig_pairs$clinical_var[i]
+      sub <- score_df %>% filter(!is.na(.data[[fc]]), !is.na(.data[[sv]]))
+      ggplot(sub, aes(x = .data[[sv]], y = .data[[fc]], color = sex)) +
+        geom_point(alpha = 0.7, size = 2.5) +
+        geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
+        scale_color_manual(values = c(Female = "#D55E00", Male = "#0072B2")) +
+        stat_cor(method = "spearman", aes(label = paste(..r.label.., ..p.label..,
+                                                        sep = "~`,`~")),
+                 size = 3) +
+        labs(title = paste(fc, "~", sv, "|", celltype_label),
+             x = sv, y = paste(fc, "Score")) +
+        theme_classic(base_size = 11)
+    })
+    
+    ggsave(file.path(outdir,
+                     paste0("NMF_clinical_scatterplots_", celltype_label, ".png")),
+           wrap_plots(scatter_plots, ncol = 3),
+           width = 15, height = 5 * ceiling(length(scatter_plots) / 3), dpi = 300)
+  }
+  
+  return(all_cor)
+}
+
+# Run for all three cell types
+nmf_clinical_cor <- list()
+for (ct in c("PT", "TAL", "EC"))
+  nmf_clinical_cor[[ct]] <- correlate_nmf_clinical(nmf_results[[ct]],
+                                                   clin_df        = clin,
+                                                   celltype_label = ct)
+
+# ── Combined summary across all cell types ────────────────────────────────────
+summary_all <- bind_rows(
+  lapply(names(nmf_clinical_cor), function(ct)
+    nmf_clinical_cor[[ct]] %>% mutate(celltype = ct))
+) %>%
+  filter(p_fdr < 0.05) %>%
+  arrange(p_fdr)
+
+write.csv(summary_all,
+          file.path(dir_followup, "NMF_clinical_correlations_SUMMARY.csv"),
+          row.names = FALSE)
+
+cat("\n===== Follow-up analyses complete =====\n")
+cat("Outputs in:", dir_followup, "\n")
+cat("\nKey questions to answer from outputs:\n")
+cat("  A. What pathways define NMF_F3 in TAL? (check *_GSEA_GO.csv)\n")
+cat("  B. Is aPT_sig sex difference amplified in T2D? (check *interaction_model*.csv)\n")
+cat("  C. Does pseudotime correlate with injured/adaptive modules? (check *pseudotime_cor*.csv)\n")
+cat("  D. Which NMF factors track with HbA1c/eGFR? (check *_SUMMARY.csv)\n")
+
