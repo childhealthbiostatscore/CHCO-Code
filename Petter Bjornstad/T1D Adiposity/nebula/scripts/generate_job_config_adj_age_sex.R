@@ -13,10 +13,12 @@ analysis_types <- c(
   "T1D_normal_vs_overweight_bmi_adj_age_sex",
   "T1D_nonobese_vs_obese_bmi_adj_age_sex",
   "T1D_normal_vs_obese_bmi_adj_age_sex",
+  "T1D_normal_vs_ow_obese_bmi_adj_age_sex",
   # ---- Categorical: DXA-defined within T1D (adjusted for age + sex) ----
   "T1D_normal_vs_overweight_dxa_adj_age_sex",
   "T1D_nonobese_vs_obese_dxa_adj_age_sex",
   "T1D_normal_vs_obese_dxa_adj_age_sex",
+  "T1D_normal_vs_ow_obese_dxa_adj_age_sex",
   # ---- Categorical: HC vs T1D (BMI-defined, adjusted for age + sex) ----
   "HC_vs_T1D_normal_bmi_adj_age_sex",
   "HC_vs_T1D_overweight_bmi_adj_age_sex",

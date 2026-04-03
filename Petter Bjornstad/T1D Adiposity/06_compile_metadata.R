@@ -35,10 +35,12 @@ analysis_subdirs <- c(
   "T1D_normal_vs_overweight_bmi",
   "T1D_nonobese_vs_obese_bmi",
   "T1D_normal_vs_obese_bmi",
+  "T1D_normal_vs_ow_obese_bmi",
   # DXA within T1D
   "T1D_normal_vs_overweight_dxa",
   "T1D_nonobese_vs_obese_dxa",
   "T1D_normal_vs_obese_dxa",
+  "T1D_normal_vs_ow_obese_dxa",
   # HC vs T1D (BMI)
   "HC_vs_T1D_normal_bmi",
   "HC_vs_T1D_overweight_bmi",
@@ -47,7 +49,7 @@ analysis_subdirs <- c(
   "HC_vs_T1D_normal_dxa",
   "HC_vs_T1D_overweight_dxa",
   "HC_vs_T1D_obese_dxa",
-  
+
   # =========================================================================
   # CATEGORICAL (adj age)
   # =========================================================================
@@ -55,10 +57,12 @@ analysis_subdirs <- c(
   "T1D_normal_vs_overweight_bmi_adj_age",
   "T1D_nonobese_vs_obese_bmi_adj_age",
   "T1D_normal_vs_obese_bmi_adj_age",
+  "T1D_normal_vs_ow_obese_bmi_adj_age",
   # DXA within T1D
   "T1D_normal_vs_overweight_dxa_adj_age",
   "T1D_nonobese_vs_obese_dxa_adj_age",
   "T1D_normal_vs_obese_dxa_adj_age",
+  "T1D_normal_vs_ow_obese_dxa_adj_age",
   # HC vs T1D (BMI)
   "HC_vs_T1D_normal_bmi_adj_age",
   "HC_vs_T1D_overweight_bmi_adj_age",
@@ -67,7 +71,7 @@ analysis_subdirs <- c(
   "HC_vs_T1D_normal_dxa_adj_age",
   "HC_vs_T1D_overweight_dxa_adj_age",
   "HC_vs_T1D_obese_dxa_adj_age",
-  
+
   # =========================================================================
   # CATEGORICAL (adj age + sex)
   # =========================================================================
@@ -75,10 +79,12 @@ analysis_subdirs <- c(
   "T1D_normal_vs_overweight_bmi_adj_age_sex",
   "T1D_nonobese_vs_obese_bmi_adj_age_sex",
   "T1D_normal_vs_obese_bmi_adj_age_sex",
+  "T1D_normal_vs_ow_obese_bmi_adj_age_sex",
   # DXA within T1D
   "T1D_normal_vs_overweight_dxa_adj_age_sex",
   "T1D_nonobese_vs_obese_dxa_adj_age_sex",
   "T1D_normal_vs_obese_dxa_adj_age_sex",
+  "T1D_normal_vs_ow_obese_dxa_adj_age_sex",
   # HC vs T1D (BMI)
   "HC_vs_T1D_normal_bmi_adj_age_sex",
   "HC_vs_T1D_overweight_bmi_adj_age_sex",

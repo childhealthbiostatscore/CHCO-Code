@@ -11,7 +11,7 @@
 #SBATCH --ntasks=1
 
 # File containing array IDs to rerun (one per line)
-ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_33794735.txt"
+ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_256.txt"
 
 ################################################################################
 # Self-submission: if not inside a SLURM array task, submit ourselves
@@ -19,7 +19,15 @@ ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arra
 if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     N_JOBS=$(wc -l < "${ID_FILE}")
     echo "OOM 256GB resubmission: ${N_JOBS} jobs from ${ID_FILE}"
-    sbatch --array=1-${N_JOBS}%50 "$0"
+    BATCH_SIZE=1000
+    for ((START=1; START<=N_JOBS; START+=BATCH_SIZE)); do
+        END=$((START + BATCH_SIZE - 1))
+        if [ ${END} -gt ${N_JOBS} ]; then
+            END=${N_JOBS}
+        fi
+        echo "Submitting array ${START}-${END}%100"
+        sbatch --array=${START}-${END}%100 "$0"
+    done
     exit 0
 fi
 

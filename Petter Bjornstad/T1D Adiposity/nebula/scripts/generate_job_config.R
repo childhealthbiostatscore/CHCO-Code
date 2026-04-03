@@ -12,10 +12,12 @@ analysis_types <- c(
   "T1D_normal_vs_overweight_bmi",
   "T1D_nonobese_vs_obese_bmi",
   "T1D_normal_vs_obese_bmi",
+  "T1D_normal_vs_ow_obese_bmi",
   # ---- Categorical: DXA-defined within T1D (unadjusted) ----
   "T1D_normal_vs_overweight_dxa",
   "T1D_nonobese_vs_obese_dxa",
   "T1D_normal_vs_obese_dxa",
+  "T1D_normal_vs_ow_obese_dxa",
   # ---- Categorical: HC vs T1D (BMI-defined, unadjusted) ----
   "HC_vs_T1D_normal_bmi",
   "HC_vs_T1D_overweight_bmi",
@@ -29,10 +31,12 @@ analysis_types <- c(
   "T1D_normal_vs_overweight_bmi_adj_age",
   "T1D_nonobese_vs_obese_bmi_adj_age",
   "T1D_normal_vs_obese_bmi_adj_age",
+  "T1D_normal_vs_ow_obese_bmi_adj_age",
   # ---- Categorical: DXA-defined within T1D (adjusted for age) ----
   "T1D_normal_vs_overweight_dxa_adj_age",
   "T1D_nonobese_vs_obese_dxa_adj_age",
   "T1D_normal_vs_obese_dxa_adj_age",
+  "T1D_normal_vs_ow_obese_dxa_adj_age",
   # ---- Categorical: HC vs T1D (BMI-defined, adjusted for age) ----
   "HC_vs_T1D_normal_bmi_adj_age",
   "HC_vs_T1D_overweight_bmi_adj_age",

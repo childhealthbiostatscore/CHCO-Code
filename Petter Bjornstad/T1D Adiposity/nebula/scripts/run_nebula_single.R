@@ -125,7 +125,17 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_bmi", file_suffix = "t1d_norm_ob_bmi"
   ),
-  
+
+  # 3b. T1D Normal vs T1D Overweight+Obese (BMI)
+  T1D_normal_vs_ow_obese_bmi = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity)",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi", file_suffix = "t1d_norm_owob_bmi",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS (DXA-defined)
   # =========================================================================
@@ -157,7 +167,17 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_dxa", file_suffix = "t1d_norm_ob_dxa"
   ),
-  
+
+  # 6b. T1D Normal vs T1D Overweight+Obese (DXA)
+  T1D_normal_vs_ow_obese_dxa = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa", file_suffix = "t1d_norm_owob_dxa",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
   # =========================================================================
   # HC vs T1D COMPARISONS (BMI-defined)
   # =========================================================================
@@ -251,7 +271,17 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_bmi_adj_age", file_suffix = "t1d_norm_ob_bmi_adj_age"
   ),
-  
+
+  T1D_normal_vs_ow_obese_bmi_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity)",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_adj_age", file_suffix = "t1d_norm_owob_bmi_adj_age",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (DXA-defined, T1D within-group)
   # =========================================================================
@@ -283,7 +313,17 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_dxa_adj_age", file_suffix = "t1d_norm_ob_dxa_adj_age"
   ),
-  
+
+  T1D_normal_vs_ow_obese_dxa_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_adj_age", file_suffix = "t1d_norm_owob_dxa_adj_age",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (HC vs T1D, BMI-defined)
   # =========================================================================
@@ -377,7 +417,17 @@ analysis_config <- list(
     pval_col = "p_bmi_obesityObese", logfc_col = "logFC_bmi_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_bmi_adj_age_sex", file_suffix = "t1d_norm_ob_bmi_adj_age_sex"
   ),
-  
+
+  T1D_normal_vs_ow_obese_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity)",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_adj_age_sex", file_suffix = "t1d_norm_owob_bmi_adj_age_sex",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (DXA-defined, T1D within-group)
   # =========================================================================
@@ -409,7 +459,17 @@ analysis_config <- list(
     pval_col = "p_dxa_obesityObese", logfc_col = "logFC_dxa_obesityObese",
     s3_subdir = "T1D_normal_vs_obese_dxa_adj_age_sex", file_suffix = "t1d_norm_ob_dxa_adj_age_sex"
   ),
-  
+
+  T1D_normal_vs_ow_obese_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_adj_age_sex", file_suffix = "t1d_norm_owob_dxa_adj_age_sex",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (HC vs T1D, BMI-defined)
   # =========================================================================
@@ -1321,6 +1381,25 @@ if (isTRUE(config$needs_binary_dxa)) {
     mutate(dxa_obese_binary = case_when(
       dxa_obesity %in% c("Normal", "Overweight") ~ "Non_Obese",
       dxa_obesity == "Obese" ~ "Obese",
+      TRUE ~ NA_character_
+    ))
+}
+
+# Create binary Normal vs Overweight+Obese variables if needed
+if (isTRUE(config$needs_binary_ow_obese_bmi)) {
+  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
+    mutate(bmi_ow_obese_binary = case_when(
+      bmi_obesity == "Normal" ~ "Normal",
+      bmi_obesity %in% c("Overweight", "Obese") ~ "Overweight_Obese",
+      TRUE ~ NA_character_
+    ))
+}
+
+if (isTRUE(config$needs_binary_ow_obese_dxa)) {
+  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
+    mutate(dxa_ow_obese_binary = case_when(
+      dxa_obesity == "Normal" ~ "Normal",
+      dxa_obesity %in% c("Overweight", "Obese") ~ "Overweight_Obese",
       TRUE ~ NA_character_
     ))
 }
