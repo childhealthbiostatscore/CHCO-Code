@@ -145,7 +145,7 @@ library(nebula)
 # dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 ##c. Load functions ----
-source("Kidney_functions_sc.R")
+# source("Kidney_functions_sc.R")
 source("Rename_Seurat_Function.R")
 source("Celltype_Annotation_Function.R")
 ```
@@ -180,12 +180,12 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 # s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
 # so_kpmp_sc <- readRDS(temp_file)
 
-#Load cleaned kidney biopsy data
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/cleaned_biopsy.rds", temp_file)
-so_kpmp_sc <- readRDS(temp_file)
+# #Load cleaned kidney biopsy data
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/cleaned_biopsy.rds", temp_file)
+# so_kpmp_sc <- readRDS(temp_file)
 
 #Load harmonized data for biopsy
 gc()
@@ -199,12 +199,12 @@ temp_file <- tempfile(fileext = ".gmt")
 s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
 c8 <- GSA.read.gmt(temp_file)
 
-#Load formatted organoid data
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
-sc_org_old <- readRDS(temp_file)
+# #Load formatted organoid data
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+# sc_org_old <- readRDS(temp_file)
 
 # #Load cleaned organoid data
 # gc()
@@ -277,6 +277,7 @@ temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
 s3$download_file(bucket, "hailey_subset_data.csv", temp_file)
 dat <- read.csv(temp_file)
 ```
+
 ###i. Load Methods 
 ```{r}
 bucket <- "scrna"
@@ -6048,3 +6049,99 @@ write.csv(biopsy_cell_counts, "/home/hhampson/Results/Biopsy_Limma_T2DvsLC_Full/
           row.names = FALSE)
 ```
 
+#5. Reannotate Clusters
+```{r}
+#Keep only Strom, DKE and DKE2, DPEC, EEC and Mes
+#Filter so to these clusters
+#First, visualize the umap of all the annotated clusters
+print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
+print(table(Idents(so_combined)))  # Show distribution of cells per cluster
+Idents(so_combined) <- "cell_type_abbrev"
+
+DimPlot(so_combined, reduction = "umap", raster = T)
+
+DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
+DimPlot(so_combined, reduction = "umap", raster = T, group.by = "cell_type_abbrev")
+
+# Plot with abbreviated labels
+DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE, label.size = 6)+
+  theme(legend.position = "none")
+
+p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
+  labs(title = "Cell Type Annotations",
+       color = "Cell Type")+ theme(legend.position = "none")
+
+# Add bold labels
+p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
+
+png("/home/hhampson/Results/Organoid_UMAP_Annotation1.png",width=2000,height=2000,res=300)
+print(p)
+dev.off()
+
+Idents(so_combined) <- "record_id"
+p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
+  labs(title = "Cell Type Annotations",
+       color = "Cell Type")+ theme(legend.position = "none")
+
+# Add bold labels
+p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
+
+png("/home/hhampson/Results/Organoid_UMAP_Annotation1_participants.png",width=2000,height=2000,res=300)
+print(p)
+dev.off()
+
+#Fitler out & recluster
+#Celltypes to keep: Strom, DKE and DKE2, DPEC, EEC and Mes
+unique(so_combined$cell_type_abbrev)
+so_combined2 <- subset(so_combined, subset = cell_type_abbrev %in% c("Strom", "DKE", "DKE2", "DPEC", "EEC", "Mes"))
+
+# 1. Re-normalize and find variable features on the subset
+so_combined2 <- NormalizeData(so_combined2)
+so_combined2 <- FindVariableFeatures(so_combined2, selection.method = "vst", nfeatures = 2000)
+so_combined2 <- ScaleData(so_combined2)
+
+# 2. Re-run PCA
+so_combined2 <- RunPCA(so_combined2, npcs = 30)
+
+# 3. Check elbow plot to choose dims
+ElbowPlot(so_combined2, ndims = 30)
+
+# 4. Re-cluster (adjust dims and resolution as needed)
+so_combined2 <- FindNeighbors(so_combined2, dims = 1:20)
+so_combined2 <- FindClusters(so_combined2, resolution = 0.5)
+
+# 5. Re-run UMAP
+so_combined2 <- RunUMAP(so_combined2, dims = 1:20)
+
+# 6. Visualize
+p1 <- DimPlot(so_combined2, reduction = "umap", label = TRUE, group.by = "seurat_clusters")
+p2 <- DimPlot(so_combined2, reduction = "umap", label = TRUE, group.by = "cell_type_abbrev")  # old annotations
+p3 <- DimPlot(so_combined2, reduction = "umap", label = TRUE, group.by = "record_id")
+
+png("/home/hhampson/Results/Organoid_UMAP_Annotation2_seurat_clusters.png",width=2200,height=2000,res=300)
+print(p1)
+dev.off()
+png("/home/hhampson/Results/Organoid_UMAP_Annotation2_old_celltypes.png",width=2200,height=2000,res=300)
+print(p2)
+dev.off()
+png("/home/hhampson/Results/Organoid_UMAP_Annotation2_participants.png",width=2200,height=2000,res=300)
+print(p3)
+dev.off()
+
+# 7. Find markers for each cluster
+markers <- FindAllMarkers(
+  so_combined2,
+  only.pos = TRUE,
+  min.pct = 0.25,
+  logfc.threshold = 0.25,
+  test.use = "wilcox"
+)
+
+# 8. View top markers per cluster
+top_markers <- markers |>
+  dplyr::group_by(cluster) |>
+  dplyr::slice_max(avg_log2FC, n = 40)
+
+print(top_markers)
+
+```
