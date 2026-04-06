@@ -198,9 +198,9 @@ cat("overlap n:", length(olap), "\n")
 cat("meta not in prot:", sum(!meta_common$record_id %in% prot_ids), "\n")
 cat("prot not in meta:", sum(!prot_ids %in% meta_common$record_id), "\n")
 ```
-# ============================================================
+# ==================================
 # ALIGN metadata and protein matrix
-# ============================================================
+# ==================================
 ```{r}
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
 rownames(prot_plasma) <- trimws(rownames(prot_plasma))
@@ -214,15 +214,42 @@ prot_plasma_common <- prot_plasma[olap, , drop = FALSE]
 
 stopifnot(identical(rownames(prot_plasma_common), meta_common$record_id))
 ```
-# ============================================================
+
+
+# =================
 # BUILD PCA INPUT
-# ============================================================
+# =================
 ```{r}
 prot_pca <- as.matrix(prot_plasma_common)
 
 prot_log <- log2(prot_pca + 1)
 prot_log[!is.finite(prot_log)] <- NA_real_
+```
 
+# ---------------------------------------
+# PROTEIN FILTER: PRESENT IN >= 2 STUDIES
+# ---------------------------------------
+```{r}
+
+study_idx_all <- split(seq_len(nrow(prot_log)), meta_common$study)
+
+present_by_study_all <- sapply(study_idx_all, function(idx) {
+  colSums(!is.na(prot_log[idx, , drop = FALSE])) > 0
+})
+
+present_by_study_all <- as.matrix(present_by_study_all)
+
+n_studies_present_all <- colSums(present_by_study_all)
+keep_study_all <- n_studies_present_all >= 2
+
+cat("All proteomic features before study filter:", ncol(prot_log), "\n")
+cat("Removed (<2 studies):", sum(!keep_study_all), "\n")
+cat("Kept (>=2 studies):", sum(keep_study_all), "\n")
+
+prot_log <- prot_log[, keep_study_all, drop = FALSE]
+```
+
+```{r}
 prot_imp <- prot_log
 meds <- apply(prot_imp, 2, function(x) {
   m <- median(x, na.rm = TRUE)
@@ -988,9 +1015,6 @@ overlap_results <- lapply(contrasts, function(cc) {
 
 overlap_summary <- dplyr::bind_rows(overlap_results)
 print(overlap_summary)
-```
-```{r}
-out_m2_all3$T2D_vs_OC %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) >= 0.5 )
 ```
 
 # ============================================================
