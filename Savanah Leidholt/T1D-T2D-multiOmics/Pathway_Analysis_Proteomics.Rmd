@@ -30,8 +30,8 @@ library(limma)
 #=====================================================
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -446,30 +446,55 @@ gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
 ```
 
 ```{r}
-overlap_results <- lapply(contrasts, function(cc) {
-  
-  tibble::tibble(
-    contrast = cc,
-    
-    n_sig1 = length(fgsea_sig),
-    n_sig2       = length(fgsea_sig2),
-    n_sig3       = length(fgsea_sig3),
-    
-    overlap_sig1_2 = length(intersect(fgsea_sig, fgsea_sig2)),
-    overlap_sig2_3  = length(intersect(fgsea_sig2, fgsea_sig3)),
-    overlap_sig1_3 = length(intersect(fgsea_sig, fgsea_sig2)),
-    
-    overlap_all_three = length(Reduce(intersect, list(fgsea_sig, fgsea_sig2, fgsea_sig3))),
-    
-    union_all_vs_noATT = length(union(fgsea_sig, fgsea_sig2 )),
-    union_all_vs_all3  = length(union(fgsea_sig2, fgsea_sig3)),
-    union_noATT_vs_all3 = length(union(fgsea_sig, fgsea_sig2)),
-    union_all_three    = length(Reduce(union, list(fgsea_sig, fgsea_sig2, fgsea_sig3)))
-  )
-    
-})
+sig1 <- fgsea_sig  %>% select(pathway, contrast, NES)
+sig2 <- fgsea_sig2 %>% select(pathway, contrast, NES)
+sig3 <- fgsea_sig3 %>% select(pathway, contrast, NES)
 
-overlap_summary <- dplyr::bind_rows(overlap_results)
-print(overlap_summary)
- overlap_all_three = length(Reduce(intersect, list(fgsea_sig, fgsea_sig2, fgsea_sig3)))
+sig1$analysis <- "all_studies"
+sig2$analysis <- "no_attempt"
+sig3$analysis <- "all3_omics"
+
+sig_all <- bind_rows(sig1, sig2, sig3)
+
+heatmap_all <- sig_all %>%
+  unite("analysis_contrast", analysis, contrast, sep = "_") %>%
+  select(pathway, analysis_contrast, NES) %>%
+  pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
+  column_to_rownames("pathway") %>%
+  as.matrix()
+
+# optional: replace NA with 0
+heatmap_all[is.na(heatmap_all)] <- 0
+
+pheatmap::pheatmap(
+  heatmap_all,
+  scale = "row",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  main = "All Significant Pathways"
+)
 ```
+
+```{r}
+shared_pathways <- Reduce(
+  intersect,
+  list(sig1$pathway, sig2$pathway, sig3$pathway)
+)
+
+heatmap_shared <- sig_all %>%
+  filter(pathway %in% shared_pathways) %>%
+  unite("analysis_contrast", analysis, contrast, sep = "_") %>%
+  select(pathway, analysis_contrast, NES) %>%
+  pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
+  column_to_rownames("pathway") %>%
+  as.matrix()
+
+heatmap_shared[is.na(heatmap_shared)] <- 0
+
+pheatmap::pheatmap(
+  heatmap_shared,
+  scale = "row",
+  main = "Shared Significant Pathways"
+)
+```
+
