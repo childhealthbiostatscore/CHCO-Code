@@ -19,25 +19,76 @@ library(glmnet)
 library(pROC)
 library(ggplot2)
 ```
+#=====================================================
+# inputting all directories and storage locations
+#=====================================================
+```{r}
+#Directories
+computer <- "mac studio"
+#computer <- "mac laptop"
+
+user <- Sys.info()[["user"]]
+
+if (computer == "mac studio") {
+  
+  if (user == "sleidholt") {
+    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+    
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+
+} else if (computer == "mac laptop") {
+
+  if (user == "savanahleidholt") {
+    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+  }
+}
+```
 
 
 #load in R objects and split them
 ```{r}
 
 
-# split objects (matrix + meta)
-obj <- readRDS("/mmfs1/gscratch/togo/leidholt/Data/R_objects/omics_split_objects3.rds")
-meta        <- obj$meta_prot
+# ---- load split objects created in your first Rmd ----
+obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+
+meta  <- obj$meta_prot
 prot_plasma <- obj$prot_plasma
+n_table     <- obj$n_table
+
 
 # limma outputs (out_plasma contains topTable per contrast)
-limma_obj <- readRDS("/mmfs1/gscratch/togo/leidholt/Data/R_objects/limma_outputs_no.rds")
-out_no <- limma_obj$out_no
+obj2 <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "limma_gsea_inputs_age_sex_study.rds"))
+out1 <- obj2$all_studies
+out2 <- obj2$no_attempt
+out3 <- obj2$all3_omics
+
 
 # quick checks
 dim(prot_plasma)
 dim(meta)
-names(out_no)
+
 
 
 ```
@@ -117,7 +168,7 @@ summary(colSums(is.na(X_imp)))   # should be all 0
 
 ```{r}
 # ---- protein -> gene symbol mapping (seq.* IDs) ----
-analytes <- read.csv("~/leidholt/Data/analyte_data/analytes.csv", stringsAsFactors = FALSE)
+analytes <- read.csv(file.path(dir.dat, "Data Harmonization", "Combined SomaScan", "analytes.csv"))
 
 protein2symbol <- analytes %>%
   transmute(
@@ -202,7 +253,7 @@ run_elasticnet_topN <- function(
 
   # covariates (unpenalized)
   meta_sub <- meta_sub %>% mutate(sex = factor(sex))
-  Z <- model.matrix(~ age + sex, data = meta_sub)
+  Z <- model.matrix(~ age + sex + study, data = meta_sub)
 
   # proteins (penalized)
   Xp <- X_imp[meta_sub$record_id, top_feats, drop = FALSE]
@@ -287,16 +338,58 @@ run_elasticnet_topN <- function(
 #run across contrasts top 100
 #----------------------------
 
-glmnet_res <- lapply(names(out_no), function(cc) {
+glmnet_res <- lapply(names(out1), function(cc) {
   run_elasticnet_topN(
     cc      = cc,
-    out_list= out_no,
+    out_list= out1,
     meta    = meta,
     X_imp   = X_imp,
     top_n   = 100
   )
 })
-names(glmnet_res) <- names(out_no)
+names(glmnet_res) <- names(out1)
+glmnet_res <- Filter(Negate(is.null), glmnet_res)
+
+names(glmnet_res)
+length(glmnet_res)
+```
+
+```{r}
+# ---------------------------
+#run across contrasts top 100
+#----------------------------
+
+glmnet_res <- lapply(names(out2), function(cc) {
+  run_elasticnet_topN(
+    cc      = cc,
+    out_list= out2,
+    meta    = meta,
+    X_imp   = X_imp,
+    top_n   = 100
+  )
+})
+names(glmnet_res) <- names(out2)
+glmnet_res <- Filter(Negate(is.null), glmnet_res)
+
+names(glmnet_res)
+length(glmnet_res)
+```
+
+```{r}
+# ---------------------------
+#run across contrasts top 100
+#----------------------------
+
+glmnet_res <- lapply(names(out3), function(cc) {
+  run_elasticnet_topN(
+    cc      = cc,
+    out_list= out3,
+    meta    = meta,
+    X_imp   = X_imp,
+    top_n   = 100
+  )
+})
+names(glmnet_res) <- names(out3)
 glmnet_res <- Filter(Negate(is.null), glmnet_res)
 
 names(glmnet_res)
@@ -374,17 +467,17 @@ sig_proteins_mapped <- sig_proteins %>%
   filter(!is.na(gene_symbol), gene_symbol != "")
 
 # write outputs
-write.csv(
-  sig_proteins,
-  "/mmfs1/gscratch/togo/leidholt/Results/enriched_proteins/elasticnet_plasma_top100_signatures_ALL_PROTEINS_WITH_NA_SYMBOLS.csv",
-  row.names = FALSE
-)
+#write.csv(
+ # sig_proteins,
+#  "/mmfs1/gscratch/togo/leidholt/Results/enriched_proteins/elasticnet_plasma_top100_signatures_ALL_PROTEINS_WITH_NA_SYMBOLS.csv",
+ # row.names = FALSE
+#)
 
-write.csv(
-  sig_proteins_mapped,
-  "/mmfs1/gscratch/togo/leidholt/Results/enriched_proteins/elasticnet_plasma_top100_signatures_MAPPED_SYMBOLS_ONLY.csv",
-  row.names = FALSE
-)
+#write.csv(
+ # sig_proteins_mapped,
+  #"/mmfs1/gscratch/togo/leidholt/Results/enriched_proteins/elasticnet_plasma_top100_signatures_MAPPED_SYMBOLS_ONLY.csv",
+  #row.names = FALSE
+#)
 
 ```
 
