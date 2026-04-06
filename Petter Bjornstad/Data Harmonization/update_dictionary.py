@@ -25,6 +25,24 @@ else:
     sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
+# Load rename map produced by extract_rename_map.py.
+# Variables that are renamed in the harmonization scripts should NOT be added
+# to the dictionary under their raw REDCap names — only their harmonized names belong.
+_rename_map_path = os.path.expanduser(
+    "~/Library/CloudStorage/OneDrive-UW/"
+    "Laura Pyle's files - Biostatistics Core Shared Drive/"
+    "Data Harmonization/redcap_rename_map.csv"
+)
+if os.path.exists(_rename_map_path):
+    _rename_map = pd.read_csv(_rename_map_path, dtype=str).fillna("")
+    # Set of REDCap-side names that get renamed (keys of rename dicts in study scripts)
+    renamed_redcap_fields = set(_rename_map["redcap_name"].str.strip())
+
+else:
+    renamed_redcap_fields = set()
+    print("Warning: rename map not found. Run extract_rename_map.py to generate it. "
+          "Proceeding without rename filtering.")
+
 tokens = pd.read_csv(base_data_path + "Data Harmonization/api_tokens.csv")
 uri = "https://redcap.ucdenver.edu/api/"
 
@@ -98,11 +116,18 @@ studies = [casper_metadata, coffee_metadata, crocodile_metadata, improve_metadat
             ultra_metadata, sweetheart_metadata, rpc2_metadata, t1disco_metadata]
 variables = dictionary['variable_name'].tolist()
 
+skipped_renamed = []
 for study in studies:
     for variable_name, label in zip(study['field_name'], study['field_label']):
 
         if variable_name.lower() != variable_name or " " in variable_name:
             print(f" Suspicious variable_name: {variable_name} (label: {label})")
+
+        # Skip variables that are renamed during harmonization — their REDCap names
+        # are not present in the harmonized dataset, only their harmonized names are.
+        if variable_name in renamed_redcap_fields:
+            skipped_renamed.append(variable_name)
+            continue
 
         if variable_name not in variables:
             new_row = pd.DataFrame({'variable_name': [variable_name], 'label': [label]})
@@ -115,6 +140,10 @@ for study in studies:
             )
             if mask.any():
                 dictionary.loc[mask, 'label'] = label
+
+if skipped_renamed:
+    print(f"Skipped {len(skipped_renamed)} renamed REDCap fields "
+          f"(e.g. {skipped_renamed[:5]})")
 
 
 all_metadata = pd.concat(studies, ignore_index=True)
