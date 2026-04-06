@@ -1,0 +1,475 @@
+---
+title: "Pathway_analysis_proteomics2"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths("~/leidholt/R")
+```
+
+```{r}
+library(fgsea)      
+library(dplyr)
+library(purrr)
+library(tidyverse)  
+library(ggplot2)  
+library(tidyr)     
+library(gridExtra) 
+library(msigdbr)
+library(forcats)
+library(stringr)
+library(rlang)
+library(limma)
+```
+
+#=====================================================
+# inputting all directories and storage locations
+#=====================================================
+```{r}
+#Directories
+computer <- "mac studio"
+#computer <- "mac laptop"
+
+user <- Sys.info()[["user"]]
+
+if (computer == "mac studio") {
+  
+  if (user == "sleidholt") {
+    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+    
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+
+} else if (computer == "mac laptop") {
+
+  if (user == "savanahleidholt") {
+    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+  }
+}
+```
+
+
+```{r}
+# -----------------------------
+# 1) MSigDB gene sets (Human)
+# -----------------------------
+msig_hs <- msigdbr(species = "Homo sapiens")
+
+# Reactome (C2:CP:REACTOME)
+reactome <- msig_hs %>%
+  filter(gs_collection == "C2", gs_subcollection == "CP:REACTOME") %>%
+  select(gs_name, gene_symbol)
+
+# GO categories (C5)
+go_bp <- msig_hs %>%
+  filter(gs_collection == "C5", gs_subcollection == "GO:BP") %>%
+  select(gs_name, gene_symbol)
+
+go_cc <- msig_hs %>%
+  filter(gs_collection == "C5", gs_subcollection == "GO:CC") %>%
+  select(gs_name, gene_symbol)
+
+go_mf <- msig_hs %>%
+  filter(gs_collection== "C5", gs_subcollection == "GO:MF") %>%
+  select(gs_name, gene_symbol)
+
+# Combine + split to fgsea pathways list
+pathways <- bind_rows(reactome, go_bp, go_cc, go_mf) %>%
+  distinct(gs_name, gene_symbol) %>%
+  group_by(gs_name) %>%
+  summarise(genes = list(unique(gene_symbol)), .groups = "drop") %>%
+  tibble::deframe()
+
+# Optional: sanity check sizes
+summary(lengths(pathways))
+```
+
+
+#model ~age + sex
+```{r}
+# 2) read in limma results from plasma DE analysis that does NOT have stuy in the model
+obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "limma_gsea_inputs_age_sex_study.rds"))
+
+dat1 <- obj$all_studies
+dat2 <- obj$no_attempt
+dat3 <- obj$all3_omics
+
+dat1_fit <- dat1$fit
+dat2_fit <- dat2$fit
+dat3_fit <- dat3$fit
+
+out1 <- dat1$out
+out2 <- dat2$out
+out3 <- dat3$out
+
+contrast_names <- colnames(dat1_fit$coefficients) %>% trimws()
+```
+
+
+```{r}
+analytes <- read.csv(file.path(dir.dat, "Data Harmonization", "Combined SomaScan", "analytes.csv"))
+
+id_map <- analytes %>%
+  transmute(
+    feature_id  = AptName,
+    gene_symbol = EntrezGeneSymbol
+  ) %>%
+  filter(!is.na(gene_symbol), gene_symbol != "") %>%
+  distinct()
+
+
+```
+
+
+```{r}
+# analyte mapping must provide: feature_id -> gene_symbol
+run_fgsea_contrast <- function(fit, coef_name, id_map, pathways,
+                               feature_col = "feature_id",
+                               symbol_col  = "gene_symbol",
+                               rank_by = c("t", "logFC"),
+                               minSize = 15, maxSize = 500) {
+
+  rank_by <- match.arg(rank_by)
+
+  # safe matching of coef name
+  coef_name <- match.arg(coef_name, choices = colnames(fit$coefficients))
+
+  tt <- topTable(fit, coef = coef_name, number = Inf, sort.by = "none") %>%
+    tibble::rownames_to_column(feature_col) %>%
+    left_join(id_map, by = feature_col) %>%
+    filter(!is.na(.data[[symbol_col]]), .data[[symbol_col]] != "")
+
+  # collapse duplicate genes
+  tt_gene <- tt %>%
+    group_by(.data[[symbol_col]]) %>%
+    slice_max(order_by = abs(.data[[rank_by]]), n = 1) %>%
+    ungroup()
+
+  stats <- tt_gene[[rank_by]]
+  names(stats) <- tt_gene[[symbol_col]]
+  stats <- sort(stats, decreasing = TRUE)
+
+  fgseaMultilevel(
+    pathways = pathways,
+    stats = stats,
+    minSize = minSize,
+    maxSize = maxSize
+  ) %>%
+    as_tibble() %>%
+    mutate(
+      contrast = coef_name,
+      rank_metric = rank_by,
+      n_genes_ranked = length(stats)
+    ) %>%
+    arrange(padj, desc(abs(NES)))
+}
+
+
+
+```
+
+
+```{r}
+fgsea_all <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat1_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+
+```
+
+```{r}
+fgsea_all <- fgsea_all %>%
+  mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+fgsea_all
+#getting only significant pathways
+
+fgsea_sig <- fgsea_all %>% filter(padj < 0.05 & abs(NES) >= 2)
+table(fgsea_sig$contrast)
+
+
+fgsea_all %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+
+```{r}
+enrich_dotplot <- function(fgsea_df, n = 15, title = NULL, wrap_width = 60) {
+
+  if (nrow(fgsea_df) == 0) {
+    return(ggplot() + theme_void() + labs(title = title %||% "No results"))
+  }
+
+  dfp <- fgsea_df %>%
+    filter(!is.na(padj)) %>%
+    slice_min(padj, n = n) %>%
+    mutate(
+      pathway = str_replace_all(pathway, "_", " "),
+      pathway = fct_reorder(pathway, NES),
+      neg_log10_padj = -log10(padj)
+    )
+
+  ggplot(dfp, aes(
+    x = NES,
+    y = pathway,
+    size = size,
+    color = neg_log10_padj
+  )) +
+    geom_point(alpha = 0.85) +
+    scale_y_discrete(labels = label_wrap_gen(width = wrap_width)) +
+    scale_color_viridis_c(option = "plasma", name = "-log10(adj p)") +
+    scale_size(range = c(2, 8), name = "Gene set size") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "pink") +
+    theme_bw() +
+    theme(axis.text.y = element_text(size = 8)) +
+    labs(
+      title = title %||% unique(fgsea_df$contrast)[1],
+      x = "Normalized Enrichment Score (NES)",
+      y = NULL
+    )
+}
+
+
+
+```
+
+```{r}
+plots <- lapply(contrast_names, function(cn) {
+  df <- fgsea_all %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
+
+plots
+
+```
+```{r}
+#plotting only top 10 reactome pathways in each contrast
+fgsea_reactome <- fgsea_all %>%
+  filter(grepl("^REACTOME_", pathway))
+
+fgsea_reactome_top10 <- fgsea_reactome %>%
+  group_by(contrast) %>%
+  slice_min(padj, n = 15, with_ties = FALSE) %>%
+  ungroup()
+
+
+reactome_plots <- lapply(unique(fgsea_reactome_top10$contrast), function(cn) {
+  df <- fgsea_reactome_top10 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 15, title = paste("Top Reactome:", cn))
+})
+
+
+reactome_plots
+
+gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
+
+```
+```{r}
+fgsea_all2 <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat2_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+```
+
+```{r}
+fgsea_all2 <- fgsea_all2 %>%
+  mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+
+#getting only significant pathways
+
+fgsea_sig2 <- fgsea_all2 %>% filter(padj < 0.05 & abs(NES) >= 2)
+table(fgsea_sig2$contrast)
+
+
+fgsea_all2 %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+
+
+```{r}
+plots2 <- lapply(contrast_names, function(cn) {
+  df <- fgsea_all2 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
+
+plots2
+
+```
+```{r}
+#plotting only top 10 reactome pathways in each contrast
+fgsea_reactome2 <- fgsea_all2 %>%
+  filter(grepl("^REACTOME_", pathway))
+
+fgsea_reactome2_top10 <- fgsea_reactome2 %>%
+  group_by(contrast) %>%
+  slice_min(padj, n = 15, with_ties = FALSE) %>%
+  ungroup()
+
+
+reactome_plots2 <- lapply(unique(fgsea_reactome2_top10$contrast), function(cn) {
+  df <- fgsea_reactome2_top10 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 15, title = paste("Top Reactome:", cn))
+})
+
+
+reactome_plots
+
+gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
+
+```
+
+```{r}
+fgsea_all3 <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat3_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+
+```
+
+```{r}
+fgsea_all3 <- fgsea_all3 %>%
+  mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+fgsea_all3
+#getting only significant pathways
+
+fgsea_sig3 <- fgsea_all3 %>% filter(padj < 0.05 & abs(NES) >= 2)
+table(fgsea_sig3$contrast)
+
+
+fgsea_all3 %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+
+
+```{r}
+plots3 <- lapply(contrast_names, function(cn) {
+  df <- fgsea_all3 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
+
+plots
+
+```
+```{r}
+#plotting only top 10 reactome pathways in each contrast
+fgsea_reactome3 <- fgsea_all3 %>%
+  filter(grepl("^REACTOME_", pathway))
+
+fgsea_reactome3_top10 <- fgsea_reactome3 %>%
+  group_by(contrast) %>%
+  slice_min(padj, n = 15, with_ties = FALSE) %>%
+  ungroup()
+
+
+reactome_plots3 <- lapply(unique(fgsea_reactome3_top10$contrast), function(cn) {
+  df <- fgsea_reactome3_top10 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 15, title = paste("Top Reactome:", cn))
+})
+
+
+reactome_plots3
+
+gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
+
+```
+
+```{r}
+overlap_results <- lapply(contrasts, function(cc) {
+  
+  tibble::tibble(
+    contrast = cc,
+    
+    n_sig1 = length(fgsea_sig),
+    n_sig2       = length(fgsea_sig2),
+    n_sig3       = length(fgsea_sig3),
+    
+    overlap_sig1_2 = length(intersect(fgsea_sig, fgsea_sig2)),
+    overlap_sig2_3  = length(intersect(fgsea_sig2, fgsea_sig3)),
+    overlap_sig1_3 = length(intersect(fgsea_sig, fgsea_sig2)),
+    
+    overlap_all_three = length(Reduce(intersect, list(fgsea_sig, fgsea_sig2, fgsea_sig3))),
+    
+    union_all_vs_noATT = length(union(fgsea_sig, fgsea_sig2 )),
+    union_all_vs_all3  = length(union(fgsea_sig2, fgsea_sig3)),
+    union_noATT_vs_all3 = length(union(fgsea_sig, fgsea_sig2)),
+    union_all_three    = length(Reduce(union, list(fgsea_sig, fgsea_sig2, fgsea_sig3)))
+  )
+    
+})
+
+overlap_summary <- dplyr::bind_rows(overlap_results)
+print(overlap_summary)
+
+```

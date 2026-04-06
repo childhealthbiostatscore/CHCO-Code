@@ -30,8 +30,8 @@ library(ggVennDiagram)
 #=====================================================
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -989,19 +989,28 @@ overlap_results <- lapply(contrasts, function(cc) {
 overlap_summary <- dplyr::bind_rows(overlap_results)
 print(overlap_summary)
 ```
+```{r}
+out_m2_all3$T2D_vs_OC %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) >= 0.5 )
+```
 
 # ============================================================
 # SAVE GSEA-READY LIMMA OUTPUTS
 # Three model versions, all using age + sex + study
 # ============================================================
 ```{r}
-# small helper to keep only what you'll likely need for GSEA
+
+# small helper to keep only what you'll need for GSEA
 prep_gsea_tables <- function(out_list) {
   lapply(out_list, function(tt) {
     tt %>%
-      dplyr::select(feature_id, logFC, AveExpr, t, P.Value, adj.P.Val, B, contrast)
+      dplyr::select(feature_id, logFC, AveExpr, t, P.Value, adj.P.Val, B, contrast) %>%
+      dplyr::arrange(desc(t))  # or desc(logFC) — pick one ranking metric
   })
 }
+
+out_m2 <- prep_gsea_tables(out_m2)
+out_m2_noATT <- prep_gsea_tables(out_m2_noATT)
+out_m2_all3 <- prep_gsea_tables(out_m2_all3)
 
 # define a shared contrast order
 contrast_order <- c(
@@ -1026,7 +1035,7 @@ limma_gsea_inputs <- list(
     design = design_m2,
     fit = fit_m2,
     out = out_m2,
-    gsea_tables = prep_gsea_tables(out_m2)
+    gsea_tables = out_m2
   ),
   
   no_attempt = list(
@@ -1035,7 +1044,7 @@ limma_gsea_inputs <- list(
     design = design_m2_noATT,
     fit = fit_m2_noATT,
     out = out_m2_noATT,
-    gsea_tables = prep_gsea_tables(out_m2_noATT)
+    gsea_tables = out_m2_noATT
   ),
   
   all3_omics = list(
@@ -1044,7 +1053,7 @@ limma_gsea_inputs <- list(
     design = design_m2_all3,
     fit = fit_m2_all3,
     out = out_m2_all3,
-    gsea_tables = prep_gsea_tables(out_m2_all3)
+    gsea_tables = out_m2_all3
   )
 )
 

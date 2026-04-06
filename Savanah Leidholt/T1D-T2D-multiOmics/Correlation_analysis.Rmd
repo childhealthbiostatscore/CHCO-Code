@@ -1,0 +1,984 @@
+---
+title: "Correlation_analysis"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths("~/leidholt/R")
+```
+
+```{r}
+library(dplyr)
+library(Hmisc)
+library(kableExtra)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+library(tidyselect)
+library(utils)
+library(purrr)
+library(RColorBrewer)
+library(labelled)
+library(corrplot)
+library(gtools)
+library(pheatmap)
+library(patchwork)
+```
+
+
+```{r}
+dat <- readRDS("/mmfs1/gscratch/togo/leidholt/Data/R_objects/omics_wide_union_baseline.rds")
+
+top_prots <- read_csv(
+  "/mmfs1/gscratch/togo/leidholt/Results/enriched_proteins/elasticnet_plasma_top100_signatures_MAPPED_SYMBOLS_ONLY.csv"
+)
+
+annot <- read_csv("/mmfs1/gscratch/togo/leidholt/Data/analyte_data/analytes.csv")
+```
+
+```{r}
+meta <- dat %>% dplyr::select(1:14)
+
+expr <- dat %>%
+  dplyr::select(-dplyr::all_of(names(meta))) %>%
+  mutate(across(everything(), as.numeric))
+
+needed_meta <- c("record_id", "group", "hba1c", "acr_u", "age", "sex", "bmi") #add in egfr data once I have it for attempt
+stopifnot(all(needed_meta %in% names(meta)))
+```
+
+```{r}
+meta <- meta %>%
+  mutate(
+    group_chr  = as.character(group),
+    group_low  = str_to_lower(group_chr),
+    group_code = case_when(
+      str_detect(group_low, "type\\s*1") ~ "T1D",
+      str_detect(group_low, "type\\s*2") ~ "T2D",
+      str_detect(group_low, "lean")      ~ "LC",
+      str_detect(group_low, "obese")     ~ "OC",
+      TRUE ~ NA_character_
+    )
+  )
+
+meta %>% count(group_chr, group_code) %>% print(n = 50)
+meta %>% filter(is.na(group_code)) %>% distinct(group_chr) %>% print(n = 50)
+```
+
+
+
+```{r}
+map_tbl <- annot %>%
+  transmute(
+    seq_id      = AptName,           # e.g. "seq.10001.7"
+    gene_symbol = EntrezGeneSymbol   # e.g. "RAF1"
+  ) %>%
+  mutate(
+    seq_id      = as.character(seq_id),
+    gene_symbol = as.character(gene_symbol),
+    gene_symbol = na_if(gene_symbol, ""),
+    gene_symbol = if_else(is.na(gene_symbol), seq_id, gene_symbol)
+  ) %>%
+  distinct(seq_id, gene_symbol)
+```
+
+
+
+```{r}
+corr_df <- bind_cols(meta, expr) %>%
+  rename(HbA1c = hba1c, uACR = acr_u) %>%
+  mutate(
+    HbA1c = as.numeric(HbA1c),
+    uACR  = as.numeric(uACR),
+    age   = as.numeric(age),
+    sex   = as.factor(sex),
+    BMI   = as.numeric(bmi)
+  ) %>%
+  filter(!is.na(HbA1c) & !is.na(uACR))
+
+keep_cols <- names(meta)
+prot_cols <- setdiff(names(corr_df), c(keep_cols, "HbA1c", "uACR", "BMI"))
+
+corr_df <- corr_df %>% mutate(across(all_of(prot_cols), ~log2(.x + 1)))
+```
+
+
+```{r}
+contrast_list <- c("T1D_vs_LC","T2D_vs_LC","T1D_vs_T2D","T2D_vs_OC","T1D_vs_OC","OC_vs_LC")
+
+get_groups_from_contrast <- function(contrast_name) {
+  strsplit(contrast_name, "_vs_")[[1]]
+}
+```
+
+```{r}
+#--------------------------------
+#marginal correlations analysis
+#--------------------------------
+cor_test_one <- function(df, outcome, protein, method = "spearman", min_n = 10) {
+  x <- df[[outcome]]
+  y <- df[[protein]]
+  ok <- is.finite(x) & is.finite(y) & !is.na(x) & !is.na(y)
+  n <- sum(ok)
+
+  if (n < min_n) return(tibble(n = n, rho = NA_real_, p_value = NA_real_))
+
+  ct <- suppressWarnings(cor.test(x[ok], y[ok], method = method, exact = FALSE))
+  tibble(n = n, rho = unname(ct$estimate), p_value = ct$p.value)
+}
+
+run_contrast_correlation <- function(contrast_name, corr_df, top_prots, min_n = 10) {
+
+  groups <- get_groups_from_contrast(contrast_name)
+  df_sub <- corr_df %>% filter(group_code %in% groups)
+
+  prots <- top_prots %>%
+    filter(contrast == contrast_name) %>%
+    pull(feature_id) %>%
+    unique() %>%
+    na.omit() %>%
+    as.character()
+
+  prots <- intersect(prots, colnames(df_sub))
+
+  message("---- marginal: ", contrast_name, " ----")
+  message("subset N samples: ", nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE], function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+
+  tidyr::crossing(outcome = c("HbA1c","uACR", "BMI"), protein = prots) %>%
+    mutate(stats = purrr::map2(outcome, protein, ~cor_test_one(df_sub, .x, .y, min_n = min_n))) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
+all_cor_results <- purrr::map_dfr(
+  contrast_list,
+  ~run_contrast_correlation(.x, corr_df, top_prots, min_n = 10)
+)
+
+all_cor_results %>% arrange(contrast, outcome, FDR) %>% print(n = 30)
+```
+
+
+```{r}
+#-----------------------------
+# Partial correlations setup
+#-----------------------------
+
+partial_outcomes <- c("HbA1c", "uACR", "BMI")   # later: add "eGFR_fas_cr", "bmi" if they exist
+partial_covars   <- c("age", "sex")
+stopifnot(all(partial_covars %in% names(corr_df)))
+
+get_partial_cor <- function(df, protein, outcome, covars, min_n = 15) {
+
+  vars_needed <- c(protein, outcome, covars)
+  sub_df <- df[, vars_needed, drop = FALSE]
+  sub_df <- sub_df[complete.cases(sub_df), , drop = FALSE]
+
+  if (nrow(sub_df) < min_n) {
+    return(tibble(n = nrow(sub_df), rho = NA_real_, p_value = NA_real_))
+  }
+
+  fit_p <- lm(as.formula(paste(protein, "~", paste(covars, collapse = "+"))), data = sub_df)
+  fit_y <- lm(as.formula(paste(outcome, "~", paste(covars, collapse = "+"))), data = sub_df)
+
+  res_p <- resid(fit_p)
+  res_y <- resid(fit_y)
+
+  ct <- suppressWarnings(cor.test(res_p, res_y, method = "spearman"))
+  tibble(n = nrow(sub_df), rho = unname(ct$estimate), p_value = ct$p.value)
+}
+
+run_contrast_partial <- function(contrast_name, corr_df, top_prots,
+                                 outcomes = partial_outcomes,
+                                 covars = partial_covars,
+                                 min_n = 15) {
+
+  groups <- get_groups_from_contrast(contrast_name)
+  df_sub <- corr_df %>% filter(group_code %in% groups)
+
+  prots <- top_prots %>%
+    filter(contrast == contrast_name) %>%
+    pull(feature_id) %>%
+    unique() %>%
+    na.omit() %>%
+    as.character()
+
+  prots <- intersect(prots, colnames(df_sub))
+
+  message("---- partial: ", contrast_name, " ----")
+  message("subset N samples: ", nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE], function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+
+  tidyr::crossing(outcome = outcomes, protein = prots) %>%
+    mutate(stats = purrr::map2(outcome, protein, ~get_partial_cor(df_sub, .y, .x, covars = covars, min_n = min_n))) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
+all_partial_results <- purrr::map_dfr(
+  contrast_list,
+  ~run_contrast_partial(.x, corr_df, top_prots, outcomes = partial_outcomes, covars = partial_covars, min_n = 15)
+)
+
+all_partial_results %>% arrange(contrast, outcome, FDR) %>% print(n = 30)
+```
+
+```{r}
+cor_gene <- all_cor_results %>%
+  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
+  group_by(contrast, outcome, gene_symbol) %>%
+  summarise(
+    rho = mean(rho, na.rm = TRUE),
+    p_value = min(p_value, na.rm = TRUE),
+    FDR = min(FDR, na.rm = TRUE),
+    n = max(n, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(label = gene_symbol)
+
+partial_gene <- all_partial_results %>%
+  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
+  group_by(contrast, outcome, gene_symbol) %>%
+  summarise(
+    rho = mean(rho, na.rm = TRUE),
+    p_value = min(p_value, na.rm = TRUE),
+    FDR = min(FDR, na.rm = TRUE),
+    n = max(n, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(label = gene_symbol)
+```
+
+
+```{r}
+plot_ranked_cor <- function(data, contrast_name, outcome_name, top_n = 15, show_key = FALSE) {
+
+  df <- data %>%
+    filter(contrast == contrast_name, outcome == outcome_name) %>%
+    filter(is.finite(rho)) %>%
+    arrange(desc(abs(rho))) %>%
+    slice_head(n = top_n) %>%
+    mutate(
+      direction = ifelse(rho > 0, "Positive", "Negative"),
+      signif_label = case_when(
+        !is.na(FDR) & FDR <= 0.001 ~ "***",
+        !is.na(FDR) & FDR <= 0.01  ~ "**",
+        !is.na(FDR) & FDR <= 0.05  ~ "*",
+        TRUE ~ ""
+      ),
+      ylab = reorder(label, rho)
+    )
+
+  if (nrow(df) == 0) {
+    return(ggplot() + theme_void() + labs(title = paste(contrast_name, outcome_name, "(no data)")))
+  }
+
+  xpad <- 0.12
+  xmin <- min(df$rho, na.rm = TRUE) - xpad
+  xmax <- max(df$rho, na.rm = TRUE) + xpad
+
+  p <- ggplot(df, aes(x = rho, y = ylab, fill = direction)) +
+    geom_col() +
+    geom_text(
+      aes(label = signif_label),
+      hjust = ifelse(df$rho > 0, -0.2, 1.2),
+      size = 4
+    ) +
+    theme_bw() +
+    scale_fill_manual(values = c("Positive" = "firebrick", "Negative" = "steelblue")) +
+    labs(
+      title = paste0(contrast_name, " (", outcome_name, ")"),
+      x = "Partial Spearman rho (age + sex adjusted)",
+      y = NULL,
+      fill = "Direction"
+    ) +
+    xlim(xmin, xmax)
+
+  if (show_key) {
+    # (Optional) if you ever want it inside a single plot:
+    p <- p +
+      coord_cartesian(clip = "off") +
+      theme(plot.margin = margin(5.5, 45, 5.5, 5.5)) +
+      annotate(
+        "text",
+        x = Inf, y = -Inf,
+        label = "FDR:  * ≤ 0.05   ** ≤ 0.01   *** ≤ 0.001",
+        hjust = 1.05, vjust = -1.2, size = 3.2
+      )
+  }
+
+  p
+}
+```
+
+```{r}
+fdr_key_plot <- ggplot() +
+  annotate("label",
+           x = 1, y = 1,
+           label = "FDR key\n*  ≤ 0.05\n** ≤ 0.01\n*** ≤ 0.001",
+           hjust = 1, vjust = 1, size = 3.2) +
+  xlim(0, 1) + ylim(0, 1) +
+  theme_void()
+```
+
+```{r}
+plot_partial_panel <- function(contrast_name, top_n = 15) {
+  P1 <- plot_ranked_cor(partial_gene, contrast_name, "HbA1c", top_n = top_n, show_key = FALSE)
+  P2 <- plot_ranked_cor(partial_gene, contrast_name, "uACR",  top_n = top_n, show_key = FALSE)
+  P3 <- plot_ranked_cor(partial_gene, contrast_name, "BMI",   top_n = top_n, show_key = FALSE)
+
+  (P1 | P2 | P3) +
+    plot_annotation(title = paste0("Partial correlations (age + sex adjusted): ", contrast_name)) +
+    inset_element(fdr_key_plot, left = 0.72, bottom = 0.02, right = 0.98, top = 0.28)
+}
+```
+
+
+
+```{r}
+plot_partial_panel("T1D_vs_LC", top_n = 15)
+plot_partial_panel("T1D_vs_OC", top_n = 15)
+plot_partial_panel("T1D_vs_T2D", top_n = 15)
+plot_partial_panel("T2D_vs_LC", top_n = 15)
+plot_partial_panel("T2D_vs_OC", top_n = 15)
+plot_partial_panel("OC_vs_LC", top_n = 15)
+```
+
+```{r}
+#--------------------------------
+# Interaction models
+# Tests whether protein-trait slopes differ by group
+#--------------------------------
+
+get_interaction_test <- function(df, protein, outcome, group_var = "group_code",
+                                 covars = c("age", "sex"), min_n = 15) {
+
+  vars_needed <- c(protein, outcome, group_var, covars)
+  sub_df <- df[, vars_needed, drop = FALSE]
+  sub_df <- sub_df[complete.cases(sub_df), , drop = FALSE]
+
+  # Need enough samples and both groups represented
+  if (nrow(sub_df) < min_n) {
+    return(tibble(
+      n = nrow(sub_df),
+      beta_protein = NA_real_,
+      beta_group = NA_real_,
+      beta_interaction = NA_real_,
+      p_protein = NA_real_,
+      p_group = NA_real_,
+      p_interaction = NA_real_
+    ))
+  }
+
+  if (length(unique(sub_df[[group_var]])) < 2) {
+    return(tibble(
+      n = nrow(sub_df),
+      beta_protein = NA_real_,
+      beta_group = NA_real_,
+      beta_interaction = NA_real_,
+      p_protein = NA_real_,
+      p_group = NA_real_,
+      p_interaction = NA_real_
+    ))
+  }
+
+  sub_df[[group_var]] <- droplevels(as.factor(sub_df[[group_var]]))
+
+  form <- as.formula(
+    paste(outcome, "~", protein, "*", group_var, "+", paste(covars, collapse = " + "))
+  )
+
+  fit <- lm(form, data = sub_df)
+  sm <- summary(fit)$coefficients
+  coef_names <- rownames(sm)
+
+  # protein main effect
+  protein_row <- protein
+
+  # group main effect row usually looks like group_codeT2D
+  group_row <- coef_names[grepl(paste0("^", group_var), coef_names) &
+                            !grepl(":", coef_names)]
+
+  # interaction row usually looks like protein:group_codeT2D OR group_codeT2D:protein
+  interaction_row <- coef_names[
+    grepl(protein, coef_names) &
+      grepl(group_var, coef_names) &
+      grepl(":", coef_names)
+  ]
+
+  tibble(
+    n = nrow(sub_df),
+    beta_protein = if (protein_row %in% coef_names) sm[protein_row, "Estimate"] else NA_real_,
+    beta_group = if (length(group_row) > 0) sm[group_row[1], "Estimate"] else NA_real_,
+    beta_interaction = if (length(interaction_row) > 0) sm[interaction_row[1], "Estimate"] else NA_real_,
+    p_protein = if (protein_row %in% coef_names) sm[protein_row, "Pr(>|t|)"] else NA_real_,
+    p_group = if (length(group_row) > 0) sm[group_row[1], "Pr(>|t|)"] else NA_real_,
+    p_interaction = if (length(interaction_row) > 0) sm[interaction_row[1], "Pr(>|t|)"] else NA_real_
+  )
+}
+```
+
+
+```{r}
+run_contrast_interaction <- function(contrast_name, corr_df, top_prots,
+                                     outcomes = c("HbA1c", "uACR", "BMI"),
+                                     covars = c("age", "sex"),
+                                     min_n = 15) {
+
+  groups <- get_groups_from_contrast(contrast_name)
+  df_sub <- corr_df %>% filter(group_code %in% groups)
+
+  # Make first group the reference level
+  df_sub <- df_sub %>%
+    mutate(group_code = factor(group_code, levels = groups))
+
+  prots <- top_prots %>%
+    filter(contrast == contrast_name) %>%
+    pull(feature_id) %>%
+    unique() %>%
+    na.omit() %>%
+    as.character()
+
+  prots <- intersect(prots, colnames(df_sub))
+
+  message("---- interaction: ", contrast_name, " ----")
+  message("subset N samples: ", nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE], function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+
+  tidyr::crossing(outcome = outcomes, protein = prots) %>%
+    mutate(
+      stats = purrr::map2(
+        protein, outcome,
+        ~get_interaction_test(df_sub, protein = .x, outcome = .y,
+                              group_var = "group_code", covars = covars, min_n = min_n)
+      )
+    ) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR_interaction = p.adjust(p_interaction, method = "BH")) %>%
+    ungroup()
+}
+```
+
+
+
+```{r}
+all_interaction_results <- purrr::map_dfr(
+  contrast_list,
+  ~run_contrast_interaction(.x, corr_df, top_prots,
+                            outcomes = c("HbA1c", "uACR", "BMI"),
+                            covars = c("age", "sex"),
+                            min_n = 15)
+)
+
+all_interaction_results %>%
+  arrange(contrast, outcome, FDR_interaction) %>%
+  print(n = 50)
+```
+
+
+```{r}
+interaction_gene <- all_interaction_results %>%
+  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
+  group_by(contrast, outcome, gene_symbol) %>%
+  summarise(
+    beta_interaction = mean(beta_interaction, na.rm = TRUE),
+    p_interaction = min(p_interaction, na.rm = TRUE),
+    FDR_interaction = min(FDR_interaction, na.rm = TRUE),
+    n = max(n, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(label = gene_symbol)
+```
+
+```{r}
+plot_ranked_interaction <- function(data, contrast_name, outcome_name, top_n = 15) {
+
+  df <- data %>%
+    filter(contrast == contrast_name, outcome == outcome_name) %>%
+    filter(is.finite(beta_interaction)) %>%
+    arrange(desc(abs(beta_interaction))) %>%
+    slice_head(n = top_n) %>%
+    mutate(
+      direction = ifelse(beta_interaction > 0, "Stronger in 2nd Group", "Stronger in 1st Group"),
+      signif_label = case_when(
+        !is.na(FDR_interaction) & FDR_interaction <= 0.001 ~ "***",
+        !is.na(FDR_interaction) & FDR_interaction <= 0.01  ~ "**",
+        !is.na(FDR_interaction) & FDR_interaction <= 0.05  ~ "*",
+        TRUE ~ ""
+      ),
+      ylab = reorder(label, beta_interaction)
+    )
+
+  if (nrow(df) == 0) {
+    return(ggplot() + theme_void() + labs(title = paste(contrast_name, outcome_name, "(no data)")))
+  }
+
+  ggplot(df, aes(x = beta_interaction, y = ylab, fill = direction)) +
+    geom_col() +
+    geom_text(
+      aes(label = signif_label),
+      hjust = ifelse(df$beta_interaction > 0, -0.2, 1.2),
+      size = 4
+    ) +
+    theme_bw() +
+    labs(
+      title = paste0(contrast_name, " (", outcome_name, ")"),
+      x = "Interaction beta (difference in slope between groups)",
+      y = NULL,
+      fill = "Slope pattern"
+    )
+}
+```
+
+
+```{r}
+plot_ranked_interaction(interaction_gene, "T1D_vs_LC", "HbA1c", top_n = 15)
+plot_ranked_interaction(interaction_gene, "T1D_vs_OC", "HbA1c", top_n = 15)
+plot_ranked_interaction(interaction_gene, "T1D_vs_T2D", "HbA1c", top_n = 15)
+plot_ranked_interaction(interaction_gene, "T2D_vs_LC", "HbA1c", top_n = 15)
+plot_ranked_interaction(interaction_gene, "T2D_vs_OC", "HbA1c", top_n = 15)
+plot_ranked_interaction(interaction_gene, "OC_vs_LC", "HbA1c", top_n = 15)
+```
+```{r}
+library(pheatmap)
+
+plot_trait_heatmap <- function(data, contrast_name, proteins = NULL) {
+
+  df <- data %>%
+    filter(contrast == contrast_name)
+
+  if(!is.null(proteins)) {
+    df <- df %>% filter(label %in% proteins)
+  }
+
+  mat <- df %>%
+    select(label, outcome, rho) %>%
+    pivot_wider(names_from = outcome, values_from = rho) %>%
+    column_to_rownames("label") %>%
+    as.matrix()
+
+  pheatmap(
+    mat,
+    color = colorRampPalette(c("steelblue","white","firebrick"))(100),
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    border_color = NA,
+    main = paste("Protein–trait correlations:", contrast_name)
+  )
+}
+```
+
+```{r}
+plot_trait_heatmap(partial_gene, "T1D_vs_LC")
+plot_trait_heatmap(partial_gene, "T1D_vs_OC")
+plot_trait_heatmap(partial_gene, "T1D_vs_T2D")
+plot_trait_heatmap(partial_gene, "T2D_vs_LC")
+plot_trait_heatmap(partial_gene, "T2D_vs_OC")
+plot_trait_heatmap(partial_gene, "OC_vs_LC")
+```
+
+```{r}
+library(dplyr)
+library(tibble)
+library(pheatmap)
+
+plot_elasticnet_expression_heatmap <- function(corr_df, top_prots, contrast_name,
+                                               map_tbl = NULL,
+                                               scale_rows = TRUE,
+                                               cluster_rows = TRUE,
+                                               cluster_cols = FALSE,
+                                               show_colnames = FALSE) {
+
+  groups <- get_groups_from_contrast(contrast_name)
+
+  # subset samples to the two groups in the contrast
+  df_sub <- corr_df %>%
+    filter(group_code %in% groups) %>%
+    mutate(group_code = factor(group_code, levels = groups)) %>%
+    arrange(group_code)
+
+  # pull elastic net proteins for this contrast
+  prots <- top_prots %>%
+    filter(contrast == contrast_name) %>%
+    pull(feature_id) %>%
+    unique() %>%
+    na.omit() %>%
+    as.character()
+
+  # keep only proteins present in expression data
+  prots <- intersect(prots, colnames(df_sub))
+
+  if (length(prots) == 0) {
+    stop("No elastic net proteins found in corr_df for this contrast.")
+  }
+
+  # expression matrix: rows = proteins, cols = samples
+  mat <- df_sub %>%
+    select(all_of(prots)) %>%
+    as.matrix()
+
+  rownames(mat) <- df_sub$record_id
+  mat <- t(mat)
+
+  # optional relabel rows with gene symbols
+  if (!is.null(map_tbl)) {
+    row_labels <- map_tbl %>%
+      filter(seq_id %in% rownames(mat)) %>%
+      distinct(seq_id, gene_symbol)
+
+    label_vec <- setNames(row_labels$gene_symbol, row_labels$seq_id)
+    new_names <- label_vec[rownames(mat)]
+    new_names[is.na(new_names) | new_names == ""] <- rownames(mat)[is.na(new_names) | new_names == ""]
+    rownames(mat) <- make.unique(new_names)
+  }
+
+  # z-score by protein
+  if (scale_rows) {
+    mat <- t(scale(t(mat)))
+  }
+
+  # column annotation
+  ann_col <- data.frame(Group = df_sub$group_code)
+  rownames(ann_col) <- df_sub$record_id
+
+  # add a visible split between groups
+  group_counts <- table(df_sub$group_code)
+  gap_positions <- cumsum(group_counts)
+
+  pheatmap(
+    mat,
+    annotation_col = ann_col,
+    cluster_rows = cluster_rows,
+    cluster_cols = cluster_cols,
+    show_colnames = show_colnames,
+    border_color = NA,
+    gaps_col = gap_positions[-length(gap_positions)],
+    main = paste0("Elastic net protein expression: ", contrast_name)
+  )
+}
+```
+
+```{r}
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "T1D_vs_T2D",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+
+```{r}
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "T1D_vs_LC",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+```{r}
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "T1D_vs_OC",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+```{r}
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "T2D_vs_LC",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+```{r}
+
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "T2D_vs_OC",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+```{r}
+
+plot_elasticnet_expression_heatmap(
+  corr_df = corr_df,
+  top_prots = top_prots,
+  contrast_name = "OC_vs_LC",
+  map_tbl = map_tbl,
+  scale_rows = TRUE,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE
+)
+```
+
+```{r}
+plot_interaction_panel <- function(data, contrast_name, top_n = 10) {
+
+  df <- data %>%
+    filter(contrast == contrast_name) %>%
+    filter(is.finite(beta_interaction)) %>%
+    group_by(outcome) %>%
+    arrange(desc(abs(beta_interaction)), .by_group = TRUE) %>%
+    slice_head(n = top_n) %>%
+    ungroup() %>%
+    mutate(
+      direction = ifelse(beta_interaction > 0,
+                         "Stronger slope in 2nd group",
+                         "Stronger slope in 1st group"),
+      signif_label = case_when(
+        !is.na(FDR_interaction) & FDR_interaction <= 0.001 ~ "***",
+        !is.na(FDR_interaction) & FDR_interaction <= 0.01  ~ "**",
+        !is.na(FDR_interaction) & FDR_interaction <= 0.05  ~ "*",
+        TRUE ~ ""
+      ),
+      label = reorder(label, beta_interaction)
+    )
+
+  ggplot(df, aes(x = beta_interaction, y = label, fill = direction)) +
+    geom_col() +
+    geom_text(
+      aes(label = signif_label),
+      hjust = ifelse(df$beta_interaction > 0, -0.2, 1.2),
+      size = 4
+    ) +
+    facet_wrap(~outcome, scales = "free_y") +
+    theme_bw() +
+    scale_fill_manual(values = c(
+      "Stronger slope in 1st group" = "steelblue",
+      "Stronger slope in 2nd group" = "firebrick"
+    )) +
+    labs(
+      title = paste0("Protein × Group interactions: ", contrast_name),
+      x = "Difference in slope between groups",
+      y = NULL,
+      fill = "Group with stronger association"
+    )
+}
+```
+
+
+```{r fig.width=10}
+plot_interaction_panel(interaction_gene, "T1D_vs_T2D", top_n = 15)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+# Marginal correlations (raw)
+plot_ranked_cor(cor_gene, "T1D_vs_LC", "HbA1c")
+plot_ranked_cor(cor_gene, "T1D_vs_LC", "uACR")
+plot_ranked_cor(cor_gene, "T1D_vs_LC", "BMI")
+
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "T1D_vs_LC", "HbA1c")
+plot_ranked_cor(partial_gene, "T1D_vs_LC", "uACR")
+plot_ranked_cor(partial_gene, "T1D_vs_LC", "BMI")
+
+```
+```{r}
+plot_ranked_cor(cor_gene, "T1D_vs_OC", "HbA1c")
+plot_ranked_cor(cor_gene, "T1D_vs_OC", "uACR")
+plot_ranked_cor(cor_gene, "T1D_vs_OC", "BMI")
+
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "T1D_vs_OC", "HbA1c")
+plot_ranked_cor(partial_gene, "T1D_vs_OC", "uACR")
+plot_ranked_cor(partial_gene, "T1D_vs_OC", "BMI")
+```
+```{r}
+plot_ranked_cor(cor_gene, "T1D_vs_T2D", "HbA1c")
+plot_ranked_cor(cor_gene, "T1D_vs_T2D", "uACR")
+plot_ranked_cor(cor_gene, "T1D_vs_T2D", "BMI")
+
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "T1D_vs_T2D", "HbA1c")
+plot_ranked_cor(partial_gene, "T1D_vs_T2D", "uACR")
+plot_ranked_cor(partial_gene, "T1D_vs_T2D", "BMI")
+```
+
+
+```{r}
+plot_ranked_cor(cor_gene, "T2D_vs_LC", "HbA1c")
+plot_ranked_cor(cor_gene, "T2D_vs_LC", "uACR")
+plot_ranked_cor(cor_gene, "T2D_vs_LC", "BMI")
+
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "T2D_vs_LC", "HbA1c")
+plot_ranked_cor(partial_gene, "T2D_vs_LC", "uACR")
+plot_ranked_cor(partial_gene, "T2D_vs_LC", "BMI")
+```
+```{r}
+plot_ranked_cor(cor_gene, "T2D_vs_OC", "HbA1c")
+plot_ranked_cor(cor_gene, "T2D_vs_CC", "uACR")
+plot_ranked_cor(cor_gene, "T2D_vs_CC", "BMI")
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "T2D_vs_OC", "HbA1c")
+plot_ranked_cor(partial_gene, "T2D_vs_OC", "uACR")
+plot_ranked_cor(partial_gene, "T2D_vs_OC", "BMI")
+```
+```{r}
+plot_ranked_cor(cor_gene, "OC_vs_LC", "HbA1c")
+plot_ranked_cor(cor_gene, "OC_vs_LC", "uACR")
+plot_ranked_cor(cor_gene, "OC_vs_LC", "BMI")
+
+
+# Partial correlations (age + sex adjusted)
+plot_ranked_cor(partial_gene, "OC_vs_LC", "HbA1c")
+plot_ranked_cor(partial_gene, "OC_vs_LC", "uACR")
+plot_ranked_cor(partial_gene, "OC_vs_LC", "BMI")
+
+```
+
+
+```{r}
+beta_rho <- all_cor_results %>%
+  left_join(top_prots %>% select(feature_id, contrast, beta),
+            by = c("protein" = "feature_id", "contrast")) %>%
+  filter(is.finite(beta), is.finite(rho))
+
+# HbA1c
+stats_hba1c <- beta_rho %>%
+  filter(outcome == "HbA1c") %>%
+  group_by(contrast) %>%
+  summarise(beta_rho_cor = round(cor(beta, method = "spearman", rho, use = "complete.obs"), 2), .groups = "drop")
+
+ggplot(beta_rho %>% filter(outcome == "HbA1c"),
+       aes(x = beta, y = rho)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~contrast) +
+  geom_text(data = stats_hba1c,
+            aes(label = paste0("r = ", beta_rho_cor), x = -Inf, y = Inf),
+            inherit.aes = FALSE, hjust = -0.1, vjust = 1.2, size = 4) +
+  theme_bw() +
+  labs(title = "Elastic Net Beta vs Spearman Rho (HbA1c)", x = "Elastic Net beta", y = "Spearman rho")
+
+# uACR
+stats_uacr <- beta_rho %>%
+  filter(outcome == "uACR") %>%
+  group_by(contrast) %>%
+  summarise(beta_rho_cor = round(cor(beta, method = "spearman", rho, use = "complete.obs"), 2), .groups = "drop")
+
+ggplot(beta_rho %>% filter(outcome == "uACR"),
+       aes(x = beta, y = rho)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, color = "red") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~contrast) +
+  geom_text(data = stats_uacr,
+            aes(label = paste0("r = ", beta_rho_cor), x = -Inf, y = Inf),
+            inherit.aes = FALSE, hjust = -0.1, vjust = 1.2, size = 4) +
+  theme_bw() +
+  labs(title = "Elastic Net Beta vs Spearman Rho (uACR)", x = "Elastic Net beta", y = "Spearman rho")
+
+#BMI
+stats_BMI <- beta_rho %>%
+  filter(outcome == "BMI") %>%
+  group_by(contrast) %>%
+  summarise(beta_rho_cor = round(cor(beta, method = "spearman", rho, use = "complete.obs"), 2), .groups = "drop")
+
+ggplot(beta_rho %>% filter(outcome == "BMI"),
+       aes(x = beta, y = rho)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, color = "purple") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~contrast) +
+  geom_text(data = stats_BMI,
+            aes(label = paste0("r = ", beta_rho_cor), x = -Inf, y = Inf),
+            inherit.aes = FALSE, hjust = -0.1, vjust = 1.2, size = 4) +
+  theme_bw() +
+  labs(title = "Elastic Net Beta vs Spearman Rho (BMI)", x = "Elastic Net beta", y = "Spearman rho")
+```
+```{r}
+# UpSet (presence/absence)
+upset_df <- top_prots %>%
+  distinct(feature_id, contrast) %>%
+  mutate(value = 1) %>%
+  pivot_wider(names_from = contrast, values_from = value, values_fill = 0)
+
+upset_input <- as.data.frame(upset_df)
+rownames(upset_input) <- upset_input$feature_id
+upset_input$feature_id <- NULL
+
+UpSetR::upset(
+  upset_input,
+  sets = contrast_list,
+  order.by = "freq",
+  keep.order = TRUE,
+  mainbar.y.label = "Intersection size",
+  sets.x.label = "Proteins per contrast"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
