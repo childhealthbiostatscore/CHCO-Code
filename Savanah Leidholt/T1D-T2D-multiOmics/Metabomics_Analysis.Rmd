@@ -647,4 +647,239 @@ volcano_list_mp <- lapply(contrast_names, function(cc) {
 
 wrap_plots(volcano_list_mp, ncol = 3)
 ```
+```{r}
+
+dict <- read.csv2(file.path(dir.dat, "Data Harmonization", "data_dictionary_master.csv"), sep = ",") 
+
+dict <- dict %>% dplyr::select(variable_name, label, form_name)
+
+dict_metab <- dict %>%
+  mutate(
+    variable_name = trimws(as.character(variable_name)),
+    label = trimws(as.character(label)),
+    form_name = trimws(as.character(form_name))
+  ) %>%
+  filter(stringr::str_detect(form_name, regex("^metabolomics", ignore_case = TRUE)))
+
+dict_lookup <- dict_metab %>%
+  distinct(variable_name, label) %>%
+  filter(!is.na(variable_name), variable_name != "") %>%
+  tibble::deframe()
+
+out_mp <- lapply(out_mp, function(x) {
+  if (is.matrix(x) || is.data.frame(x)) {
+    old_names <- rownames(x)
+    if (!is.null(old_names)) {
+      new_names <- dict_lookup[old_names]
+      new_names[is.na(new_names) | new_names == ""] <- old_names[is.na(new_names) | new_names == ""]
+      rownames(x) <- make.unique(new_names)
+    }
+  }
+  x
+})
+
+out_mp
+```
+```{r}
+volcano_list_mp <- lapply(contrast_names, function(cc) {
+  tt <- out_mp[[cc]]
+
+  EnhancedVolcano(
+    tt,
+    lab = rownames(tt),
+    x = "logFC",
+    y = "adj.P.Val",
+    pCutoff = 0.05,
+    FCcutoff = 0.5,
+    title = gsub("_", " ", cc),
+    subtitle = "Age + sex + study (metabolomics samples with proteomics overlap)",
+    pointSize = 2.0,
+    labSize = 3.0
+  )
+})
+
+wrap_plots(volcano_list_mp, ncol = 3)
+```
+
+# ----------------------------------------
+# KEGG compound -> pathway mapping
+# ----------------------------------------
+```{r}
+# all human KEGG pathways
+kegg_pathways_all <- KEGGREST::keggList("pathway", "hsa")
+
+pathway_df <- tibble(
+  pathway_id = sub("^path:", "", names(kegg_pathways_all)),
+  pathway_name = unname(kegg_pathways_all)
+)
+
+# keep metabolic pathways only if you want a cleaner analysis
+# optional: remove disease/drug/etc pathways
+pathway_df <- pathway_df %>%
+  filter(str_detect(pathway_name, regex("metabolism", ignore_case = TRUE)) |
+           pathway_id %in% c(
+             "hsa00010","hsa00020","hsa00030","hsa00040","hsa00051","hsa00052",
+             "hsa00053","hsa00500","hsa00520","hsa00620","hsa00630","hsa00640",
+             "hsa00650","hsa00670","hsa00730","hsa00830","hsa00230","hsa00240",
+             "hsa00250","hsa00260","hsa00270","hsa00280","hsa00300","hsa00310",
+             "hsa00330","hsa00340","hsa00350","hsa00360","hsa00400","hsa00410",
+             "hsa00430","hsa00450","hsa00460","hsa00471","hsa00472","hsa00480"
+           ))
+
+# get compounds in each pathway
+pathway2compound <- map_dfr(pathway_df$pathway_id, function(pid) {
+  x <- KEGGREST::keggGet(pid)[[1]]
+
+  cpds <- x$COMPOUND
+  if (is.null(cpds)) return(NULL)
+
+  tibble(
+    pathway_id = pid,
+    compound_id = names(cpds)
+  )
+}) %>%
+  distinct() %>%
+  left_join(pathway_df, by = "pathway_id")
+
+head(pathway2compound)
+```
+
+```{r}
+normalize_kegg_compound <- function(x) {
+  x <- trimws(as.character(x))
+  x <- toupper(x)
+  x
+}
+```
+
+```{r}
+run_kegg_metab_ora <- function(
+  tt,
+  pathway_map,
+  p_cutoff = 0.05,
+  fc_cutoff = 0,
+  feature_col = "feature_id"
+) {
+  tt <- tt %>%
+    mutate(
+      compound_id = normalize_kegg_compound(.data[[feature_col]])
+    )
+
+  # background = all tested metabolites that exist in KEGG pathway map
+  bg <- intersect(tt$compound_id, unique(pathway_map$compound_id))
+
+  # significant metabolites
+  sig <- tt %>%
+    filter(adj.P.Val < p_cutoff, abs(logFC) >= fc_cutoff) %>%
+    pull(compound_id) %>%
+    intersect(unique(pathway_map$compound_id))
+
+  if (length(sig) == 0 || length(bg) == 0) {
+    return(tibble())
+  }
+
+  res <- pathway_map %>%
+    group_by(pathway_id, pathway_name) %>%
+    summarise(
+      pathway_compounds = list(unique(compound_id)),
+      n_pathway = length(unique(compound_id)),
+      .groups = "drop"
+    ) %>%
+    rowwise() %>%
+    mutate(
+      overlap = list(intersect(sig, pathway_compounds)),
+      n_overlap = length(overlap),
+      n_sig = length(sig),
+      n_bg = length(bg),
+      p_value = fisher.test(
+        matrix(
+          c(
+            n_overlap,
+            n_sig - n_overlap,
+            length(intersect(bg, pathway_compounds)) - n_overlap,
+            n_bg - n_sig - (length(intersect(bg, pathway_compounds)) - n_overlap)
+          ),
+          nrow = 2
+        ),
+        alternative = "greater"
+      )$p.value
+    ) %>%
+    ungroup() %>%
+    mutate(
+      padj = p.adjust(p_value, method = "BH"),
+      overlap_compounds = map_chr(overlap, ~ paste(.x, collapse = ", "))
+    ) %>%
+    filter(n_overlap > 2) %>%
+    arrange(padj, p_value)
+
+  res
+}
+```
+
+```{r}
+kegg_res_mp <- lapply(out_mp, function(tt) {
+  run_kegg_metab_ora(
+    tt = tt,
+    pathway_map = pathway2compound,
+    p_cutoff = 0.05,
+    fc_cutoff = 0
+  )
+})
+
+names(kegg_res_mp) <- names(out_mp)
+
+kegg_summary_mp <- bind_rows(lapply(names(kegg_res_mp), function(cc) {
+  x <- kegg_res_mp[[cc]]
+  tibble(
+    contrast = cc,
+    n_pathways_FDR05 = sum(x$padj < 0.05, na.rm = TRUE),
+    n_pathways_p05   = sum(x$p_value < 0.05, na.rm = TRUE)
+  )
+}))
+
+kegg_summary_mp
+```
+
+```{r}
+kegg_res_mp[["T1D_vs_T2D"]] %>%
+  select(pathway_name, n_overlap, p_value, padj, overlap_compounds) %>%
+  head(20)
+```
+
+```{r}
+plot_kegg_ora <- function(res_df, title_text, n = 15) {
+  if (nrow(res_df) == 0) {
+    return(ggplot() + theme_void() + labs(title = paste(title_text, "- no enriched pathways")))
+  }
+
+  df <- res_df %>%
+    filter(!is.na(padj)) %>%
+    slice_min(order_by = padj, n = n, with_ties = FALSE) %>%
+    mutate(
+      pathway_name = str_replace_all(pathway_name, " - Homo sapiens \\(human\\)", ""),
+      pathway_name = factor(pathway_name, levels = rev(pathway_name)),
+      neglog10_padj = -log10(padj)
+    )
+
+  ggplot(df, aes(x = neglog10_padj, y = pathway_name, size = n_overlap)) +
+    geom_point(alpha = 0.85) +
+    theme_bw() +
+    labs(
+      title = title_text,
+      x = expression(-log[10]("BH-adjusted p-value")),
+      y = NULL,
+      size = "Overlap"
+    )
+}
+
+plot_kegg_ora(kegg_res_mp[["T1D_vs_T2D"]], "KEGG ORA: T1D vs T2D")
+```
+
+```{r}
+kegg_plots_mp <- lapply(names(kegg_res_mp), function(cc) {
+  plot_kegg_ora(kegg_res_mp[[cc]], gsub("_", " ", cc), n = 12)
+})
+
+patchwork::wrap_plots(kegg_plots_mp, ncol = 2)
+```
 
