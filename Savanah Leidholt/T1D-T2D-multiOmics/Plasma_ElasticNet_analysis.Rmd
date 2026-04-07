@@ -24,8 +24,8 @@ library(ggplot2)
 #=====================================================
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -78,11 +78,18 @@ prot_plasma <- obj$prot_plasma
 n_table     <- obj$n_table
 
 
-# limma outputs (out_plasma contains topTable per contrast)
-obj2 <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "limma_gsea_inputs_age_sex_study.rds"))
-out1 <- obj2$all_studies
-out2 <- obj2$no_attempt
-out3 <- obj2$all3_omics
+obj2 <- readRDS(file.path(
+  dir.dat, "Savanah Leidholt", "T1D-T2D", "Data",
+  "limma_gsea_inputs_age_sex_study.rds"
+))
+
+dat1 <- obj2$all_studies
+dat2 <- obj2$no_attempt
+dat3 <- obj2$all3_omics
+
+out1 <- dat1$out
+out2 <- dat2$out
+out3 <- dat3$out
 
 
 # quick checks
@@ -196,27 +203,27 @@ table(is.na(apt2symbol[colnames(prot_plasma)]) | apt2symbol[colnames(prot_plasma
 
 
 ```{r}
-# ---- elastic net runner ----
 run_elasticnet_topN <- function(
   cc,
   out_list,
   meta,
   X_imp,
   top_n = 100,
+  covars = c("age", "sex", "study"),
   alpha_grid = seq(0.1, 1, by = 0.1),
   nfolds = 10,
   seed = 1,
   min_per_class = 5,
   maxit = 1e6
 ) {
-  # parse contrast like "T1D_vs_T2D"
   if (!grepl("_vs_", cc)) return(NULL)
-  parts <- unlist(strsplit(cc, "_vs_"))
+
+  parts <- strsplit(cc, "_vs_")[[1]]
   if (length(parts) != 2) return(NULL)
+
   g_pos <- parts[1]
   g_neg <- parts[2]
 
-  # subset to the two groups
   idx <- which(meta$group4 %in% c(g_pos, g_neg))
   meta_sub <- meta[idx, , drop = FALSE]
   meta_sub$record_id <- as.character(meta_sub$record_id)
@@ -224,22 +231,19 @@ run_elasticnet_topN <- function(
   y <- ifelse(meta_sub$group4 == g_pos, 1, 0)
   y <- as.numeric(y)
 
-  tab <- table(as.character(meta_sub$group4))
+  tab <- table(meta_sub$group4)
   if (any(tab < min_per_class)) return(NULL)
-  
-  # get limma topTable for that contrast (already per-contrast)
+
   tt <- out_list[[cc]]
   if (is.null(tt)) return(NULL)
   tt <- as.data.frame(tt)
 
-  # ensure feature_id
   if (!"feature_id" %in% names(tt)) {
     fid <- rownames(tt)
     if (is.null(fid)) return(NULL)
     tt$feature_id <- fid
   }
 
-  # pick top N by adj.P.Val then P.Value
   if (!all(c("adj.P.Val", "P.Value") %in% names(tt))) return(NULL)
 
   top_feats <- tt %>%
@@ -251,34 +255,34 @@ run_elasticnet_topN <- function(
 
   if (length(top_feats) < 5) return(NULL)
 
-  # covariates (unpenalized)
-  meta_sub <- meta_sub %>% mutate(sex = factor(sex))
-  Z <- model.matrix(~ age + sex + study, data = meta_sub)
+  meta_sub <- meta_sub %>%
+    mutate(
+      sex = factor(sex),
+      study = factor(study)
+    )
 
-  # proteins (penalized)
+  covars_present <- covars[covars %in% colnames(meta_sub)]
+  form_cov <- as.formula(paste("~", paste(covars_present, collapse = " + ")))
+  Z <- model.matrix(form_cov, data = meta_sub)
+
   Xp <- X_imp[meta_sub$record_id, top_feats, drop = FALSE]
 
-  # build X (covariates + proteins)
   X <- cbind(Z, Xp)
   X <- as.matrix(X)
   storage.mode(X) <- "double"
 
-  # penalty factors: 0 for covariates, 1 for proteins
   pf <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
 
-  # drop zero-variance columns
   sds <- apply(X, 2, sd)
   keep_cols <- which(is.finite(sds) & sds > 0)
   X  <- X[, keep_cols, drop = FALSE]
   pf <- pf[keep_cols]
 
-  # usable folds
   nfolds_use <- min(nfolds, sum(y == 0), sum(y == 1))
   if (nfolds_use < 2) return(NULL)
 
   set.seed(seed)
 
-  # fit across alpha grid
   fit_list <- lapply(alpha_grid, function(a) {
     cv <- tryCatch(
       cv.glmnet(
@@ -296,21 +300,20 @@ run_elasticnet_topN <- function(
     if (is.null(cv)) return(NULL)
     list(alpha = a, cvfit = cv)
   })
+
   fit_list <- Filter(Negate(is.null), fit_list)
   if (length(fit_list) == 0) return(NULL)
 
-  # choose alpha with minimum cvm
   best_idx <- which.min(sapply(fit_list, function(z) min(z$cvfit$cvm)))
   best <- fit_list[[best_idx]]
 
-  # coefficients at lambda.1se
   coef_mat <- as.matrix(coef(best$cvfit, s = "lambda.1se"))
   coef_df <- tibble(
     term = rownames(coef_mat),
     beta = as.numeric(coef_mat)
-  ) %>% filter(beta != 0)
+  ) %>%
+    filter(beta != 0)
 
-  # training AUC (predictions at lambda.1se)
   p_hat <- as.numeric(predict(best$cvfit, newx = X, s = "lambda.1se", type = "response"))
   auc_val <- as.numeric(pROC::auc(pROC::roc(y, p_hat, quiet = TRUE)))
 
@@ -329,8 +332,6 @@ run_elasticnet_topN <- function(
     cvfit         = best$cvfit
   )
 }
-
-
 ```
 
 ```{r}
@@ -338,68 +339,26 @@ run_elasticnet_topN <- function(
 #run across contrasts top 100
 #----------------------------
 
-glmnet_res <- lapply(names(out1), function(cc) {
+glmnet_res_all <- lapply(names(out3), function(cc) {
   run_elasticnet_topN(
-    cc      = cc,
-    out_list= out1,
-    meta    = meta,
-    X_imp   = X_imp,
-    top_n   = 100
+    cc       = cc,
+    out_list = out1,
+    meta     = meta,
+    X_imp    = X_imp,
+    top_n    = 100,
+    covars   = c("age", "sex", "study")
   )
 })
-names(glmnet_res) <- names(out1)
-glmnet_res <- Filter(Negate(is.null), glmnet_res)
 
-names(glmnet_res)
-length(glmnet_res)
+names(glmnet_res_all) <- names(out1)
+glmnet_res_all <- Filter(Negate(is.null), glmnet_res_all)
 ```
 
-```{r}
-# ---------------------------
-#run across contrasts top 100
-#----------------------------
-
-glmnet_res <- lapply(names(out2), function(cc) {
-  run_elasticnet_topN(
-    cc      = cc,
-    out_list= out2,
-    meta    = meta,
-    X_imp   = X_imp,
-    top_n   = 100
-  )
-})
-names(glmnet_res) <- names(out2)
-glmnet_res <- Filter(Negate(is.null), glmnet_res)
-
-names(glmnet_res)
-length(glmnet_res)
-```
-
-```{r}
-# ---------------------------
-#run across contrasts top 100
-#----------------------------
-
-glmnet_res <- lapply(names(out3), function(cc) {
-  run_elasticnet_topN(
-    cc      = cc,
-    out_list= out3,
-    meta    = meta,
-    X_imp   = X_imp,
-    top_n   = 100
-  )
-})
-names(glmnet_res) <- names(out3)
-glmnet_res <- Filter(Negate(is.null), glmnet_res)
-
-names(glmnet_res)
-length(glmnet_res)
-```
 
 
 ```{r}
 # ---- summary table ----
-summary_tbl <- bind_rows(lapply(glmnet_res, function(r) {
+summary_tbl <- bind_rows(lapply(glmnet_res_all, function(r) {
   tibble(
     contrast   = r$contrast,
     alpha      = r$best_alpha,
@@ -411,13 +370,11 @@ summary_tbl <- bind_rows(lapply(glmnet_res, function(r) {
 }))
 
 summary_tbl
-
-
 ```
 
 
 ```{r}
-r <- glmnet_res[["T1D_vs_T2D"]]
+r <- glmnet_res_all[["T1D_vs_T2D"]]
 
 r$best_alpha
 r$auc_train

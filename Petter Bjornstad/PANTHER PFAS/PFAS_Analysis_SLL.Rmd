@@ -58,8 +58,8 @@ if (computer == "mac studio") {
 ```{r}
 source(file.path(git_path, "Functions.R")) 
 
-dat_raw <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
-lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+#dat_raw <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
+#lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
 ```
 
 ```{r}
@@ -93,7 +93,6 @@ baseline_model_outcomes <- c(
   "mm_di"
 )
 
-baseline_tanner_outcomes <- c("tan_mgd", "tan_fgd")
 
 group_time_outcomes <- c(
   "log_acr_u",
@@ -110,7 +109,7 @@ group_time_outcomes <- c(
   "bl_dheas"
 )
 
-group_time_tanner_outcomes <- c("tan_mgd","tan_fgd")
+
 
 outcome_label_map <- c(
   #kidney function
@@ -155,36 +154,36 @@ pfas_label_map <- c(
 ```
 
 ```{r}
-collapse_visit <- function(data, by_vars) {
-  data %>%
-    summarise(
-      across(
-        where(is.character),
-        ~ if (all(is.na(.x))) NA_character_ else dplyr::last(na.omit(.x))
-      ),
-      across(
-        where(is.factor),
-        ~ if (all(is.na(.x))) NA else dplyr::last(na.omit(.x))
-      ),
-      across(
-        where(is.numeric),
-        ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
-      ),
-      .by = all_of(by_vars)
-    )
-}
+#collapse_visit <- function(data, by_vars) {
+ # data %>%
+  #  summarise(
+   #   across(
+    #    where(is.character),
+     #   ~ if (all(is.na(.x))) NA_character_ else dplyr::last(na.omit(.x))
+    #  ),
+     # across(
+#        where(is.factor),
+ #       ~ if (all(is.na(.x))) NA else dplyr::last(na.omit(.x))
+  #    ),
+   #   across(
+    #    where(is.numeric),
+     #   ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+#      ),
+ #     .by = all_of(by_vars)
+  #  )
+#}
 
-make_race_ethnicity <- function(data) {
-  data %>%
-    mutate(
-      race_ethnicity_condensed = case_when(
-        race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-        race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-        ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-        TRUE ~ "Not Hispanic or Latino Other"
-      )
-    )
-}
+#make_race_ethnicity <- function(data) {
+ # data %>%
+  #  mutate(
+   #   race_ethnicity_condensed = case_when(
+    #    race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+     #   race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+      #  ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+       # TRUE ~ "Not Hispanic or Latino Other"
+      #)
+    #)
+#}
 ```
 #---------------------------------------
 #Helper fucntions for pvalues and labels
@@ -211,154 +210,136 @@ get_outcome_label <- function(outcome) {
 #--------------------------------
 ```{r}
 #baseline only
-dat_base <- dat_raw %>%
-  filter(study == "PANTHER", visit %in% c("baseline", "screening")) %>%
-  collapse_visit(by_vars = "record_id") %>%
-  mutate(visit = "baseline_screening") %>%
-  make_race_ethnicity()
+#dat_base <- dat_raw %>%
+ # filter(study == "PANTHER", visit %in% c("baseline", "screening")) %>%
+  #collapse_visit(by_vars = "record_id") %>%
+  #mutate(visit = "baseline_screening") %>%
+  #make_race_ethnicity()
 
 
 #all data
-dat_full <- dat_raw %>%
-  filter(study == "PANTHER", visit %in% c("year_1", "year_2")) %>%
-  collapse_visit(by_vars = c("record_id", "visit")) %>%
-  make_race_ethnicity()
+#dat_full <- dat_raw %>%
+ # filter(study == "PANTHER", visit %in% c("year_1", "year_2")) %>%
+  #collapse_visit(by_vars = c("record_id", "visit")) %>%
+  #make_race_ethnicity()
 
-meta <- bind_rows(dat_base, dat_full) %>%
-  mutate(
-    sex_lower = stringr::str_to_lower(as.character(sex)),
-    tan_stage = case_when(
-      sex_lower == "male" ~ tan_mgd,
-      sex_lower == "female" ~ tan_fgd,
-      TRUE ~ dplyr::coalesce(tan_mgd, tan_fgd)
-    ),
-    tan_stage = as.numeric(as.character(tan_stage))
-  )
+#meta <- bind_rows(dat_base, dat_full) %>%
+ # mutate(
+  #  sex_lower = stringr::str_to_lower(as.character(sex)),
+   # tan_stage = case_when(
+    #  sex_lower == "male" ~ tan_mgd,
+     # sex_lower == "female" ~ tan_fgd,
+    #  TRUE ~ dplyr::coalesce(tan_mgd, tan_fgd)
+  #  ),
+   # tan_stage = as.numeric(as.character(tan_stage))
+  #)
 ```
 #---------------------------------
 #Baseline PFAS VALUES & Dataframe
 #---------------------------------
 ```{r}
-pfas_raw <- dat_raw %>%
-  filter(study == "PANTHER", visit == "baseline") %>%
-  dplyr::select(record_id, all_of(pfas_all)) %>%
-  collapse_visit(by_vars = "record_id")
+#pfas_raw <- dat_raw %>%
+ # filter(study == "PANTHER", visit == "baseline") %>%
+  #dplyr::select(record_id, all_of(pfas_all)) %>%
+  #collapse_visit(by_vars = "record_id")
 
-lod <- lod_raw %>%
-  t() %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column("row_id")
+#lod <- lod_raw %>%
+ # t() %>%
+  #as.data.frame() %>%
+  #tibble::rownames_to_column("row_id")
 
-colnames(lod) <- lod[1, ]
-lod <- lod[-1, , drop = FALSE] %>%
-  mutate(across(everything(), as.numeric))
+#colnames(lod) <- lod[1, ]
+#lod <- lod[-1, , drop = FALSE] %>%
+ # mutate(across(everything(), as.numeric))
 
-colnames(lod) <- str_replace_all(colnames(lod), "-", ".")
+#colnames(lod) <- str_replace_all(colnames(lod), "-", ".")
 ```
 #-------------------------------
 #PFAS level of Detection (LOD) 
 #-------------------------------
 ```{r}
-impute_pfas_lod <- function(pfas_dat, lod, pfas_vars, threshold = 2/3) {
-  n_participants <- n_distinct(pfas_dat$record_id)
+#impute_pfas_lod <- function(pfas_dat, lod, pfas_vars, threshold = 2/3) {
+ # n_participants <- n_distinct(pfas_dat$record_id)
 
-  pfas_to_keep <- purrr::keep(pfas_vars, function(pf) {
-    pf %in% names(lod) &&
-      (sum(pfas_dat[[pf]] < lod[[pf]], na.rm = TRUE) / n_participants) < threshold
-  })
+  #pfas_to_keep <- purrr::keep(pfas_vars, function(pf) {
+   # pf %in% names(lod) &&
+    #  (sum(pfas_dat[[pf]] < lod[[pf]], na.rm = TRUE) / n_participants) < threshold
+ # })
 
-  pfas_imputed <- pfas_dat %>%
-    dplyr::select(record_id, all_of(pfas_to_keep))
+  #pfas_imputed <- pfas_dat %>%
+   # dplyr::select(record_id, all_of(pfas_to_keep))
 
-  for (pf in pfas_to_keep) {
-    pfas_imputed[[pf]] <- ifelse(
-      pfas_imputed[[pf]] < lod[[pf]],
-      lod[[pf]] / sqrt(2),
-      pfas_imputed[[pf]]
-    )
-  }
+ # for (pf in pfas_to_keep) {
+  #  pfas_imputed[[pf]] <- ifelse(
+   #   pfas_imputed[[pf]] < lod[[pf]],
+    #  lod[[pf]] / sqrt(2),
+    #  pfas_imputed[[pf]]
+    #)
+ # }
 
-  list(
-    imputed_data = pfas_imputed,
-    pfas_used = pfas_to_keep
-  )
-}
+  #list(
+   # imputed_data = pfas_imputed,
+    #pfas_used = pfas_to_keep
+  #)
+#}
 
-pfas_results <- impute_pfas_lod(
-  pfas_dat = pfas_raw,
-  lod = lod,
-  pfas_vars = pfas_all
-)
+#pfas_results <- impute_pfas_lod(
+ # pfas_dat = pfas_raw,
+  #lod = lod,
+  #pfas_vars = pfas_all
+#)
 
-pfas_imputed <- pfas_results$imputed_data %>%
-  dplyr::select(record_id, all_of(pfas_vars)) %>%
-  rename_with(~ paste0(.x, "_bl"), -record_id)
+#pfas_imputed <- pfas_results$imputed_data %>%
+ # dplyr::select(record_id, all_of(pfas_vars)) %>%
+  #rename_with(~ paste0(.x, "_bl"), -record_id)
 
 #write_rds(x = pfas_imputed, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
+pfas_imputed <- readRDS(file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
 ```
 
 #----------------------------------------
 #Joining PFAS data to metadata
 #----------------------------------------
 ```{r}
-baseline_acru <- meta %>%
-  dplyr::filter(visit == "baseline_screening") %>%
-  dplyr::select(record_id, acr_u) %>%
-  dplyr::rename(acr_u_bl = acr_u)
+#baseline_acru <- meta %>%
+ # dplyr::filter(visit == "baseline_screening") %>%
+  #dplyr::select(record_id, acr_u) %>%
+  #dplyr::rename(acr_u_bl = acr_u)
 
-#baseline_tanner <- meta %>%
-#  dplyr::filter(visit == "baseline_screening") %>%
- # dplyr::select(record_id, sex, tan_mgd, tan_fgd) %>%
-  #dplyr::mutate(
-   # sex_lower = stringr::str_to_lower(as.character(sex)),
-    
-    #tan_stage_bl = case_when(
-     # sex_lower == "male"   ~ tan_mgd,
-      #sex_lower == "female" ~ tan_fgd,
-      #TRUE ~ NA_real_
-   # ),
-    
-    # fallback if sex missing or Tanner missing
-    #tan_stage_bl = dplyr::coalesce(tan_stage_bl, tan_mgd, tan_fgd)
-  #) %>%
-  #dplyr::select(record_id, tan_stage_bl)
+#meta_nopfas <- meta %>%
+ # dplyr::select(-any_of(pfas_all))
 
-meta_nopfas <- meta %>%
-  dplyr::select(-any_of(pfas_all))
+#dat_baseline <- meta_nopfas %>%
+#  filter(visit == "baseline_screening") %>%
+ # left_join(pfas_imputed, by = "record_id") %>%
+  #left_join(baseline_acru, by = "record_id") # %>% left_join(baseline_tanner, by = "record_id")
 
-dat_baseline <- meta_nopfas %>%
-  filter(visit == "baseline_screening") %>%
-  left_join(pfas_imputed, by = "record_id") %>%
-  left_join(baseline_acru, by = "record_id") # %>% left_join(baseline_tanner, by = "record_id")
+#dat_long <- meta_nopfas %>%
+ # left_join(pfas_imputed, by = "record_id") %>%
+  #left_join(baseline_acru, by = "record_id") %>%
+ # mutate(
+  #  visit_f = factor(
+   #   visit,
+    #  levels = c("baseline_screening", "year_1", "year_2"),
+     # labels = c("Baseline", "Year 1", "Year 2")
+    #),
+    #visit_num = case_when(
+     # visit == "baseline_screening" ~ 0,
+    #  visit == "year_1" ~ 1,
+     # visit == "year_2" ~ 2,
+    #  TRUE ~ NA_real_
+    #)
+  #)
 
-dat_long <- meta_nopfas %>%
-  left_join(pfas_imputed, by = "record_id") %>%
-  left_join(baseline_acru, by = "record_id") %>%
-  #left_join(baseline_tanner, by = "record_id") %>%
-  mutate(
-    visit_f = factor(
-      visit,
-      levels = c("baseline_screening", "year_1", "year_2"),
-      labels = c("Baseline", "Year 1", "Year 2")
-    ),
-    visit_num = case_when(
-      visit == "baseline_screening" ~ 0,
-      visit == "year_1" ~ 1,
-      visit == "year_2" ~ 2,
-      TRUE ~ NA_real_
-    )
-  )
+#write_rds(baseline_acru, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
+#write_rds(meta_nopfas,   file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
+#write_rds(dat_baseline,  file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
+#write_rds(dat_long,      file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
 
-#dat_baseline <- dat_baseline %>%
- # mutate(tan_stage_bl = as.numeric(as.character(tan_stage)))
-
-#dat_long <- dat_long %>%
- # mutate(tan_stage_bl = as.numeric(as.character(tan_stage)))
-
-write_rds(baseline_acru, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
-write_rds(meta_nopfas,   file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
-write_rds(dat_baseline,  file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
-write_rds(dat_long,      file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
+baseline_acru <- readRDS(file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
+meta_nopfas <- readRDS(file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
+dat_baseline <- readRDS(file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
+dat_long <- readRDS(file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
 
 ```
 #--------------------------------------------------
@@ -1005,8 +986,8 @@ plot_baseline_pfas_set <- function(data,
 ```
 
 ```{r}
-plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
-#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
+#plot_baseline_pfas_set(data = dat_baseline,outcome = "log_acr_u", save_pdf = T, out_dir = dir.results)
+plot_baseline_pfas_set(data = dat_baseline,outcome = "log_microalbumin_u",save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "erpf_bsa_plasma",save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "eGFR_CKiD_U25_avg",save_pdf = T, out_dir = dir.results)
 #plot_baseline_pfas_set(data = dat_baseline,outcome = "pah_clear_bsa",save_pdf = T, out_dir = dir.results)
@@ -1620,13 +1601,13 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
     dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
   
   # -----------------------------
-  # 4. Sample size info
+  # Sample size info
   # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
   # -----------------------------
-  # 5. Formula
+  # Formula
   # -----------------------------
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
@@ -1639,7 +1620,7 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   formula_obj <- as.formula(formula_str)
   
   # -----------------------------
-  # 6. Fit model with fallback
+  # Fit model with fallback
   # -----------------------------
   m1 <- tryCatch(
     lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
@@ -1667,7 +1648,7 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   }
   
   # -----------------------------
-  # 7. Tidy output
+  # Tidy output
   # -----------------------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
@@ -1838,7 +1819,7 @@ p_longitudinal_heatmap_base
 run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
   
   # -----------------------------
-  # 1. Build covariate list
+  # Build covariate list
   # -----------------------------
   covars <- c("age", "sex", "group")
   
@@ -1847,7 +1828,7 @@ run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
   }
   
   # -----------------------------
-  # 2. Keep needed columns only
+  # Keep needed columns only
   # -----------------------------
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
@@ -1856,7 +1837,7 @@ run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
     tidyr::drop_na()
   
   # -----------------------------
-  # 3. Outlier removal per outcome
+  # Outlier removal per outcome
   # -----------------------------
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
@@ -1870,13 +1851,13 @@ run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
     dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
   
   # -----------------------------
-  # 4. Sample size info
+  # Sample size info
   # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
   # -----------------------------
-  # 5. Formula
+  # Formula
   # -----------------------------
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
@@ -1889,7 +1870,7 @@ run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
   formula_obj <- as.formula(formula_str)
   
   # -----------------------------
-  # 6. Fit model with fallback
+  # Fit model with fallback
   # -----------------------------
   m1 <- tryCatch(
     lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
@@ -1917,7 +1898,7 @@ run_baseline_pfas_lmm_acr <- function(data, outcome, exposure) {
   }
   
   # -----------------------------
-  # 7. Tidy output
+  # Tidy output
   # -----------------------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
