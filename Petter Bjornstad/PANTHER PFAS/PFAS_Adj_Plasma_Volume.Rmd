@@ -36,13 +36,13 @@ library(pheatmap)
 
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
     dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/total_plasma_volume_adjusted_results")
     git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
   }
 } else {
@@ -85,7 +85,7 @@ pfas_vars <- c(
 
 baseline_model_outcomes <- c(
   "log_acr_u",
-  "log_microalbumin_u",
+ # "log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
   "avg_c_r2",
@@ -103,7 +103,7 @@ baseline_model_outcomes <- c(
 
 group_time_outcomes <- c(
   "log_acr_u",
-  "log_microalbumin_u",
+  #"log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
   "pah_clear_bsa",
@@ -121,8 +121,8 @@ outcome_label_map <- c(
   #kidney function
   acr_u = "uACR",
   log_acr_u = "log1p(uACR)",
-  microalbumin_u = "Microalbuminuria",
-  log_microalbumin_u = "log1p(Microalbuminuria)",
+ # microalbumin_u = "Microalbuminuria",
+ # log_microalbumin_u = "log1p(Microalbuminuria)",
   eGFR_CKiD_U25_avg = "eGFR",
   erpf_bsa_plasma = "ERPF",
   pah_clear_bsa = "PAH clearance",
@@ -214,7 +214,9 @@ pfas_total_ng_bl_vars <- paste0(pfas_bl_vars, "_total_ng")
 
 dat_baseline <- dat_baseline %>%
   mutate(
-    blood_vol_ml = weight * (70 / sqrt(bmi / 22)),
+    blood_vol_ml = case_when(
+      sex == "Male" ~ (weight * (70/sqrt(bmi/22))),
+      sex == "Female" ~ (weight * (60/sqrt(bmi/22)))),
     hct_prop = hct / 100,
     plasma_vol_ml = blood_vol_ml * (1 - hct_prop)
   ) %>%
@@ -345,6 +347,7 @@ dat_baseline2 <- dat_baseline2 %>%
 #Do plasma volume's differ significantly by equation for LC
 #------------------------------------------------------------
 ```{r}
+pdf(file.path(dir.results, "Nadler_v_LBB.pdf"), width = 10, height = 8)
 # Keep only the two plasma volume estimates and pivot longer
 plot_dat <- dat_baseline2 %>%
   pivot_longer(
@@ -379,6 +382,8 @@ emmeans(model, ~ 1)  # intercept = adjusted mean difference
     y = "Estimated plasma volume",
     size = "Sex"
   )
+ 
+ dev.off()
 ```
 #---------------------------
 #Correlation matrix of PFAS
@@ -628,19 +633,27 @@ plot_baseline_pfas_group_boxplot <- function(data,
 ```
 
 ```{r}
-pdf(file = file.path(dir.results, "total_plasma_pfas_by_group.pdf"), width = 8, height = 6)
 
-for (pfas in pfas_group_vars) {
-  print(
+plots_by_group <- lapply(
+  pfas_group_vars,
+  function(pfas) {
     plot_baseline_pfas_group_boxplot(
       data = dat_baseline,
       exposure = pfas,
       results_list = baseline_group_pfas_results
     )
-  )
-}
+  }
+)
 
+plots_by_group
+
+combined_plot2 <- wrap_plots(plots_by_group, ncol = 3)
+combined_plot2
+
+pdf(file.path(dir.results, "pfas_by_group.pdf"), width = 18, height = 16)
+print(combined_plot2)
 dev.off()
+
 ```
 #------------------------------------------------
 # Model 1: Baseline PFAS Cross-Sectional Analysis
