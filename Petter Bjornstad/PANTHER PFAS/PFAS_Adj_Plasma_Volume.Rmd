@@ -30,14 +30,11 @@ library(lme4)
 library(ggpubr)
 library(pheatmap)
 ```
-#---------------------------------------------------
-# inputting all directories and storage locations
-#---------------------------------------------------
 
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
@@ -1013,24 +1010,39 @@ plot_list
 # Model 2: changes over time by group-----Would be the same as other section so not running again
 #-------------------------------------------------------------------------------------------------
 
+
+
+
 #-------------------------------------------------------------------------------
-# Model 3: baseline PFAS predicting longitudinal outcomes (from hailey's code)
-# a) base model
-# b) adjusted for uACR
+# Model 3: baseline PFAS predicting longitudinal outcomes 
+# a) age and sex adjusted
+# b) adjusted for basline acr
 # c) adjusted for tanner stage
-# d) adjusted for uACR & tanner stage
+# d) adjusted for baseline acr and tanner stage
 #-------------------------------------------------------------------------------
+
 ```{r}
-#Model 3a: base model
-run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
+#trying to mimic hailey's code for longitudinal data
+# Standardize outcome variables so betas are comparable across outcomes
+dat_long <- dat_long %>%
+  mutate(across(all_of(group_time_outcomes), ~ scale(.)[,1],
+                .names = "{.col}_z"))
+
+# Update outcome_vars_long to use standardized versions
+group_time_outcomes2 <- paste0(group_time_outcomes, "_z")
+```
+
+
+```{r}
+model_3a <- function(data, outcome, exposure) {
   
   # -----------------------------
-  # age, sex as covariates
+  # age, sex, and group as covariates
   # -----------------------------
-  covars <- c("age", "sex")
+  covars <- c("age", "sex", "group")
   
   # -----------------------------
-  # keep needed columns only
+  # Keep needed columns only
   # -----------------------------
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
@@ -1038,9 +1050,9 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
     dplyr::select(dplyr::all_of(needed_vars)) %>%
     tidyr::drop_na()
   
-  # ----------------------------------------------------------------------------
-  # Outlier removal per outcome-not sure about this with such small sample sizes
-  # ----------------------------------------------------------------------------
+  # -----------------------------
+  # Outlier removal per outcome
+  # -----------------------------
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
@@ -1063,19 +1075,17 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
   # -----------------------------
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
-  formula_str <- paste0(
+  m0 <- as.formula(paste0(
     outcome, " ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
-  )
-  
-  formula_obj <- as.formula(formula_str)
+  ))
   
   # -----------------------------
   # Fit model with fallback
   # -----------------------------
   m1 <- tryCatch(
-    lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
+    lmerTest::lmer(m0, data = model_data, REML = TRUE),
     error = function(e) {
       fallback_formula <- as.formula(
         paste0(
@@ -1099,9 +1109,9 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
     m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
   }
   
-  # --------------------------------------
-  # Tidy output for removal of outliers
-  # --------------------------------------
+  # -----------------------------
+  # Tidy output
+  # -----------------------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
       analysis = "baseline_pfas_longitudinal_base",
@@ -1120,26 +1130,25 @@ run_baseline_pfas_lmm_base <- function(data, outcome, exposure) {
 }
 ```
 
-
 ```{r}
-longitudinal_results_list_base <- lapply(group_time_outcomes, function(outcome) {
+mod3a_list <- lapply(group_time_outcomes2, function(outcome) {
   lapply(pfas_group_vars, function(exposure) {
-    run_baseline_pfas_lmm_base(dat_long, outcome, exposure)
+    model_3a(dat_long, outcome, exposure)
   })
 })
-names(longitudinal_results_list_base) <- group_time_outcomes
+names(mod3a_list) <- group_time_outcomes2
 
-longitudinal_results_base <- dplyr::bind_rows(
-  lapply(longitudinal_results_list_base, function(x) {
+mod3a_results <- dplyr::bind_rows(
+  lapply(mod3a_list, function(x) {
     dplyr::bind_rows(lapply(x, `[[`, "tidy"))
   })
 )
 
-longitudinal_results_base
+mod3a_results
 ```
 
 ```{r}
-longitudinal_results_fdr_base <- longitudinal_results_base %>%
+mod3a_results_fdr <- mod3a_results %>%
   dplyr::mutate(
     term_type = dplyr::case_when(
       term == exposure ~ "main",
@@ -1165,7 +1174,7 @@ longitudinal_results_fdr_base <- longitudinal_results_base %>%
 ##Heatmap of longitudinal outcomes
 ##-----------------------------------
 ```{r}
-heatmap_longitudinal_df_base <- longitudinal_results_fdr_base %>%
+hm_mod3a <- mod3a_results_fdr %>%
   dplyr::group_by(outcome, exposure) %>%
   dplyr::summarise(
     beta_main = estimate[term == exposure][1],
@@ -1223,19 +1232,17 @@ heatmap_longitudinal_df_base <- longitudinal_results_fdr_base %>%
     ),
     outcome = factor(
       outcome,
-      levels = group_time_outcomes,
-      labels = sapply(group_time_outcomes, get_outcome_label)
+      levels = group_time_outcomes2,
+      labels = sapply(group_time_outcomes2, get_outcome_label)
     )
   )
 ```
 
 ```{r}
-#pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"))
-#pdf(file=file.path(dir.results, "tanner_longitudinal_outcomes_hm.pdf"))
-beta_limit_base <- max(abs(heatmap_longitudinal_df_base$beta), na.rm = TRUE)
+beta_mod3a <- max(abs(hm_mod3a$beta), na.rm = TRUE)
 
-p_longitudinal_heatmap_base<- ggplot(
-  heatmap_longitudinal_df_base,
+plot_model_3a<- ggplot(
+  hm_mod3a,
   aes(x = exposure, y = outcome, fill = beta)
 ) +
   geom_tile(color = "white", linewidth = 0.4) +
@@ -1245,14 +1252,14 @@ p_longitudinal_heatmap_base<- ggplot(
     mid = "white",
     high = "#B2182B",
     midpoint = 0,
-    limits = c(-beta_limit_base, beta_limit_base),
+    limits = c(-beta_mod3a, beta_mod3a),
     name = "Beta"
   ) +
   facet_wrap(~ visit, nrow = 1) +
   labs(
     title = "Baseline PFAS associations with longitudinal outcomes",
     subtitle = paste0(
-      "Unadjusted mixed models.\n",
+      "Base model (Age+Sex)\n",
       "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
     ),
     x = "Baseline PFAS",
@@ -1264,20 +1271,17 @@ p_longitudinal_heatmap_base<- ggplot(
     panel.grid = element_blank()
   )
 
-p_longitudinal_heatmap_base
+plot_model_3a
 ```
-
-
 ```{r}
-#Model 3B:  adjusting for baseline uacr
-run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
+model_3b <- function(data, outcome, exposure) {
   
   # -----------------------------
   # Build covariate list
   # -----------------------------
-  covars <- c("age", "sex")
+  covars <- c("age", "sex", "group")
   
-  if (adjust_acr && !outcome %in% c("acr_u", "log_acr_u")) {
+  if (!outcome %in% c("acr_u", "log_acr_u")) {
     covars <- c(covars, "log_acr_u_bl")
   }
   
@@ -1311,332 +1315,21 @@ run_baseline_pfas_lmm <- function(data, outcome, exposure, adjust_acr = TRUE) {
   n_obs  <- nrow(model_data)
   
   # -----------------------------
-  # Formula: numeric visit + exposure:visit_num
-  # random slope first, fallback to RI only
+  # Formula
   # -----------------------------
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
-  formula_str <- paste0(
+  m0 <- as.formula(paste0(
     outcome, " ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
-  )
-  
-  formula_obj <- as.formula(formula_str)
-  
-  m1 <- tryCatch(
-    lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
-    error = function(e) {
-      fallback_formula <- as.formula(
-        paste0(
-          outcome, " ~ ",
-          paste(rhs, collapse = " + "),
-          " + (1 | record_id)"
-        )
-      )
-      lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
-    }
-  )
-  
-  # Optional: fallback if singular even when fit succeeds
-  if (lme4::isSingular(m1, tol = 1e-4)) {
-    fallback_formula <- as.formula(
-      paste0(
-        outcome, " ~ ",
-        paste(rhs, collapse = " + "),
-        " + (1 | record_id)"
-      )
-    )
-    m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
-  }
+  ))
   
   # -----------------------------
-  # Tidy + extract key terms
-  # -----------------------------
-  tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
-    dplyr::mutate(
-      analysis = "baseline_pfas_longitudinal",
-      outcome = outcome,
-      exposure = exposure,
-      n_subj = n_subj,
-      n_obs = n_obs,
-      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
-      model_formula = paste(deparse(formula(m1)), collapse = " ")
-    )
-  
-  list(
-    model = m1,
-    tidy = tidy_tbl
-  )
-}
-
-
-```
-
-```{r}
-longitudinal_results_list <- lapply(group_time_outcomes, function(outcome) {
-  lapply(pfas_group_vars, function(exposure) {
-    run_baseline_pfas_lmm(dat_long, outcome, exposure)
-  })
-})
-names(longitudinal_results_list) <- group_time_outcomes
-
-longitudinal_results <- bind_rows(
-  lapply(longitudinal_results_list, function(x) bind_rows(lapply(x, `[[`, "tidy")))
-)
-
-longitudinal_results_fdr <- longitudinal_results %>%
-  mutate(
-    term_type = case_when(
-      term == exposure ~ "main",
-      term == paste0(exposure, ":visit_num") ~ "interaction",
-      term == paste0("visit_num:", exposure) ~ "interaction",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  group_by(term_type) %>%
-  mutate(
-    p_fdr = ifelse(!is.na(term_type), p.adjust(p.value, method = "fdr"), NA_real_),
-    sig_fdr = case_when(
-      !is.na(p_fdr) & p_fdr < 0.001 ~ "***",
-      !is.na(p_fdr) & p_fdr < 0.01  ~ "**",
-      !is.na(p_fdr) & p_fdr < 0.05  ~ "*",
-      TRUE ~ ""
-    )
-  ) %>%
-  ungroup()
-```
-##-----------------------------------
-##Heatmap of longitudinal outcomes
-##-----------------------------------
-```{r}
-heatmap_longitudinal_df <- longitudinal_results_fdr %>%
-  group_by(outcome, exposure) %>%
-  summarise(
-    beta_main = estimate[term == exposure][1],
-    pval_main = p.value[term == exposure][1],
-    pval_main_fdr = p_fdr[term == exposure][1],
-    
-    beta_int = estimate[
-      term == paste0(exposure, ":visit_num") |
-      term == paste0("visit_num:", exposure)
-    ][1],
-    pval_int = p.value[
-      term == paste0(exposure, ":visit_num") |
-      term == paste0("visit_num:", exposure)
-    ][1],
-    pval_int_fdr = p_fdr[
-      term == paste0(exposure, ":visit_num") |
-      term == paste0("visit_num:", exposure)
-    ][1],
-    .groups = "drop"
-  ) %>%
-  mutate(
-    beta_visit0 = beta_main,
-    beta_visit1 = beta_main + beta_int,
-    beta_visit2 = beta_main + 2 * beta_int
-  ) %>%
-  select(
-    outcome, exposure,
-    beta_visit0, beta_visit1, beta_visit2,
-    pval_main, pval_main_fdr,
-    pval_int, pval_int_fdr
-  ) %>%
-  pivot_longer(
-    cols = c(beta_visit0, beta_visit1, beta_visit2),
-    names_to = "visit",
-    values_to = "beta"
-  ) %>%
-  mutate(
-    visit_num = case_when(
-      visit == "beta_visit0" ~ 0,
-      visit == "beta_visit1" ~ 1,
-      visit == "beta_visit2" ~ 2
-    ),
-    visit = factor(
-      visit,
-      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
-      labels = c("Baseline", "Year 1", "Year 2")
-    ),
-    sig = case_when(
-      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
-      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
-      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
-      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
-      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
-      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
-      TRUE ~ ""
-    ),
-    exposure = factor(
-      exposure,
-      levels = pfas_group_vars,
-      labels = sapply(pfas_group_vars, get_pfas_label)
-    ),
-    outcome = factor(
-      outcome,
-      levels = group_time_outcomes,
-      labels = sapply(group_time_outcomes, get_outcome_label)
-    )
-  )
-```
-
-
-```{r}
-beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
-
-p_longitudinal_heatmap_raw <- ggplot(
-  heatmap_longitudinal_df,
-  aes(x = exposure, y = outcome, fill = beta)
-) +
-  geom_tile(color = "white", linewidth = 0.4) +
-  geom_text(aes(label = sig), size = 3.5, color = "black") +
-  scale_fill_gradient2(
-    low = "#2166AC",
-    mid = "white",
-    high = "#B2182B",
-    midpoint = 0,
-    limits = c(-beta_limit, beta_limit),
-    name = "Beta"
-  ) +
-  facet_wrap(~ visit, nrow = 1) +
-  labs(
-    title = "Baseline PFAS associations with longitudinal outcomes",
-    subtitle = paste0(
-      "Tile color shows implied PFAS beta at each visit under the linear time interaction model.\n",
-      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
-    ),
-    x = "Baseline PFAS",
-    y = NULL
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
-
-p_longitudinal_heatmap_raw
-```
-```{r}
-heatmap_nominal_df <- heatmap_longitudinal_df %>%
-  mutate(
-    sig_nominal = case_when(
-      visit == "Baseline" & !is.na(pval_main) & pval_main < 0.05 ~ TRUE,
-      visit %in% c("Year 1", "Year 2") & !is.na(pval_int) & pval_int < 0.05 ~ TRUE,
-      TRUE ~ FALSE
-    )
-  )
-```
-
-```{r fig.width=16}
-pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"), width = 16, height = 12)
-
-beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
-
-p_longitudinal_heatmap_raw <- ggplot(
-  heatmap_longitudinal_df,
-  aes(x = exposure, y = outcome, fill = beta)
-)  +
-  geom_tile(color = "white", linewidth = 0.4) +
-
-  # nominal p-values (yellow dots)
-  geom_point(
-    data = heatmap_nominal_df%>% filter(sig_nominal),
-    aes(x = exposure, y = outcome),
-    shape = 21,
-    size = 1.5,
-    stroke = 0.8,
-    fill = "gold"
-  ) +
-  
-  #fdr pvalues
-  geom_text(aes(label = sig), size = 9, color = "black") +
-  scale_fill_gradient2(
-    low = "#2166AC",
-    mid = "white",
-    high = "#B2182B",
-    midpoint = 0,
-    limits = c(-beta_limit, beta_limit),
-    name = "Beta"
-  ) +
-  facet_wrap(~ visit, nrow = 1) +
-  labs(
-    title = "Baseline PFAS associations with longitudinal outcomes",
-    subtitle = paste0(
-      "Tile color shows standardized implied PFAS effect (red = positive, blue = negative).\n",
-      "Black stars = FDR significance; gold dots = nominal p < 0.05.\n",
-      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
-    ),
-    x = "Baseline PFAS",
-    y = NULL
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
-
-p_longitudinal_heatmap_raw
-
-
-```
-#-------------------------------------------------------------------------------
-# Model 3c: baseline PFAS predicting longitudinal outcomes, Tanner-adjusted
-#-------------------------------------------------------------------------------
-```{r}
-run_baseline_pfas_lmm_tanner <- function(data, outcome, exposure) {
-  
-  # -----------------------------
-  # 1. Build covariate list
-  # -----------------------------
-  covars <- c("age", "sex", "tan_stage")
-  
-  # -----------------------------
-  # 2. Keep needed columns only
-  # -----------------------------
-  needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
-  
-  model_data <- data %>%
-    dplyr::select(dplyr::all_of(needed_vars)) %>%
-    tidyr::drop_na()
-  
-  # -----------------------------
-  # 3. Outlier removal per outcome
-  # -----------------------------
-  m_out <- mean(model_data[[outcome]], na.rm = TRUE)
-  s_out <- sd(model_data[[outcome]], na.rm = TRUE)
-  
-  removed_ids <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
-    dplyr::pull(record_id) %>%
-    unique()
-  
-  model_data <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
-  
-  # -----------------------------
-  # 4. Sample size info
-  # -----------------------------
-  n_subj <- dplyr::n_distinct(model_data$record_id)
-  n_obs  <- nrow(model_data)
-  
-  # -----------------------------
-  # 5. Formula
-  # -----------------------------
-  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
-  
-  formula_str <- paste0(
-    outcome, " ~ ",
-    paste(rhs, collapse = " + "),
-    " + (1 + visit_num | record_id)"
-  )
-  
-  formula_obj <- as.formula(formula_str)
-  
-  # -----------------------------
-  # 6. Fit model with fallback
+  # Fit model with fallback
   # -----------------------------
   m1 <- tryCatch(
-    lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
+    lmerTest::lmer(m0, data = model_data, REML = TRUE),
     error = function(e) {
       fallback_formula <- as.formula(
         paste0(
@@ -1661,11 +1354,11 @@ run_baseline_pfas_lmm_tanner <- function(data, outcome, exposure) {
   }
   
   # -----------------------------
-  # 7. Tidy output
+  # Tidy output
   # -----------------------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
-      analysis = "baseline_pfas_longitudinal_tanner",
+      analysis = "baseline_pfas_longitudinal_acr",
       outcome = outcome,
       exposure = exposure,
       n_subj = n_subj,
@@ -1682,25 +1375,24 @@ run_baseline_pfas_lmm_tanner <- function(data, outcome, exposure) {
 ```
 
 ```{r}
-longitudinal_results_list_tanner <- lapply(group_time_outcomes, function(outcome) {
+mod3b_list <- lapply(group_time_outcomes2, function(outcome) {
   lapply(pfas_group_vars, function(exposure) {
-    run_baseline_pfas_lmm_tanner(dat_long, outcome, exposure)
+    model_3b(dat_long, outcome, exposure)
   })
 })
-names(longitudinal_results_list_tanner) <- group_time_outcomes
+names(mod3b_list) <- group_time_outcomes2
 
-longitudinal_results_tanner <- dplyr::bind_rows(
-  lapply(longitudinal_results_list_tanner, function(x) {
+mod_3b_results <- dplyr::bind_rows(
+  lapply(mod3b_list, function(x) {
     dplyr::bind_rows(lapply(x, `[[`, "tidy"))
   })
 )
 
-longitudinal_results_tanner
+mod_3b_results
 ```
 
-
 ```{r}
-longitudinal_results_fdr_tanner <- longitudinal_results_tanner %>%
+mod3b_results_fdr <- mod_3b_results %>%
   dplyr::mutate(
     term_type = dplyr::case_when(
       term == exposure ~ "main",
@@ -1722,12 +1414,8 @@ longitudinal_results_fdr_tanner <- longitudinal_results_tanner %>%
   dplyr::ungroup()
 ```
 
-
 ```{r}
-#-----------------------------------
-# Heatmap of Tanner-adjusted longitudinal outcomes
-#-----------------------------------
-heatmap_longitudinal_df_tanner <- longitudinal_results_fdr_tanner %>%
+hm_mod3b <- mod3b_results_fdr %>%
   dplyr::group_by(outcome, exposure) %>%
   dplyr::summarise(
     beta_main = estimate[term == exposure][1],
@@ -1785,17 +1473,17 @@ heatmap_longitudinal_df_tanner <- longitudinal_results_fdr_tanner %>%
     ),
     outcome = factor(
       outcome,
-      levels = group_time_outcomes,
-      labels = sapply(group_time_outcomes, get_outcome_label)
+      levels = group_time_outcomes2,
+      labels = sapply(group_time_outcomes2, get_outcome_label)
     )
   )
 ```
 
 ```{r}
-beta_limit_tanner <- max(abs(heatmap_longitudinal_df_tanner$beta), na.rm = TRUE)
+beta_mod3b <- max(abs(hm_mod3b$beta), na.rm = TRUE)
 
-p_longitudinal_heatmap_tanner <- ggplot(
-  heatmap_longitudinal_df_tanner,
+plot_mod3b <- ggplot(
+  hm_mod3b,
   aes(x = exposure, y = outcome, fill = beta)
 ) +
   geom_tile(color = "white", linewidth = 0.4) +
@@ -1805,14 +1493,14 @@ p_longitudinal_heatmap_tanner <- ggplot(
     mid = "white",
     high = "#B2182B",
     midpoint = 0,
-    limits = c(-beta_limit_tanner, beta_limit_tanner),
+    limits = c(-beta_mod3b, beta_mod3b),
     name = "Beta"
   ) +
   facet_wrap(~ visit, nrow = 1) +
   labs(
     title = "Baseline PFAS associations with longitudinal outcomes",
     subtitle = paste0(
-      "Tanner-adjusted mixed models.\n",
+      "Baseline uACR-adjusted mixed models.\n",
       "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
     ),
     x = "Baseline PFAS",
@@ -1824,27 +1512,18 @@ p_longitudinal_heatmap_tanner <- ggplot(
     panel.grid = element_blank()
   )
 
-p_longitudinal_heatmap_tanner
+plot_mod3b
 ```
 ```{r}
-#-------------------------------------------------------------------------------
-# Model 3D: baseline PFAS predicting longitudinal outcomes,
-#           adjusted for age, sex, group, baseline uACR, and Tanner stage
-#-------------------------------------------------------------------------------
-run_baseline_pfas_lmm_acr_tanner <- function(data, outcome, exposure) {
+model_3c <- function(data, outcome, exposure) {
   
   # -----------------------------
-  # 1. Build covariate list
+  # Build covariate list
   # -----------------------------
   covars <- c("age", "sex", "group", "tan_stage")
   
-  # Add baseline uACR except when it's the outcome
-  if (!outcome %in% c("acr_u", "log_acr_u")) {
-    covars <- c(covars, "log_acr_u_bl")
-  }
-  
   # -----------------------------
-  # 2. Keep needed columns only
+  # Keep needed columns only
   # -----------------------------
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
@@ -1853,7 +1532,7 @@ run_baseline_pfas_lmm_acr_tanner <- function(data, outcome, exposure) {
     tidyr::drop_na()
   
   # -----------------------------
-  # 3. Outlier removal per outcome
+  # Outlier removal per outcome
   # -----------------------------
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
@@ -1867,29 +1546,28 @@ run_baseline_pfas_lmm_acr_tanner <- function(data, outcome, exposure) {
     dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
   
   # -----------------------------
-  # 4. Sample size info
+  # Sample size info
   # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
   # -----------------------------
-  # 5. Formula
+  # Formula
   # -----------------------------
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
-  formula_str <- paste0(
+  m0 <- as.formula(paste0(
     outcome, " ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
-  )
+  ))
   
-  formula_obj <- as.formula(formula_str)
   
   # -----------------------------
-  # 6. Fit model with fallback
+  # Fit model with fallback
   # -----------------------------
   m1 <- tryCatch(
-    lmerTest::lmer(formula_obj, data = model_data, REML = TRUE),
+    lmerTest::lmer(m0, data = model_data, REML = TRUE),
     error = function(e) {
       fallback_formula <- as.formula(
         paste0(
@@ -1914,7 +1592,260 @@ run_baseline_pfas_lmm_acr_tanner <- function(data, outcome, exposure) {
   }
   
   # -----------------------------
-  # 7. Tidy output
+  # Tidy output
+  # -----------------------------
+  tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
+    dplyr::mutate(
+      analysis = "baseline_pfas_longitudinal_tanner",
+      outcome = outcome,
+      exposure = exposure,
+      n_subj = n_subj,
+      n_obs = n_obs,
+      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      model_formula = paste(deparse(formula(m1)), collapse = " ")
+    )
+  
+  list(
+    model = m1,
+    tidy = tidy_tbl
+  )
+}
+```
+
+```{r}
+mod3c_list<- lapply(group_time_outcomes2, function(outcome) {
+  lapply(pfas_group_vars, function(exposure) {
+    model_3c(dat_long, outcome, exposure)
+  })
+})
+names(mod3c_list) <- group_time_outcomes2
+
+mod3c_results <- dplyr::bind_rows(
+  lapply(mod3c_list, function(x) {
+    dplyr::bind_rows(lapply(x, `[[`, "tidy"))
+  })
+)
+
+mod3c_results
+```
+
+
+```{r}
+mod3c_results_fdr <- mod3c_results %>%
+  dplyr::mutate(
+    term_type = dplyr::case_when(
+      term == exposure ~ "main",
+      term == paste0(exposure, ":visit_num") ~ "interaction",
+      term == paste0("visit_num:", exposure) ~ "interaction",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  dplyr::group_by(term_type) %>%
+  dplyr::mutate(
+    p_fdr = ifelse(!is.na(term_type), p.adjust(p.value, method = "fdr"), NA_real_),
+    sig_fdr = dplyr::case_when(
+      !is.na(p_fdr) & p_fdr < 0.001 ~ "***",
+      !is.na(p_fdr) & p_fdr < 0.01  ~ "**",
+      !is.na(p_fdr) & p_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    )
+  ) %>%
+  dplyr::ungroup()
+```
+
+
+```{r}
+#-----------------------------------
+# Heatmap of Tanner-adjusted longitudinal outcomes
+#-----------------------------------
+hm_mod3c <- mod3c_results_fdr %>%
+  dplyr::group_by(outcome, exposure) %>%
+  dplyr::summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+      term == paste0("visit_num:", exposure)
+    ][1],
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  dplyr::select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  dplyr::mutate(
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = dplyr::case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes2,
+      labels = sapply(group_time_outcomes2, get_outcome_label)
+    )
+  )
+```
+
+```{r}
+beta_mod3c <- max(abs(hm_mod3c$beta), na.rm = TRUE)
+
+plot_mod3c <- ggplot(
+  hm_mod3c,
+  aes(x = exposure, y = outcome, fill = beta)
+) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sig), size = 3.5, color = "black") +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-beta_mod3c, beta_mod3c),
+    name = "Beta"
+  ) +
+  facet_wrap(~ visit, nrow = 1) +
+  labs(
+    title = "Baseline PFAS associations with longitudinal outcomes",
+    subtitle = paste0(
+      "Tanner-adjusted mixed models.\n",
+      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
+    ),
+    x = "Baseline PFAS",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+plot_mod3c
+```
+
+```{r}
+#------------------------------------------------------------------
+# baseline PFAS predicting longitudinal outcomes,
+# adjusted for age, sex, group, baseline uACR, and Tanner stage
+#------------------------------------------------------------------
+model_3d <- function(data, outcome, exposure) {
+  
+  # -----------------------------
+  # Build covariate list
+  # -----------------------------
+  covars <- c("age", "sex", "group", "tan_stage")
+  
+  # Add baseline uACR except when it's the outcome
+  if (!outcome %in% c("acr_u", "log_acr_u")) {
+    covars <- c(covars, "log_acr_u_bl")
+  }
+  
+  # -----------------------------
+  # Keep needed columns only
+  # -----------------------------
+  needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
+  
+  model_data <- data %>%
+    dplyr::select(dplyr::all_of(needed_vars)) %>%
+    tidyr::drop_na()
+  
+  # -----------------------------
+  # Outlier removal per outcome
+  # -----------------------------
+  m_out <- mean(model_data[[outcome]], na.rm = TRUE)
+  s_out <- sd(model_data[[outcome]], na.rm = TRUE)
+  
+  removed_ids <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) > 3 * s_out) %>%
+    dplyr::pull(record_id) %>%
+    unique()
+  
+  model_data <- model_data %>%
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+  
+  # -----------------------------
+  # Sample size info
+  # -----------------------------
+  n_subj <- dplyr::n_distinct(model_data$record_id)
+  n_obs  <- nrow(model_data)
+  
+  # -----------------------------
+  # Formula
+  # -----------------------------
+  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
+  
+  m0 <- as.formula(paste0(
+    outcome, " ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 + visit_num | record_id)"
+  ))
+  
+  
+  # -----------------------------
+  # Fit model with fallback
+  # -----------------------------
+  m1 <- tryCatch(
+    lmerTest::lmer(m0, data = model_data, REML = TRUE),
+    error = function(e) {
+      fallback_formula <- as.formula(
+        paste0(
+          outcome, " ~ ",
+          paste(rhs, collapse = " + "),
+          " + (1 | record_id)"
+        )
+      )
+      lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
+    }
+  )
+  
+  if (lme4::isSingular(m1, tol = 1e-4)) {
+    fallback_formula <- as.formula(
+      paste0(
+        outcome, " ~ ",
+        paste(rhs, collapse = " + "),
+        " + (1 | record_id)"
+      )
+    )
+    m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
+  }
+  
+  # -----------------------------
+  # Tidy output
   # -----------------------------
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
@@ -1935,24 +1866,24 @@ run_baseline_pfas_lmm_acr_tanner <- function(data, outcome, exposure) {
 ```
 
 ```{r}
-longitudinal_results_list_acr_tanner <- lapply(group_time_outcomes, function(outcome) {
+mod3d_list<- lapply(group_time_outcomes2, function(outcome) {
   lapply(pfas_group_vars, function(exposure) {
-    run_baseline_pfas_lmm_acr_tanner(dat_long, outcome, exposure)
+    model_3d(dat_long, outcome, exposure)
   })
 })
-names(longitudinal_results_list_acr_tanner) <- group_time_outcomes
+names(mod3d_list) <- group_time_outcomes2
 
-longitudinal_results_acr_tanner <- dplyr::bind_rows(
-  lapply(longitudinal_results_list_acr_tanner, function(x) {
+mod3d_results<- dplyr::bind_rows(
+  lapply(mod3d_list, function(x) {
     dplyr::bind_rows(lapply(x, `[[`, "tidy"))
   })
 )
 
-longitudinal_results_acr_tanner
+mod3d_results
 ```
 
 ```{r}
-longitudinal_results_fdr_acr_tanner <- longitudinal_results_acr_tanner %>%
+mod3d_results_fdr<- mod3d_results %>%
   dplyr::mutate(
     term_type = dplyr::case_when(
       term == exposure ~ "main",
@@ -1975,11 +1906,7 @@ longitudinal_results_fdr_acr_tanner <- longitudinal_results_acr_tanner %>%
 ```
 
 ```{r}
-#-----------------------------------
-# Heatmap: uACR + Tanner-adjusted longitudinal PFAS models
-#-----------------------------------
-
-heatmap_longitudinal_df_acr_tanner <- longitudinal_results_fdr_acr_tanner %>%
+hm_mod3d <- mod3d_results_fdr %>%
   dplyr::group_by(outcome, exposure) %>%
   dplyr::summarise(
     
@@ -2057,17 +1984,18 @@ heatmap_longitudinal_df_acr_tanner <- longitudinal_results_fdr_acr_tanner %>%
     
     outcome = factor(
       outcome,
-      levels = group_time_outcomes,
-      labels = sapply(group_time_outcomes, get_outcome_label)
+      levels = group_time_outcomes2,
+      labels = sapply(group_time_outcomes2, get_outcome_label)
     )
   )
 ```
 
 ```{r}
-beta_limit_acr_tanner <- max(abs(heatmap_longitudinal_df_acr_tanner$beta), na.rm = TRUE)
 
-p_longitudinal_heatmap_acr_tanner <- ggplot(
-  heatmap_longitudinal_df_acr_tanner,
+beta_mod3d <- max(abs(hm_mod3d$beta), na.rm = TRUE)
+
+plot_mod3d <- ggplot(
+  hm_mod3d,
   aes(x = exposure, y = outcome, fill = beta)
 ) +
   geom_tile(color = "white", linewidth = 0.4) +
@@ -2078,7 +2006,7 @@ p_longitudinal_heatmap_acr_tanner <- ggplot(
     mid = "white",
     high = "#B2182B",
     midpoint = 0,
-    limits = c(-beta_limit_acr_tanner, beta_limit_acr_tanner),
+    limits = c(-beta_mod3d, beta_mod3d),
     name = "Beta"
   ) +
   
@@ -2100,12 +2028,12 @@ p_longitudinal_heatmap_acr_tanner <- ggplot(
     panel.grid = element_blank()
   )
 
-p_longitudinal_heatmap_acr_tanner
+plot_mod3d
 ```
 
 
 ```{r}
-heatmap_nominal_acr_tanner_df <- heatmap_longitudinal_df_acr_tanner  %>%
+heatmap_nominal_df <- heatmap_longitudinal_df %>%
   mutate(
     sig_nominal = case_when(
       visit == "Baseline" & !is.na(pval_main) & pval_main < 0.05 ~ TRUE,
@@ -2116,11 +2044,12 @@ heatmap_nominal_acr_tanner_df <- heatmap_longitudinal_df_acr_tanner  %>%
 ```
 
 ```{r fig.width=16}
+pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"), width = 16, height = 12)
 
-beta_limit <- max(abs(heatmap_nominal_acr_tanner_df$beta), na.rm = TRUE)
+beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
 
-p_longitudinal_heatmap_acr_tanner_raw <- ggplot(
-  heatmap_nominal_acr_tanner_df,
+p_longitudinal_heatmap_raw <- ggplot(
+  heatmap_longitudinal_df,
   aes(x = exposure, y = outcome, fill = beta)
 )  +
   geom_tile(color = "white", linewidth = 0.4) +
@@ -2162,7 +2091,7 @@ p_longitudinal_heatmap_acr_tanner_raw <- ggplot(
     panel.grid = element_blank()
   )
 
-p_longitudinal_heatmap_acr_tanner_raw 
+p_longitudinal_heatmap_raw
 
 
 ```
