@@ -1,5 +1,8 @@
-library(jsonlite)
 library(dplyr)
+library(tidyr)
+library(aws.s3)
+library(jsonlite)
+
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
@@ -21,35 +24,16 @@ if (user == "choiyej") { # local version
   stop("Unknown user: please specify root path for this user.")
 }
 
-harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
-uuid_map <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/mrn_uuid_map.csv"))
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 
-bx_dat <- harm_dat %>%
+croc_rh2 <- harm_dat %>% 
+  filter(study %in% c("CROCODILE", "RENAL-HEIRitage")) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id)) %>%
-  filter(!is.na(kit_id)) %>%
-  dplyr::select(mrn, kit_id)
+                   .by = c(record_id, visit))
+  
+croc_rh2_filtered <- croc_rh2 %>%
+  filter(if_any(c(avg_c_k1, avg_c_k2, avg_c_f, avg_m_k1, avg_m_k2, avg_m_f), ~!is.na(.))) %>%
+  select(record_id, group)
 
-cardiac_mri <- harm_dat %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id)) %>%
-  filter(!is.na(ultra_id) | !is.na(swht_id)) %>%
-  dplyr::select(-rvr) %>%
-  filter(
-    if_any(
-      matches("^(lv|rv)"),
-      ~ !is.na(.x)
-    )
-  ) %>%
-  dplyr::select(mrn, record_id, swht_id, ultra_id, rh_id, rh2_id, improve_id,
-                starts_with("lv"), starts_with("rv")) 
-
-cardiac_bx <- left_join(cardiac_mri, bx_dat, by = "mrn") %>%
-  filter(!is.na(kit_id)) %>%
-  distinct(kit_id, .keep_all = T) %>%
-  left_join(uuid_map) %>%
-  dplyr::select(-mrn)
-
-write.csv(cardiac_bx, file.path(root_path, "ULTRA_SWEETHEART/Data Clean/cardiac_mri_bx_overlap.csv"), row.names = F, na = "")
+write.csv(croc_rh2_filtered, file.path(root_path, "Data Harmonization/Data Exports/croc_rh2_pet_available.csv"), row.names = F, na = "")
