@@ -497,16 +497,16 @@ dev.off()
 run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
   
   rhs <- c("group", covars)
-  form <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
+  m0<- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
   
   model_data <- data %>%
-    dplyr::select(all.vars(form)) %>%
+    dplyr::select(all.vars(m0)) %>%
     tidyr::drop_na()
   
-  fit <- lm(form, data = model_data)
+  m1 <- lm(m0, data = model_data)
   
   # omnibus test for group
-  group_rows <- broom::tidy(stats::anova(fit)) %>%
+  group_rows <- broom::tidy(stats::anova(m1)) %>%
     dplyr::filter(term == "group") %>%
     dplyr::mutate(
       outcome = outcome,
@@ -514,7 +514,7 @@ run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
     )
   
   # pairwise Tukey-adjusted comparisons
-  emm <- emmeans::emmeans(fit, ~ group)
+  emm <- emmeans::emmeans(m1, ~ group)
   pairwise_tbl <- summary(
     pairs(emm, adjust = "tukey"),
     infer = TRUE
@@ -526,7 +526,7 @@ run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
     )
   
   list(
-    model = fit,
+    model = m1,
     omnibus = group_rows,
     emmeans = as.data.frame(summary(emm)),
     pairwise = pairwise_tbl
