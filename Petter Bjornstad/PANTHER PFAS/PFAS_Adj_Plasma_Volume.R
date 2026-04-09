@@ -1973,66 +1973,7 @@ plot_mod3d <- ggplot(
 plot_mod3d
 
 
-## --------------------------------------------------------------------------------------------------------------------------------------------------------------
-heatmap_nominal_df <- heatmap_longitudinal_df %>%
-  mutate(
-    sig_nominal = case_when(
-      visit == "Baseline" & !is.na(pval_main) & pval_main < 0.05 ~ TRUE,
-      visit %in% c("Year 1", "Year 2") & !is.na(pval_int) & pval_int < 0.05 ~ TRUE,
-      TRUE ~ FALSE
-    )
-  )
 
-
-## ----fig.width=16----------------------------------------------------------------------------------------------------------------------------------------------
-pdf(file = file.path(dir.results, "longitudinal_outcomes_hm.pdf"), width = 16, height = 12)
-
-beta_limit <- max(abs(heatmap_longitudinal_df$beta), na.rm = TRUE)
-
-p_longitudinal_heatmap_raw <- ggplot(
-  heatmap_longitudinal_df,
-  aes(x = exposure, y = outcome, fill = beta)
-)  +
-  geom_tile(color = "white", linewidth = 0.4) +
-
-  # nominal p-values (yellow dots)
-  geom_point(
-    data = heatmap_nominal_df%>% filter(sig_nominal),
-    aes(x = exposure, y = outcome),
-    shape = 21,
-    size = 1.5,
-    stroke = 0.8,
-    fill = "gold"
-  ) +
-  
-  #fdr pvalues
-  geom_text(aes(label = sig), size = 9, color = "black") +
-  scale_fill_gradient2(
-    low = "#2166AC",
-    mid = "white",
-    high = "#B2182B",
-    midpoint = 0,
-    limits = c(-beta_limit, beta_limit),
-    name = "Beta"
-  ) +
-  facet_wrap(~ visit, nrow = 1) +
-  labs(
-    title = "Baseline PFAS associations with longitudinal outcomes",
-    subtitle = paste0(
-      "Tile color shows standardized implied PFAS effect (red = positive, blue = negative).\n",
-      "Black stars = FDR significance; gold dots = nominal p < 0.05.\n",
-      "* FDR<0.05  ** FDR<0.01  *** FDR<0.001"
-    ),
-    x = "Baseline PFAS",
-    y = NULL
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
-
-p_longitudinal_heatmap_raw
 
 
 
