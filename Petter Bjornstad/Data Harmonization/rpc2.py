@@ -75,10 +75,9 @@ def clean_rpc2_redcap():
     demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
     demo.drop(["diabetes_hx_type", "redcap_event_name", "redcap_repeat_instance", "redcap_repeat_instrument"], axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'].isin(demo.columns), 'form_name'] = 'demographics'
-    demo["procedure"] = "demographics"
 
     # --------------------------------------------------------------------------
-    # Medications
+    # Medications at screening
     # --------------------------------------------------------------------------
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
                                                == "medical_history", "field_name"]]    
@@ -119,23 +118,25 @@ def clean_rpc2_redcap():
     dictionary.loc[dictionary['variable_name'].isin(med.columns), 'form_name'] = 'medications'
 
     med["procedure"] = "medications"
-    # --------------------------------------------------------------------------
-    # Med Dispense
-    # --------------------------------------------------------------------------
-    var = ["subject_id","study_med_disp_date"]
-    disp = pd.DataFrame(proj.export_records(fields=var))
-    disp.replace(rep, np.nan, inplace=True)
-    disp["procedure"] = "med_dispense"
+    med["visit"] = "screening"
     
-    disp["redcap_event_name"] = disp["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
-         "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
-         "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
-         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
-    disp.rename({"study_med_disp_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
-    dictionary.loc[dictionary['variable_name'].isin(disp.columns), 'form_name'] = 'med_dispense'
-
-    disp["procedure"] = "med_dispense"
+    # # --------------------------------------------------------------------------
+    # # Med Dispense
+    # # --------------------------------------------------------------------------
+    # var = ["subject_id","study_med_disp_date"]
+    # disp = pd.DataFrame(proj.export_records(fields=var))
+    # disp.replace(rep, np.nan, inplace=True)
+    # disp["procedure"] = "med_dispense"
+    # 
+    # disp["redcap_event_name"] = disp["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
+    #      "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
+    #      "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
+    #      "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
+    # disp.rename({"study_med_disp_date": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
+    # dictionary.loc[dictionary['variable_name'].isin(disp.columns), 'form_name'] = 'med_dispense'
+    # 
+    # disp["procedure"] = "med_dispense"
     # --------------------------------------------------------------------------
     # Physical exam/vitals
     # --------------------------------------------------------------------------
@@ -170,6 +171,7 @@ def clean_rpc2_redcap():
     dictionary.loc[dictionary['variable_name'].isin(phys.columns), 'form_name'] = 'physical_exam'
 
     phys["procedure"] = "physical_exam"
+    
     # --------------------------------------------------------------------------
     # Screening Lab results
     # --------------------------------------------------------------------------
@@ -190,6 +192,8 @@ def clean_rpc2_redcap():
     screen.drop(["time_of_screen_blood", "screen_egfr", "time_of_screen_urine", "screen_pregnant"], axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'].isin(screen.columns), 'form_name'] = 'screening_labs'
     screen["procedure"] = "screening_labs"
+    med["date"] = screen["date"]
+    
     # --------------------------------------------------------------------------
     # Lab results
     # --------------------------------------------------------------------------
@@ -285,6 +289,7 @@ def clean_rpc2_redcap():
     dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'bold_mri'
 
     mri["procedure"] = "bold_mri"
+    
     # --------------------------------------------------------------------------
     # Renal Clearance testing
     # --------------------------------------------------------------------------
@@ -359,14 +364,15 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
 
     demo.dropna(thresh=5, axis=0, inplace=True)
-    med.dropna(thresh=3, axis=0, inplace=True)
-    disp.dropna(thresh=4, axis=0, inplace=True)
+    med.dropna(thresh=4, axis=0, inplace=True)
+    # disp.dropna(thresh=4, axis=0, inplace=True)
     phys.dropna(thresh=5, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
     # kidney_outcomes.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=5, axis=0, inplace=True)
+    biopsy = biopsy[biopsy["success_note"] != "Not eligble for bx"]
     mri.dropna(thresh=5, axis=0, inplace=True)
-    rct.dropna(thresh=4, axis=0, inplace=True)
+    rct.dropna(thresh=6, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -376,11 +382,11 @@ def clean_rpc2_redcap():
     df = pd.concat([phys, labs], join='outer', ignore_index=True)
     # df = pd.concat([df, kidney_outcomes], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
-    df = pd.concat([df, disp], join='outer', ignore_index=True)
+    # df = pd.concat([df, disp], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = pd.concat([df, rct], join='outer', ignore_index=True)
+    df = pd.concat([df, med], join='outer', ignore_index=True)
     df = pd.merge(df, demo, on='subject_id', how="outer")
-    df = pd.merge(df, med, on='subject_id', how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
 

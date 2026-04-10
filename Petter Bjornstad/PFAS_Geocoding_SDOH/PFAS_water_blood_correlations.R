@@ -28,6 +28,11 @@ dat <- as.data.frame(dat)
 imputed_pfas <- as.data.frame(imputed_pfas)
 water_data <- as.data.frame(water_data)
 
+# Drop PFAS columns already in dat that will conflict with imputed_pfas
+pfas_to_drop <- intersect(names(dat), serum_pfas_cols)
+cat("Dropping from dat before merge:", paste(pfas_to_drop, collapse = ", "), "\n")
+dat <- dat %>% select(-all_of(pfas_to_drop))
+
 # Define column names explicitly
 serum_pfas_cols <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFOA", 
                      "PFBS", "PFHps", "PFHxS", "PFOS", "PFPeAS")
