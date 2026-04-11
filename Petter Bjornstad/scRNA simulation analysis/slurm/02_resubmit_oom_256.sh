@@ -11,7 +11,7 @@
 #SBATCH --ntasks=1
 
 # File containing array IDs to rerun (one per line)
-ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_256.txt"
+ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_040626_2.txt"
 
 ################################################################################
 # Self-submission: if not inside a SLURM array task, submit ourselves

@@ -33,7 +33,7 @@ echo "Working directory: $(pwd)"
 echo "Script: ${SCRIPT_DIR}/02_simulate_analyze.R"
 echo "Job started at: $(date)"
 
-PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 12100 ))
+PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 14100 ))
 echo "── Task ${PARAM_ID} / ${SLURM_ARRAY_TASK_MAX} ──"
 
 # Run inside container

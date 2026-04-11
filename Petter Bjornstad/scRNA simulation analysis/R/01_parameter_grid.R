@@ -31,8 +31,9 @@
 #                          NB GLM, which uses a log link (natural log scale).
 #
 #   indiv_var_label      : "no", "med", "high"
-#                          (sigma inflation factor: 1.0x, 1.5x, 2.5x)
-#                          KEY parameter for NEBULA vs pseudobulk comparison
+#                          SD of per-subject random intercept on log-mean scale:
+#                          0.0 (no subject effect), 0.4 (moderate), 0.8 (strong)
+#                          Calibrated from reference ICC = 0.425
 #
 #   cells_label          : "low" (~500 cells/subj), "high" (~6000 cells/subj)
 #
@@ -168,12 +169,17 @@ grid_null <- do.call(expand.grid, c(
 param_grid <- bind_rows(grid_de, grid_null)
 
 # ── Map labels to numeric values ──────────────────────────────────────────────
-iv_map <- c(no = 1.0, med = 1.5, high = 2.5)
+# indiv_var_factor is now the SD of per-subject random intercepts on the
+# log-mean scale. Calibrated from reference ICC analysis (median ICC = 0.425):
+#   0.0 = no subject effect
+#   0.4 = moderate (approximately reproduces reference ICC)
+#   0.8 = strong subject heterogeneity
+iv_map <- c(no = 0.0, med = 0.4, high = 0.8)
 
 # cells_mean / cells_sd: mean and SD of cells per subject
 # (realistic range from ATTEMPT; truncated to minimum 50 in simulation script)
 cl_mean_map <- c(low = 500L,  high = 6000L)
-cl_sd_map   <- c(low = 150L,  high = 1500L)
+cl_sd_map   <- c(low = 710L,  high = 8520L)   # CV ~ 1.42 for both tiers
 
 # interaction_lfc: merge from lfc_tiers
 param_grid <- param_grid %>%

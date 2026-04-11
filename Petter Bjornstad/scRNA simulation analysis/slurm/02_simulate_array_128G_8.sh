@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=scD3_sim_analyze
-#SBATCH --array=1-1000%200
+#SBATCH --array=1-1100%200
 #SBATCH --time=01:00:00
 #SBATCH --mem=128G             # simulate + run all 3 methods in memory
 #SBATCH --cpus-per-task=4
@@ -33,7 +33,7 @@ echo "Working directory: $(pwd)"
 echo "Script: ${SCRIPT_DIR}/02_simulate_analyze.R"
 echo "Job started at: $(date)"
 
-PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 12100 ))
+PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 15100 ))
 echo "── Task ${PARAM_ID} / ${SLURM_ARRAY_TASK_MAX} ──"
 
 # Run inside container

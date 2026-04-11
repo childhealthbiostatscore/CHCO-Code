@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=scD3_sim_analyze
-#SBATCH --array=4001-6000%40
+#SBATCH --array=1-1000%200
 #SBATCH --time=01:00:00
 #SBATCH --mem=128G             # simulate + run all 3 methods in memory
 #SBATCH --cpus-per-task=4
-#SBATCH --partition=cpu-g2          # Adjust to your partition
+#SBATCH --partition=ckpt          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
 #SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/output/02_sim_%j.out"
 #SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/error/02_sim_%j.err"
@@ -33,7 +33,7 @@ echo "Working directory: $(pwd)"
 echo "Script: ${SCRIPT_DIR}/02_simulate_analyze.R"
 echo "Job started at: $(date)"
 
-PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 8100 ))
+PARAM_ID=$(( SLURM_ARRAY_TASK_ID + 10100 ))
 echo "── Task ${PARAM_ID} / ${SLURM_ARRAY_TASK_MAX} ──"
 
 # Run inside container
