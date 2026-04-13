@@ -433,10 +433,34 @@ harm_dat_subset     <- collapse_and_derive(primary_rows, supplementary_matched)
 harm_dat_subset_500 <- collapse_and_derive(primary_rows, supplementary_matched_500)
 ```
 
+```{r echo = F, include = F}
+# # date diff between IMPROVE BL and SWHT
+# harm_dat_subset %>%
+#   filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up")) %>%
+#   summarise(
+#     n_visits  = n_distinct(imaging_visit_id),
+#     date_diff_yrs = as.numeric(max(as.Date(cmri_date)) - min(as.Date(cmri_date)), units = "days")/365,
+#     .by = mrn
+#   ) %>%
+#   filter(n_visits == 2)
+#     
+# # date diff between ULTRA BL and SWHT
+# harm_dat_subset %>%
+#   filter(imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up")) %>%
+#   summarise(
+#     n_visits  = n_distinct(imaging_visit_id),
+#     date_diff_yrs = as.numeric(max(as.Date(cmri_date)) - min(as.Date(cmri_date)), units = "days")/365,
+#     .by = mrn
+#   ) %>%
+#   filter(n_visits == 2) %>%
+#   pull(date_diff_yrs)
+
+```
+
 ```{r analysis-subsets, include=FALSE}
 # check for CMR from Dylan's list
-marcus_proteomics_id <- c("RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "CRC-04", "IT_11", "IT_12", 
-                          "RH-71-T", "RH-62-T", "RH-50-T", "IT_13", "RH-74-T", "RH-72-T")
+# marcus_proteomics_id <- c("RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "CRC-04", "IT_11", "IT_12", 
+#                           "RH-71-T", "RH-62-T", "RH-50-T", "IT_13", "RH-74-T", "RH-72-T")
 # harm_dat_subset %>%
 #   filter(croc_id %in% marcus_proteomics_id | rh_id %in% marcus_proteomics_id |
 #            improve_id %in% marcus_proteomics_id)
@@ -724,6 +748,8 @@ plot_boxgrid(
 ### BSA indexed sex comparison in obesity/T2D
 
 ```{r, echo=FALSE, fig.width=12, fig.height=12}
+write.csv(harm_dat_obt2d_baseline, file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_041326.csv"), row.names = F)
+
 # BSA-indexed sex comparison
 plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
@@ -1834,11 +1860,12 @@ format_lmer_table(results_improve,
 # ── Prepare IMPROVE longitudinal subset ───────────────────────────────────────
 harm_dat_improve_long <- harm_dat_subset %>%
   filter(study == "IMPROVE",
-         imaging_visit_id %in% c("improve_baseline", "improve_3mo", "improve_12mo")) %>%
+         imaging_visit_id %in% c("improve_baseline", "improve_3mo", "improve_12mo", "improve_swht_baseline")) %>%
   dplyr::mutate(
     visit = factor(
       case_when(
         imaging_visit_id == "improve_baseline" ~ "Baseline",
+        imaging_visit_id == "improve_swht_baseline" ~ "Baseline",
         imaging_visit_id == "improve_3mo"      ~ "3 months",
         imaging_visit_id == "improve_12mo"     ~ "12 months"
       ),
@@ -1846,6 +1873,7 @@ harm_dat_improve_long <- harm_dat_subset %>%
     ),
       ln_acr_u = log(acr_u)
   )
+write.csv(harm_dat_improve_long, file.path(root_path, "IMPROVE T2D/Data_Cleaned/improve_longitudinal_041326.csv"), row.names = F, na = "")
 ```
  
 ```{r improve-models, echo=FALSE, results='asis'}
