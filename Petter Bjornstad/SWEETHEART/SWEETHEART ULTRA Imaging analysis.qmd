@@ -434,6 +434,13 @@ harm_dat_subset_500 <- collapse_and_derive(primary_rows, supplementary_matched_5
 ```
 
 ```{r analysis-subsets, include=FALSE}
+# check for CMR from Dylan's list
+marcus_proteomics_id <- c("RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "CRC-04", "IT_11", "IT_12", 
+                          "RH-71-T", "RH-62-T", "RH-50-T", "IT_13", "RH-74-T", "RH-72-T")
+# harm_dat_subset %>%
+#   filter(croc_id %in% marcus_proteomics_id | rh_id %in% marcus_proteomics_id |
+#            improve_id %in% marcus_proteomics_id)
+
 # ── Analysis subsets ──────────────────────────────────────────────────────────
 harm_dat_baseline <- harm_dat_subset %>%
   filter(visit == "baseline")
@@ -649,7 +656,7 @@ plot_boxgrid <- function(df,
       stat_args$p.accuracy <- 10^(-p_digits)
     }
     p <- p + do.call(stat_compare_means, stat_args)
-
+    
     p + labs(y = ylab, x = NULL, fill = fill_label) +
       scale_fill_manual(values = fill_colors) +
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
@@ -657,7 +664,9 @@ plot_boxgrid <- function(df,
         panel.background = element_blank(),
         text = element_text(size = text_size),
         axis.text.x = if (show_legend) element_blank() else element_text(angle = 60, hjust = 1),
-        legend.position = "none"
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key = element_rect(fill = "transparent", colour = NA)
       )
   })
 
@@ -683,7 +692,11 @@ plot_boxgrid <- function(df,
 }
 ```
 
-```{r, echo=FALSE}
+--- 
+
+### Group comparison (3 groups)
+
+```{r, echo=FALSE, fig.width=16, fig.height=14}
 # Group comparison (3 groups)
 plot_boxgrid(
   df = harm_dat_baseline, group_var = "group",
@@ -694,7 +707,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### Sex comparison in obesity/T2D
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 # Sex comparison in obesity/T2D
 plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
@@ -706,7 +721,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### BSA indexed sex comparison in obesity/T2D
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 # BSA-indexed sex comparison
 plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
@@ -718,7 +735,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### DKD groupings (DKD defined as UACR >= 30 and/or eGFR < 90)
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 # DKD groupings (DKD = worse → red)
 dkd_colors <- c("DKD" = "#f08080", "non_DKD" = "#98c1d9")
 
@@ -730,7 +749,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### DKD groupings (DKD defined as UACR >= 100 and/or eGFR < 90)
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(dkd_group_100)),
   group_var = "dkd_group_100", var_labels = im_labels,
@@ -739,7 +760,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### Albuminuria categories
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 # Albuminuria categories (≥300 = worse → red)
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(acr_u_cat300)),
@@ -750,7 +773,9 @@ plot_boxgrid(
 )
 ```
 
-```{r, echo=FALSE}
+### Longitudinal (paired)
+
+```{r, echo=FALSE, fig.width=16, fig.height=14}
 # Longitudinal (paired)
 plot_boxgrid(
   df = harm_dat_longitudinal, group_var = "imaging_visit_id",
@@ -1383,44 +1408,42 @@ run_lmer_emm <- function(data,
                          visit_col     = "visit",
                          ref_visit     = "Baseline",
                          min_clusters  = 3,
-                         min_obs       = 5) {
-  
-  results <- map_dfr(outcome_vars, function(y) {
+                         min_obs       = 2) {
 
+  results <- map_dfr(outcome_vars, function(y) {
     df_fit <- data %>% filter(!is.na(.data[[y]]))
-    
+
     # Label and optional log-transform
     y_label <- if (y %in% names(labels)) labels[y] else y
     if (y %in% log_vars) {
       df_fit[[y]] <- log10(df_fit[[y]])
       y_label     <- paste0("log10(", y_label, ")")
     }
-    
+
     # Guards
     n_clusters <- n_distinct(df_fit[[id_col]])
     if (n_clusters < min_clusters || nrow(df_fit) < min_obs) return(NULL)
     if (n_distinct(df_fit[[visit_col]]) < 2)                 return(NULL)
-    
+
     tryCatch({
       mod <- lmer(
-        as.formula(paste0("`", y, "` ~ ", visit_col, " + (1 | ", id_col, ")")),
+        as.formula(paste0("", y, " ~ ", visit_col, " + (1 | ", id_col, ")")),
         data = df_fit, REML = TRUE
       )
-
       emms    <- emmeans(mod, as.formula(paste0("~", visit_col)))
       emm_df  <- as.data.frame(emms) %>%
         dplyr::rename(estimate = emmean, conf.low = lower.CL, conf.high = upper.CL)
-      
+
       contrasts   <- emmeans(mod,
                              as.formula(paste0("trt.vs.ctrl ~", visit_col)),
                              ref = ref_visit)
       contr_df    <- as.data.frame(confint(contrasts$contrasts))
       contr_pvals <- as.data.frame(contrasts$contrasts)
-      
+
       baseline_emm <- emm_df %>%
         filter(.data[[visit_col]] == ref_visit) %>%
         pull(estimate)
-      
+
       # Helper to parse visit label from contrast string
       parse_visit <- function(contrast_vec) {
         non_ref <- setdiff(unique(df_fit[[visit_col]]), ref_visit)
@@ -1430,10 +1453,10 @@ run_lmer_emm <- function(data,
         }
         result
       }
-      
+
       contr_df    <- contr_df    %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
       contr_pvals <- contr_pvals %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
-      
+
       bind_rows(
         # Baseline row
         emm_df %>%
@@ -1477,13 +1500,13 @@ run_lmer_emm <- function(data,
             TRUE            ~ ""
           )
         )
-      
+
     }, error = function(e) {
-      message(sprintf("  Skipping %s: %s", y, e$message))
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
+      print(e)
       NULL
     })
   })
-
   # Drop outcomes where any estimate / CI / pct_change is non-finite
   if (nrow(results) > 0) {
     bad <- with(results, !is.finite(estimate) | !is.finite(conf.low) | !is.finite(conf.high) |
@@ -1805,17 +1828,6 @@ results_improve <- fit_lmer_loop(
 )
 format_lmer_table(results_improve,
                   caption = "Longitudinal change: Imaging ~ Visit")
-
-# log UACR and GFR
-# what about eGFR and if we do BSA-adjusted GFR too, or mGFr (unadjusted) but adjusting for weight change
-harm_dat_subset$ln_acr_u <- log(harm_dat_subset$acr_u)
-
-acr_gfr_improve <- fit_lmer_loop(
-  df         = subset(harm_dat_subset, study == "IMPROVE"),
-  outcomes   = c("ln_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma"),
-  fixed_rhs  = "visit",
-  var_labels = acr_gfr_labels
-)
 ```
 
 ```{r improve-data-prep, echo=FALSE}
@@ -1848,7 +1860,9 @@ improve_emm_results <- run_lmer_emm(
   ref_visit    = "Baseline"
 )
 ```
- 
+
+---
+
 ### Forest plot: IMPROVE change from baseline
 
 ```{r forest-improve, echo=FALSE}
@@ -1861,6 +1875,19 @@ plot_forest_pct(improve_emm_results)
 # log UACR and GFR
 # what about eGFR and if we do BSA-adjusted GFR too, or mGFr (unadjusted) but adjusting for weight change
 # ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
+# log UACR and GFR
+# what about eGFR and if we do BSA-adjusted GFR too, or mGFr (unadjusted) but adjusting for weight change
+harm_dat_subset$ln_acr_u <- log(harm_dat_subset$acr_u)
+
+acr_gfr_improve <- fit_lmer_loop(
+  df         = subset(harm_dat_subset, study == "IMPROVE"),
+  outcomes   = c("ln_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma"),
+  fixed_rhs  = "visit",
+  var_labels = acr_gfr_labels
+)
+format_lmer_table(acr_gfr_improve,
+                  caption = "Longitudinal change: ACR, GFR ~ Visit")
+
 improve_acr_gfr_emm_results <- run_lmer_emm(
   data         = harm_dat_improve_long,
   outcome_vars = acr_gfr_vars,
@@ -1871,7 +1898,7 @@ improve_acr_gfr_emm_results <- run_lmer_emm(
   ref_visit    = "Baseline"
 )
 ```
- 
+
 ### Forest plot: IMPROVE ACR/GFR change from baseline
 
 ```{r forest-improve2, echo=FALSE}
@@ -1889,9 +1916,7 @@ harm_dat_subset <- harm_dat_subset %>%
   ungroup()
 ```
 
-
 ## Model 7: Longitudinal change (within IMPROVE)
-
 
 ```{r echo=FALSE, results='asis'}
 # ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
@@ -1905,7 +1930,7 @@ improve_mri_emm_results <- run_lmer_emm(
   ref_visit    = "Baseline"
 )
 ```
- 
+
 ### Forest plot: IMPROVE MRI change from baseline (12 months)
 
 ```{r forest-improve3, echo=FALSE}
