@@ -107,16 +107,7 @@ pb90_sub<- subset(pb90_so, group %in% c("Lean Control", "Type 1 Diabetes", "Type
 pb90_sub<- subset(pb90_sub, visit %in% c("baseline"))
 
 # only use proximal tubular cells:
-pb90_sub<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
-
-# soma scan data: ignoring this for now
-# urine_autophagy_soma <- openxlsx::read.xlsx(file.path(root_path, "./Limonte/Autophagy_gene_protein_lists_CL.xlsx"), sheet ="Urine_autophagy_score_PT_only",
-#                                  startRow = 1,colNames = TRUE)
-# blood_autophagy_soma <- openxlsx::read.xlsx(file.path(root_path, "./Limonte/Autophagy_gene_protein_lists_CL.xlsx"), sheet ="Blood_autophagy_score_kidney",
-#                                  startRow = 1,colNames = TRUE)
-# blood_TFEB_soma <- openxlsx::read.xlsx(file.path(root_path, "./Limonte/Autophagy_gene_protein_lists_CL.xlsx"), sheet ="Blood_TFEB_score_kidney",
-#                                  startRow = 1,colNames = TRUE)
-soma<-read.csv(file.path(root_path, "./Data Harmonization/Data Clean/soma_harmonized_dataset.csv"))
+#pb90_sub<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
 
 ```
 
@@ -232,49 +223,6 @@ pb90_t2d <- subset(pb90_sub, group %in% c("Type 2 Diabetes"))
 ```
 
 ```{r}
-#### visuals of scores by disease group 
-RidgePlot(pb90_sub, 
-          features = features,
-          ncol = 2, 
-          group.by="diabetes_reference")
-
-VlnPlot(pb90_sub, 
-        features = features,
-        ncol = 2,
-        pt.size = 0,
-        group.by="diabetes_reference",xlab="")
-
-FeaturePlot(pb90_sub, 
-            features = features, 
-            ncol = 2)
-
-DotPlot(pb90_sub, 
-        features = features, 
-        group.by="diabetes_reference") + RotatedAxis()
-
-#### visuals of scores by SGLT2i
-par(mfrow=c(2,2))
-RidgePlot(pb90_t2d, 
-          features = features,
-          ncol = 2, 
-          group.by="sglt2i_ever")
-
-VlnPlot(pb90_t2d, 
-        features = features,
-        ncol = 2,
-        pt.size = 0,
-        group.by="sglt2i_ever")
-
-FeaturePlot(pb90_t2d, 
-            features = features, 
-            ncol = 2)
-
-DotPlot(pb90_t2d, 
-        features = features, 
-        group.by="sglt2i_ever") + RotatedAxis()
-```
-
-```{r}
 #Create long datasets; one row per cell:
 df <- data.frame(
   record_id = pb90_sub$record_id,
@@ -347,20 +295,9 @@ tab_sgl
 
 ```
 
-#### Summary statistics by group
-**Table 1: signatures by diabetes status**
-```{r echo=FALSE}
-kable(tab_group)
-```
-
-**Table 2: signatures by SGLT2i**
-```{r echo=FALSE}
-kable(tab_sgl)
-```
-
 ```{r}
 ### mixed model, random intercept for pt
-
+### (sensitivity analysis for comparison by group at cellular level)
 mixed <- function(data, outcome, grouping_var){
   # data<-df
   # grouping_var<-"group_2"
@@ -390,236 +327,54 @@ mod_tfeb_bysgl<-mixed(df.t2d,"tfeb_score","sglt2i_ever")
 
 ```
 
-#### Mixed Models by group (control vs. t1s vs. t2d)
-### Missing genes in our data:
+#### Methods
+Single-cell RNA sequencing data from the Bjornstad/Pyle lab cohorts were used for this analysis. Obese control and follow-up samples were excluded, and cells were subset to proximal tubular epithelial cells for this preliminary analysis.
+
+Five gene signatures were scored for each cell using gene lists: overall autophagy-related genes, autophagy induction genes, lysosomal biogenesis genes, and TFEB target genes (all provided by Dr. Limonte), as well as an mTORC1 activity signature derived from Table S6 of Schaub et al. (doi: 10.1172/JCI164486). Genes signatures scores were calculated using AddModuleScore in R. Genes absent from our dataset were excluded from their respective signatures (Table 0).
+
+Signature scores were summarized at the individual level by averaging across all retained proximal tubular cells. Group comparisons were performed using the Wilcoxon rank-sum test for two comparisons of interest: (1) diabetes (T1D and T2D combined) versus healthy controls, and (2) SGLT2 inhibitor (SGLT2i) use versus no SGLT2i use. As a sensitivity analysis, cell-level comparisons were conducted using a generalized linear mixed model with a random intercept for participant to account for within-subject correlation. Pairwise correlations between gene signature scores were assessed using Pearson's correlation coefficient. 
+
+*Table 0: absent genes*
 - Overall Autophagy: `r missing_genes_overall_autophagy`
 - Autophagy Induction: `r missing_genes_autophagy_induction`
 - Lysosomal biogenesis: `r missing_genes_lysosomal`
 - TFEB: `r missing_genes_tfeb`
 
-### Overall gene score by group 
-
+**Table 1: gene signature score by diabetes status**
 ```{r echo=FALSE}
-kable(mod_overall_bygroup[[1]])
+kable(tab_group)
 ```
+*p-values from Wilcoxon rank sum test. P-values from mixed model comparing cell-level scores were similar (all p>0.05)
 
-### Induction gene score by group
-
-
+**Table 2: gene signature score by SGLT2i status**
 ```{r echo=FALSE}
-kable(mod_induction_bygroup[[1]])
+kable(tab_sgl)
 ```
-
-### Lysomal gene score by group
-
-```{r echo=FALSE}
-kable(mod_lysomal_bygroup[[1]])
-```
-
-
-### TFEB gene score by group
-
-```{r echo=FALSE}
-kable(mod_tfeb_bygroup[[1]])
-```
-
-#### Mixed Models by SGLT2i
-### Overall gene score by SGLT2i 
-
-```{r echo=FALSE}
-kable(mod_overall_bysgl[[1]])
-```
-
-### Induction gene score by SGLT2i
-
-```{r echo=FALSE}
-kable(mod_induction_bysgl[[1]])
-```
-
-### Lysomal gene score by SGLT2i
-
-```{r echo=FALSE}
-kable(mod_lysomal_bysgl[[1]])
-```
-
-### TFEB gene score by SGLT2i
-
-```{r echo=FALSE}
-kable(mod_tfeb_bysgl[[1]])
-```
+*p-values from Wilcoxon rank sum test. P-values from mixed model comparing cell-level scores were similar (all p>0.05)
 
 ```{r}
-#signatures versus kidney outcomes:
-df.1$elevated_albuminuria_yn<-ifelse(df.1$elevated_albuminuria=="Yes",1,0)
-df.1.t2d$elevated_albuminuria_yn<-ifelse(df.1.t2d$elevated_albuminuria=="Yes",1,0)
+#### visuals of scores by disease group 
+par(mfrow=c(2,2))
+RidgePlot(pb90_sub, 
+          features = features,
+          ncol = 2, 
+          group.by="diabetes_reference")
 
-#' Run logistic regression, test interaction, and extract stats for a predictor
-#'
-#' @param data         A data frame
-#' @param formula      A formula WITHOUT interaction (e.g., outcome ~ x1 + x2)
-#' @param predictor    Character string naming the predictor of interest
-#' @param interact_var Character string naming the variable to test interaction with
-#' @param alpha        Significance threshold for keeping interaction (default 0.05)
-#' @param conf_int     Logical; include 95% confidence intervals? (default TRUE)
-#'
-#' @return A list with: result (data frame of estimates), interaction_p (p-value),
-#'         interaction_kept (logical), and model (final glm object)
-run_logistic <- function(data, formula, predictor, interact_var,
-                         alpha = 0.05, conf_int = TRUE) {
-  
-  # --- Fit main effects model ---
-  model_main <- glm(formula, data = data, family = binomial)
-  
-  # --- Build and fit interaction model, catching separation warnings ---
-  interaction_term <- paste(predictor, interact_var, sep = " * ")
-  formula_int <- update(formula, paste(". ~ . +", interaction_term))
-  
-  separation_warning <- FALSE
-  model_int <- withCallingHandlers(
-    glm(formula_int, data = data, family = binomial),
-    warning = function(w) {
-      if (grepl("fitted probabilities numerically 0 or 1", conditionMessage(w))) {
-        separation_warning <<- TRUE
-        invokeRestart("muffleWarning")
-      }
-    }
-  )
-  
-  # --- Select final model ---
-  if (separation_warning) {
-    cat(sprintf(
-      "Interaction term (%s x %s): REMOVED (complete/quasi-complete separation detected)\n\n",
-      predictor, interact_var
-    ))
-    interaction_p    <- NA
-    interaction_kept <- FALSE
-  } else {
-    # --- Test interaction via likelihood ratio test ---
-    lrt <- anova(model_main, model_int, test = "LRT")
-    interaction_p    <- lrt[2, "Pr(>Chi)"]
-    interaction_kept <- interaction_p < alpha
-    
-    cat(sprintf(
-      "Interaction term (%s x %s): LRT p = %.4f => %s\n\n",
-      predictor, interact_var, interaction_p,
-      ifelse(interaction_kept, "KEPT (significant)", "REMOVED (not significant)")
-    ))
-  }
-  
-  final_model <- if (interaction_kept) model_int else model_main
-  
-  # --- Extract predictor stats ---
-  coef_summary <- summary(final_model)$coefficients
-  
-  if (!predictor %in% rownames(coef_summary)) {
-    stop(paste0(
-      "Predictor '", predictor, "' not found in model. ",
-      "Available terms: ", paste(rownames(coef_summary), collapse = ", ")
-    ))
-  }
-  
-  row <- coef_summary[predictor, ]
-  
-  result <- data.frame(
-    predictor        = predictor,
-    interaction_kept = interaction_kept,
-    estimate         = row["Estimate"],
-    OR               = exp(row["Estimate"]),
-    SE               = row["Std. Error"],
-    #z_stat           = row["z value"],
-    p_value          = row["Pr(>|z|)"],
-    row.names        = NULL
-  )
-  
-  if (conf_int) {
-    ci <- suppressMessages(confint(final_model)[predictor, ])
-    result$CI_lower    <- ci[1]
-    result$CI_upper    <- ci[2]
-    result$OR_CI_lower <- exp(ci[1])
-    result$OR_CI_upper <- exp(ci[2])
-  }
-  
-  return(list(
-    result           = result,
-    interaction_p    = interaction_p,
-    interaction_kept = interaction_kept,
-    model            = final_model
-  ))
-}
-albu_dia_overall<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_overall_score+diabetes_reference,
-             predictor="mean_overall_score",
-             interact_var="diabetes_reference",
-             conf_int = F)
+FeaturePlot(pb90_sub, 
+            features = features, 
+            ncol = 2)
 
-albu_dia_induction<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_induction_score+diabetes_reference,
-             predictor="mean_induction_score",
-             interact_var="diabetes_reference",
-             conf_int = F)
+#### visuals of scores by SGLT2i
+RidgePlot(pb90_t2d, 
+          features = features,
+          ncol = 2, 
+          group.by="sglt2i_ever")
 
-
-albu_dia_lysosomal<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_lysomal_score+diabetes_reference,
-             predictor="mean_lysomal_score",
-             interact_var="diabetes_reference",
-             conf_int = F)
-
-albu_dia_TFEB<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_tfeb_score+diabetes_reference,
-             predictor="mean_tfeb_score",
-             interact_var="diabetes_reference",
-             conf_int = F)
-
-tab_albu_diabetes_status<-rbind(albu_dia_overall$result,
-                                albu_dia_induction$result,
-                                albu_dia_lysosomal$result,
-                                albu_dia_TFEB$result)
-
-albu_sgl_overall<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_overall_score+sglt2i_ever,
-             predictor="mean_overall_score",
-             interact_var="sglt2i_ever",
-             conf_int = F)
-
-albu_sgl_induction<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_induction_score+sglt2i_ever,
-             predictor="mean_induction_score",
-             interact_var="sglt2i_ever",
-             conf_int = F)
-
-
-albu_sgl_lysosomal<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_lysomal_score+sglt2i_ever,
-             predictor="mean_lysomal_score",
-             interact_var="sglt2i_ever",
-             conf_int = F)
-
-albu_sgl_TFEB<-run_logistic(data=df.1,
-             formula=elevated_albuminuria_yn~mean_tfeb_score+sglt2i_ever,
-             predictor="mean_tfeb_score",
-             interact_var="sglt2i_ever",
-             conf_int = F)
-
-tab_albu_sglt2i_status<-rbind(albu_sgl_overall$result,
-                                albu_sgl_induction$result,
-                                albu_sgl_lysosomal$result,
-                                albu_sgl_TFEB$result)
-
-
+FeaturePlot(pb90_t2d, 
+            features = features, 
+            ncol = 2)
 ```
 
-### Albuminuria models: 
-
-**adjusted for diabetes status**
-```{r echo=FALSE}
-kable(tab_albu_diabetes_status)
-```
-
-**adjusted for SGLT2i**
-```{r echo=FALSE}
-kable(tab_albu_sglt2i_status)
-```
 
 ```{r}
 #correlation heatmap between various signatures:
