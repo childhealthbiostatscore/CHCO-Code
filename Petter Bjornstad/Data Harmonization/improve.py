@@ -227,8 +227,7 @@ def clean_improve():
     mri.rename({"lv_grs" : "grs", "lv_gcs": "gcs", "lv_gls": "gls", "af_pwv_xcor3": "af_pwv",
                     "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
                     "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
-    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri",
-              "lvedvi", "lvesvi","lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
+    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri"],
              axis=1, inplace=True)
 
     mri["procedure"] = "cardio_abdominal_mri"
