@@ -106,8 +106,10 @@ pb90_sub<- subset(pb90_so, group %in% c("Lean Control", "Type 1 Diabetes", "Type
 # only use baseline samples: 
 pb90_sub<- subset(pb90_sub, visit %in% c("baseline"))
 
+# save two objects, one for all cells, one for PT only
+pb90_allcells<-pb90_sub
 # only use proximal tubular cells:
-#pb90_sub<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
+pb90_ptcells<- subset(pb90_sub, KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
 
 ```
 
@@ -192,75 +194,105 @@ run_module_score <- function(seurat_obj, features, name) {
 }
 
 #add christine gene signatures to seurat object:
-result <- run_module_score(pb90_sub, overall_autophagy_genes, "overall_autophagy_signature")
-pb90_sub <- result$seurat_obj
+# have to do this separately for all cells and PT only, because AddModuleScore derives the score relative to other cells in the pool
+
+#first do in all cells:
+result <- run_module_score(pb90_allcells, overall_autophagy_genes, "overall_autophagy_signature")
+pb90_allcells <- result$seurat_obj
 missing_genes_overall_autophagy <- result$warning
 
-result <- run_module_score(pb90_sub, autophagy_induction_genes, "autophagy_induction_signature")
-pb90_sub <- result$seurat_obj
+result <- run_module_score(pb90_allcells, autophagy_induction_genes, "autophagy_induction_signature")
+pb90_allcells <- result$seurat_obj
 missing_genes_autophagy_induction <- result$warning
 
-result <- run_module_score(pb90_sub, lysosomal_biogenesis_genes, "lysosomal_biogenesis_signature")
-pb90_sub <- result$seurat_obj
+result <- run_module_score(pb90_allcells, lysosomal_biogenesis_genes, "lysosomal_biogenesis_signature")
+pb90_allcells <- result$seurat_obj
 missing_genes_lysosomal <- result$warning
 
-result <- run_module_score(pb90_sub, tfeb_genes, "tfeb_signature")
-pb90_sub <- result$seurat_obj
+result <- run_module_score(pb90_allcells, tfeb_genes, "tfeb_signature")
+pb90_allcells <- result$seurat_obj
 missing_genes_tfeb <- result$warning
 
-#add MTORC signature:
-result <- run_module_score(pb90_sub, mtorc_genes, "mtorc_signature")
-pb90_sub <- result$seurat_obj
+result <- run_module_score(pb90_allcells, mtorc_genes, "mtorc_signature")
+pb90_allcells <- result$seurat_obj
+
+#second do in PT only cells:
+result <- run_module_score(pb90_ptcells, overall_autophagy_genes, "overall_autophagy_signature")
+pb90_ptcells <- result$seurat_obj
+
+result <- run_module_score(pb90_ptcells, autophagy_induction_genes, "autophagy_induction_signature")
+pb90_ptcells <- result$seurat_obj
+
+result <- run_module_score(pb90_ptcells, lysosomal_biogenesis_genes, "lysosomal_biogenesis_signature")
+pb90_ptcells <- result$seurat_obj
+
+result <- run_module_score(pb90_ptcells, tfeb_genes, "tfeb_signature")
+pb90_ptcells <- result$seurat_obj
+
+result <- run_module_score(pb90_ptcells, mtorc_genes, "mtorc_signature")
+pb90_ptcells <- result$seurat_obj
 
 
 features<-c("overall_autophagy_signature1", "autophagy_induction_signature1",
                          "lysosomal_biogenesis_signature1","tfeb_signature1")
-# grouping variables
-# 1. diabetes vs reference
-pb90_sub@meta.data$diabetes_reference<-ifelse(pb90_sub@meta.data$group%in%c("Lean Control"),"Lean Controls","Diabetes (T1 or T2)")
-# 2. SGLT2i vs. no
-pb90_t2d <- subset(pb90_sub, group %in% c("Type 2 Diabetes"))
 ```
 
 ```{r}
 #Create long datasets; one row per cell:
-df <- data.frame(
-  record_id = pb90_sub$record_id,
-  cohort=pb90_sub$cohort,
-  group = pb90_sub$group,
-  age=pb90_sub$age,
-  sex=pb90_sub$sex,
-  diabetes_reference = pb90_sub$diabetes_reference,
-  sglt2i_ever= pb90_sub$sglt2i_ever,
-  elevated_albuminuria=pb90_sub$elevated_albuminuria,
-  overall_score = pb90_sub$overall_autophagy_signature1,
-  induction_score = pb90_sub$autophagy_induction_signature1,
-  lysosomal_score = pb90_sub$lysosomal_biogenesis_signature1,
-  tfeb_score = pb90_sub$tfeb_signature1,
-  mtorc_score = pb90_sub$mtorc_signature1
+df_allcells <- data.frame(
+  record_id = pb90_allcells$record_id,
+  cohort=pb90_allcells$cohort,
+  group = pb90_allcells$group,
+  sglt2i_ever= pb90_allcells$sglt2i_ever,
+  elevated_albuminuria=pb90_allcells$elevated_albuminuria,
+  overall_score = pb90_allcells$overall_autophagy_signature1,
+  induction_score = pb90_allcells$autophagy_induction_signature1,
+  lysosomal_score = pb90_allcells$lysosomal_biogenesis_signature1,
+  tfeb_score = pb90_allcells$tfeb_signature1,
+  mtorc_score = pb90_allcells$mtorc_signature1
 )
-df.t2d<-subset(df,df$group=="Type 2 Diabetes")
+df_ptcells <- data.frame(
+  record_id = pb90_ptcells$record_id,
+  cohort=pb90_ptcells$cohort,
+  group = pb90_ptcells$group,
+  sglt2i_ever= pb90_ptcells$sglt2i_ever,
+  elevated_albuminuria=pb90_ptcells$elevated_albuminuria,
+  overall_score = pb90_ptcells$overall_autophagy_signature1,
+  induction_score = pb90_ptcells$autophagy_induction_signature1,
+  lysosomal_score = pb90_ptcells$lysosomal_biogenesis_signature1,
+  tfeb_score = pb90_ptcells$tfeb_signature1,
+  mtorc_score = pb90_ptcells$mtorc_signature1
+)
 
-```
-
-```{r}
-#Create person level dataset; mean score for each person (PT cells only):
-df.1<- df %>%
+#mean scores per patient dataset:
+df.1.allcells<- df_allcells %>%
     group_by(record_id) %>%
   summarise(group=group[1],
             cohort=cohort[1],
-            age=age[1],
-            sex=sex[1],
-            diabetes_reference=diabetes_reference[1],
             sglt2i_ever=sglt2i_ever[1],
-            elevated_albuminuria=elevated_albuminuria[1],
             mean_overall_score=mean(overall_score,na.rm=T),
             mean_induction_score=mean(induction_score,na.rm=T),
             mean_lysomal_score=mean(lysosomal_score,na.rm=T),
             mean_tfeb_score=mean(tfeb_score,na.rm=T),
             mean_mtorc_score=mean(mtorc_score,na.rm=T))
-df.1.t2d<-subset(df.1,df.1$group=="Type 2 Diabetes")
 
+df.1.ptcells<- df_ptcells %>%
+    group_by(record_id) %>%
+  summarise(mean_overall_score_ptcells=mean(overall_score,na.rm=T),
+            mean_induction_score_ptcells=mean(induction_score,na.rm=T),
+            mean_lysomal_score_ptcells=mean(lysosomal_score,na.rm=T),
+            mean_tfeb_score_ptcells=mean(tfeb_score,na.rm=T),
+            mean_mtorc_score_ptcells=mean(mtorc_score,na.rm=T))
+
+#merge together: 
+df.1<-merge(df.1.allcells,df.1.ptcells,by="record_id",all=T)
+#df.t2d<-subset(df,df$group=="Type 2 Diabetes")
+
+# grouping variables
+# 1. diabetes vs reference
+df.1$diabetes_reference<-ifelse(df.1$group%in%c("Lean Control"),"Lean Controls","Diabetes (T1 or T2)")
+# 2. SGLT2i vs. no
+df.1_t2d <- subset(df.1, group %in% c("Type 2 Diabetes"))
 ```
 
 ```{r}
@@ -274,7 +306,11 @@ pvalue_wcx <- function(x, ...) {
 tab_group<-table1(~ mean_overall_score+
                     mean_induction_score+
                     mean_lysomal_score+
-                    mean_tfeb_score|factor(diabetes_reference),
+                    mean_tfeb_score+
+                    mean_overall_score_ptcells+
+                    mean_induction_score_ptcells+
+                    mean_lysomal_score_ptcells+
+                    mean_tfeb_score_ptcells|factor(diabetes_reference),
                   data=df.1,
                   overall=F,
                   render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
@@ -285,8 +321,12 @@ tab_group
 tab_sgl<-table1(~ mean_overall_score+
                     mean_induction_score+
                     mean_lysomal_score+
-                    mean_tfeb_score|factor(sglt2i_ever),
-                  data=df.1.t2d,
+                    mean_tfeb_score+
+                    mean_overall_score_ptcells+
+                    mean_induction_score_ptcells+
+                    mean_lysomal_score_ptcells+
+                    mean_tfeb_score_ptcells|factor(sglt2i_ever),
+                  data=df.1_t2d,
                   overall=F,
                   render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
                                       "Mean (SD)"="MEAN (SD)"),
@@ -298,32 +338,33 @@ tab_sgl
 ```{r}
 ### mixed model, random intercept for pt
 ### (sensitivity analysis for comparison by group at cellular level)
-mixed <- function(data, outcome, grouping_var){
-  # data<-df
-  # grouping_var<-"group_2"
-  # outcome<-"overall_score"
-  data <- as.data.frame(data)
-  form = as.formula(paste0(outcome,"~ ", grouping_var))
-  mod <- lme(as.formula(form),random=~1|record_id,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|record_id))
-  anova <- anova.lme(mod, type="marginal")
-  m <- emmeans(mod,c(grouping_var))
-  prs <-  pairs(m,adjust="tukey")
-  return(list(anova,m,prs))
-}
-df$group_2<-NA
-df$group_2[df$group=="Lean Control"]<-"control"
-df$group_2[df$group=="Type 1 Diabetes"]<-"diabetes"
-df$group_2[df$group=="Type 2 Diabetes"]<-"diabetes"
-
-mod_overall_bygroup<-mixed(df,"overall_score","group_2")
-mod_induction_bygroup<-mixed(df,"induction_score","group_2")
-mod_lysomal_bygroup<-mixed(df,"lysosomal_score","group_2")
-mod_tfeb_bygroup<-mixed(df,"tfeb_score","group_2")
-
-mod_overall_bysgl<-mixed(df.t2d,"overall_score","sglt2i_ever")
-mod_induction_bysgl<-mixed(df.t2d,"induction_score","sglt2i_ever")
-mod_lysomal_bysgl<-mixed(df.t2d,"lysosomal_score","sglt2i_ever")
-mod_tfeb_bysgl<-mixed(df.t2d,"tfeb_score","sglt2i_ever")
+## this takes a long time for the full sample models, so I'm removing for now 
+# mixed <- function(data, outcome, grouping_var){
+#   # data<-df
+#   # grouping_var<-"group_2"
+#   # outcome<-"overall_score"
+#   data <- as.data.frame(data)
+#   form = as.formula(paste0(outcome,"~ ", grouping_var))
+#   mod <- lme(as.formula(form),random=~1|record_id,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|record_id))
+#   anova <- anova.lme(mod, type="marginal")
+#   m <- emmeans(mod,c(grouping_var))
+#   prs <-  pairs(m,adjust="tukey")
+#   return(list(anova,m,prs))
+# }
+# df_allcells$group_2<-NA
+# df_allcells$group_2[df_allcells$group=="Lean Control"]<-"control"
+# df_allcells$group_2[df_allcells$group=="Type 1 Diabetes"]<-"diabetes"
+# df_allcells$group_2[df_allcells$group=="Type 2 Diabetes"]<-"diabetes"
+# 
+# mod_overall_bygroup<-mixed(df_allcells,"overall_score","group_2")
+# mod_induction_bygroup<-mixed(df_allcells,"induction_score","group_2")
+# mod_lysomal_bygroup<-mixed(df_allcells,"lysosomal_score","group_2")
+# mod_tfeb_bygroup<-mixed(df_allcells,"tfeb_score","group_2")
+# 
+# mod_overall_bysgl<-mixed(df_allcells.t2d,"overall_score","sglt2i_ever")
+# mod_induction_bysgl<-mixed(df_allcells.t2d,"induction_score","sglt2i_ever")
+# mod_lysomal_bysgl<-mixed(df_allcells.t2d,"lysosomal_score","sglt2i_ever")
+# mod_tfeb_bysgl<-mixed(df_allcells.t2d,"tfeb_score","sglt2i_ever")
 
 ```
 
@@ -355,30 +396,67 @@ kable(tab_sgl)
 ```{r}
 #### visuals of scores by disease group 
 par(mfrow=c(2,2))
-RidgePlot(pb90_sub, 
+RidgePlot(pb90_allcells, 
           features = features,
           ncol = 2, 
           group.by="diabetes_reference")
 
-FeaturePlot(pb90_sub, 
-            features = features, 
-            ncol = 2)
 
 #### visuals of scores by SGLT2i
-RidgePlot(pb90_t2d, 
+RidgePlot(pb90_allcells, 
           features = features,
           ncol = 2, 
           group.by="sglt2i_ever")
 
-FeaturePlot(pb90_t2d, 
-            features = features, 
-            ncol = 2)
+
 ```
 
 
 ```{r}
 #correlation heatmap between various signatures:
+# full sample: 
 corr.data<-df.1[,c("mean_overall_score","mean_induction_score","mean_lysomal_score","mean_tfeb_score","mean_mtorc_score")]
+cormat <- round(cor(corr.data),2)
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+upper_tri <- get_upper_tri(cormat)
+melted_cormat <- reshape2::melt(upper_tri, na.rm = TRUE)
+
+ggheatmap<-ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+
+# PT cells only: 
+corr.data<-df.1[,c("mean_overall_score_ptcells","mean_induction_score_ptcells","mean_lysomal_score_ptcells","mean_tfeb_score_ptcells","mean_mtorc_score_ptcells")]
 cormat <- round(cor(corr.data),2)
 # Get lower triangle of the correlation matrix
   get_lower_tri<-function(cormat){
