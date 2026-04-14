@@ -46,14 +46,27 @@ Sys.setenv(
 
 ```{r}
 benchmark <- s3readRDS(object = "Projects/Paired scRNA simulation analysis/results/benchmark/benchmark_avg.rds", bucket = "scrna", region = "")
+
+benchmark <- benchmark %>%
+  dplyr::mutate(method_family = case_when(method %in% c("mast", "wilcox") ~ "pseudoreplication",
+                                          method %in% c("edger", "limma") ~ "pseudobulk",
+                                          method == "nebula" ~ "mixed model"),
+                method = factor(method, labels = c("mast" = "MAST",
+                                                   "wilcox" = "Wilcoxon rank-sum",
+                                                   "edger" = "edgeR",
+                                                   "limma" = "limma-voom",
+                                                   "nebula" = "NEBULA"),
+                                levels = c("mast", "wilcox",
+                                           "edger", "limma",
+                                           "nebula")))
 ```
 
 ```{r}
-method_palette <- c("edger"  = "#0081a7",
-                    "limma"  = "#00afb9",
-                    "mast"   = "#fdfcdc",
-                    "nebula" = "#fed9b7",
-                    "wilcox" = "#f07167")
+method_palette <- c("edgeR"  = "#98c1d9",
+                    "limma-voom"  = "#3d5a80",
+                    "MAST"   = "#f4978e",
+                    "NEBULA" = "#52796f",
+                    "Wilcoxon rank-sum" = "#edafb8")
 
 plot_metric_by <- function(data, x_var, x_levels = NULL,
                            x_label = x_var, y_var = "mean_power",
@@ -113,6 +126,16 @@ power_plots <- lapply(param_specs, function(spec) {
 names(power_plots) <- sapply(param_specs, `[[`, "x_var")
 
 power_plots
+
+benchmark %>%
+  ggplot(aes(x = factor(lfc_label, levels = c("vlow", "low", "med", "high")), 
+             y = mean_power, fill = method)) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey") +
+  geom_boxplot() +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal()
+  
+
 # for (nm in names(power_plots)) {
 #   ggsave(paste0("power_by_", nm, ".png"), power_plots[[nm]],
 #          width = 10, height = 7, dpi = 150)
