@@ -354,10 +354,10 @@ baserisk <- merge(baserisk, keepPRIMOUT, by="releaseid", all.x=T, all.y=F)
 baserisk <- merge(baserisk, BW, by="releaseid", all.x=T, all.y=T)
 baserisk <- merge(baserisk, baseDXA, by="releaseid", all.x=T, all.y=T)
 baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
-  sex_char == "F" ~  76 - ((20*height/wastcirc)),
-  sex_char == "M" ~ 64 - ((20*height)/wastcirc)),
-  TRUE = NA_real_
-)
+  sex_char == "F" ~ 76 - ((20*height/wastcirc)),
+  sex_char == "M" ~ 64 - ((20*height)/wastcirc),
+  TRUE ~ NA_real_
+))
 baserisk <- full_join(baserisk, base_lipo, by="releaseid")
 baserisk$homa_ir    <- (baserisk$ins0min * baserisk$glu0min) / 405
 baserisk$waist_height <- baserisk$wastcirc / baserisk$height
