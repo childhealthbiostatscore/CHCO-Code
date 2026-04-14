@@ -467,19 +467,28 @@ harm_dat_subset_500 <- collapse_and_derive(primary_rows, supplementary_matched_5
 
 # ── Analysis subsets ──────────────────────────────────────────────────────────
 harm_dat_baseline <- harm_dat_subset %>%
-  filter(visit == "baseline")
+  filter(visit == "baseline" & 
+           imaging_visit_id %nin% c("improve_swht_follow_up", "ultra_swht_follow_up"))
 
-harm_dat_obt2d <- harm_dat_subset %>%
-  filter(group != "Lean Control" & imaging_visit_id != "ultra_follow_up")
+harm_dat_obt2d_baseline <- harm_dat_baseline %>%
+  filter(group != "Lean Control")
 
-harm_dat_obt2d_baseline <- harm_dat_obt2d %>%
-  filter(visit == c("baseline"))
+harm_dat_baseline_500 <- harm_dat_subset_500 %>%
+  filter(visit == "baseline" & 
+           imaging_visit_id %nin% c("improve_swht_follow_up", "ultra_swht_follow_up"))
 
 harm_dat_obt2d_baseline_500 <- harm_dat_subset_500 %>%
-  filter(visit == c("baseline") & group != "Lean Control")
+  filter(group != "Lean Control") 
 
-harm_dat_t2d <- harm_dat_subset %>%
-  filter(group == "Type 2 Diabetes" & imaging_visit_id != "ultra_follow_up")
+# IMPROVE only dataset (for VSG analysis)
+improve_dat <- harm_dat_subset %>%
+  filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up",
+                                 "improve_baseline", "improve_3mo", "improve_12mo")) %>%
+  group_by(mrn) %>%
+  dplyr::mutate(days_since_baseline = as.numeric(as.Date(coalesce(cmri_date, date)) - 
+                  min(as.Date(coalesce(cmri_date, date))))) %>% # using visit date if cmr date DNE
+  ungroup() %>%
+  filter(!is.na(cmri_date)) # exclude to those with CMRI data
 
 # Longitudinal subset: ULTRA → SWEETHEART co-enrolled
 harm_dat_longitudinal <- harm_dat_subset %>%
@@ -502,7 +511,7 @@ harm_dat_longitudinal_imp <- harm_dat_subset %>%
   )
 
 # Combined longitudinal subset: all co-enrolled → SWEETHEART
-# Pools ULTRA→SWHT and IMPROVE→SWHT to maximise sample size
+# Pools ULTRA→SWHT and IMPROVE→SWHT to maximize sample size
 harm_dat_longitudinal_all <- harm_dat_subset %>%
   filter(imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up",
                                   "improve_swht_baseline", "improve_swht_follow_up")) %>%
@@ -591,6 +600,15 @@ summary(tableby(
     dkd_group_30 + dkd_group_100,
   data = subset(harm_dat_baseline, group != "Lean Control"), digits = 1
 ))
+cat('</div>')
+```
+
+## IMPROVE w/ CMR
+
+```{r, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(arsenal::tableby(imaging_visit_id ~ days_since_baseline, 
+                         data = improve_dat), digits = 1)
 cat('</div>')
 ```
 
@@ -1469,17 +1487,18 @@ run_lmer_emm <- function(data,
       baseline_emm <- emm_df %>%
         filter(.data[[visit_col]] == ref_visit) %>%
         pull(estimate)
-
+      
       # Helper to parse visit label from contrast string
       parse_visit <- function(contrast_vec) {
         non_ref <- setdiff(unique(df_fit[[visit_col]]), ref_visit)
-        result  <- NA_character_
+        non_ref <- non_ref[!is.na(non_ref)]
+        result  <- rep(NA_character_, length(contrast_vec))
         for (v in non_ref) {
           result <- ifelse(grepl(v, contrast_vec, fixed = TRUE), v, result)
         }
         result
       }
-
+      
       contr_df    <- contr_df    %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
       contr_pvals <- contr_pvals %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
 
@@ -1841,13 +1860,13 @@ results_sex <- fit_lmer_loop(
 format_lmer_table(results_sex, caption = "Imaging ~ Sex + Age (Obesity/T2D only)")
 ```
 
-## Model 5: Longitudinal change (within IMPROVE)
+## Model 5: CMRI Longitudinal change (within IMPROVE), treating time as categorical (baseline, 3 mo, 12 mo)
 
 ```{r echo=FALSE, results='asis'}
 # Imaging ~ visit_time + (1 | mrn)
-harm_dat_subset$visit <- factor(harm_dat_subset$visit, levels = c("baseline", "3_months_post_surgery", "12_months_post_surgery"))
+improve_dat$visit <- factor(improve_dat$visit, levels = c("baseline", "3_months_post_surgery", "12_months_post_surgery"))
 results_improve <- fit_lmer_loop(
-  df        = subset(harm_dat_subset, study == "IMPROVE"),
+  df        = improve_dat,
   outcomes  = im_vars_raw,
   fixed_rhs = "visit",
   log_vars  = im_vars_log
@@ -1858,9 +1877,7 @@ format_lmer_table(results_improve,
 
 ```{r improve-data-prep, echo=FALSE}
 # ── Prepare IMPROVE longitudinal subset ───────────────────────────────────────
-harm_dat_improve_long <- harm_dat_subset %>%
-  filter(study == "IMPROVE",
-         imaging_visit_id %in% c("improve_baseline", "improve_3mo", "improve_12mo", "improve_swht_baseline")) %>%
+harm_dat_improve_long <- improve_dat %>%
   dplyr::mutate(
     visit = factor(
       case_when(
@@ -1873,7 +1890,7 @@ harm_dat_improve_long <- harm_dat_subset %>%
     ),
       ln_acr_u = log(acr_u)
   )
-write.csv(harm_dat_improve_long, file.path(root_path, "IMPROVE T2D/Data_Cleaned/improve_longitudinal_041326.csv"), row.names = F, na = "")
+# write.csv(harm_dat_improve_long, file.path(root_path, "IMPROVE T2D/Data_Cleaned/improve_longitudinal_041326.csv"), row.names = F, na = "")
 ```
  
 ```{r improve-models, echo=FALSE, results='asis'}
@@ -1895,6 +1912,41 @@ improve_emm_results <- run_lmer_emm(
 
 ```{r forest-improve, echo=FALSE}
 plot_forest_pct(improve_emm_results)
+```
+
+## Model 5b: CMRI Longitudinal change (within IMPROVE), treating time as continuous days
+
+```{r echo=FALSE, results='asis'}
+# Imaging ~ visit_time + (1 | mrn)
+improve_dat$months_since_baseline <- improve_dat$days_since_baseline/30
+results_improve_cont <- fit_lmer_loop(
+  df        = improve_dat,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+format_lmer_table(results_improve_cont,
+                  caption = "Longitudinal change (months): Imaging ~ Visit")
+```
+
+```{r}
+# spaghetti plot
+improve_spaghetti <- lapply(im_vars_raw, function(var) {
+  improve_dat %>%
+    filter(days_since_baseline < 1460) %>%
+    ggplot(aes(x = months_since_baseline, y = .data[[var]], group = mrn, color = factor(mrn))) +
+    geom_vline(xintercept = 3, linetype = "dashed", color = "grey") +
+    geom_vline(xintercept = 12, linetype = "dashed", color = "grey") +
+    geom_point() +
+    geom_line(alpha = 0.8) +
+    theme_minimal() +
+    theme(text = element_text(size = 15),
+          panel.grid = element_blank(),
+          legend.position = "none") +
+    labs(x = "Time since baseline (months)", y = var)
+})
+
+wrap_plots(improve_spaghetti)  # patchwork, or use cowplot::plot_grid(plotlist = plots)
 ```
 
 ## Model 6: Longitudinal change (within IMPROVE)
