@@ -75,6 +75,7 @@ library(stringr)
 library(purrr)
 library(KEGGREST)
 library(caret)
+library(glmnet)
 ```
 #------------------------------------
 # RAW METABOLOMICS QC / SUMMARY PLOTS
@@ -145,7 +146,7 @@ make_pca_plot <- function(mat_in, meta_df, title_str) {
 }
 ```
 ## ----------------------
-## SAMPLE-LEVEL COVERAGE
+## sample level coverage
 ## ----------------------
 ```{r}
 sample_qc <- meta_qc %>%
@@ -185,7 +186,7 @@ p_miss_sample <- ggplot(sample_qc, aes(x = study6, y = pct_missing, fill = study
 p_cov_n | p_miss_sample
 ```
 ##---------------------------------
-## STUDY-LEVEL METABOLITE COVERAGE
+## study level coverage
 ##---------------------------------
 ```{r}
 study_idx <- split(seq_len(nrow(mat_qc)), meta_qc$study6)
@@ -230,7 +231,7 @@ contrast_names <- c(
 )
 ```
 #------------------
-# METABOLOMICS ONLY
+# metabolomics only
 #------------------
 ```{r}
 meta_metab <- omics_objects$meta_metab
@@ -397,7 +398,7 @@ mat_imp_all <- mat_imp_all[, -nzv_idx, drop = FALSE]
 ```
 
 ##---------------------------
-## PCA-based OUTLIER REMOVAL
+## PCA-based outlier removal
 ##---------------------------
 ```{r}
 pca_all <- prcomp(mat_imp_all, center = TRUE, scale. = TRUE)
@@ -434,7 +435,7 @@ stopifnot(identical(meta_all$record_id, rownames(mat_imp_all)))
 ```
 
 ##-----------------------
-## PCA: ALL METABOLOMICS
+## PCA: all metabolomics
 ##-----------------------
 ```{r}
 p0_all <- make_pca_plot(mat_imp_all, meta_all, "Metabolomics - No adjustment")
@@ -454,7 +455,7 @@ p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Stud
   )
 ```
 ##------------------------
-## LIMMA: ALL METABOLOMICS
+## LIMMA: all metabolomics
 ## ------------------------
 ```{r}
 Y_all <- t(as.matrix(mat_imp_all))
@@ -496,7 +497,7 @@ sig_all <- tibble(
 print(sig_all)
 ```
 ##--------------------------------
-## VOLCANO PLOTS--ALL METABOLOMICS
+## VOLCANO PLOTS--all metabolomics
 ##---------------------------------
 ```{r}
 volcano_list_all <- lapply(contrast_names, function(cc) {
@@ -520,7 +521,7 @@ wrap_plots(volcano_list_all, ncol = 3)
 ```
 
 #--------------------------------------------------
-# b: METABOLOMICS SAMPLES THAT ALSO HAVE PROTEOMICS
+# b: Metabolomic + Proteomic Samples 
 #--------------------------------------------------
 ```{r}
 #identify participants that have both proteomic and metabolomic data
@@ -544,9 +545,9 @@ tbl_mp <- meta_mp %>%
 tbl_mp
 ```
 
-##---------------------------------------------
-##PREP MATRIX: METABOLOMICS + PROTEOMICS SUBSET
-##---------------------------------------------
+##-------------------------------------------------
+##PREP MATRIX: Metabolomic + Proteomics data subset
+##-------------------------------------------------
 ```{r}
 mat_mp <- as.matrix(mat_mp)
 rownames(mat_mp) <- trimws(as.character(rownames(mat_mp)))
@@ -970,12 +971,12 @@ kegg_res[["T1D_vs_T2D"]] %>%
 ```
 
 ```{r}
-plot_kegg_ora(kegg_res_mp[["T1D_vs_T2D"]], "KEGG ORA: T1D vs T2D")
-kegg_plots_mp <- lapply(names(kegg_res_mp), function(cc) {
-  plot_kegg_ora(kegg_res_mp[[cc]], gsub("_", " ", cc), n = 12)
+plot_kegg_ora(kegg_res[["T1D_vs_T2D"]], "KEGG ORA: T1D vs T2D")
+kegg_plots <- lapply(names(kegg_res), function(cc) {
+  plot_kegg_ora(kegg_res[[cc]], gsub("_", " ", cc), n = 12)
 })
 
-patchwork::wrap_plots(kegg_plots_mp, ncol = 2)
+patchwork::wrap_plots(kegg_plots, ncol = 2)
 ```
 
 ##---------------------------------------------
