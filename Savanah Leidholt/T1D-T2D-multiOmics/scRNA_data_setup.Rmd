@@ -1,0 +1,90 @@
+---
+title: "scRNA_analysis"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths("~/leidholt/R")
+```
+
+```{r}
+library(reticulate)
+library(jsonlite)
+library(arsenal)
+library(Biobase)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(dplyr)
+#BiocManager::install("edgeR")
+library(edgeR)
+library(emmeans)
+#BiocManager::install("enrichR")
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(kableExtra)
+library(limma)
+library(msigdbr)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(Seurat)
+#BiocManager::install("SingleCellExperiment")
+library(SingleCellExperiment)
+library(tidyverse)
+library(UpSetR)
+
+```
+
+```{r}
+reticulate::use_python("/mmfs1/gscratch/togo/leidholt/pytorch-cuda11/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", 'data_clean/pb90_multiomics_savanah_baseline_20260406.rds', temp_file)
+dat_scrna <- readRDS(temp_file)
+meta_dat <- dat_scrna@meta.data
+ids <- meta_dat$record_id %>% 
+  distinct(meta_dat$record_id)
+View(ids)
+``` 
+
+```{r}
+#Load harmonized data for biopsy
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data <- read.csv(temp_file)
+
+```
+
+```{r}
+#Load celltype annotation database
+temp_file <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
+c8 <- GSA.read.gmt(temp_file)
+```
