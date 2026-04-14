@@ -25,9 +25,6 @@ library(haven)
 library(ggVennDiagram)
 ```
 
-#=========================================================================
-# inputting all directories and storage locations--add your path as needed
-#==========================================================================
 ```{r}
 #Directories
 computer <- "mac studio"
@@ -80,10 +77,13 @@ if (computer == "mac studio") {
   }
 }
 ```
-
-
+#-----------------------------------------------------------------------------
+#Clean and setup data
+# a) all proteomic data DPE analysis
+# b) sensitivty analysis (rm attempt)
+# c) DPE analysis with samples that contain both proteomic and metabolomic data
+#------------------------------------------------------------------------------
 ```{r}
-# ---- load split objects created from Data cleaning Rmd ----
 obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
 
 meta   <- obj$meta_prot
@@ -97,9 +97,9 @@ dim(meta)
 
 
 ```
-#============================================
-#open panther_data.RData to add in hba1c data
-#============================================
+##---------------------------------------------
+##open panther_data.RData to add in hba1c data
+##---------------------------------------------
 ```{r}
 load(file.path(dir.dat, "PANTHER", "Data_cleaned", "panther_data.RData"))
 
@@ -111,12 +111,10 @@ panther_hba1c <- panther %>%
     record_id = gsub("_", "-", as.character(record_id)),
     hba1c_panther = as.numeric(hba1c)
   )
-```
 
-```{r}
 panther_hba1c$record_id <- as.character(panther_hba1c$record_id)
 
-# 2) Make sure harm$hba1c is numeric too (if it exists)
+#Make sure harm$hba1c is numeric too (if it exists)
 meta <- meta %>%
   mutate(hba1c = as.numeric(zap_labels(hba1c))) %>%
   left_join(panther_hba1c, by = "record_id") %>%
@@ -129,10 +127,10 @@ meta <- meta %>%
   ) %>%
   dplyr::select(-hba1c_panther)
 ```
-
-
+##---------------------
+##cleaning metadata
+##---------------------
 ```{r}
-# ---- clean + filter meta ----
 meta$record_id <- trimws(as.character(meta$record_id))
 meta$study     <- trimws(as.character(meta$study))
 meta$group     <- trimws(as.character(meta$group))
@@ -179,6 +177,9 @@ meta_common <- meta_common %>%
 
 ```
 
+##--------------------------------- 
+## ALIGN metadata and protein matrix
+##-------------------------------- 
 ```{r}
 # Make both comparable
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
@@ -197,11 +198,6 @@ cat("overlap n:", length(olap), "\n")
 # show a few that DON'T match (helps spot formatting differences)
 cat("meta not in prot:", sum(!meta_common$record_id %in% prot_ids), "\n")
 cat("prot not in meta:", sum(!prot_ids %in% meta_common$record_id), "\n")
-```
-# ==================================
-# ALIGN metadata and protein matrix
-# ==================================
-```{r}
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
 rownames(prot_plasma) <- trimws(rownames(prot_plasma))
 
@@ -214,11 +210,20 @@ prot_plasma_common <- prot_plasma[olap, , drop = FALSE]
 
 stopifnot(identical(rownames(prot_plasma_common), meta_common$record_id))
 ```
+##-------------------------------
+##checking for low variance prots
+## none exist
+##--------------------------------
+```{r}
+nzv_idx <- nearZeroVar(prot_plasma_common)
 
-
-# =================
-# BUILD PCA INPUT
-# =================
+length(nzv_idx)   
+colnames(prot_plasma_common)[nzv_idx]  #check which prots are removed
+```
+##----------------- 
+## BUILD PCA INPUT
+## all prot data
+##-----------------
 ```{r}
 prot_pca <- as.matrix(prot_plasma_common)
 
@@ -226,12 +231,12 @@ prot_log <- log2(prot_pca + 1)
 prot_log[!is.finite(prot_log)] <- NA_real_
 ```
 
-## --------------------------------------------
+##--------------------------------------------
 ## PROTEIN FILTER: PRESENT IN >= 2 STUDIES
 ## check for other filters that might be needed
-## --------------------------------------------
+##--------------------------------------------
 ```{r}
-
+#nothing gets removed need to make a stricter filter to filter out attempt extra 3000 prots
 study_idx_all <- split(seq_len(nrow(prot_log)), meta_common$study)
 
 present_by_study_all <- sapply(study_idx_all, function(idx) {
@@ -242,6 +247,7 @@ present_by_study_all <- as.matrix(present_by_study_all)
 
 n_studies_present_all <- colSums(present_by_study_all)
 keep_study_all <- n_studies_present_all >= 2
+
 
 cat("All proteomic features before study filter:", ncol(prot_log), "\n")
 cat("Removed (<2 studies):", sum(!keep_study_all), "\n")
@@ -268,11 +274,12 @@ keep_cols <- colSums(is.na(prot_imp)) == 0 &
   is.finite(apply(prot_imp, 2, var))
 
 prot_imp <- prot_imp[, keep_cols, drop = FALSE]
+
 ```
 
-# ===============
-# FIND OUTLIER
-# ===============
+##--------------
+## FIND OUTLIERS
+##--------------
 ```{r}
 pca0 <- prcomp(prot_imp, center = TRUE, scale. = TRUE)
 
@@ -300,9 +307,10 @@ cat("Outlier to remove:", outlier_id, "\n")
 stopifnot(outlier_id %in% meta_common$record_id)
 stopifnot(outlier_id %in% rownames(prot_plasma_common))
 ```
-# =================================
-# ACTUALLY REMOVE IT FROM OBJECTS
-# ===================================
+##--------------------------------
+## ACTUALLY REMOVE IT FROM OBJECTS
+## look for cleaner way to do this
+##--------------------------------
 ```{r}
 meta_common_filt <- meta_common %>%
   filter(record_id != outlier_id)
@@ -317,9 +325,9 @@ cat("Still present in matrix? ", outlier_id %in% rownames(prot_plasma_common_fil
 stopifnot(!(outlier_id %in% meta_common_filt$record_id))
 stopifnot(!(outlier_id %in% rownames(prot_plasma_common_filt)))
 ```
-# ===============================
-# REBUILD PCA INPUT AFTER REMOVAL
-# ===============================
+##--------------
+## REBUILD PCA 
+##--------------
 ```{r}
 meta_pca <- meta_common_filt
 prot_pca <- prot_plasma_common_filt[match(meta_pca$record_id, rownames(prot_plasma_common_filt)), , drop = FALSE]
@@ -351,9 +359,9 @@ prot_imp <- prot_imp[, keep_cols, drop = FALSE]
 
 stopifnot(identical(rownames(prot_imp), meta_pca$record_id))
 ```
-# ============
+#---------------
 # PLOT HELPER
-# ============
+#---------------
 ```{r}
 make_pca_plot <- function(prot_mat, meta_df, title_str) {
   pca  <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
@@ -384,9 +392,9 @@ make_pca_plot <- function(prot_mat, meta_df, title_str) {
     theme_bw()
 }
 ```
-# ===========
-# PCA PANELS
-# ===========
+##-----------
+## PCAs
+##-----------
 ```{r}
 p  <- make_pca_plot(prot_imp, meta_pca, "No adjustment")
 
@@ -402,6 +410,7 @@ p2 <- make_pca_plot(prot_m2, meta_pca, "Age + Sex + Study")
 (p | p1 | p2)
 ```
 ```{r}
+#double checking for outliers again
 get_pca_outlier <- function(prot_mat, meta_df) {
   pca <- prcomp(prot_mat, center = TRUE, scale. = TRUE)
 
@@ -425,9 +434,11 @@ head(out_p1, 3)
 head(out_p2, 3)
 ```
 
-# ===============
-# limma testing
-# ===============
+##------------------------------
+##limma testing all prots data
+## model1: age + sex
+## model2: age + sex + study
+##------------------------------
 ```{r}
 meta_common$sex    <- factor(meta_common$sex)
 meta_common$group4 <- factor(meta_common$group4)
@@ -524,11 +535,10 @@ cat("Model 2 (age+sex+study) complete. N =", nrow(meta_m2), "\n")
 sig_m2
 ```
 
-# =====================================
-# COMBINED SUMMARY TABLE (all models)
-# =====================================
+##-------------------------------------
+## COMBINED SUMMARY TABLE (model 1 & 2)
+##-------------------------------------
 ```{r}
-# Assumes sig_no and sig_with already exist from your original code
 summary_all <- bind_rows(
   sig_m1  %>% mutate(model = "age_sex"),
   sig_m2
@@ -538,7 +548,6 @@ summary_all <- bind_rows(
 
 print(summary_all)
 
-# Optional: wide format for easy comparison across models per contrast
 summary_wide <- summary_all %>%
   dplyr::select(model, contrast, n_FDR05) %>%
   pivot_wider(names_from = model, values_from = n_FDR05)
@@ -546,10 +555,10 @@ summary_wide <- summary_all %>%
 print(summary_wide)
 ```
 
-# =====================================================
+#--------------------------------------------------------
 # SENSITIVITY ANALYSIS:
 # Exclude ATTEMPT study (different sequencing platform)
-# ======================================================
+#--------------------------------------------------------
 ```{r}
 # Subset metadata + protein matrix
 meta_noATT <- meta_common %>%
@@ -625,6 +634,8 @@ p2_noATT <- make_pca_plot(prot_m2_adj_noATT, meta_m2p_noATT, "Age + Sex + Study 
 ```
 ##----------------------------------
 ## limma using no-ATTEMPT dataset
+## model 1: age + sex
+## model 2: age + sex + study
 ## ---------------------------------
 ```{r}
 Y_all_noATT <- t(log2(as.matrix(prot_noATT) + 1))
@@ -717,11 +728,11 @@ summary_compare_noATT <- bind_rows(
 print(summary_compare_noATT)
 ```
 
-# ========================================================================
+#------------------------------------------------------------------------
 # SENSITIVITY ANALYSIS:
 # Restrict proteomics workflow to participants with all 3 omics types
-# (metabolomics + lipidomics + proteomics)
-# ========================================================================
+# (metabolomics + lipidomics + proteomics) = (metabolomics + proteomics)
+#------------------------------------------------------------------------
 ```{r}
 # Identify participants with all three omics types
 # Load your saved objects
@@ -739,9 +750,9 @@ count_samples_with_data <- function(meta_df, mat_df) {
 }
 ```
 
-# =========================================
-# PER-OMICS SAMPLE COUNTS: Study x Group
-# =========================================
+##---------------------------------------
+## PER-OMICS SAMPLE COUNTS: Study x Group
+##---------------------------------------
 ```{r}
 
 make_count_table <- function(meta_df, mat_df, omics_label) {
@@ -781,11 +792,10 @@ ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
 cat("Total participants with all 3 omics:", length(ids_all_three), "\n")
 ```
 
-## --------------------------------------------------
-##Restrict the proteomics analysis-ready dataset
-## --------------------------------------------------
+##--------------------------------------------------
+## Restrict the proteomics analysis-ready dataset
+##--------------------------------------------------
 ```{r}
-# Start from analysis-ready objects from original workflow
 meta_all3 <- meta_common %>%
   mutate(record_id = trimws(as.character(record_id))) %>%
   filter(record_id %in% ids_all_three)
@@ -805,7 +815,7 @@ print(table(meta_all3$group4, useNA = "ifany"))
 cat("Study counts in all-3-omics subset:\n")
 print(table(meta_all3$study, useNA = "ifany"))
 ```
-## --------------------------------------------------
+##--------------------------------------------------
 ##PCA using all-3-omics subset
 ##--------------------------------------------------
 ```{r}
@@ -866,6 +876,8 @@ p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (al
 ```
 ##--------------------------------------------------
 ##limma using all-3-omics subset
+## model1: age + sex
+## model2: age + sex + study
 ##--------------------------------------------------
 ```{r}
 Y_all_all3 <- t(log2(as.matrix(prot_all3) + 1))
@@ -1016,10 +1028,10 @@ overlap_summary <- dplyr::bind_rows(overlap_results)
 print(overlap_summary)
 ```
 
-# ============================================================
+#---------------------------------------------------
 # SAVE GSEA-READY LIMMA OUTPUTS
-# Three model versions, all using age + sex + study
-# ============================================================
+# Three analyses, all using age + sex + study model
+#---------------------------------------------------
 ```{r}
 
 # small helper to keep only what you'll need for GSEA
@@ -1090,6 +1102,11 @@ saveRDS(
 
 cat("Saved: limma_gsea_inputs_age_sex_study.rds\n")
 ```
+
+#---------------------------------------------------
+# SAVE GSEA-READY LIMMA OUTPUTS
+# Three analyses with reduced model
+#---------------------------------------------------
 ```{r}
 # define a shared contrast order
 contrast_order <- c(
