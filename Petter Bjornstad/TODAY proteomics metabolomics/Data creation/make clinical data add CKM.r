@@ -284,7 +284,7 @@ ame_wide <- ame_wide %>%
 comorb <- merge(comorb, ame_wide, by="releaseid", all.x=TRUE, all.y=FALSE)
 
 # Save
-save(comorb, file="./Clinical data/comorb.Rdata")
+save(comorb, file="./Clinical data/comorb_testing_CKM.Rdata")
 
 ###############################################################
 # Prepare shared reference datasets used across sections      #
@@ -356,14 +356,14 @@ baserisk <- merge(baserisk, baseDXA, by="releaseid", all.x=T, all.y=T)
 baserisk <- baserisk %>% mutate(relative_fat_mass = case_when(
   sex_char == "F" ~  76 - ((20*height/wastcirc)),
   sex_char == "M" ~ 64 - ((20*height)/wastcirc)),
-  TRUE == NA_real_
+  TRUE = NA_real_
 )
 baserisk <- full_join(baserisk, base_lipo, by="releaseid")
 baserisk$homa_ir    <- (baserisk$ins0min * baserisk$glu0min) / 405
 baserisk$waist_height <- baserisk$wastcirc / baserisk$height
 
 # Save
-save(baserisk, file="./Clinical data/TODAY/baserisk.Rdata")
+save(baserisk, file="./Clinical data/TODAY/baserisk_testing_CKM.Rdata")
 
 ###############################################################
 # Create dataset of risk factors at 10-year visit (TODAY2)    #
@@ -392,7 +392,7 @@ yr10risk$si_1_ins0 <- 1/yr10risk$ins
 yr10risk$log_trig  <- log(yr10risk$trig)
 
 # Save
-save(yr10risk, file="./Clinical data/TODAY/yr10risk.Rdata")
+save(yr10risk, file="./Clinical data/TODAY/yr10risk_testing_CKM.Rdata")
 
 ###############################################################
 # Create longitudinal dataset (long)                          #
@@ -527,4 +527,4 @@ summary(long_unique$fup_years)
 summary(comorb[comorb$GLYC==1,]$DAYSTOGLYC)
 
 # Save
-save(long, file="./Clinical data/TODAY/clinical_data_long.Rdata")
+save(long, file="./Clinical data/TODAY/clinical_data_long_testing_CKM.Rdata")
