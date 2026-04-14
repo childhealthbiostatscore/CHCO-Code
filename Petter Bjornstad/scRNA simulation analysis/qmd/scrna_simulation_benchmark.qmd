@@ -17,7 +17,8 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
   git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "yejichoi") {
@@ -81,7 +82,7 @@ plot_metric_by <- function(data, x_var, x_levels = NULL,
   
   p <- ggplot(data, aes(x = .data[[x_var]], y = .data[[y_var]], fill = method)) +
     geom_boxplot() +
-    facet_wrap(~ method) +
+    facet_wrap(~ method, ncol = 2) +
     theme_bw() +
     theme(text = element_text(size = 15),
           legend.position = "none",
@@ -102,9 +103,9 @@ param_specs <- list(
   list(x_var = "n_subjects_per_arm", x_levels = c(5, 10, 20),
        x_label = "N Subjects/Arm"),
   list(x_var = "lfc_label",          x_levels = c("vlow", "low", "med", "high"),
-       x_label = "Log2 FC Tier"),
+       x_label = "Log2 FC"),
   list(x_var = "indiv_var_label",    x_levels = c("no", "med", "high"),
-       x_label = "Individual Variance"),
+       x_label = "Between subject SD"),
   list(x_var = "cells_label",        x_levels = c("low", "high"),
        x_label = "Cells per Subject"),
   list(x_var = "corr_cells",         x_levels = NULL,
@@ -127,19 +128,19 @@ names(power_plots) <- sapply(param_specs, `[[`, "x_var")
 
 power_plots
 
-benchmark %>%
-  ggplot(aes(x = factor(lfc_label, levels = c("vlow", "low", "med", "high")), 
-             y = mean_power, fill = method)) +
-  geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey") +
-  geom_boxplot() +
-  scale_fill_manual(values = method_palette) +
-  theme_minimal()
-  
+# benchmark %>%
+#   ggplot(aes(x = factor(lfc_label, levels = c("vlow", "low", "med", "high")), 
+#              y = mean_power, fill = method)) +
+#   geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey") +
+#   geom_boxplot() +
+#   scale_fill_manual(values = method_palette) +
+#   theme_minimal()
 
-# for (nm in names(power_plots)) {
-#   ggsave(paste0("power_by_", nm, ".png"), power_plots[[nm]],
-#          width = 10, height = 7, dpi = 150)
-# }
+for (nm in names(power_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/power_by_", nm, ".png")), 
+         power_plots[[nm]],
+         width = 7, height = 5)
+}
 ```
 # T1E comparisons
 
@@ -156,10 +157,11 @@ t1e_plots <- lapply(param_specs, function(spec) {
 names(t1e_plots) <- sapply(param_specs, `[[`, "x_var")
 
 t1e_plots
-# for (nm in names(t1e_plots)) {
-#   ggsave(paste0("t1e_by_", nm, ".png"), t1e_plots[[nm]],
-#          width = 10, height = 7, dpi = 150)
-# }
+for (nm in names(t1e_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/t1e_by_", nm, ".png")), 
+         t1e_plots[[nm]],
+         width = 7, height = 5)
+  }
 ```
 
 # FDR comparisons
@@ -177,31 +179,12 @@ fdr_plots <- lapply(param_specs, function(spec) {
 names(fdr_plots) <- sapply(param_specs, `[[`, "x_var")
 
 fdr_plots
-# for (nm in names(fdr_plots)) {
-#   ggsave(paste0("fdr_by_", nm, ".png"), fdr_plots[[nm]],
-#          width = 10, height = 7, dpi = 150)
-# }
-```
 
-# AUC comparisons
-
-```{r}
-auc_plots <- lapply(param_specs, function(spec) {
-  plot_metric_by(benchmark,
-                 x_var    = spec$x_var,
-                 x_levels = spec$x_levels,
-                 x_label  = spec$x_label,
-                 y_var = "mean_auc_roc",
-                 y_label = "AUC-ROC",
-                 hline = NULL)
-})
-names(auc_plots) <- sapply(param_specs, `[[`, "x_var")
-
-auc_plots
-# for (nm in names(auc_plots)) {
-#   ggsave(paste0("auc_by_", nm, ".png"), auc_plots[[nm]],
-#          width = 10, height = 7, dpi = 150)
-# }
+for (nm in names(fdr_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/fdr_by_", nm, ".png")), 
+         fdr_plots[[nm]],
+         width = 7, height = 5)
+  }
 ```
 
 # Compute time comparisons
@@ -219,10 +202,6 @@ compute_s_plots <- lapply(param_specs, function(spec) {
 names(compute_s_plots) <- sapply(param_specs, `[[`, "x_var")
 
 compute_s_plots
-# for (nm in names(compute_s_plots)) {
-#   ggsave(paste0("compute_s_by_", nm, ".png"), compute_s_plots[[nm]],
-#          width = 10, height = 7, dpi = 150)
-# }
 ```
 
 ```{r}
@@ -282,10 +261,60 @@ plot_power_vs_t1e <- function(data) {
     scale_x_continuous(limits = c(0, NA)) +
     scale_y_continuous(limits = c(0, 1)) +
     labs(x = "Type I Error", y = "Power",
-         title = "Calibration vs. sensitivity across scenarios") +
-    theme_bw()
+         color = "Method") +
+    # scale_color_manual(values = method_palette) +
+    theme_minimal() +
+    theme(text = element_text(size = 15),
+          panel.grid = element_blank())
 }
 
 plot_power_vs_t1e(benchmark %>% filter(prop_de > 0))
 ```
 
+# KS statistics at null
+
+```{r}
+benchmark %>%
+  filter(!is.na(mean_ks_stat)) %>%
+  ggplot(aes(x = method, y = mean_ks_stat, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "KS statistic")
+```
+
+
+# logFC bias
+
+```{r}
+benchmark %>%
+  filter(!is.na(mean_logfc_bias)) %>%
+  ggplot(aes(x = method, y = mean_logfc_bias, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "LogFC Bias")
+
+benchmark %>%
+  filter(!is.na(mean_logfc_mae)) %>%
+  ggplot(aes(x = method, y = mean_logfc_mae, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "LogFC MAE")
+```
