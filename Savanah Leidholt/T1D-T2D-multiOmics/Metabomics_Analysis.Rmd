@@ -11,8 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -76,9 +76,9 @@ library(purrr)
 library(KEGGREST)
 library(caret)
 ```
-#=====================================
+#------------------------------------
 # RAW METABOLOMICS QC / SUMMARY PLOTS
-#=====================================
+#------------------------------------
 ```{r}
 omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
 meta_qc <- omics_objects$meta_metab
@@ -111,6 +111,38 @@ stopifnot(identical(meta_qc$record_id, rownames(mat_qc)))
 cat("QC samples:", nrow(mat_qc), "\n")
 cat("QC metabolites:", ncol(mat_qc), "\n")
 
+```
+#--------------------
+#PCA plotting Function
+#--------------------
+```{r}
+make_pca_plot <- function(mat_in, meta_df, title_str) {
+  pca <- prcomp(mat_in, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1 = pca$x[, 1],
+    PC2 = pca$x[, 2],
+    group4 = meta_df$group4,
+    study  = meta_df$study
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group4, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC  = "#2166AC",
+        OC  = "#F4A582",
+        T1D = "#D6604D",
+        T2D = "#4DAC26"
+      )
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw()
+}
 ```
 ## ----------------------
 ## SAMPLE-LEVEL COVERAGE
@@ -186,20 +218,21 @@ p_study_cov <- ggplot(study_coverage, aes(x = study6, y = pct_metabolites_presen
 p_study_cov
 
 ```
-# =================================================
+# ----------------------------------------------------
 # METABOLOMICS-ONLY ANALYSIS WORKFLOW
-# a) all metabolomics samples
+# a) all metabolomics saples
 # b) metabolomics samples that also have proteomics
-# =================================================
+#-----------------------------------------------------
 ```{r}
 contrast_names <- c(
   "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
   "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
 )
-
-# ------------------
+```
+#------------------
 # METABOLOMICS ONLY
-# ------------------
+#------------------
+```{r}
 meta_metab <- omics_objects$meta_metab
 mat_metab  <- omics_objects$metabolites
 
@@ -257,11 +290,10 @@ cat("Remaining samples:", nrow(meta_metab), "\n")
 cat("Remaining metabolites:", ncol(mat_metab), "\n")
 print(table(meta_metab$study, useNA = "ifany"))
 ```
-
+#--------------
+#IDS WITH DATA
+#--------------
 ```{r}
-# --------------
-# IDS WITH DATA
-# --------------
 ids_metab <- rownames(mat_metab)[rowSums(!is.na(mat_metab)) > 0]
 
 prot_tmp <- omics_objects$prot_plasma
@@ -277,10 +309,9 @@ cat("Total metabolomics IDs with data after ATT & PANTH removal:", length(ids_me
 cat("Total metabolomics + proteomics overlap IDs:", length(ids_metab_prot), "\n")
 
 ```
-
-#=====================================
-# a: ALL METABOLOMICS SAMPLES
-#=====================================
+#----------------------------
+# a) ALL METABOLOMICS SAMPLES
+#----------------------------
 ```{r}
 ids_use_all <- intersect(meta_metab$record_id, rownames(mat_metab))
 
@@ -325,9 +356,9 @@ cat("Kept (>=2 studies):", sum(keep_study_all), "\n")
 
 mat_filt_all <- mat_log_all[, keep_study_all, drop = FALSE]
 ```
-##===============
+##-----------
 ##imputation
-##===============
+##-----------
 ```{r}
 meds_all <- apply(mat_filt_all, 2, function(x) {
   m <- median(x, na.rm = TRUE)
@@ -365,9 +396,9 @@ colnames(mat_imp_all)[nzv_idx]  #view removed features
 mat_imp_all <- mat_imp_all[, -nzv_idx, drop = FALSE]
 ```
 
-#=========================
-# PCA-based OUTLIER REMOVAL
-#=========================
+##---------------------------
+## PCA-based OUTLIER REMOVAL
+##---------------------------
 ```{r}
 pca_all <- prcomp(mat_imp_all, center = TRUE, scale. = TRUE)
 pca_dist_all <- sqrt(rowSums(pca_all$x[, 1:5]^2))
@@ -402,41 +433,9 @@ cat("number of participants kept", nrow(mat_imp_all), "\n")
 stopifnot(identical(meta_all$record_id, rownames(mat_imp_all)))
 ```
 
-#=================
-# PCA plot funciton
-#=================
-```{r}
-make_pca_plot <- function(mat_in, meta_df, title_str) {
-  pca <- prcomp(mat_in, center = TRUE, scale. = TRUE)
-  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
-
-  tibble(
-    PC1 = pca$x[, 1],
-    PC2 = pca$x[, 2],
-    group4 = meta_df$group4,
-    study  = meta_df$study
-  ) %>%
-    ggplot(aes(PC1, PC2, color = group4, shape = study)) +
-    geom_point(size = 3, alpha = 0.85) +
-    scale_color_manual(
-      values = c(
-        LC  = "#2166AC",
-        OC  = "#F4A582",
-        T1D = "#D6604D",
-        T2D = "#4DAC26"
-      )
-    ) +
-    labs(
-      title = title_str,
-      x = paste0("PC1 (", vexp[1], "%)"),
-      y = paste0("PC2 (", vexp[2], "%)")
-    ) +
-    theme_bw()
-}
-```
-#-----------------------
-# PCA: ALL METABOLOMICS
-#-----------------------
+##-----------------------
+## PCA: ALL METABOLOMICS
+##-----------------------
 ```{r}
 p0_all <- make_pca_plot(mat_imp_all, meta_all, "Metabolomics - No adjustment")
 
@@ -454,9 +453,9 @@ p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Stud
     subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only"
   )
 ```
-# ------------------------
-# LIMMA: ALL METABOLOMICS
-# ------------------------
+##------------------------
+## LIMMA: ALL METABOLOMICS
+## ------------------------
 ```{r}
 Y_all <- t(as.matrix(mat_imp_all))
 
@@ -496,9 +495,9 @@ sig_all <- tibble(
 
 print(sig_all)
 ```
-#--------------------------------
-# VOLCANO PLOTS--ALL METABOLOMICS
-#---------------------------------
+##--------------------------------
+## VOLCANO PLOTS--ALL METABOLOMICS
+##---------------------------------
 ```{r}
 volcano_list_all <- lapply(contrast_names, function(cc) {
   tt <- out_all[[cc]]
@@ -519,9 +518,10 @@ volcano_list_all <- lapply(contrast_names, function(cc) {
 
 wrap_plots(volcano_list_all, ncol = 3)
 ```
-#===================================================
+
+#--------------------------------------------------
 # b: METABOLOMICS SAMPLES THAT ALSO HAVE PROTEOMICS
-#===================================================
+#--------------------------------------------------
 ```{r}
 #identify participants that have both proteomic and metabolomic data
 ids_use_mp <- intersect(ids_metab_prot, intersect(meta_metab$record_id, rownames(mat_metab)))
@@ -544,10 +544,10 @@ tbl_mp <- meta_mp %>%
 tbl_mp
 ```
 
+##---------------------------------------------
+##PREP MATRIX: METABOLOMICS + PROTEOMICS SUBSET
+##---------------------------------------------
 ```{r}
-#---------------------------------------------
-# PREP MATRIX: METABOLOMICS + PROTEOMICS SUBSET
-#---------------------------------------------
 mat_mp <- as.matrix(mat_mp)
 rownames(mat_mp) <- trimws(as.character(rownames(mat_mp)))
 
@@ -604,9 +604,9 @@ colnames(mat_imp_mp)[nzv_idx]  #check whic metabolites are removed
 
 mat_imp_mp <- mat_imp_mp[, -nzv_idx, drop = FALSE]
 ```
-#=========================
-# PCA-based OUTLIER REMOVAL
-#=========================
+##---------------------------
+## PCA-based OUTLIER REMOVAL
+##---------------------------
 ```{r}
 pca_mp <- prcomp(mat_imp_mp, center = TRUE, scale. = TRUE)
 pca_dist_mp <- sqrt(rowSums(pca_mp$x[, 1:5]^2))
@@ -641,9 +641,9 @@ cat("number of participants kept", nrow(mat_imp_mp), "\n")
 stopifnot(identical(meta_mp$record_id, rownames(mat_imp_mp)))
 ```
 
-# ---------------------------------------
-# PCA: METABOLOMICS + PROTEOMICS SUBSET
-# ---------------------------------------
+##---------------------------------------
+## PCA: METABOLOMICS + PROTEOMICS SUBSET
+##---------------------------------------
 ```{r}
 p0_mp <- make_pca_plot(mat_imp_mp, meta_mp, "Metabolomics - No adjustment (metab+prot subset)")
 
@@ -661,9 +661,9 @@ p2_mp <- make_pca_plot(mat_adj2_mp, meta_mp, "Metabolomics - Age + Sex + Study (
     subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only"
   )
 ```
-#---------------------------------------
-#LIMMA: METABOLOMICS + PROTEOMICS SUBSET
-#---------------------------------------
+##---------------------------------------
+##LIMMA: METABOLOMICS + PROTEOMICS SUBSET
+##---------------------------------------
 ```{r}
 Y_mp <- t(as.matrix(mat_imp_mp))
 
@@ -703,9 +703,9 @@ sig_mp <- tibble(
 
 print(sig_mp)
 ```
-#-----------------------------------------------
-# VOLCANO PLOTS: METABOLOMICS + PROTEOMICS SUBSET
-#------------------------------------------------
+##-----------------------------------------------
+##VOLCANO PLOTS: METABOLOMICS + PROTEOMICS SUBSET
+##------------------------------------------------
 ```{r}
 volcano_list_mp <- lapply(contrast_names, function(cc) {
   tt <- out_mp[[cc]]
@@ -760,9 +760,9 @@ out_mp <- lapply(out_mp, function(x) {
 out_mp
 ```
 
-#----------------------------------------
+#---------------------------------
 # KEGG compound -> pathway mapping
-#----------------------------------------
+#---------------------------------
 ```{r}
 # all human KEGG pathways
 kegg_pathways_all <- KEGGREST::keggList("pathway", "hsa")
@@ -772,8 +772,6 @@ pathway_df <- tibble(
   pathway_name = unname(kegg_pathways_all)
 )
 
-# keep metabolic pathways only if you want a cleaner analysis
-# optional: remove disease/drug/etc pathways
 pathway_df <- pathway_df %>%
   filter(str_detect(pathway_name, regex("metabolism", ignore_case = TRUE)) |
            pathway_id %in% c(
@@ -810,10 +808,11 @@ normalize_kegg_compound <- function(x) {
 }
 ```
 
-#=============================================================
+#----------------------------------------------------------------
 #Performing Over-representation analysis
 #using metabolites that remained after filtering as background
-#=============================================================
+#check to see if I should include all metabolites in assay instead
+#-----------------------------------------------------------------
 ```{r}
 run_kegg_metab_ora <- function(
   tt,
@@ -937,9 +936,9 @@ plot_kegg_ora <- function(res_df, title_text, n = 15) {
     )
 }
 ```
-#==============================
-#ORA on all metabolite data
-#==============================
+##-----------------------------
+##a. ORA on all metabolite data
+##-----------------------------
 ```{r}
 kegg_res <- lapply(out_all, function(tt) {
   run_kegg_metab_ora(
@@ -979,10 +978,9 @@ kegg_plots_mp <- lapply(names(kegg_res_mp), function(cc) {
 patchwork::wrap_plots(kegg_plots_mp, ncol = 2)
 ```
 
-
-#=========================================
-#ORA on metabolite data with proteomics dat
-#==========================================
+##---------------------------------------------
+## b. ORA on metabolite data with proteomics dat
+##----------------------------------------------
 ```{r}
 kegg_res_mp <- lapply(out_mp, function(tt) {
   run_kegg_metab_ora(
@@ -1032,5 +1030,14 @@ kegg_plots_mp <- lapply(names(kegg_res_mp), function(cc) {
 })
 
 patchwork::wrap_plots(kegg_plots_mp, ncol = 2)
+```
+
+#--------------------------------------------------
+#ElasticNet on top 50 metabolites per contrast
+#a) all metabolite data
+#b) data with metabolite and proteomics data
+#--------------------------------------------------
+```{r}
+
 ```
 
