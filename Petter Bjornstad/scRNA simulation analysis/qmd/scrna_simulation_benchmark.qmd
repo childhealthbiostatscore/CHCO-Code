@@ -17,8 +17,8 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
   git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "yejichoi") {
@@ -142,6 +142,7 @@ for (nm in names(power_plots)) {
          width = 7, height = 5)
 }
 ```
+
 # T1E comparisons
 
 ```{r}
@@ -157,6 +158,7 @@ t1e_plots <- lapply(param_specs, function(spec) {
 names(t1e_plots) <- sapply(param_specs, `[[`, "x_var")
 
 t1e_plots
+
 for (nm in names(t1e_plots)) {
   ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/t1e_by_", nm, ".png")), 
          t1e_plots[[nm]],
@@ -317,4 +319,59 @@ benchmark %>%
         axis.text.x = element_text(angle = 60, hjust = 1),
         legend.position = "none") +
   labs(x = NULL, y = "LogFC MAE")
+```
+
+# Reference (ATTEMPT) data
+
+```{r}
+ref_dat <- s3readRDS(object = "Projects/Paired scRNA simulation analysis/results/reference/de_results_PT.rds", bucket = "scrna", region = "")
+ref_dat_summary <- ref_dat$summary_table
+
+# 7 in placebo; 9 in dapa at baseline
+# 4 in placebo; 7 in dapa at follow up
+# avg ~ 6-7 subjects per arm
+# median number of cells: 839 (low)
+# median LFC: ~ 0.5 (med)
+# ICC: 0.42 (med)
+
+benchmark_ref <- benchmark %>%
+  filter(n_subjects_per_arm == 10 &
+           lfc_label == "med" &
+           cells_label == "low" &
+           indiv_var_label == "med")
+summary(benchmark_ref[benchmark_ref$method == "MAST",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "Wilcoxon rank-sum",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "edgeR",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "limma-voom",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "NEBULA",]$mean_power)
+
+benchmark_ref %>%
+  ggplot(aes(x = method, y = mean_power, fill = method)) +
+  geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "MAST",]$Pct_Sig_FDR)))/100,
+             color = method_palette["MAST"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "NEBULA",]$Pct_Sig_FDR)))/100,
+             color = method_palette["NEBULA"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "edgeR",]$Pct_Sig_FDR)))/100,
+             color = method_palette["edgeR"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "limma",]$Pct_Sig_FDR)))/100,
+             color = method_palette["limma"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "Wilcoxon",]$Pct_Sig_FDR)))/100,
+             color = method_palette["Wilcoxon rank-sum"], linetype = "dashed") +
+  geom_boxplot() +
+  scale_fill_manual(values = method_palette)  +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = "Average Power", 
+       fill = "Method",
+       caption = "In ATTEMPT: 7, 9 at baseline; 4, 7 at follow up\n
+       Median LFC ~ 0.5 (corresponds to med)\n
+       Median number of cells/person: 839 (corresponds to low)\n
+       ICC: 0.42 (corresponds to med)")
+
+ggsave(file.path(root_path, "scRNA simulation analysis/Results/Figures/attempt_simulations.png"))
+
+
+
 ```
