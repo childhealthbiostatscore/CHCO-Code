@@ -137,24 +137,19 @@ meta$group     <- trimws(as.character(meta$group))
 meta$sex       <- trimws(as.character(meta$sex))
 meta$ethnicity <- trimws(as.character(meta$race_ethnicity_condensed))
 
-# ensure numeric age (prevents silent coercion issues)
 meta$age <- suppressWarnings(as.numeric(meta$age))
 
-# drop missing covariates (common set for PCA + limma)
+# drop missing covariates 
 keep <- !is.na(meta$age) & !is.na(meta$sex) & meta$sex != "" 
 meta <- meta[keep, , drop = FALSE]
 
-# compact group labels for plots/models
 meta$group4 <- factor(
   meta$group,
   levels = c("Lean Control","Obese Control","Type 1 Diabetes","Type 2 Diabetes"),
   labels = c("LC","OC","T1D","T2D")
 )
 
-# ethnicity as factor (from cleaned column)
 meta$ethnicity <- factor(meta$ethnicity)
-
-# study6: SAFE mapping (never creates NA; unlisted studies keep original name)
 meta$study6 <- dplyr::recode(
   meta$study,
   "ATTEMPT"        = "ATT",
@@ -167,7 +162,6 @@ meta$study6 <- dplyr::recode(
 )
 meta$study6 <- factor(meta$study6)
 
-# meta_common is your analysis baseline set (age+sex present)
 meta_common <- meta
 meta_common <- meta_common %>%
   mutate(
@@ -181,7 +175,6 @@ meta_common <- meta_common %>%
 ## ALIGN metadata and protein matrix
 ##-------------------------------- 
 ```{r}
-# Make both comparable
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
 prot_ids <- trimws(rownames(prot_plasma))
 
@@ -194,8 +187,6 @@ cat("example prot rownames:", paste(head(prot_ids), collapse=", "), "\n")
 # overlap
 olap <- intersect(meta_common$record_id, prot_ids)
 cat("overlap n:", length(olap), "\n")
-
-# show a few that DON'T match (helps spot formatting differences)
 cat("meta not in prot:", sum(!meta_common$record_id %in% prot_ids), "\n")
 cat("prot not in meta:", sum(!prot_ids %in% meta_common$record_id), "\n")
 meta_common$record_id <- trimws(as.character(meta_common$record_id))
@@ -218,7 +209,7 @@ stopifnot(identical(rownames(prot_plasma_common), meta_common$record_id))
 nzv_idx <- nearZeroVar(prot_plasma_common)
 
 length(nzv_idx)   
-colnames(prot_plasma_common)[nzv_idx]  #check which prots are removed
+colnames(prot_plasma_common)[nzv_idx]  
 ```
 ##----------------- 
 ## BUILD PCA INPUT
@@ -303,7 +294,6 @@ outlier_id <- c("10424", "10434")
 
 cat("Outlier to remove:", outlier_id, "\n")
 
-# check it exists
 stopifnot(outlier_id %in% meta_common$record_id)
 stopifnot(outlier_id %in% rownames(prot_plasma_common))
 ```
@@ -409,6 +399,7 @@ p2 <- make_pca_plot(prot_m2, meta_pca, "Age + Sex + Study")
 
 (p | p1 | p2)
 ```
+
 ```{r}
 #double checking for outliers again
 get_pca_outlier <- function(prot_mat, meta_df) {
@@ -536,7 +527,7 @@ sig_m2
 ```
 
 ##-------------------------------------
-## COMBINED SUMMARY TABLE (model 1 & 2)
+## combined summary tables (model 1 & 2)
 ##-------------------------------------
 ```{r}
 summary_all <- bind_rows(
@@ -717,8 +708,6 @@ print(summary_wide_noATT)
 
 
 # Compare original vs no-ATTEMPT summary tables
-
-
 summary_compare_noATT <- bind_rows(
   summary_all %>% mutate(dataset = "original"),
   summary_all_noATT %>% mutate(dataset = "excluding_ATTEMPT")
@@ -729,14 +718,12 @@ print(summary_compare_noATT)
 ```
 
 #------------------------------------------------------------------------
-# SENSITIVITY ANALYSIS:
+# Ssensitivity Analysis #2:
 # Restrict proteomics workflow to participants with all 3 omics types
 # (metabolomics + lipidomics + proteomics) = (metabolomics + proteomics)
 #------------------------------------------------------------------------
 ```{r}
 # Identify participants with all three omics types
-# Load your saved objects
-
 omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
 
 
@@ -751,7 +738,7 @@ count_samples_with_data <- function(meta_df, mat_df) {
 ```
 
 ##---------------------------------------
-## PER-OMICS SAMPLE COUNTS: Study x Group
+## samples counts Study x Group
 ##---------------------------------------
 ```{r}
 
@@ -778,7 +765,7 @@ print(tbl_proteins)
 ```
 
 ```{r}
-# A sample "has data" if it has at least one non-missing value in that matrix
+#A sample "has data" if it has at least one non-missing value in that matrix
 ids_metab <- rownames(omics_objects$metabolites)[rowSums(!is.na(omics_objects$metabolites)) > 0]
 ids_lipids <- rownames(omics_objects$lipids)[rowSums(!is.na(omics_objects$lipids)) > 0]
 ids_prot <- rownames(omics_objects$prot_plasma)[rowSums(!is.na(omics_objects$prot_plasma)) > 0]
@@ -861,9 +848,6 @@ cov_m2_all3 <- model.matrix(~ age + sex + study6, data = meta_m2p_all3)[, -1, dr
 prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
 p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (all 3 omics subset)")
 
-
-
-# Render all-3-omics PCA panel
 (p_all3 | p1_all3 | p2_all3)+
   plot_annotation(
     title = "PCA: Proteomics Sensitivity Analysis in Participants with All 3 Omics Types",
@@ -954,8 +938,6 @@ summary_wide_all3 <- summary_all_all3 %>%
 
 print(summary_wide_all3)
 
-
-#Compare original vs all-3-omics subset
 summary_compare_all3 <- bind_rows(
   summary_all %>% mutate(dataset = "original"),
   summary_all_all3 %>% mutate(dataset = "all_3_omics_subset")
@@ -1029,17 +1011,15 @@ print(overlap_summary)
 ```
 
 #---------------------------------------------------
-# SAVE GSEA-READY LIMMA OUTPUTS
+# saving limma outputs
 # Three analyses, all using age + sex + study model
 #---------------------------------------------------
 ```{r}
-
-# small helper to keep only what you'll need for GSEA
 prep_gsea_tables <- function(out_list) {
   lapply(out_list, function(tt) {
     tt %>%
       dplyr::select(feature_id, logFC, AveExpr, t, P.Value, adj.P.Val, B, contrast) %>%
-      dplyr::arrange(desc(t))  # or desc(logFC) — pick one ranking metric
+      dplyr::arrange(desc(t)) 
   })
 }
 
@@ -1047,13 +1027,12 @@ out_m2 <- prep_gsea_tables(out_m2)
 out_m2_noATT <- prep_gsea_tables(out_m2_noATT)
 out_m2_all3 <- prep_gsea_tables(out_m2_all3)
 
-# define a shared contrast order
+
 contrast_order <- c(
   "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
   "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
 )
 
-# build one object with all three study-adjusted analyses
 limma_gsea_inputs <- list(
   
   metadata = list(
@@ -1104,17 +1083,10 @@ cat("Saved: limma_gsea_inputs_age_sex_study.rds\n")
 ```
 
 #---------------------------------------------------
-# SAVE GSEA-READY LIMMA OUTPUTS
 # Three analyses with reduced model
 #---------------------------------------------------
 ```{r}
-# define a shared contrast order
-contrast_order <- c(
-  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
-  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
-)
 
-# build one object with all three study-adjusted analyses
 limma_gsea_inputs <- list(
   
   metadata = list(
