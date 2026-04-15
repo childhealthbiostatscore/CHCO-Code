@@ -2037,6 +2037,13 @@ results_improve_cont <- fit_lmer_loop(
 format_lm_table(results_improve_cont,
                   caption = "Longitudinal change (months): Imaging ~ Visit")
 
+results_improve_cont_std <- fit_lmer_loop_std(
+  df        = improve_dat,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+
 results_improve_cont_sens <- fit_lmer_loop(
   df        = subset(improve_dat, days_since_baseline < 1460),
   outcomes  = im_vars_raw,
@@ -2045,6 +2052,41 @@ results_improve_cont_sens <- fit_lmer_loop(
 )
 format_lm_table(results_improve_cont_sens,
                   caption = "Longitudinal change (months): Imaging ~ Visit (excluding 4.74 yr follow up)")
+
+results_improve_cont_sens_std <- fit_lmer_loop_std(
+  df        = subset(improve_dat, days_since_baseline < 1460),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+```
+
+### Forest plot: raw estimates (per month)
+
+```{r forest-improve-cont-raw, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_improve_cont, "months_since_baseline",
+                x_label = "Estimate per month (raw units)")
+```
+
+### Forest plot: standardized estimates (per month)
+
+```{r forest-improve-cont-std, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_std(results_improve_cont_std, "months_since_baseline",
+                x_label = "Standardized estimate per month (SD units)")
+```
+
+### Forest plot: raw estimates (per month, excluding 4.74 yr follow up)
+
+```{r forest-improve-cont-sens-raw, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_improve_cont_sens, "months_since_baseline",
+                x_label = "Estimate per month (raw units, sensitivity)")
+```
+
+### Forest plot: standardized estimates (per month, excluding 4.74 yr follow up)
+
+```{r forest-improve-cont-sens-std, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_std(results_improve_cont_sens_std, "months_since_baseline",
+                x_label = "Standardized estimate per month (SD units, sensitivity)")
 ```
 
 ```{r}
@@ -2059,6 +2101,7 @@ colors_30 <- c(
 )
 
 improve_spaghetti <- lapply(im_vars_raw, function(var) {
+  y_label <- if (var %in% names(im_labels)) im_labels[[var]] else var
   improve_dat %>%
     filter(days_since_baseline < 1460) %>%
     ggplot(aes(x = months_since_baseline, y = .data[[var]], group = mrn, color = factor(mrn))) +
@@ -2070,7 +2113,7 @@ improve_spaghetti <- lapply(im_vars_raw, function(var) {
     theme(text = element_text(size = 15),
           panel.grid = element_blank(),
           legend.position = "none") +
-    labs(x = "Time since baseline (months)", y = var) +
+    labs(x = "Time since baseline (months)", y = y_label) +
     scale_color_manual(values = colors_30)
 })
 
