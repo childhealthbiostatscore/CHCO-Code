@@ -1178,7 +1178,7 @@ improve_delta_mri_cmr_500$plot
 improve_delta_mri_cmr_500$coverage_plot
 ```
 
-# Mixed models
+# Linear models or mixed models
 
 ## Helper function
 
@@ -1195,6 +1195,52 @@ drop_nonfinite <- function(results) {
     message("  Dropping non-finite results: ", paste(dropped, collapse = ", "))
   }
   results[!bad, ]
+}
+
+fit_lm_loop <- function(df,
+                        outcomes,
+                        fixed_rhs,
+                        log_vars   = NULL,
+                        var_labels = im_labels) {
+
+  results <- map_dfr(outcomes, function(y) {
+    if (!is.null(log_vars) && y %in% log_vars) {
+      df[[y]] <- log10(df[[y]])
+      y_label <- paste0("log10(", if (y %in% names(var_labels)) var_labels[y] else y, ")")
+    } else {
+      y_label <- if (y %in% names(var_labels)) var_labels[y] else y
+    }
+
+    df_fit <- df %>% filter(!is.na(.data[[y]]))
+    if (nrow(df_fit) < 5) return(NULL)
+
+    tryCatch({
+      mod <- lm(as.formula(paste0("`", y, "` ~ ", fixed_rhs)), data = df_fit)
+      broom::tidy(mod, conf.int = TRUE) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = y_label,
+          n_obs         = nrow(df_fit),
+          n_subjects    = nrow(df_fit)
+        )
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
+      NULL
+    })
+  })
+
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
+  results %>%
+    dplyr::mutate(
+      stars = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
 }
 
 # ── Helper: fit lmer across multiple imaging outcomes ─────────────────────────
@@ -1258,7 +1304,7 @@ fit_lmer_loop <- function(df,
 }
 
 # ── Helper: format results table for display ──────────────────────────────────
-format_lmer_table <- function(results, caption = "") {
+format_lm_table <- function(results, caption = "") {
   if (nrow(results) == 0) {
     message("  No converged results to display for: ", caption)
     return(invisible(NULL))
@@ -1341,6 +1387,71 @@ fit_lmer_loop_std <- function(df,
         )
     }, error = function(e) {
       message(sprintf("  Skipping %s: %s", y, e$message))
+      NULL
+    })
+  })
+
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
+  results %>%
+    dplyr::mutate(
+      stars = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
+}
+
+fit_lm_loop_std <- function(df,
+                            outcomes,
+                            fixed_rhs,
+                            log_vars       = NULL,
+                            var_labels     = im_labels,
+                            std_predictors = FALSE) {
+
+  results <- map_dfr(outcomes, function(y) {
+    # Optional log-transform first
+    if (!is.null(log_vars) && y %in% log_vars) {
+      df[[y]] <- log10(df[[y]])
+      y_label <- paste0("log10(", if (y %in% names(var_labels)) var_labels[y] else y, ")")
+    } else {
+      y_label <- if (y %in% names(var_labels)) var_labels[y] else y
+    }
+
+    df_fit <- df %>% filter(!is.na(.data[[y]]))
+    if (nrow(df_fit) < 5) return(NULL)
+
+    # z-score the outcome (Cohen's d for categorical predictors;
+    # standardized β if predictors are also z-scored)
+    y_sd <- sd(df_fit[[y]], na.rm = TRUE)
+    if (!is.finite(y_sd) || y_sd == 0) return(NULL)
+    df_fit[[y]] <- as.numeric(scale(df_fit[[y]]))
+
+    # Optionally z-score numeric predictors so β is fully standardized
+    if (std_predictors) {
+      pred_terms <- all.vars(as.formula(paste("~", fixed_rhs)))
+      for (p in pred_terms) {
+        if (is.numeric(df_fit[[p]])) {
+          df_fit[[p]] <- as.numeric(scale(df_fit[[p]]))
+        }
+      }
+    }
+
+    tryCatch({
+      mod <- lm(as.formula(paste0("`", y, "` ~ ", fixed_rhs)), data = df_fit)
+      broom::tidy(mod, conf.int = TRUE) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = gsub("\n", " ", y_label),
+          outcome_sd    = y_sd,
+          n_obs         = nrow(df_fit),
+          n_subjects    = nrow(df_fit)
+        )
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
       NULL
     })
   })
@@ -1569,32 +1680,32 @@ run_lmer_emm <- function(data,
 ## Model 1: Group comparisons (Obesity vs T2D)
 
 ```{r model-group, echo=FALSE, results='asis'}
-# Imaging ~ group + age + sex + (1 | mrn)
+# Imaging ~ group + age + sex
 # Reference group: Lean Control (alphabetically first, or relevel as needed)
 harm_dat_baseline <- harm_dat_baseline %>%
   dplyr::mutate(group = factor(group, levels = c("Lean Control", "Obese Control", "Type 2 Diabetes")))
 
-results_group <- fit_lmer_loop(
+results_group <- fit_lm_loop(
   df       = subset(harm_dat_baseline, group != "Lean Control"),
   outcomes = im_vars_raw,
   fixed_rhs = "group + age + sex",
   log_vars = im_vars_log
 )
 
-format_lmer_table(results_group, caption = "Imaging ~ Group + Age + Sex (random intercept by participant)")
+format_lm_table(results_group, caption = "Imaging ~ Group + Age + Sex")
 ```
 
-### Forest plot (raw estimates)
+#### Forest plot (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_group, "groupType 2 Diabetes",
                 x_label = "Estimate (T2D vs Obese, raw units)")
 ```
 
-### Forest plot (standardized: Cohen's d)
+#### Forest plot (standardized: Cohen's d)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_group_std <- fit_lmer_loop_std(
+results_group_std <- fit_lm_loop_std(
   df        = subset(harm_dat_baseline, group != "Lean Control"),
   outcomes  = im_vars_raw,
   fixed_rhs = "group + age + sex",
@@ -1606,29 +1717,31 @@ plot_forest_std(results_group_std, "groupType 2 Diabetes",
 
 ## Model 2: Kidney marker associations (Obesity/T2D only)
 
+### log(UACR)
+
 ```{r model-kidney, echo=FALSE, results='asis'}
 # ── 2a. Continuous kidney markers ─────────────────────────────────────────────
 # Imaging ~ log(UACR) + age + sex + (1 | mrn)
-results_uacr <- fit_lmer_loop(
+results_uacr <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "log_acr_u + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_uacr, caption = "Imaging ~ log(UACR) + Age + Sex")
+format_lm_table(results_uacr, caption = "Imaging ~ log(UACR) + Age + Sex")
 ```
 
-### Forest plot: log(UACR) (raw estimates)
+#### Forest plot: log(UACR) (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_uacr, "log_acr_u",
                 x_label = "Estimate per unit log(UACR) (raw)")
 ```
 
-### Forest plot: log(UACR) (standardized β)
+#### Forest plot: log(UACR) (standardized β)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_uacr_std <- fit_lmer_loop_std(
+results_uacr_std <- fit_lm_loop_std(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "log_acr_u + age + sex",
@@ -1637,28 +1750,32 @@ results_uacr_std <- fit_lmer_loop_std(
 )
 plot_forest_std(results_uacr_std, "log_acr_u",
                 x_label = "Standardized \u03b2 (per SD log UACR)")
+```
 
+### eGFR
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
 # Imaging ~ eGFR + age + sex + (1 | mrn)
-results_egfr <- fit_lmer_loop(
+results_egfr <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "eGFR_CKD_epi + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_egfr, caption = "Imaging ~ eGFR + Age + Sex")
+format_lm_table(results_egfr, caption = "Imaging ~ eGFR + Age + Sex")
 ```
 
-### Forest plot: eGFR (raw estimates)
+#### Forest plot: eGFR (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_egfr, "eGFR_CKD_epi",
                 x_label = "Estimate per unit eGFR (raw)")
 ```
 
-### Forest plot: eGFR (standardized β)
+#### Forest plot: eGFR (standardized β)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_egfr_std <- fit_lmer_loop_std(
+results_egfr_std <- fit_lm_loop_std(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "eGFR_CKD_epi + age + sex",
@@ -1667,29 +1784,33 @@ results_egfr_std <- fit_lmer_loop_std(
 )
 plot_forest_std(results_egfr_std, "eGFR_CKD_epi",
                 x_label = "Standardized \u03b2 (per SD eGFR)")
+```
 
+### DKD UACR>=30 or eGFR<90
+
+```{r echo=FALSE}
 # ── 2b. DKD group (binary) ───────────────────────────────────────────────────
-# Imaging ~ DKD (UACR≥30 or eGFR<90) + age + sex + (1 | mrn)
-results_dkd30 <- fit_lmer_loop(
+# Imaging ~ DKD (UACR≥30 or eGFR<90) + age + sex
+results_dkd30 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_30)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_30 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_dkd30, caption = "Imaging ~ DKD group (UACR\u226530) + Age + Sex")
+format_lm_table(results_dkd30, caption = "Imaging ~ DKD group (UACR\u226530) + Age + Sex")
 ```
 
-### Forest plot: DKD (UACR≥30) (raw estimates)
+#### Forest plot: DKD (UACR≥30) (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_dkd30, "dkd_group_30non_DKD",
                 x_label = "Estimate (non-DKD vs DKD, raw units)")
 ```
 
-### Forest plot: DKD (UACR≥30) (standardized: Cohen's d)
+#### Forest plot: DKD (UACR≥30) (standardized: Cohen's d)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_dkd30_std <- fit_lmer_loop_std(
+results_dkd30_std <- fit_lm_loop_std(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_30)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_30 + age + sex",
@@ -1697,28 +1818,31 @@ results_dkd30_std <- fit_lmer_loop_std(
 )
 plot_forest_std(results_dkd30_std, "dkd_group_30non_DKD",
                 x_label = "non-DKD vs DKD (Cohen's d)")
+```
 
+### DKD UACR>=100 or eGFR<90
 
-results_dkd100 <- fit_lmer_loop(
+```{r echo = F}
+results_dkd100 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_100)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_100 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_dkd100, caption = "Imaging ~ DKD group (UACR\u2265100) + Age + Sex")
+format_lm_table(results_dkd100, caption = "Imaging ~ DKD group (UACR\u2265100) + Age + Sex")
 ```
 
-### Forest plot: DKD (UACR≥100) (raw estimates)
+#### Forest plot: DKD (UACR≥100) (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_dkd100, "dkd_group_100non_DKD",
                 x_label = "Estimate (non-DKD vs DKD, raw units)")
 ```
 
-### Forest plot: DKD (UACR≥100) (standardized: Cohen's d)
+#### Forest plot: DKD (UACR≥100) (standardized: Cohen's d)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_dkd100_std <- fit_lmer_loop_std(
+results_dkd100_std <- fit_lm_loop_std(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_100)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_100 + age + sex",
@@ -1727,27 +1851,32 @@ results_dkd100_std <- fit_lmer_loop_std(
 plot_forest_std(results_dkd100_std, "dkd_group_100non_DKD",
                 x_label = "non-DKD vs DKD (Cohen's d)")
 
+```
+
+### Albuminuria
+
+```{r echo = F}
 # ── 2c. Albuminuria categories ────────────────────────────────────────────────
-results_acr300 <- fit_lmer_loop(
+results_acr300 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(acr_u_cat300)),
   outcomes  = im_vars_raw,
   fixed_rhs = "acr_u_cat300 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_acr300, caption = "Imaging ~ Albuminuria (<300 vs \u2265300) + Age + Sex")
+format_lm_table(results_acr300, caption = "Imaging ~ Albuminuria (<300 vs \u2265300) + Age + Sex")
 ```
 
-### Forest plot: Albuminuria ≥300 (raw estimates)
+#### Forest plot: Albuminuria ≥300 (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
 plot_forest_raw(results_acr300, "acr_u_cat300\u2265300",
                 x_label = "Estimate (UACR \u2265300 vs <300, raw units)")
 ```
 
-### Forest plot: Albuminuria ≥300 (standardized: Cohen's d)
+#### Forest plot: Albuminuria ≥300 (standardized: Cohen's d)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_acr300_std <- fit_lmer_loop_std(
+results_acr300_std <- fit_lm_loop_std(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(acr_u_cat300)),
   outcomes  = im_vars_raw,
   fixed_rhs = "acr_u_cat300 + age + sex",
@@ -1759,7 +1888,7 @@ plot_forest_std(results_acr300_std, "acr_u_cat300\u2265300",
 
 ## Model 3: Longitudinal change (co-enrolled ULTRA → SWEETHEART)
 
-```{r model-longitudinal, echo=FALSE, results='asis'}
+```{r model-longitudinal, echo=FALSE, results='asis', message=F}
 # Imaging ~ visit_time + (1 | mrn)
 results_longitudinal <- fit_lmer_loop(
   df        = harm_dat_longitudinal,
@@ -1767,7 +1896,7 @@ results_longitudinal <- fit_lmer_loop(
   fixed_rhs = "imaging_visit_id",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_longitudinal,
+format_lm_table(results_longitudinal,
                   caption = "Longitudinal change: Imaging ~ Visit")
 ```
 
@@ -1807,57 +1936,37 @@ plot_forest_pct(ultra_swht_emm_results,
                 x_label = "% Change from baseline (ULTRA \u2192 SWEETHEART)")
 ```
 
-## Model 3b: Longitudinal change (combined co-enrolled → SWEETHEART)
-
-This model pools both ULTRA→SWEETHEART and IMPROVE→SWEETHEART co-enrolled participants to maximize the longitudinal sample size.
-
-```{r model-longitudinal-combined, echo=FALSE, results='asis'}
-results_longitudinal_all <- fit_lmer_loop(
-  df        = harm_dat_longitudinal_all,
-  outcomes  = im_vars_raw,
-  fixed_rhs = "visit_label",
-  log_vars  = im_vars_log
-)
-format_lmer_table(results_longitudinal_all,
-                  caption = "Longitudinal change (ULTRA + IMPROVE → SWEETHEART): Imaging ~ Visit")
-```
-
-### Forest plot: raw estimates
-
-```{r forest-longitudinal-combined-raw, echo=FALSE, fig.width=10, fig.height=6}
-longitudinal_all_term <- results_longitudinal_all %>%
-  filter(term != "(Intercept)") %>% pull(term) %>% unique()
-plot_forest_raw(results_longitudinal_all, longitudinal_all_term[1],
-                x_label = "Estimate (SWEETHEART follow-up \u2212 Baseline, raw units)")
-```
-
-### Forest plot: % change from baseline (combined → SWEETHEART)
-
-```{r forest-longitudinal-combined-pct, echo=FALSE, fig.width=12, fig.height=8}
-combined_emm_results <- run_lmer_emm(
-  data         = harm_dat_longitudinal_all,
-  outcome_vars = im_vars_raw,
-  log_vars     = im_vars_log,
-  labels       = im_labels,
-  id_col       = "mrn",
-  visit_col    = "visit_label",
-  ref_visit    = "Baseline"
-)
-
-plot_forest_pct(subset(combined_emm_results, outcome != "tt2"),
-                x_label = "% Change from baseline (combined \u2192 SWEETHEART)")
-```
-
 ## Model 4: Sex differences in Obesity/T2D (adjusted)
 
 ```{r model-sex, echo=FALSE, results='asis'}
-results_sex <- fit_lmer_loop(
+results_sex <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "sex + age",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_sex, caption = "Imaging ~ Sex + Age (Obesity/T2D only)")
+format_lm_table(results_sex, caption = "Imaging ~ Sex + Age (Obesity/T2D only)")
+```
+
+### Forest plot: Sex (raw estimates)
+
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+sex_term <- results_sex %>%
+  filter(term != "(Intercept)") %>% pull(term) %>% unique()
+plot_forest_raw(results_sex, sex_term[1],
+                x_label = "Estimate (Male vs Female, raw units)")
+```
+#### Forest plot: Sex (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_sex_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "sex + age",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_sex_std, "sexMale",
+                x_label = "Male vs Female (Cohen's d)")
 ```
 
 ## Model 5: CMRI Longitudinal change (within IMPROVE), treating time as categorical (baseline, 3 mo, 12 mo)
@@ -1871,7 +1980,7 @@ results_improve <- fit_lmer_loop(
   fixed_rhs = "visit",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_improve,
+format_lm_table(results_improve,
                   caption = "Longitudinal change: Imaging ~ Visit")
 ```
 
@@ -1914,7 +2023,7 @@ improve_emm_results <- run_lmer_emm(
 plot_forest_pct(improve_emm_results)
 ```
 
-## Model 5b: CMRI Longitudinal change (within IMPROVE), treating time as continuous days
+## Model 5b: CMRI Longitudinal change (within IMPROVE), treating time as continuous months
 
 ```{r echo=FALSE, results='asis'}
 # Imaging ~ visit_time + (1 | mrn)
@@ -1925,12 +2034,30 @@ results_improve_cont <- fit_lmer_loop(
   fixed_rhs = "months_since_baseline",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_improve_cont,
+format_lm_table(results_improve_cont,
                   caption = "Longitudinal change (months): Imaging ~ Visit")
+
+results_improve_cont_sens <- fit_lmer_loop(
+  df        = subset(improve_dat, days_since_baseline < 1460),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_improve_cont_sens,
+                  caption = "Longitudinal change (months): Imaging ~ Visit (excluding 4.74 yr follow up)")
 ```
 
 ```{r}
 # spaghetti plot
+colors_30 <- c(
+  "#7EA8BE", "#E8A87C", "#8FB996", "#B08BBB", "#C47B7B",
+  "#7DB8B0", "#D4A96A", "#9B89B4", "#88A96E", "#C4876A",
+  "#6E9BAB", "#BFA76A", "#A07898", "#7DAA8A", "#C49B7B",
+  "#8598BC", "#D49B8A", "#7AA89E", "#B89B6A", "#9B8AAB",
+  "#8DAA7A", "#C4A07B", "#6E8FAB", "#B47A8A", "#8AAF9B",
+  "#A89B7A", "#7B9BB4", "#C4907A", "#8A9B7A", "#B48A9B"
+)
+
 improve_spaghetti <- lapply(im_vars_raw, function(var) {
   improve_dat %>%
     filter(days_since_baseline < 1460) %>%
@@ -1943,7 +2070,8 @@ improve_spaghetti <- lapply(im_vars_raw, function(var) {
     theme(text = element_text(size = 15),
           panel.grid = element_blank(),
           legend.position = "none") +
-    labs(x = "Time since baseline (months)", y = var)
+    labs(x = "Time since baseline (months)", y = var) +
+    scale_color_manual(values = colors_30)
 })
 
 wrap_plots(improve_spaghetti)  # patchwork, or use cowplot::plot_grid(plotlist = plots)
@@ -1965,7 +2093,7 @@ acr_gfr_improve <- fit_lmer_loop(
   fixed_rhs  = "visit",
   var_labels = acr_gfr_labels
 )
-format_lmer_table(acr_gfr_improve,
+format_lm_table(acr_gfr_improve,
                   caption = "Longitudinal change: ACR, GFR ~ Visit")
 
 improve_acr_gfr_emm_results <- run_lmer_emm(
