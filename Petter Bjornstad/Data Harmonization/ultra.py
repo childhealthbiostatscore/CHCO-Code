@@ -80,23 +80,23 @@ def clean_ultra():
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
-        
+        demo["sex"] = "Male"
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
 
-    var = ["record_id", "diabetes_diag", "med_hx_hypertension"] #"insulin_type",met_hx
-           #"cvd_type", "met_hx", "med_hx_hypertension"] #"diabetes_meds"]
+    var =  [v for v in meta.loc[meta["form_name"] == "medical_history", "field_name"]]
     med = pd.DataFrame(proj.export_records(fields=var))
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
     med.replace(rep, np.nan)#, inplace=True)
 
-    # med["diabetes_meds"].replace(
-    #      {"diabetes_meds___1": "Metformin", "diabetes_meds___2": "Insulin", "diabetes_meds___3": "Thiazolinediones (TZDs)", "diabetes_meds___4": "GLP-1 agonists", "diabetes_meds___5": "SGLT-1/2 inhibitors", "diabetes_meds___6": "Other", "diabetes_meds___7":"None"}, inplace=True)
+    med = med.rename(
+          {"diabetes_meds___1": "metformin_timepoint", "diabetes_meds___2": "Insulin", "diabetes_meds___3": "Thiazolinediones (TZDs)", 
+           "diabetes_meds___4": "glp1_agonist_timepoint", "diabetes_meds___5": "sglti_timepoint", 
+           "diabetes_meds___6": "Other Diabetes Meds", "diabetes_meds___7":"No Diabetes Meds"}, axis=1)#, inplace=True)
     #Metformin
-    # med["insuline_type"].replace(
-    #     {1: "Long acting", 2: "Short acting", 3: "Other"}, inplace=True)
+    med = med.rename({"insulin_type___1": "Long acting", "insulin_type___2": "Short acting", "insulin_type___3": "Other Insulin"}, axis=1)#, inplace=True)
     # med.rename({"diabetes_med___1": "metformin_timepoint"},
     #            axis=1, inplace=True)
     #Insulin
@@ -107,10 +107,21 @@ def clean_ultra():
     #     {1: "Hyperlipidemia", 3: "Obesity", 4: "Sleep Apnea", 5: "Other"}, inplace=True)
     med["med_hx_hypertension"] = med["med_hx_hypertension"].replace(
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    med["hypertension_meds"] = med["hypertension_meds"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    
     med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
-
-
+    med = med.rename(
+        {"hypertension_med_type___1" : "ace_inhibitor", "hypertension_med_type___2": "angiotensin_receptor_blocker", "hypertension_med_type___3": "beta_blocker", 
+         "hypertension_med_type___4": "calcium_channel_blocker", "hypertension_med_type___5": "diuretic", "hypertension_med_type___6": "statin", "hypertension_med_type___7": "other_hypertension_med"}, axis=1)
+    med["medhx_cvd"] = med["medhx_cvd"].replace({0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    med = med.rename({
+        "cvd_type___1": "congestive_heart_failure", "cvd_type___2": "myocardial_infarction", "cvd_type___3": "coronary_artery_disease", "cvd_type___4": "peripheral_vascular_disease", "cvd_type___5": "other_cvd"}, axis=1)
     med["procedure"] = "screening"
+    # meds = []
+    # med[meds] = med[meds].apply(lambda col: col.map(
+    #     lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+    #     ))
     
     
     # --------------------------------------------------------------------------
