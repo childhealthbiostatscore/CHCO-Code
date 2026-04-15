@@ -91,7 +91,7 @@ filename <- "/Clinical data/TODAY/baserisk_testing_CKM.Rdata"
 full_path <- file.path(data_path, filename)
 load(file = full_path)
 
-filename <- "/Clinical data/comorb.Rdata"
+filename <- "/Clinical data/comorb_testing_CKM.Rdata"
 full_path <- file.path(data_path, filename)
 load(file = full_path)
 
@@ -157,10 +157,10 @@ tme <- read.csv(full_path)
 
 # Reconstruct addcbl_1 from long for downstream code that uses it directly
 # (bnp lookup for HFpEF scoring, KDIGO gfr/uacr derivation)
+# Use the 'days' column from ADDCBL, not visit_days
 addcbl_1 <- long %>%
-  filter(!is.na(visit_days)) %>%
-  mutate(releaseid = releaseid,
-         days = ifelse(visit_days < 0, 0, visit_days)) %>%
+  filter(!is.na(days)) %>%
+  mutate(days = ifelse(days < 0, 0, days)) %>%
   select(any_of(c("releaseid", "days", "bnp", "troponin", "adiponectin", "hmwa",
                   "edol", "shbg", "testosterone", "ckd_gfr", "eGFR_FAS", "insinv", "codi")))
 ```
@@ -170,42 +170,42 @@ addcbl_1 <- long %>%
 # DATA PREPARATION AND PROCESSING
 # =============================================================================
 
-# AME event columns are now in comorb - standardize RELEASEID casing and
-# reconstruct the individual event data frames that downstream code expects
-comorb$RELEASEID <- toupper(comorb$releaseid)
+# AME event columns are already in comorb from make_clinical_data_add_CKM.R
+# Rename releaseid to RELEASEID and reconstruct individual event data frames
+# that downstream code expects
+comorb <- comorb %>% rename(RELEASEID = releaseid)
 
-# Reconstruct individual AME event data frames from comorb for downstream code
-arrhythmia <- comorb %>% filter(ARRHYTHMIA == 1) %>% select(RELEASEID, DAYSTOARRHYTHMIA) %>% rename(days = DAYSTOARRHYTHMIA) %>% mutate(ARRHYTHMIA = 1)
-cad        <- comorb %>% filter(CAD == 1)        %>% select(RELEASEID, DAYSTOCAD)        %>% rename(days = DAYSTOCAD)        %>% mutate(CAD = 1)
-chf        <- comorb %>% filter(CHF == 1)        %>% select(RELEASEID, DAYSTOCHF)        %>% rename(days = DAYSTOCHF)        %>% mutate(CHF = 1)
-LVSD       <- comorb %>% filter(LVSD == 1)       %>% select(RELEASEID, DAYSTOLVSD)       %>% rename(days = DAYSTOLVSD)       %>% mutate(LVSD = 1)
-mi         <- comorb %>% filter(MI == 1)         %>% select(RELEASEID, DAYSTOMI)         %>% rename(days = DAYSTOMI)         %>% mutate(MI = 1)
-pad        <- comorb %>% filter(PAD == 1)        %>% select(RELEASEID, DAYSTOPAD)        %>% rename(days = DAYSTOPAD)        %>% mutate(PAD = 1)
-dvt        <- comorb %>% filter(DVT == 1)        %>% select(RELEASEID, DAYSTODVT)        %>% rename(days = DAYSTODVT)        %>% mutate(DVT = 1)
-stroke     <- comorb %>% filter(STROKE == 1)     %>% select(RELEASEID, DAYSTOSTROKE)     %>% rename(days = DAYSTOSTROKE)     %>% mutate(STROKE = 1)
-tia        <- comorb %>% filter(TIA == 1)        %>% select(RELEASEID, DAYSTOTIA)        %>% rename(days = DAYSTOTIA)        %>% mutate(TIA = 1)
-ckd        <- comorb %>% filter(CKD == 1)        %>% select(RELEASEID, DAYSTOCKD)        %>% rename(days = DAYSTOCKD)        %>% mutate(CKD = 1)
-eskd       <- comorb %>% filter(ESKD == 1)       %>% select(RELEASEID, DAYSTOESKD)       %>% rename(days = DAYSTOESKD)       %>% mutate(ESKD = 1)
-death      <- comorb %>% filter(DEATH == 1)      %>% select(RELEASEID, DAYSTODEATH)      %>% rename(days = DAYSTODEATH)      %>% mutate(DEATH = 1)
-ulcer      <- comorb %>% filter(ULCER == 1)      %>% select(RELEASEID, DAYSTOULCER)      %>% rename(days = DAYSTOULCER)      %>% mutate(ULCER = 1)
+arrhythmia <- comorb %>% filter(ARRHYTHMIA == 1) %>% select(RELEASEID, DAYSTOARRHYTHMIA) %>% mutate(ARRHYTHMIA = 1)
+cad        <- comorb %>% filter(CAD == 1)        %>% select(RELEASEID, DAYSTOCAD)        %>% mutate(CAD = 1)
+chf        <- comorb %>% filter(CHF == 1)        %>% select(RELEASEID, DAYSTOCHF)        %>% mutate(CHF = 1)
+LVSD       <- comorb %>% filter(LVSD == 1)       %>% select(RELEASEID, DAYSTOLVSD)       %>% mutate(LVSD = 1)
+mi         <- comorb %>% filter(MI == 1)         %>% select(RELEASEID, DAYSTOMI)         %>% mutate(MI = 1)
+pad        <- comorb %>% filter(PAD == 1)        %>% select(RELEASEID, DAYSTOPAD)        %>% mutate(PAD = 1)
+dvt        <- comorb %>% filter(DVT == 1)        %>% select(RELEASEID, DAYSTODVT)        %>% mutate(DVT = 1)
+stroke     <- comorb %>% filter(STROKE == 1)     %>% select(RELEASEID, DAYSTOSTROKE)     %>% mutate(STROKE = 1)
+tia        <- comorb %>% filter(TIA == 1)        %>% select(RELEASEID, DAYSTOTIA)        %>% mutate(TIA = 1)
+ckd        <- comorb %>% filter(CKD == 1)        %>% select(RELEASEID, DAYSTOCKD)        %>% mutate(CKD = 1)
+eskd       <- comorb %>% filter(ESKD == 1)       %>% select(RELEASEID, DAYSTOESKD)       %>% mutate(ESKD = 1)
+death      <- comorb %>% filter(DEATH == 1)      %>% select(RELEASEID, DAYSTODEATH)      %>% mutate(DEATH = 1)
+ulcer      <- comorb %>% filter(ULCER == 1)      %>% select(RELEASEID, DAYSTOULCER)      %>% mutate(ULCER = 1)
 
-# Build ame_summary from comorb directly
+# Build ame_summary from comorb
 ame_summary <- comorb %>%
   select(RELEASEID, ARRHYTHMIA, DAYSTOARRHYTHMIA, CAD, DAYSTOCAD, CHF, DAYSTOCHF,
          LVSD, DAYSTOLVSD, MI, DAYSTOMI, PAD, DAYSTOPAD, DVT, DAYSTODVT,
          STROKE, DAYSTOSTROKE, TIA, DAYSTOTIA, CKD, DAYSTOCKD, ESKD, DAYSTOESKD,
          DEATH, DAYSTODEATH, ULCER, DAYSTOULCER)
 ame_summary <- ame_summary %>%
-  mutate(across(c(ARRHYTHMIA, CAD, CHF, LVSD, MI, PAD, DVT, STROKE, TIA, CKD, ESKD, DEATH, ULCER), as.factor))
+  mutate(across(c(ARRHYTHMIA, CAD, CHF, LVSD, MI, PAD, DVT, STROKE, TIA, CKD, ESKD, DEATH, ULCER),
+                as.factor))
 
 # Clinical CVD composite
 ame_summary$clin_cvd <- ifelse(
   rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "ULCER", "LVSD")] == 1, na.rm = TRUE) > 0,
   1, 0)
 
-# Merge with comorb data - comorb already has AME columns so just rename for consistency
-comorb_ckm <- comorb %>% rename(RELEASEID = releaseid)
-comorb_ckm <- merge(comorb_ckm, ame_summary %>% select(RELEASEID, clin_cvd), by = "RELEASEID", all.x = TRUE)
+# comorb_ckm - comorb already has AME columns so just add clin_cvd
+comorb_ckm <- merge(comorb, ame_summary %>% select(RELEASEID, clin_cvd), by = "RELEASEID", all.x = TRUE)
 
 # Follow-up time calculation
 for (i in 1:nrow(comorb_ckm)) {
@@ -223,31 +223,51 @@ for (i in 1:nrow(comorb_ckm)) {
 
 comorb_ckm <- replace_missing_events(comorb_ckm)
 
-# Rebuild comorb_long from individual event frames (same structure as before)
-HTN0 <- comorb_ckm %>% select(RELEASEID, HTN0) %>% rename(HTN = HTN0) %>% mutate(days = 0)
-HTN  <- comorb_ckm %>% select(RELEASEID, DAYSTOHTN, HTN) %>% rename(days = DAYSTOHTN)
-HTN  <- bind_rows(HTN0, HTN) %>% filter(HTN == 1) %>% unique()
-TGDLP0 <- comorb_ckm %>% select(RELEASEID, TGDLP0) %>% rename(TGDLP = TGDLP0) %>% mutate(days = 0)
-TGDLP  <- comorb_ckm %>% select(RELEASEID, DAYSTOTG, TGDLP) %>% rename(days = DAYSTOTG)
-TGDLP  <- bind_rows(TGDLP0, TGDLP) %>% filter(TGDLP == 1) %>% unique()
+HTN0 <- comorb_ckm %>% select(RELEASEID, HTN0)
+HTN0 <- HTN0 %>% rename(HTN = HTN0)
+HTN0$days <- 0
+HTN <- comorb_ckm %>% select(RELEASEID, DAYSTOHTN, HTN)
+colnames(HTN) <- c("RELEASEID", "days", "HTN")
+HTN <- rbind(HTN0, HTN)
+HTN <- HTN %>% filter(HTN == 1)
+HTN <- unique(HTN)
+TGDLP0 <- comorb_ckm %>% select(RELEASEID, TGDLP0)
+TGDLP0 <- TGDLP0 %>% rename(TGDLP = TGDLP0)
+TGDLP0$days <- 0
+TGDLP <- comorb_ckm %>% select(RELEASEID, DAYSTOTG, TGDLP)
+colnames(TGDLP) <- c("RELEASEID", "days", "TGDLP")
+TGDLP <- rbind(TGDLP0, TGDLP)
+TGDLP <- TGDLP %>% filter(TGDLP == 1)
+TGDLP <- unique(TGDLP)
 temp <- full_join(HTN, TGDLP, by = c("RELEASEID", "days"))
+arrhythmia <- arrhythmia %>% rename("days" = "DAYSTOARRHYTHMIA")
 comorb_long <- full_join(temp, arrhythmia, by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, cad,    by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, chf,    by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, LVSD,   by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, mi,     by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, dvt,    by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, pad,    by = c("RELEASEID", "days"))
+cad <- cad %>% rename("days" = "DAYSTOCAD")
+comorb_long <- full_join(comorb_long, cad, by = c("RELEASEID", "days"))
+chf <- chf %>% rename("days" = "DAYSTOCHF")
+comorb_long <- full_join(comorb_long, chf, by = c("RELEASEID", "days"))
+LVSD <- LVSD %>% rename("days" = "DAYSTOLVSD")
+comorb_long <- full_join(comorb_long, LVSD, by = c("RELEASEID", "days"))
+mi <- mi %>% rename("days" = "DAYSTOMI")
+comorb_long <- full_join(comorb_long, mi, by = c("RELEASEID", "days"))
+dvt <- dvt %>% rename("days" = "DAYSTODVT")
+comorb_long <- full_join(comorb_long, dvt, by = c("RELEASEID", "days"))
+pad <- pad %>% rename("days" = "DAYSTOPAD")
+comorb_long <- full_join(comorb_long, pad, by = c("RELEASEID", "days"))
+stroke <- stroke %>% rename("days" = "DAYSTOSTROKE")
 comorb_long <- full_join(comorb_long, stroke, by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, tia,    by = c("RELEASEID", "days"))
-comorb_long <- full_join(comorb_long, ulcer,  by = c("RELEASEID", "days"))
+tia <- tia %>% rename("days" = "DAYSTOTIA")
+comorb_long <- full_join(comorb_long, tia, by = c("RELEASEID", "days"))
+ulcer <- ulcer %>% rename("days" = "DAYSTOULCER")
+comorb_long <- full_join(comorb_long, ulcer, by = c("RELEASEID", "days"))
 fup <- comorb_ckm %>% select(RELEASEID, fup_time)
 
-# Biomarker extraction - now sourced from long instead of raw cbl/addcbl reads
-# long has visit_days as the days variable; standardize to RELEASEID for downstream joins
+# Biomarker extraction - sourced from long
+# Use the 'days' column (from ADDCBL) not visit_days, as this matches what
+# extract_biomarker_values_long() used in the original script
 long_biom <- long %>%
   mutate(RELEASEID = toupper(releaseid),
-         days = ifelse(!is.na(visit_days) & visit_days < 0, 0, visit_days)) %>%
+         days = ifelse(!is.na(days) & days < 0, 0, days)) %>%
   filter(!is.na(days))
 
 # ADDCBL biomarkers
@@ -266,18 +286,18 @@ insinv_vals      <- long_biom %>% filter(!is.na(insinv))      %>% select(release
 # CBL biomarkers
 uacr_vals      <- long_biom %>% filter(!is.na(UAlbCreat)) %>% select(releaseid, days, UAlbCreat)
 il6_vals       <- long_biom %>% filter(!is.na(IL6))       %>% select(releaseid, days, IL6)
-il1_vals       <- long_biom %>% filter(!is.na(il1))       %>% select(releaseid, days, il1)
+il1_vals       <- if ("il1" %in% names(long_biom)) long_biom %>% filter(!is.na(il1))  %>% select(releaseid, days, il1)  else data.frame(releaseid=character(), days=numeric(), il1=numeric())
 hscrp_vals     <- long_biom %>% filter(!is.na(hsCRP))     %>% select(releaseid, days, hsCRP)
 apob_vals      <- long_biom %>% filter(!is.na(ApoB))      %>% select(releaseid, days, ApoB)
-mcp1_vals      <- long_biom %>% filter(!is.na(mcp1))      %>% select(releaseid, days, mcp1)
-tnfa_vals      <- long_biom %>% filter(!is.na(tnfa))      %>% select(releaseid, days, tnfa)
-tnfr1_vals     <- long_biom %>% filter(!is.na(tnfr1))     %>% select(releaseid, days, tnfr1)
-tnfr2_vals     <- long_biom %>% filter(!is.na(tnfr2))     %>% select(releaseid, days, tnfr2)
-icam1_vals     <- long_biom %>% filter(!is.na(icam1))     %>% select(releaseid, days, icam1)
-vcam1_vals     <- long_biom %>% filter(!is.na(vcam1))     %>% select(releaseid, days, vcam1)
-eselectin_vals <- long_biom %>% filter(!is.na(eselectin)) %>% select(releaseid, days, eselectin)
-vegf_vals      <- long_biom %>% filter(!is.na(vegf))      %>% select(releaseid, days, vegf)
-fgf23_vals     <- long_biom %>% filter(!is.na(fgf23))     %>% select(releaseid, days, fgf23)
+mcp1_vals      <- if ("mcp1"      %in% names(long_biom)) long_biom %>% filter(!is.na(mcp1))      %>% select(releaseid, days, mcp1)      else data.frame(releaseid=character(), days=numeric(), mcp1=numeric())
+tnfa_vals      <- if ("tnfa"      %in% names(long_biom)) long_biom %>% filter(!is.na(tnfa))      %>% select(releaseid, days, tnfa)      else data.frame(releaseid=character(), days=numeric(), tnfa=numeric())
+tnfr1_vals     <- if ("tnfr1"     %in% names(long_biom)) long_biom %>% filter(!is.na(tnfr1))     %>% select(releaseid, days, tnfr1)     else data.frame(releaseid=character(), days=numeric(), tnfr1=numeric())
+tnfr2_vals     <- if ("tnfr2"     %in% names(long_biom)) long_biom %>% filter(!is.na(tnfr2))     %>% select(releaseid, days, tnfr2)     else data.frame(releaseid=character(), days=numeric(), tnfr2=numeric())
+icam1_vals     <- if ("icam1"     %in% names(long_biom)) long_biom %>% filter(!is.na(icam1))     %>% select(releaseid, days, icam1)     else data.frame(releaseid=character(), days=numeric(), icam1=numeric())
+vcam1_vals     <- if ("vcam1"     %in% names(long_biom)) long_biom %>% filter(!is.na(vcam1))     %>% select(releaseid, days, vcam1)     else data.frame(releaseid=character(), days=numeric(), vcam1=numeric())
+eselectin_vals <- if ("eselectin" %in% names(long_biom)) long_biom %>% filter(!is.na(eselectin)) %>% select(releaseid, days, eselectin) else data.frame(releaseid=character(), days=numeric(), eselectin=numeric())
+vegf_vals      <- if ("vegf"      %in% names(long_biom)) long_biom %>% filter(!is.na(vegf))      %>% select(releaseid, days, vegf)      else data.frame(releaseid=character(), days=numeric(), vegf=numeric())
+fgf23_vals     <- if ("fgf23"     %in% names(long_biom)) long_biom %>% filter(!is.na(fgf23))     %>% select(releaseid, days, fgf23)     else data.frame(releaseid=character(), days=numeric(), fgf23=numeric())
 a1c_vals       <- long_biom %>% filter(!is.na(hba1c))     %>% select(releaseid, days, hba1c) %>% rename(HbA1c = hba1c)
 
 # Clean infinite values
@@ -286,14 +306,17 @@ clean_infinite <- function(df) {
 }
 
 # Apply cleaning and standardize RELEASEID
+# Rename first, then clean - and skip clean_infinite on empty frames to avoid type coercion
 biomarker_list <- list(bnp_vals, troponin_vals, adiponectin_vals, hmwa_vals, edol_vals,
                        shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals,
                        il6_vals, il1_vals, hscrp_vals, apob_vals, mcp1_vals, tnfa_vals,
                        tnfr1_vals, tnfr2_vals, icam1_vals, vcam1_vals, eselectin_vals,
                        vegf_vals, fgf23_vals, a1c_vals, insinv_vals, codi_vals)
-biomarker_list <- lapply(biomarker_list, clean_infinite)
 biomarker_list <- lapply(biomarker_list, function(df) {
   df %>% rename(RELEASEID = releaseid)
+})
+biomarker_list <- lapply(biomarker_list, function(df) {
+  if (nrow(df) == 0) df else clean_infinite(df)
 })
 
 # Create consolidated biomarker dataset (same indices as original)
@@ -327,15 +350,16 @@ kdigo <- kdigo %>% group_by(RELEASEID) %>%
   select(RELEASEID, days, gfr_category, gfr_description, albumin_category, albumin_description, risk_level, recommendation)
 
 # Lab means - sourced from long
-a1c_means    <- a1c_vals        %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_a1c    = mean(HbA1c,       na.rm=T))
-adipo_means  <- adiponectin_vals %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_adipo  = mean(adiponectin, na.rm=T))
-il6_means    <- il6_vals        %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_il6    = mean(IL6,         na.rm=T))
-il1_means    <- il1_vals        %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_il1    = mean(il1,         na.rm=T))
-hscrp_means  <- hscrp_vals      %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_hscrp  = mean(hsCRP,       na.rm=T))
-apob_means   <- apob_vals       %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_apob   = mean(ApoB,        na.rm=T))
-tnfa_means   <- tnfa_vals       %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_tnfa   = mean(tnfa,        na.rm=T))
-insinv_means <- insinv_vals     %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_insinv = mean(insinv,      na.rm=T))
-codi_means   <- codi_vals       %>% rename(releaseid=RELEASEID) %>% group_by(releaseid) %>% summarise(mean_codi   = mean(codi,        na.rm=T))
+# Note: _vals objects retain lowercase releaseid (the biomarker_list lapply doesn't modify them)
+a1c_means    <- a1c_vals         %>% group_by(releaseid) %>% summarise(mean_a1c    = mean(HbA1c,       na.rm=T))
+adipo_means  <- adiponectin_vals %>% group_by(releaseid) %>% summarise(mean_adipo  = mean(adiponectin, na.rm=T))
+il6_means    <- il6_vals         %>% group_by(releaseid) %>% summarise(mean_il6    = mean(IL6,         na.rm=T))
+il1_means    <- il1_vals         %>% group_by(releaseid) %>% summarise(mean_il1    = mean(il1,         na.rm=T))
+hscrp_means  <- hscrp_vals       %>% group_by(releaseid) %>% summarise(mean_hscrp  = mean(hsCRP,       na.rm=T))
+apob_means   <- apob_vals        %>% group_by(releaseid) %>% summarise(mean_apob   = mean(ApoB,        na.rm=T))
+tnfa_means   <- tnfa_vals        %>% group_by(releaseid) %>% summarise(mean_tnfa   = mean(tnfa,        na.rm=T))
+insinv_means <- insinv_vals      %>% group_by(releaseid) %>% summarise(mean_insinv = mean(insinv,      na.rm=T))
+codi_means   <- codi_vals        %>% group_by(releaseid) %>% summarise(mean_codi   = mean(codi,        na.rm=T))
 
 lab_means <- a1c_means %>%
   full_join(adipo_means,  by="releaseid") %>%
@@ -902,9 +926,9 @@ comorb_ckm2$num_prog <- ifelse(is.na(comorb_ckm2$progress_CKM), NA,
 comorb_ckm2$num_prog2 <- ifelse(is.na(comorb_ckm2$progress_CKM2), NA, 
                                 ifelse(is.na(comorb_ckm2$num_prog2), 0, comorb_ckm2$num_prog2))
 
-# merge in death
-death_keep <- death %>% select(RELEASEID, DEATH)
-comorb_ckm2 <- left_join(comorb_ckm2, death_keep, by = "RELEASEID")
+# DEATH is not in comorb_long so merge it in from comorb
+death_keep <- comorb %>% select(RELEASEID, DEATH) %>% mutate(DEATH = as.integer(DEATH))
+comorb_ckm2 <- comorb_ckm2 %>% ungroup() %>% left_join(death_keep, by = "RELEASEID")
 comorb_ckm2$DEATH <- ifelse(is.na(comorb_ckm2$DEATH), 0, comorb_ckm2$DEATH)
 
 # convert to factors
@@ -1004,16 +1028,17 @@ label(comorb_ckm2_criteria$max_high_bnp) <- "Elevated BNP"
 prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
 prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID") 
 prog_summary_final <- prog_summary_final %>% select(-days)
-prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
+# DEATH already comes through comorb - just set NAs to 0
 prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
 prog_summary_final <- left_join(prog_summary_final, lab_means, by = "RELEASEID")
 prog_summary_final$visit <- NULL
 
-cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx", 
-                     "CKM_syn_base", "CKM_max", 
-                     "progress_CKM", "DEATH", 
-                     "num_prog")
+cols_to_convert <- c("CKM_syn_base", "CKM_max", "progress_CKM", "tx", "num_prog")
 prog_summary_final[cols_to_convert] <- lapply(prog_summary_final[cols_to_convert], as.factor)
+
+# Binary variables need both levels explicitly defined
+binary_vars <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "DEATH")
+prog_summary_final[binary_vars] <- lapply(prog_summary_final[binary_vars], function(x) factor(x, levels = c(0, 1)))
 
 label(prog_summary_final$AGEBASE) <- "Baseline age"
 label(prog_summary_final$sex_char) <- "Sex"
@@ -1265,16 +1290,7 @@ t2b <- t2data %>%
       c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
   ))   %>%
   gtsummary::modify_header(label ~ "**Characteristic**") %>%
-  gtsummary::bold_labels() %>%
-  as_gt() %>%
-  gt::cols_width(
-    label ~ px(350),
-    stat_1 ~ px(150),  # First group column
-    stat_2 ~ px(150),  # Second group column
-    stat_3 ~ px(150)
-    #,  # Third group column (adjust based on your groups)
-    #p.value ~ px(100)
-  ) 
+  gtsummary::bold_labels()
 ```
 
 ```{r include=F}
