@@ -110,7 +110,7 @@ def clean_ultra():
     med["hypertension_meds"] = med["hypertension_meds"].replace(
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
     
-    med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
+    # med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
     med = med.rename(
         {"hypertension_med_type___1" : "ace_inhibitor", "hypertension_med_type___2": "angiotensin_receptor_blocker", "hypertension_med_type___3": "beta_blocker", 
          "hypertension_med_type___4": "calcium_channel_blocker", "hypertension_med_type___5": "diuretic", "hypertension_med_type___6": "statin", "hypertension_med_type___7": "other_hypertension_med"}, axis=1)
