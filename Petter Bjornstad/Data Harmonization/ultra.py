@@ -55,9 +55,9 @@ def clean_ultra():
     # Demographics
     # --------------------------------------------------------------------------
 
-    dem_cols = ["record_id", "dob", "participation_status", "mrn", "race", "ethnicity"]
+    var =  [v for v in meta.loc[meta["form_name"] == "demographics", "field_name"]]
     # # Export
-    demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    demo = pd.DataFrame(proj.export_records(fields=var))
     # print(type(demo))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
     # print(len(demo))        # Number of records exported
     # print(demo[:3]) 
@@ -67,20 +67,20 @@ def clean_ultra():
     else:
         demo.replace(rep, np.nan, inplace=True)    
         demo["group"] = "Type 2 Diabetes"
-        demo.drop(redcap_cols, axis=1, inplace=True)
-        demo = demo.rename({"gender": "sex", "mr_number": "mrn"}, axis=1)#, inplace=True)
+        demo.drop(redcap_cols + ["name_first", "name_last", "phone", "race_other"], axis=1, inplace=True)
         #Race columns combined into one
-        combine_checkboxes(demo, base_name="race", levels=[
+        demo = combine_checkboxes(demo, base_name="race", levels=[
             "American Indian or Alaskan Native", "Asian",
             "Hawaiian or Pacific Islander", "Black or African American",
             "White", "Unknown", "Other"])
         # Same for ethnicity
-        combine_checkboxes(demo,
+        demo = combine_checkboxes(demo,
                                 base_name="ethnicity",
                                 levels=["Hispanic or Latino",
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
+        
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
