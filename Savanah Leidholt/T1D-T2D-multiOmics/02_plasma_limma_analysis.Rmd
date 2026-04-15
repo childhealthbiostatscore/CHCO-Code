@@ -412,7 +412,7 @@ Y_m0 <- t(prot_imp2)
 ```{r}
 # MODEL 1: age + sex 
 meta_m1 <- meta_common2
-Y_m1 <- Y_all[, meta_m1$record_id, drop = FALSE]  
+Y_m1 <- Y_m0[, meta_m1$record_id, drop = FALSE]  
 
 design <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
 colnames(design) <- sub("^group4", "", colnames(design))
@@ -445,7 +445,7 @@ sig_m1
 meta_m2 <- meta_common2 %>%
   filter(!is.na(study6))       
 
-Y_m2 <- Y_all[, meta_m2$record_id, drop = FALSE]
+Y_m2 <- Y_m0[, meta_m2$record_id, drop = FALSE]
 
 design_m2 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m2)
 colnames(design_m2) <- sub("^group4", "", colnames(design_m2))
@@ -780,7 +780,7 @@ cat("Study counts in all-3-omics subset:\n")
 print(table(meta_all3$study, useNA = "ifany"))
 ```
 ##--------------------------------------------------
-##PCA using all-3-omics subset
+##data cleaning for data subset with all 3 Omics
 ##--------------------------------------------------
 ```{r}
 meta_pca_all3 <- meta_all3
@@ -810,17 +810,51 @@ keep_cols_all3 <- colSums(is.na(prot_imp_all3)) == 0 &
 prot_imp_all3 <- prot_imp_all3[, keep_cols_all3, drop = FALSE]
 
 cat("Proteins kept for all-3-omics PCA:", ncol(prot_imp_all3), "\n")
+```
+##---------------------------
+##outlier check and removal
+##---------------------------
+```{r}
+pca0_all3 <- prcomp(prot_imp_all3, center = TRUE, scale. = TRUE)
+scores3 <- as.data.frame(pca0_all3$x[, 1:2])  # PC1 + PC2 (or use more PCs)
+scores3$dist <- sqrt(scores3$PC1^2 + scores3$PC2^2)
 
+# identify outliers > 3 SD
+threshold3 <- mean(scores3$dist) + 3 * sd(scores3$dist)
+outliers_all3 <- rownames(scores3)[scores3$dist > threshold3]
+outliers_all3
+
+meta_pca_all3b<- meta_pca_all3 %>%
+  filter(!record_id %in% outliers_all3)
+
+prot_imp_all3b <- prot_imp_all3[
+  !rownames(prot_imp_all3) %in% outliers_all3, , drop = FALSE
+]
+
+cat("Still present in metadata? ", any(outliers_all3 %in% meta_pca_all3b$record_id), "\n")
+cat("Still present in matrix? ", any(outliers_all3 %in% rownames(prot_imp_all3b)), "\n")
+
+stopifnot(!any(outliers_all3 %in% meta_pca_all3b$record_id))
+stopifnot(!any(outliers_all3 %in% rownames(prot_imp_all3b)))
+stopifnot(identical(rownames(prot_imp_all3b), meta_pca_all3b$record_id))
+
+##checking for low variance prots--none exist
+nzv_idx2 <- nearZeroVar(prot_imp_all3b)
+length(nzv_idx2)   
+colnames(prot_imp_all3b)[nzv_idx2]
+```
+
+```{r}
 # ---- PCA panels ----
-p_all3 <- make_pca_plot(prot_imp_all3, meta_pca_all3, "No adjustment (all 3 omics subset)")
+p_all3 <- make_pca_plot(prot_imp_all3b, meta_pca_all3b, "No adjustment (all 3 omics subset)")
 
-cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3)[, -1, drop = FALSE]
-prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3), covariates = cov_m1_all3))
-p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3, "Age + Sex (all 3 omics subset)")
+cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3b)[, -1, drop = FALSE]
+prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3b), covariates = cov_m1_all3))
+p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3b, "Age + Sex (all 3 omics subset)")
 
-keep_m2_all3 <- !is.na(meta_pca_all3$bmi)
-meta_m2p_all3 <- meta_pca_all3[keep_m2_all3, ]
-prot_m2p_all3 <- prot_imp_all3[keep_m2_all3, , drop = FALSE]
+keep_m2_all3 <- !is.na(meta_pca_all3b$bmi)
+meta_m2p_all3 <- meta_pca_all3b[keep_m2_all3, ]
+prot_m2p_all3 <- prot_imp_all3b[keep_m2_all3, , drop = FALSE]
 cov_m2_all3 <- model.matrix(~ age + sex + study6, data = meta_m2p_all3)[, -1, drop = FALSE]
 prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
 p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (all 3 omics subset)")
@@ -841,11 +875,11 @@ p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (al
 ## model2: age + sex + study
 ##--------------------------------------------------
 ```{r}
-Y_all_all3 <- t(log2(as.matrix(prot_all3) + 1))
+Y_all_all3 <- t(prot_imp_all3b)
 
 
 # Model 1: age + sex
-meta_m1_all3 <- meta_all3
+meta_m1_all3 <- meta_pca_all3b
 Y_m1_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
 
 design_m1_all3 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_all3)
@@ -895,6 +929,7 @@ res_m2_all3 <- run_limma_contrasts(Y_m2_all3, design_m2_all3, contr_m2_all3)
 fit_m2_all3 <- res_m2_all3$fit
 out_m2_all3 <- res_m2_all3$out
 sig_m2_all3 <- summarise_sig(out_m2_all3, "age_sex_study_all3", nrow(meta_m1_all3))
+sig_m2_all3
 ```
 ## --------------------------------------------------
 ## Summarize all-3-omics results
