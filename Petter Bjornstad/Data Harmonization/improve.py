@@ -398,7 +398,8 @@ def clean_improve():
              axis=1, inplace=True)
     # Kidney outcomes like GFR, etc. were collected with the clamp, not
     # necessarily the day of the MRI
-    bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
+    bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)
+                     or c.startswith("adc_") or c.startswith("volume_")]
     bold_mri = out[["subject_id", "study_visit",
                     "mri_visit_date"] + bold_mri_cols].copy()
     bold_mri.rename({"mri_visit_date": "date",
