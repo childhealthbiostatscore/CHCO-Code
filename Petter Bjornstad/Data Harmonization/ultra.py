@@ -92,11 +92,15 @@ def clean_ultra():
     med.replace(rep, np.nan)#, inplace=True)
 
     med = med.rename(
-          {"diabetes_meds___1": "metformin_timepoint", "diabetes_meds___2": "Insulin", "diabetes_meds___3": "Thiazolinediones (TZDs)", 
-           "diabetes_meds___4": "glp1_agonist_timepoint", "diabetes_meds___5": "sglti_timepoint", 
-           "diabetes_meds___6": "Other Diabetes Meds", "diabetes_meds___7":"No Diabetes Meds"}, axis=1)#, inplace=True)
+          {"diabetes_meds___1": "metformin_timepoint", "diabetes_meds___2": "insulin_timepoint", "diabetes_meds___3": "tzd_timepoint", 
+           "diabetes_meds___4": "glp1_agonist_timepoint", "diabetes_meds___5": "sglti_timepoint"}, axis=1)#, inplace=True)
+    #TO DROP: diabetes_meds___6, diabetes_meds___7, insulin_type, other_cvd, cvd_other, cardio_meds_yes, medhx_met, met_hx___3, met_hx___5, met_other, t2d_less_21
+    med = med.drop(columns = ["diabetes_meds___6", "diabetes_meds___7", "insulin_type", "other_cvd", "cvd_other", "cardio_meds_yes", "medhx_met", "met_hx___3", 
+                              "met_hx___5", "met_other", "t2d_less_21", "insulin_type___1", "insulin_type___2", "insulin_type___3", "diabetes_med_other", 
+                              "insulin_other", "hypertension_med_type___7", "cvd_type___5", "hypertension_other", "cardio_meds", "ua_med_prev_when",
+                              "ua_med_prev_dur"], errors='ignore')
+    med = med.drop(columns = [c for c in med.columns if c.startswith("incl")], errors='ignore')
     #Metformin
-    med = med.rename({"insulin_type___1": "Long acting", "insulin_type___2": "Short acting", "insulin_type___3": "Other Insulin"}, axis=1)#, inplace=True)
     # med.rename({"diabetes_med___1": "metformin_timepoint"},
     #            axis=1, inplace=True)
     #Insulin
@@ -113,15 +117,21 @@ def clean_ultra():
     # med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
     med = med.rename(
         {"hypertension_med_type___1" : "ace_inhibitor", "hypertension_med_type___2": "angiotensin_receptor_blocker", "hypertension_med_type___3": "beta_blocker", 
-         "hypertension_med_type___4": "calcium_channel_blocker", "hypertension_med_type___5": "diuretic", "hypertension_med_type___6": "statin", "hypertension_med_type___7": "other_hypertension_med"}, axis=1)
+         "hypertension_med_type___4": "calcium_channel_blocker", "hypertension_med_type___5": "diuretic", "hypertension_med_type___6": "statin"}, axis=1)
     med["medhx_cvd"] = med["medhx_cvd"].replace({0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
     med = med.rename({
-        "cvd_type___1": "congestive_heart_failure", "cvd_type___2": "myocardial_infarction", "cvd_type___3": "coronary_artery_disease", "cvd_type___4": "peripheral_vascular_disease", "cvd_type___5": "other_cvd"}, axis=1)
+        "cvd_type___1": "congestive_heart_failure", "cvd_type___2": "myocardial_infarction", "cvd_type___3": "coronary_artery_disease", "cvd_type___4": "peripheral_vascular_disease"}, axis=1)
+    med = med.rename(
+        {
+            "met_hx___1": "hyperlipidemia", "met_hx___4": "apnea"}, axis = 1)
+    med = med.rename({ "metdx_meds": "hx_met_meds"}, axis = 1)
     med["procedure"] = "screening"
-    # meds = []
-    # med[meds] = med[meds].apply(lambda col: col.map(
-    #     lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
-    #     ))
+    meds_yn = ["metformin_timepoint", "insulin_timepoint", "tzd_timepoint", "glp1_agonist_timepoint", "sglti_timepoint", "ace_inhibitor", "angiotensin_receptor_blocker", "beta_blocker", 
+               "calcium_channel_blocker", "diuretic", "statin", "congestive_heart_failure", "myocardial_infarction", "coronary_artery_disease", "peripheral_vascular_disease", "medhx_cvd", 
+               "hyperlipidemia", "apnea", "hx_met_meds", "met_meds_yes"]
+    med[meds_yn] = med[meds_yn].apply(lambda col: col.map(
+         lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+         ))
     
     
     # --------------------------------------------------------------------------
