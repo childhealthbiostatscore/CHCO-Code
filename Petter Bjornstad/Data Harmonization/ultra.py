@@ -81,6 +81,7 @@ def clean_ultra():
                                         "Unknown/Not Reported"])
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
         demo["sex"] = "Male"
+        dem_cols = ["mrn", "dob", "group", "race", "ethnicity"]
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
@@ -241,8 +242,9 @@ def clean_ultra():
     df = pd.concat([df, phys], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
+    df = pd.merge(df, demo, on='record_id', how="outer")
 
-    df = pd.merge(df, demo, how="outer")
+    #df = pd.merge(df, demo, how="outer")
 #     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
 #     df = df.copy()
 
@@ -253,10 +255,11 @@ def clean_ultra():
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "ULTRA"
     id_cols = ["record_id", "study"] + \
-        [ "dob", "participation_status", "mrn"] + ["visit", "procedure", "date"]
+        [ "dob", "participation_status", "mrn", "race", "ethnicity"] + ["visit", "procedure", "date"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
+    
     # Change study visit names
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
