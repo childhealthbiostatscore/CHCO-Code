@@ -161,7 +161,7 @@ def clean_ultra():
     screen.drop(redcap_cols + ['prescreen_a1c_date'],
                 axis=1, inplace=True)
     screen["g6pd"] = screen["g6pd"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+        {0: "Incomplete", "0": "Incomplete", 1: "Unverified", "1": "Unverified", 2: "Complete", "2": "Complete"})#, inplace=True)
     screen.rename({"a1c": "hba1c", "screening_labs_date":"date_of_screen"},
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
@@ -173,11 +173,13 @@ def clean_ultra():
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                                == "study_visit_vitalslabs", "field_name"]]
     vital = pd.DataFrame(proj.export_records(fields=var))
-    if not vital.empty and "visit" in vital.columns:
-        vital = vital.replace(rep, np.nan)#, inplace=True)  # Replace missing values
-    vital.drop(redcap_cols + ["sv_vitals_yn", "pilabs_yn"],
+    vital = vital.replace(rep, np.nan)
+    vital.drop(redcap_cols + ["sv_vitals_yn", "pilabs_yn", "labs_yn", "iohexol_yn", "iohexol_abs_gfr", "iohexol_bsa_gfr", 
+                              "pilabs_s_osmo", "pilabs_u_osmo", "pilabs_copeptin", "egfr"],
                 axis=1, inplace=True)
-    vital.rename({"studyvisit_type":"visit", "sv_date":"date", "labs_s_creatinine": "creatinine_s", "labs_u_creatinine":"creatinine_u", "labs_u_microalbumin":"microalbumin_u", "labs_cystatinc":"cystatin_c_s"},
+    vital.rename({"studyvisit_type":"visit", "sv_date":"date", "labs_s_creatinine": "creatinine_s", 
+                  "labs_u_creatinine":"creatinine_u", "labs_u_microalbumin":"microalbumin_u", 
+                  "labs_cystatinc":"cystatin_c_s"},
                   axis=1, inplace=True)
     vital.columns = vital.columns.str.replace(
         r"vitals_", "", regex=True)
@@ -185,6 +187,11 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
+    vital = vital.rename({"s_na": "serum_sodium", "s_k":"serum_k", "s_cl":"serum_cl", "s_hc03":"serum_bicarb", 
+                          "s_ca":"serum_ca", "tot_prot": "tot_protein", "albumin": "serum_albumin", 
+                          "u_na": "sodium_u", "u_glucose": "urine_glucose", "s_creatinine":"creatinine_s", 
+                          "u_creatinine": "creatinine_u", "acr": "acr_u", "iohexol_ecv": "ecv", 
+                          "iohexol_ec_gfr": "gfr_ecv_percent", "iohexol_gfr_ecv_std": "gfr_ecv_std"}, axis=1)
     print("studyvisit_type unique values:", vital["visit"].unique())
     print("studyvisit_type value counts:\n",
           vital["visit"].value_counts(dropna=False))
@@ -201,6 +208,7 @@ def clean_ultra():
     mri.drop(redcap_cols, axis=1, inplace=True)#+ ["mri_cardio", "mri_abdo",
                             #"mri_aortic", "study_visit_mri"],
     print([c for c in mri.columns if 'date' in c.lower() or 'imaging' in c.lower()]) 
+    mri.rename({"imaging_visit": "visit"}, axis=1, inplace=True)
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
     mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output",
@@ -209,10 +217,6 @@ def clean_ultra():
                 "imaging_hr": "lv_hr", "imaging_date": "date",
                 "af_pwv_xcor3": "af_pwv",
                 "radial_peak": "grs", "circum_peak": "gcs", "long_peak": "gls"}, axis=1, inplace=True)
-    print("af_pwv PULLED?")                                                       
-    print("af_pwv" in mri.columns)                            
-    print("TOTAL NOT NULLS IN date:")                                           
-    print(mri["date"].notna().sum())
      
                 
     mri["procedure"] = "cardio_abdominal_mri"
@@ -222,10 +226,10 @@ def clean_ultra():
     # --------------------------------------------------------------------------
 
     med.dropna(thresh=3, axis=0, inplace=True)
-    vital.dropna(thresh=3, axis=0, inplace=True)
+    vital.dropna(thresh=5, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
-    demo.dropna(thresh=3, axis=0, inplace=True)
+    demo.dropna(thresh=6, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
