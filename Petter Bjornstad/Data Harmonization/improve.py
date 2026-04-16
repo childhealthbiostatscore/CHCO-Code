@@ -109,12 +109,17 @@ def clean_improve():
     # Replace missing values
     med.replace(rep, np.nan, inplace=True)
     # SGLT2i (diabetes_med_other___4), RAASi (htn_med_type___1, htn_med_type___2), Metformin (diabetes_med_other___1)
-    med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "htn_med_type___1",
+    med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "diabetes_med_other___2", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
     med["diabetes_med_other___3"] = med["diabetes_med_other___3"].replace(
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___3": "sglti_timepoint"},
+               axis=1, inplace=True)
+    # GLP1RA
+    med["diabetes_med_other___2"] = med["diabetes_med_other___2"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
+    med.rename({"diabetes_med_other___2": "glp1_agonist_timepoint"},
                axis=1, inplace=True)
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
