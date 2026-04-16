@@ -89,7 +89,7 @@ def clean_ultra():
     med = pd.DataFrame(proj.export_records(fields=var))
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
-    med.replace(rep, np.nan)#, inplace=True)
+    med = med.replace(rep, np.nan)
 
     med = med.rename(
           {"diabetes_meds___1": "metformin_timepoint", "diabetes_meds___2": "insulin_timepoint", "diabetes_meds___3": "tzd_timepoint", 
@@ -138,14 +138,15 @@ def clean_ultra():
     # Physical exam
     # --------------------------------------------------------------------------
 
-    var = ["record_id", "pe_date", "pe_height", "pe_weight",
-           "pe_bmi", "pe_sbp", "pe_dbp", "pe_waist", "pe_hip"]
+    var =  [v for v in meta.loc[meta["form_name"] == "physical_exam", "field_name"]]
+
     phys = pd.DataFrame(proj.export_records(fields=var))
-    phys.drop(redcap_cols, axis=1, inplace=True)
+    phys = phys.drop(redcap_cols, axis=1)
+    phys = phys.drop(columns = ["pe_normal", "pe_abnormal", "physical_exam_complete"], errors='ignore')
+
     # Replace missing values
-    phys.replace(rep, np.nan, inplace=True)
-    phys.columns = phys.columns.str.replace(r"phys_|screen_", "", regex=True)
-    phys.rename({"pe_sbp": "sbp", "pe_dbp": "dbp", "pe_date":"date", "pe_height":"height", "pe_weight":"weight", "pe_bmi":"bmi", "pe_waist":"waistcm", "pe_hip": "hipcm"}, inplace=True, axis=1)
+    phys = phys.replace(rep, np.nan)
+    phys = phys.rename({"pe_sbp": "sbp", "pe_dbp": "dbp", "pe_date":"date", "pe_height":"height", "pe_weight":"weight", "pe_bmi":"bmi", "pe_waist":"waistcm", "pe_hip": "hipcm"}, axis=1)
     phys["procedure"] = "physical_exam"
 
     # --------------------------------------------------------------------------
@@ -157,11 +158,11 @@ def clean_ultra():
     screen = pd.DataFrame(proj.export_records(fields=var))
     
     screen = screen.replace(rep, np.nan)#, inplace=True)  # Replace missing values
-    screen.drop(redcap_cols + ['prescreen_a1c', 'prescreen_a1c_date'],#, "screening_labs_complete"],
+    screen.drop(redcap_cols + ['prescreen_a1c_date'],
                 axis=1, inplace=True)
-    screen.columns = screen.columns.str.replace(
-        r"screen_|_of_screen", "", regex=True)
-    screen.rename({"a1c": "hba1c"},
+    screen["g6pd"] = screen["g6pd"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    screen.rename({"a1c": "hba1c", "screening_labs_date":"date_of_screen"},
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
 
