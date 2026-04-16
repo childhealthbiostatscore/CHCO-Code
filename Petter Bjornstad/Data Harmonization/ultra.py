@@ -187,7 +187,7 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
-    vital = vital.rename({"s_na": "serum_sodium", "s_k":"serum_k", "s_cl":"serum_cl", "s_hc03":"serum_bicarb", 
+    vital = vital.rename({"s_na": "na_s", "s_k":"serum_k", "s_cl":"serum_cl", "s_hc03":"serum_bicarb", 
                           "s_ca":"serum_ca", "tot_prot": "tot_protein", "albumin": "serum_albumin", 
                           "u_na": "sodium_u", "u_glucose": "urine_glucose", "s_creatinine":"creatinine_s", 
                           "u_creatinine": "creatinine_u", "acr": "acr_u", "iohexol_ecv": "ecv", 
