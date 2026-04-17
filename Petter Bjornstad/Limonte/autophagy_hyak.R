@@ -174,13 +174,35 @@ seurat_object_hvg$group <- as.factor(ifelse(
 ))
 
 source("/Users/tim/Downloads/nebula_pipeline.R")
+# Nebula all genes together
+seuratdata = as.SingleCellExperiment(seurat_object_hvg)
+seuratdata <- scToNeb(
+  obj = seuratdata,
+  assay = "RNA",
+  id = "record_id",
+  pred = "group",
+  offset = "nCount_RNA"
+)
+seuratdata$count = round(seuratdata$count)
+seuratdata$pred = model.matrix(~group, seuratdata$pred)
+re = nebula(
+  seuratdata$count,
+  seuratdata$id,
+  pred = seuratdata$pred,
+  ncore = 8
+)
+diabetes_ptcell_nebula_results_all = re$summary[
+  match(full_results$gene, re$summary$gene),
+]
+
 # save results:
 diabetes_ptcell_nebula_results <- full_results
 save(
   diabetes_ptcell_nebula_results,
+  diabetes_ptcell_nebula_results_all,
   file = "/Users/tim/Downloads/diabetes_ptcell_nebula_results.RData"
 )
-rm(diabetes_ptcell_nebula_results)
+rm(diabetes_ptcell_nebula_results, diabetes_ptcell_nebula_results_all)
 # ---- Volcano Plot ----
 # Create the volcano plot using ggplot
 diabetes_ptcell_volcano_plot <- ggplot(
