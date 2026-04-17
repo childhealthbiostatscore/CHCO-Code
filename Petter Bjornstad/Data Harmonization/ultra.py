@@ -188,8 +188,8 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
-    vital = vital.rename({"s_na": "na_s", "s_k":"serum_k", "s_cl":"serum_cl", "s_hc03":"serum_bicarb", 
-                          "s_ca":"serum_ca", "tot_prot": "tot_protein", "albumin": "serum_albumin", 
+    vital = vital.rename({"s_na": "na_s", "s_k":"k_base", "s_cl":"cl_base", "s_hc03":"bicarb_base", 
+                          "s_ca":"ca_base", "tot_prot": "tot_protein", "albumin": "alb_base", 
                           "u_na": "sodium_u", "u_glucose": "urine_glucose", "s_creatinine":"creatinine_s", 
                           "u_creatinine": "creatinine_u", "acr": "acr_u", "iohexol_ecv": "ecv", 
                           "iohexol_ec_gfr": "gfr_ecv_percent", "iohexol_gfr_ecv_std": "gfr_ecv_std"}, axis=1)
@@ -259,7 +259,7 @@ def clean_ultra():
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
-    
+
     # Change study visit names
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
