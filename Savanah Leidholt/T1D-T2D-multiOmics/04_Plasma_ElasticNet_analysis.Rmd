@@ -3,7 +3,6 @@ title: "Elastic Net Analysis"
 output: pdf_document
 author: "Savanah Leidholt"
 date: "02/17/2026"
-
 ---
 
 ```{r setup, include=FALSE}
@@ -23,8 +22,8 @@ library(tibble)
 
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -88,6 +87,7 @@ out3 <- dat3$out
 
 dim(prot_mat_out1)
 ```
+
 ```{r}
 # clean IDs
 meta1$record_id <- trimws(as.character(meta1$record_id))
@@ -108,14 +108,13 @@ meta1 <- meta1 %>%
 meta1 <- meta1 %>%
   dplyr::filter(!is.na(age), !is.na(sex), sex != "", !is.na(study6), study6 != "")
 
-# align protein matrix to meta1 exactly
+
 prot_mat <- prot_mat_out1[meta1$record_id, , drop = FALSE]
 
-# final checks
+#final checks
 stopifnot(identical(rownames(prot_mat), meta1$record_id))
 stopifnot(nrow(prot_mat) == nrow(meta1))
 
-# factorize after filtering
 meta1 <- meta1 %>%
   dplyr::mutate(
     sex = factor(sex),
@@ -126,7 +125,6 @@ meta1 <- meta1 %>%
 # check row counts
 nrow(prot_mat)
 nrow(meta1)
-nrow(covar_mat)
 length(meta1$study6)
 
 # prot_mat currently: samples x proteins
@@ -135,7 +133,6 @@ dim(prot_mat)
 # transpose to proteins x samples for limma
 prot_mat_t <- t(prot_mat)
 
-# checks
 stopifnot(ncol(prot_mat_t) == nrow(meta1))
 stopifnot(colnames(prot_mat_t) == meta1$record_id)
 
@@ -160,9 +157,9 @@ stopifnot(rownames(prot_resid) == meta1$record_id)
 dim(prot_resid)
 
 ```
-
-
-
+#----------------------------------------------
+#reading in analyte file for easier annotation
+#---------------------------------------------
 ```{r}
 analytes <- read.csv(
   file.path(dir.dat, "Data Harmonization", "Combined SomaScan", "analytes.csv")
@@ -170,7 +167,6 @@ analytes <- read.csv(
 
 prot_panel <- unique(trimws(as.character(analytes$AptName)))
 
-##keep only aptamers that are present in the protein matrix
 aptamers_keep <- intersect(prot_panel, colnames(prot_mat))
 protein2symbol <- analytes %>%
   transmute(
@@ -180,6 +176,9 @@ protein2symbol <- analytes %>%
   distinct()
 ```
 
+#------------------------
+#elasticNet function
+#------------------------
 ```{r}
 run_elastic_net <- function(
   cc,
@@ -383,6 +382,9 @@ if (any(tab < min_per_class)) {
 }
 ```
 
+#-----------------------------------
+#Contrast specific feature selection
+#------------------------------------
 ```{r}
 res_T1D_LC <- run_elastic_net(
   cc = "T1D_vs_LC",
@@ -438,7 +440,6 @@ res_T2D_OC<- run_elastic_net(
 )
 ```
 
-
 ```{r}
 res_OC_LC<- run_elastic_net(
   cc = "OC_vs_LC",
@@ -446,10 +447,13 @@ res_OC_LC<- run_elastic_net(
   meta_df = meta1,
   X_mat = prot_resid,
   top_n = 100,
-  covars = c("age", "sex", "study6")
+  covars = c("age", "sex")
 )
 ```
 
+#------------------------------
+#reuslts tables per contrast
+#------------------------------
 ```{r}
 #sig T1D vs LC
 tibble::tibble(
@@ -471,6 +475,7 @@ sig_tbl_T1D_LC <- res_T1D_LC$coef_df %>%
 
 head(sig_tbl_T1D_LC)
 ```
+
 ```{r}
 #sig T1D vs OC
 tibble::tibble(
@@ -491,6 +496,28 @@ sig_tbl_T1D_OC <- res_T1D_OC$coef_df %>%
   dplyr::arrange(desc(abs_beta))
 
 head(sig_tbl_T1D_OC)
+```
+
+```{r}
+#sig T1D vs T2D
+tibble::tibble(
+  contrast = res_T1D_T2D$contrast,
+  alpha = res_T1D_T2D$best_alpha,
+  lambda_1se = res_T1D_T2D$lambda_1se,
+  lambda_min = res_T1D_T2D$lambda_min,
+  auc = res_T1D_T2D$auc_train,
+  n_input_proteins = res_T1D_T2D$n_input_proteins,
+  n_selected_proteins = length(res_T1D_T2D$protein_terms)
+)
+
+sig_tbl_T1D_T2D<- res_T1D_T2D$coef_df %>%
+  dplyr::filter(term %in% res_T1D_T2D$protein_terms) %>%
+  dplyr::rename(feature_id = term) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(abs_beta = abs(beta)) %>%
+  dplyr::arrange(desc(abs_beta))
+
+head(sig_tbl_T1D_T2D)
 ```
 
 ```{r}
