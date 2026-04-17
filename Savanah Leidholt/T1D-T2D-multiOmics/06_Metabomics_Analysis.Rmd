@@ -1039,6 +1039,219 @@ patchwork::wrap_plots(kegg_plots_mp, ncol = 2)
 #b) data with metabolite and proteomics data
 #--------------------------------------------------
 ```{r}
+#change for metabolite data
 
 ```
 
+```{r}
+run_elastic_net <- function(
+  cc,
+  out_list,
+  meta_df,
+  X_mat,
+  top_n = 100,
+  covars = c("age", "sex"),
+  alpha_grid = seq(0.1, 1, by = 0.1),
+  nfolds = 10,
+  seed = 1,
+  min_per_class = 5,
+  maxit = 1e6
+) {
+  
+  cat("\n============================\n")
+  cat("Running contrast:", cc, "\n")
+  
+  if (!cc %in% names(out_list)) {
+    stop("Contrast not found in out_list: ", cc)
+  }
+  
+  if (!grepl("_vs_", cc)) {
+    stop("Contrast name must contain '_vs_'")
+  }
+  
+  parts <- strsplit(cc, "_vs_")[[1]]
+  if (length(parts) != 2) {
+    stop("Contrast could not be split into two groups")
+  }
+  
+  g_pos <- parts[1]
+  g_neg <- parts[2]
+  
+ idx <- which(meta_df$group4 %in% c(g_pos, g_neg))
+meta_sub <- meta_df[idx, , drop = FALSE]
+meta_sub$record_id <- as.character(meta_sub$record_id)
+
+meta_sub$group4 <- droplevels(meta_sub$group4)
+
+y <- ifelse(meta_sub$group4 == g_pos, 1, 0)
+y <- as.numeric(y)
+
+tab <- table(meta_sub$group4)
+if (any(tab < min_per_class)) {
+  stop(
+    "Too few samples in at least one class for contrast: ",
+    cc,
+    " | counts = ",
+    paste(names(tab), tab, collapse = ", ")
+  )
+}
+  
+  t <- out_list[[cc]]
+  if (is.null(t)) {
+    stop("Contrast table is NULL for: ", cc)
+  }
+  t <- as.data.frame(t)
+  
+  cat("Columns in contrast table:\n")
+  print(names(t))
+  
+  if (!"feature_id" %in% names(t)) {
+    fid <- rownames(t)
+    if (is.null(fid)) stop("No feature_id column or rownames found")
+    t$feature_id <- fid
+  }
+  
+  if (!all(c("adj.P.Val", "P.Value") %in% names(t))) {
+    stop("Contrast table is missing adj.P.Val and/or P.Value")
+  }
+  
+  cat("Rows in limma table:", nrow(t), "\n")
+  cat("Overlap with protein matrix:", sum(t$feature_id %in% colnames(X_mat)), "\n")
+  
+  top_feats <- t %>%
+    dplyr::filter(!is.na(adj.P.Val)) %>%
+    dplyr::arrange(adj.P.Val, P.Value) %>%
+    dplyr::slice_head(n = top_n) %>%
+    dplyr::pull(feature_id) %>%
+    intersect(colnames(X_mat))
+  
+  cat("Top overlapping features:", length(top_feats), "\n")
+  cat("First few top features:\n")
+  print(head(top_feats, 10))
+  
+  if (length(top_feats) < 5) {
+    stop("Fewer than 5 overlapping top features for contrast: ", cc)
+  }
+  
+  meta_sub <- meta_sub %>%
+    dplyr::mutate(
+      sex = factor(sex),
+      study6 = factor(study6)
+    )
+  
+  covars_present <- covars[covars %in% colnames(meta_sub)]
+  cat("Covariates used:", paste(covars_present, collapse = ", "), "\n")
+  
+  if (length(covars_present) > 0) {
+    form_cov <- as.formula(paste("~", paste(covars_present, collapse = " + ")))
+    Z <- model.matrix(form_cov, data = meta_sub)
+  } else {
+    Z <- matrix(1, nrow = nrow(meta_sub), ncol = 1)
+    colnames(Z) <- "(Intercept)"
+  }
+  
+  Xp <- X_mat[meta_sub$record_id, top_feats, drop = FALSE]
+  
+  X <- cbind(Z, Xp)
+  X <- as.matrix(X)
+  storage.mode(X) <- "double"
+  
+  pf <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
+  
+  sds <- apply(X, 2, sd)
+  keep <- which(is.finite(sds) & sds > 0)
+  
+  X <- X[, keep, drop = FALSE]
+  pf <- pf[keep]
+  
+  cat("Final design matrix dim:", dim(X), "\n")
+  
+  nfolds_use <- min(nfolds, sum(y == 0), sum(y == 1))
+  cat("nfolds used:", nfolds_use, "\n")
+  
+  if (nfolds_use < 2) {
+    stop("Not enough samples per class for CV")
+  }
+  
+  set.seed(seed)
+  
+  fit_list <- lapply(alpha_grid, function(a) {
+    cv <- tryCatch(
+      cv.glmnet(
+        x = X,
+        y = y,
+        family = "binomial",
+        alpha = a,
+        nfolds = nfolds_use,
+        type.measure = "deviance",
+        penalty.factor = pf,
+        standardize = TRUE,
+        maxit = maxit
+      ),
+      error = function(e) {
+        message("glmnet failed at alpha = ", a, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    
+    if (is.null(cv)) return(NULL)
+    list(alpha = a, cvfit = cv)
+  })
+  
+  fit_list <- Filter(Negate(is.null), fit_list)
+  
+  if (length(fit_list) == 0) {
+    stop("All glmnet fits failed")
+  }
+  
+  best_idx <- which.min(sapply(fit_list, function(z) min(z$cvfit$cvm)))
+  best <- fit_list[[best_idx]]
+  
+  coef_mat <- as.matrix(coef(best$cvfit, s = "lambda.1se"))
+  coef_df <- tibble::tibble(
+    term = rownames(coef_mat),
+    beta = as.numeric(coef_mat)
+  ) %>%
+    dplyr::filter(beta != 0)
+  
+  protein_terms <- intersect(colnames(Xp), coef_df$term)
+  
+  p_hat <- as.numeric(
+    predict(best$cvfit, newx = X, s = "lambda.1se", type = "response")
+  )
+  
+  auc_val <- as.numeric(
+    pROC::auc(pROC::roc(y, p_hat, quiet = TRUE))
+  )
+  
+  cat("Best alpha:", best$alpha, "\n")
+  cat("AUC:", auc_val, "\n")
+  cat("Nonzero coefficients:", nrow(coef_df), "\n")
+  cat("Selected protein terms:", length(protein_terms), "\n")
+  
+  list(
+    contrast         = cc,
+    positive         = g_pos,
+    negative         = g_neg,
+    best_alpha       = best$alpha,
+    lambda_1se       = best$cvfit$lambda.1se,
+    lambda_min       = best$cvfit$lambda.min,
+    auc_train        = auc_val,
+    n_input_proteins = length(top_feats),
+    coef_df          = coef_df,
+    protein_terms    = protein_terms,
+    cvfit            = best$cvfit,
+    top_feats        = top_feats
+  )
+}
+```
+
+```{r}
+res_T1D_LC <- run_elastic_net(
+  cc = "T1D_vs_LC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
