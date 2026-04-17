@@ -325,42 +325,40 @@ cat("All metabolomics analysis-ready N:", nrow(meta_all), "\n")
 cat("All metabolomics features before filtering:", ncol(mat_all), "\n")
 print(table(meta_all$study, meta_all$group4, useNA = "ifany"))
 ```
-##-------------------------------
-## prep matrix: all metabolomics
-##-------------------------------
 ```{r}
-mat_all <- as.matrix(mat_all)
-rownames(mat_all) <- trimws(as.character(rownames(mat_all)))
-
-mat_log_all <- log2(mat_all + 1)
-mat_log_all[!is.finite(mat_log_all)] <- NA_real_
-```
-
-##-------------------------------------------
-## filter > 2 studies 
-##------------------------------------------
-```{r}
-study_idx_all <- split(seq_len(nrow(mat_log_all)), meta_all$study)
-
+##filtering step where protein must exist in 60% of samples in a study &b be in 2 studies
+study_idx_all <- split(seq_len(nrow(mat_all)), meta_metab$study)
 present_by_study_all <- sapply(study_idx_all, function(idx) {
-  colSums(!is.na(mat_log_all[idx, , drop = FALSE])) > 0
+  colMeans(!is.na(mat_all[idx, ])) >= 0.6
 })
 
 present_by_study_all <- as.matrix(present_by_study_all)
-
 n_studies_present_all <- colSums(present_by_study_all)
 keep_study_all <- n_studies_present_all >= 2
 
-cat("All metabolomics features before study filter:", ncol(mat_log_all), "\n")
-cat("Removed (<2 studies):", sum(!keep_study_all), "\n")
-cat("Kept (>=2 studies):", sum(keep_study_all), "\n")
+removed_metabolites <- colnames(mat_all)[!keep_study_all]
+kept_metabolites    <- colnames(mat_all)[keep_study_all]
 
-mat_filt_all <- mat_log_all[, keep_study_all, drop = FALSE]
+cat("All metabolomic features before study filter:", ncol(mat_all), "\n")
+cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_metabolites), "\n")
+cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_metabolites), "\n")
 ```
-##-----------
-##imputation
-##-----------
 ```{r}
+
+```
+
+
+##--------------------------
+## log transform & imputation
+##-------------------
+```{r}
+mat_all <- as.matrix(mat_metab)
+rownames(mat_all) <- trimws(as.character(rownames(mat_all)))
+
+mat_log_all <- log2(mat_all + 1)
+
+mat_log_all[!is.finite(mat_log_all)] <- NA_real_
+
 meds_all <- apply(mat_filt_all, 2, function(x) {
   m <- median(x, na.rm = TRUE)
   if (is.finite(m)) m else NA_real_
@@ -384,7 +382,7 @@ mat_imp_all <- mat_imp_all[, keep_cols_all, drop = FALSE]
 
 cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
 cat("number of participants kept", nrow(mat_imp_all), "\n")
-stopifnot(identical(rownames(mat_imp_all), meta_all$record_id))
+stopifnot(identical(rownames(mat_imp_all), meta_metab$record_id))
 ```
 
 ```{r}
@@ -1049,7 +1047,7 @@ run_elastic_net <- function(
   out_list,
   meta_df,
   X_mat,
-  top_n = 100,
+  top_n = 50,
   covars = c("age", "sex"),
   alpha_grid = seq(0.1, 1, by = 0.1),
   nfolds = 10,
@@ -1136,7 +1134,7 @@ if (any(tab < min_per_class)) {
   meta_sub <- meta_sub %>%
     dplyr::mutate(
       sex = factor(sex),
-      study6 = factor(study6)
+      study = factor(study)
     )
   
   covars_present <- covars[covars %in% colnames(meta_sub)]
@@ -1249,9 +1247,62 @@ if (any(tab < min_per_class)) {
 ```{r}
 res_T1D_LC <- run_elastic_net(
   cc = "T1D_vs_LC",
-  out_list = out1,
-  meta_df = meta1,
-  X_mat = prot_resid,
-  top_n = 100,
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
   covars = c("age", "sex")
 )
+```
+```{r}
+res_T1D_OC <- run_elastic_net(
+  cc = "T1D_vs_OC",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
+  covars = c("age", "sex")
+)
+```
+```{r}
+res_T1D_T2D <- run_elastic_net(
+  cc = "T1D_vs_T2D",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
+  covars = c("age", "sex")
+)
+```
+```{r}
+res_T2D_LC <- run_elastic_net(
+  cc = "T2D_vs_LC",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_T2D_OC <- run_elastic_net(
+  cc = "T2D_vs_OC",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_OC_LC <- run_elastic_net(
+  cc = "OC_vs_LC",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50,
+  covars = c("age", "sex")
+)
+```
