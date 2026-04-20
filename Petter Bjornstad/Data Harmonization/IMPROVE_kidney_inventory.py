@@ -10,12 +10,13 @@ from datetime import date
 user = getpass.getuser()
 base_paths = {
     "shivaniramesh": os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"),
+    "choiyej": "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/",
 }
 if user not in base_paths:
-    sys.exit(f"Unknown user: {user}")
+    sys.exit(f"Unknown user: {user}. Add your path to base_paths.")
 BASE = base_paths[user]
-REPORT_DIR = os.path.expanduser("~/lab-qc-reports/reports/")
-os.makedirs(REPORT_DIR, exist_ok=True)
+OUTPUT_DIR = os.path.join(BASE, "IMPROVE T2D", "Data_Cleaned")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
 rep = rep + [str(r) for r in rep] + [""]
@@ -28,21 +29,14 @@ VISIT_MAP = {
 
 
 FIELD_MAP = [
-    # ── Medications (baseline only) ──────────────────────────────────────────
     ("uric_acid_med",                       "patient_medications",     "direct"),
     ("mra_med",                             "patient_medications",     "direct"),
-
-    # ── Screening labs (screening visit only) ────────────────────────────────
     ("screen_serum_creatinine",             "screening_labs",          "direct"),
     ("screen_urine_mab",                    "screening_labs",          "direct"),
     ("screen_urine_cre",                    "screening_labs",          "direct"),
     ("screen_urine_acr",                    "screening_labs",          "direct"),
-
-    # ── MMTT ─────────────────────────────────────────────────────────────────
     ("mmtt_bun_base",                       "mmtt_metabolic_cart",     "direct"),
     ("mmtt_creat_base",                     "mmtt_metabolic_cart",     "direct"),
-
-    # ── Clamp ─────────────────────────────────────────────────────────────────
     ("cystatin_c",                          "clamp",                   "direct"),
     ("serum_creatinine",                    "clamp",                   "direct"),
     ("clamp_urine_mab_baseline",            "clamp",                   "direct"),
@@ -69,8 +63,6 @@ FIELD_MAP = [
     ("pah_minus_10",                        "clamp",                   "direct"),
     ("pah_90",                              "clamp",                   "direct"),
     ("pah_120",                             "clamp",                   "direct"),
-
-    # ── Outcomes ──────────────────────────────────────────────────────────────
     ("gfr",                                 "outcomes",                "direct"),
     ("gfr_bsa",                             "outcomes",                "direct"),
     ("abs_pah",                             "outcomes",                "direct"),
@@ -100,8 +92,6 @@ FIELD_MAP = [
     ("volume_left",                         "outcomes",                "direct"),
     ("volume_right_manual",                 "outcomes",                "direct"),
     ("volume_left_manual",                  "outcomes",                "direct"),
-
-    # ── Kidney biopsy — REDCap fields (biopsy_results_michigan form) ─────────
     ("gloms",                               "biopsy_results_michigan", "direct"),
     ("glom_enlarge___1",                    "biopsy_results_michigan", "direct"),
     ("glom_enlarge___2",                    "biopsy_results_michigan", "direct"),
@@ -113,8 +103,6 @@ FIELD_MAP = [
     ("gloms_gs",                            "biopsy_results_michigan", "direct"),
     ("ifta",                                "biopsy_results_michigan", "direct"),
     ("fia",                                 "biopsy_results_michigan", "direct"),
-
-    # ── Kidney biopsy — external morphometrics (harmonized dataset) ───────────
     ("glom_tuft_area",                      "kidney_biopsy",           "external"),
     ("glom_volume_weibel",                  "kidney_biopsy",           "external"),
     ("glom_volume_wiggins",                 "kidney_biopsy",           "external"),
@@ -126,8 +114,6 @@ FIELD_MAP = [
     ("mes_volume_con",                      "kidney_biopsy",           "external"),
     ("gbm_thick_artmean",                   "kidney_biopsy",           "external"),
     ("gbm_thick_harmmean",                  "kidney_biopsy",           "external"),
-
-    # ── AZ urine metabolites (baseline only) ─────────────────────────────────
     ("az_creatine_p",                       "az_urine_metabolites",    "direct"),
     ("az_hippuric_acid_p",                  "az_urine_metabolites",    "direct"),
     ("az_kynurenic_acid_n",                 "az_urine_metabolites",    "direct"),
@@ -143,9 +129,6 @@ BASELINE_ONLY_FORMS = {
 }
 SCREENING_ONLY_FORMS = {"screening_labs"}
 
-# ---------------------------------------------------------------------------
-# Visits confirmed not done — dropped from both output files
-# ---------------------------------------------------------------------------
 VISITS_NOT_DONE = {
     ("IT_01", "3_months_post_surgery"),
     ("IT_01", "12_months_post_surgery"),
@@ -166,9 +149,6 @@ VISITS_NOT_DONE = {
     ("IT_23", "12_months_post_surgery"),
 }
 
-# ---------------------------------------------------------------------------
-# Known visit/procedure notes
-# ---------------------------------------------------------------------------
 VISIT_NOTES = {
     ("IT_07", "12_months_post_surgery"): "12mo clamp row in harmonized is phantom (demographics only, no clamp data)",
     ("IT_09", "12_months_post_surgery"): "Partial urine labs only (ACR, creatinine_u, microalbumin_u); no GFR/ERPF",
@@ -179,9 +159,6 @@ VISIT_NOTES = {
     ("IT_22", "12_months_post_surgery"): "12mo outcomes not entered in REDCap — ask Tyler",
 }
 
-# ---------------------------------------------------------------------------
-# Visits confirmed to have had a biopsy
-# ---------------------------------------------------------------------------
 BIOPSY_VISITS = {
     ("IT_07", "baseline"), ("IT_07", "12_months_post_surgery"),
     ("IT_08", "baseline"), ("IT_08", "12_months_post_surgery"),
@@ -194,9 +171,6 @@ BIOPSY_VISITS = {
     ("IT_19", "baseline"),
 }
 
-# ---------------------------------------------------------------------------
-# Visits confirmed to have had an MRI
-# ---------------------------------------------------------------------------
 MRI_VISITS = {
     ("IT_23", "baseline"),
     ("IT_01", "baseline"),
@@ -222,9 +196,6 @@ MRI_VISITS = {
     ("IT_22", "baseline"), ("IT_22", "3_months_post_surgery"), ("IT_22", "12_months_post_surgery"),
 }
 
-# ---------------------------------------------------------------------------
-# Section definitions for completeness report
-# ---------------------------------------------------------------------------
 SECTIONS = {
     "med": [
         "uric_acid_med", "mra_med",
@@ -272,9 +243,6 @@ SECTIONS = {
 SKIP_VALUES = {"", "nan", "--"}
 
 
-# ---------------------------------------------------------------------------
-# REDCap helpers
-# ---------------------------------------------------------------------------
 def connect_improve(tokens):
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "IMPROVE", "Token"].iloc[0]
@@ -284,7 +252,6 @@ def connect_improve(tokens):
 
 
 def pull_form(proj, meta, form_name):
-    """Export all fields from one REDCap form; returns df with record_id and visit."""
     base = ["subject_id", "study_visit"]
     form_fields = meta.loc[meta["form_name"] == form_name, "field_name"].tolist()
     var = list(dict.fromkeys(base + form_fields))
@@ -305,10 +272,6 @@ def pull_form(proj, meta, form_name):
 
 
 def build_redcap_lookup(proj, meta):
-    """
-    Pull each required form once.
-    Returns dict: { (record_id, visit, rc_field) : actual_value_or_nan }
-    """
     form_to_fields = {}
     for rc_field, form, kind in FIELD_MAP:
         if kind != "direct":
@@ -335,10 +298,6 @@ def build_redcap_lookup(proj, meta):
 
 
 def build_harmonized_lookup(harm_improve):
-    """
-    For external variables (biopsy morphometrics), pull values from harmonized dataset.
-    Returns dict: { (record_id, visit, col) : first_non_null_value_or_nan }
-    """
     external_cols = list(dict.fromkeys(
         rc_field for rc_field, form, kind in FIELD_MAP if kind == "external"
     ))
@@ -354,11 +313,7 @@ def build_harmonized_lookup(harm_improve):
     return lookup
 
 
-# ---------------------------------------------------------------------------
-# Completeness summary
-# ---------------------------------------------------------------------------
 def build_completeness(output):
-    """Build section-level completeness summary from the inventory DataFrame."""
     rows = []
     for _, row in output.iterrows():
         rid, visit = row["record_id"], row["visit"]
@@ -452,7 +407,6 @@ if __name__ == "__main__":
     )
     output = output[["record_id", "visit", "notes"] + fields_ordered]
 
-    # Mark "--" where procedure was not done
     mri_cols  = [c for c in SECTIONS["mri"]    if c in output.columns]
     biopsy_cols = [c for c in SECTIONS["biopsy"] if c in output.columns]
     for i, row in output.iterrows():
@@ -465,12 +419,11 @@ if __name__ == "__main__":
                 if str(row[c]).strip() in ("", "nan"):
                     output.at[i, c] = "--"
 
-    inv_path = os.path.join(REPORT_DIR, f"IMPROVE_clamp_outcomes_inventory_{today}.csv")
+    inv_path = os.path.join(OUTPUT_DIR, f"IMPROVE_clamp_outcomes_inventory_{today}.csv")
     output.to_csv(inv_path, index=False)
     print(f"\nWrote inventory: {inv_path}  ({len(output)} rows × {len(output.columns)} columns)")
 
-    # Build and write completeness summary
     completeness = build_completeness(output)
-    comp_path = os.path.join(REPORT_DIR, f"IMPROVE_completeness_by_section_{today}.csv")
+    comp_path = os.path.join(OUTPUT_DIR, f"IMPROVE_completeness_by_section_{today}.csv")
     completeness.to_csv(comp_path, index=False)
     print(f"Wrote completeness: {comp_path}  ({len(completeness)} rows × {len(completeness.columns)} columns)")
