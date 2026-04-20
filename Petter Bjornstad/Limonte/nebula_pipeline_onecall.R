@@ -1,62 +1,33 @@
-######## NEBULA PIPLINE FROM NOTION ##########
+######## NEBULA PIPLINE EDITED WITH ONE NEBULA CALL ##########
 
-# ---- Parallelized Analysis ----
 
-# Set up parallel cluster with 10 cores
-cl <- makeCluster(10)
-registerDoParallel(cl)
-
-# Get metadata and design matrix
-meta_gene <- seurat_object_hvg@meta.data
-# Create predictor matrix using the factor variable
-pred_gene <- model.matrix(~group, data = meta_gene)
-###8.2.2 Run Analysis###
 # Record start time
 start_time <- Sys.time()
 
-# Perform analysis across genes in parallel
-#g<-"VAMP3"
-nebula_results_list <- foreach(
-  g = genes_list,
-  .packages = c("nebula", "Matrix"),
-  .export = c("seurat_object_hvg", "counts_hvg", "meta_gene", "pred_gene"),
-  .noexport = ls()
-) %dopar%
-  {
-    tryCatch(
-      {
-        # Subset counts for the current gene
-        count_gene <- counts_hvg[g, , drop = FALSE]
+# Nebula all genes together
+seuratdata = as.SingleCellExperiment(seurat_object_hvg)
+seuratdata <- scToNeb(
+  obj = seuratdata,
+  assay = "RNA",
+  id = "record_id",
+  pred = "group",
+  offset = "nCount_RNA"
+)
+seuratdata$count = round(seuratdata$count)
+seuratdata$pred = model.matrix(~group, seuratdata$pred)
 
-        # Group data by ID (batch information)
-        data_g_gene <- group_cell(
-          count = count_gene,
-          id = meta_gene$record_id,
-          pred = pred_gene
-        )
+# Subset count matrix to genes in genes_list
+gene_idx <- rownames(seuratdata$count) %in% genes_list
+count_subset <- seuratdata$count[gene_idx, ]
 
-        # Run the nebula model (with random effects)
-        result <- nebula(
-          count = count_gene,
-          id = meta_gene$record_id,
-          pred = pred_gene,
-          ncore = 1,
-          output_re = TRUE,
-          offset=meta_gene$nCount_RNA
-        )
+re = nebula(
+  count_subset,
+  seuratdata$id,
+  pred = seuratdata$pred,
+  ncore = 8,
+  offset=seuratdata$offset
+)
 
-        # Return list containing gene name and its result
-        list(gene = g, result = result)
-      },
-      error = function(e) {
-        # In case of error, return NULL
-        NULL
-      }
-    )
-  }
-
-# Stop the parallel cluster
-stopCluster(cl)
 
 # Record end time
 end_time <- Sys.time()
@@ -65,57 +36,25 @@ end_time <- Sys.time()
 print(end_time - start_time)
 
 ###8.2.3 Post-Analysis Results Processing
+re_summary<-re$summary
 # Remove NULL entries (failed analyses) from the results
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
-
-# Assign gene names as list names
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
-
-# Simplify the list to only contain the result objects
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
-
-# Extract convergence status into a dataframe
-hep_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name, Convergence_Code = converged)
-    return(df)
-  }
-)
-
-# Extract model summaries into a dataframe
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-
-# Identify genes that did not converge (Convergence_Code == -40)
-nonconverge_genes <- unique(hep_nebula_converged$Gene[which(
-  hep_nebula_converged$Convergence_Code != 1
-)])
-
-# ---- Final Cleanup ----
-
+re_summary$convergecode<-re$convergence
+re_summary$converged<-ifelse(re_summary$convergecode==1,1,0)
+nonconverge_genes<-subset(re_summary,re_summary$converged==0)
 # Create a full results dataframe
-full_results <- as.data.frame(nebula_summaries)
+full_results <- as.data.frame(re_summary)
 
-# Calculate number of genes filtered out due to low expression
+# Calculate number of genes filtered out
 low_exp <- length(genes_list) - length(full_results$gene)
 
 # Filter out non-converging genes from the results
-full_results <- full_results %>%
-  filter(!gene %in% nonconverge_genes)
+full_results<-subset(full_results,full_results$converged==1)
 
 # Calculate non-convergence percentage
 nebula_nonconverged_percent <- paste0(
   round(
     (1 -
-      (length(genes_list) - length(nonconverge_genes)) / length(genes_list)) *
+       (length(genes_list) - nrow(nonconverge_genes)) / length(genes_list)) *
       100,
     3
   ),

@@ -104,8 +104,8 @@ s3write_using_region <- function(
 }
 
 # read in gene lists from Christine's excel file:
-gene_lists <- openxlsx::read.xlsx(
-  "./Limonte/Autophagy_gene_protein_lists_CL.xlsx",
+gene_lists <- openxlsx::read.xlsx(paste0(root_path,
+  "/Limonte/Autophagy_gene_protein_lists_CL.xlsx"),
   sheet = "Gene lists",
   startRow = 3,
   colNames = TRUE
@@ -189,8 +189,10 @@ re = nebula(
   seuratdata$count,
   seuratdata$id,
   pred = seuratdata$pred,
-  ncore = 8
+  ncore = 8,
+  offset=seuratdata$offset
 )
+
 diabetes_ptcell_nebula_results_all = re$summary[
   match(full_results$gene, re$summary$gene),
 ]
@@ -202,6 +204,7 @@ save(
   diabetes_ptcell_nebula_results_all,
   file = "/Users/tim/Downloads/diabetes_ptcell_nebula_results.RData"
 )
+load("//Users/kristenmiller/Desktop/diabetes_ptcell_nebula_results.RData")
 rm(diabetes_ptcell_nebula_results, diabetes_ptcell_nebula_results_all)
 # ---- Volcano Plot ----
 # Create the volcano plot using ggplot
