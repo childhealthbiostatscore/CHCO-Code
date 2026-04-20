@@ -1,5 +1,5 @@
 ---
-title: "SWEETHEART & ULTRA Imaging"
+title: "SWEETHEART & ULTRA & IMPROVE Imaging"
 author: "Ye Ji Choi"
 format:
   revealjs:
@@ -48,8 +48,6 @@ Aortic 4D flow (thoracic aorta)
   High5pctWSS:  Median of top 5% wall shear stress (Pa)
 -->
 
-# Setup
-
 ```{r setup, include=FALSE}
 # ── Packages ──────────────────────────────────────────────────────────────────
 library(jsonlite)
@@ -77,7 +75,7 @@ library(arsenal)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") {
@@ -107,8 +105,6 @@ Sys.setenv(
 )
 ```
 
-# Variable definitions
-
 ```{r variable-defs, echo=FALSE}
 # ── Imaging variables ─────────────────────────────────────────────────────────
 
@@ -118,7 +114,7 @@ im_vars_log <- c("af_pwv", "mv_flow_a", "mv_flow_e",
 
 # Full set of imaging variables
 im_vars <- c(
-  "lv_hr", "rv_hr",
+  "lv_hr", 
   "af_high5pctwss", "af_medianwss", "af_meanwss", "af_pwv",
   "mv_flow_ea", "mv_flow_a", "mv_flow_e",
   "tt2", "tt1",
@@ -184,16 +180,79 @@ im_labels <- c(
   af_medianwss           = "Aortic wall shear\nstress (median)",
   af_meanwss             = "Mean wall shear\nstress (Pa)",
   af_pwv                 = "Pulse wave\nvelocity (m/s)",
-  tt1                    = "T1 (ms)",
-  tt2                    = "T2* (ms)",
+  tt1                    = "CMR T1 (ms)",
+  tt2                    = "CMR T2* (ms)",
   tr2                    = "R2* (1/s)",
   mv_flow_e              = "E wave (cm/s)",
   mv_flow_a              = "A wave (cm/s)",
   mv_flow_ea             = "E/A ratio"
 )
-```
 
-# Data import & cleaning
+# MRI variables
+mri_vars <- c("avg_c_fsoc", "avg_m_fsoc", 
+              "avg_c_r2", "avg_m_r2",
+              "avg_c_adc", 
+              "avg_pcascl", "tkv",
+              "glomerular_pressure",
+              "avg_c_t1")
+mri_labels <- c("avg_c_fsoc" = "Cortical FSOC", 
+                "avg_m_fsoc" = "Medullary FSOC", 
+                "avg_c_r2" = "Cortical R2*", 
+                "avg_m_r2" = "Medullary R2*",
+                "avg_c_adc" = "Cortical ADC", 
+                "avg_pcascl" = "ASL",
+                "tkv" = "TKV",
+                "glomerular_pressure" = "PGLO",
+                "avg_c_t1" = "Cortical T1"
+)
+
+# Clinical variables
+anchor_vars     <- c("log_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma", "bmi", "hba1c", "sbp", "dbp")
+anchor_labels <- c(
+  bmi = "BMI", eGFR_CKD_epi = "eGFR", gfr_bsa_plasma = "mGFR",
+  hba1c = "HbA1c", log_acr_u = "log(UACR)",
+  sbp = "SBP", dbp = "DBP"
+)
+anchor_levels <- c("bmi", "eGFR_CKD_epi", "gfr_bsa_plasma", "hba1c", "log_acr_u", "sbp", "dbp")
+
+acr_gfr_vars <- c("ln_acr_u", "eGFR_CKD_epi", "gfr_raw_plasma", "gfr_bsa_plasma", "ff")
+acr_gfr_labels <- c(
+  ln_acr_u        = "ln(UACR)",
+  eGFR_CKD_epi    = "eGFR\n(mL/min/1.73m²)",
+  gfr_raw_plasma  = "mGFR raw\n(mL/min)",
+  gfr_bsa_plasma  = "mGFR BSA\n(mL/min/1.73m²)",
+  ff              = "Filtration\nfraction"
+)
+
+# Delta variables
+im_vars_delta <- c("rvesv", "rvef", "rvedv", "rv_stroke_volume", "rv_cardiac_output",
+                   "lvesv", "lvef", "lvedv", "lv_stroke_volume", "lv_cardiac_output",
+                   "lv_hr", "lv_cardiac_output", "grs", "gls", "gcs",
+                   paste0(im_vars_log, "_log10"))
+mri_vars_delta <- c("avg_c_r2", "avg_m_r2", "avg_pcascl", "glomerular_pressure")
+
+anchor_vars_delta <- anchor_vars
+
+# ── Delta label builders ─────────────────────────────────────────────────────
+# Construct named vectors that map "<var>_delta" → "Δ <label>" so that
+# delta heatmaps and forest plots display readable axis text.
+make_delta_labels <- function(base_labels, suffix = "_delta", prefix = "\u0394 ") {
+  nms <- paste0(names(base_labels), suffix)
+  labs <- paste0(prefix, gsub("\n", " ", base_labels))
+  setNames(labs, nms)
+}
+
+im_labels_delta      <- make_delta_labels(im_labels)
+mri_labels_delta     <- make_delta_labels(mri_labels)
+anchor_labels_delta  <- make_delta_labels(anchor_labels)
+
+# Also need labels for log-transformed delta variables
+im_log_delta_labels <- setNames(
+  paste0("\u0394 log10(", gsub("\n", " ", im_labels[im_vars_log]), ")"),
+  paste0(im_vars_log, "_log10_delta")
+)
+im_labels_delta <- c(im_labels_delta, im_log_delta_labels)
+```
 
 ```{r data-import, include=FALSE}
 # ── Import harmonized dataset ─────────────────────────────────────────────────
@@ -204,186 +263,368 @@ harm_dat <- read.csv(
 
 # ── Identify co-enrolled participants ─────────────────────────────────────────
 ultra_swht_coenrolled <- harm_dat %>%
-  filter(study == "ULTRA" & !is.na(swht_id)) %>%
-  pull(swht_id) %>% unique()
-
+  filter(study == "ULTRA" & !is.na(swht_id)) %>% pull(swht_id) %>% unique()
 ultra_swht_coenrolled_ultra <- harm_dat %>%
-  filter(study == "ULTRA" & !is.na(swht_id)) %>%
-  pull(ultra_id) %>% unique()
-
+  filter(study == "ULTRA" & !is.na(swht_id)) %>% pull(ultra_id) %>% unique()
 swht_imp_coenrolled <- harm_dat %>%
-  filter(study == "SWEETHEART" & !is.na(improve_id)) %>%
-  pull(swht_id) %>% unique()
-
+  filter(study == "SWEETHEART" & !is.na(improve_id)) %>% pull(swht_id) %>% unique()
 imp_swht_coenrolled <- harm_dat %>%
-  filter(study == "IMPROVE" & !is.na(swht_id)) %>%
-  pull(improve_id) %>% unique()
+  filter(study == "IMPROVE" & !is.na(swht_id)) %>% pull(improve_id) %>% unique()
 
-harm_dat %>%
-  filter(study == "IMPROVE") %>%
-  dplyr::select(record_id, visit, acr_u)
+primary_studies <- c("ULTRA", "IMPROVE", "SWEETHEART")
 ```
 
 ```{r data-subset, include=FALSE}
 # ── Build analysis subset ─────────────────────────────────────────────────────
-harm_dat_subset <- harm_dat %>%
-  filter(study %in% c("ULTRA", "IMPROVE", "SWEETHEART")) %>%
-  mutate(
-    # ── Imaging visit identifiers ──
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. Label primary study rows with imaging_visit_id
+# ══════════════════════════════════════════════════════════════════════════════
+harm_labeled <- harm_dat %>%
+  filter(!is.na(ultra_id) | !is.na(swht_id) | !is.na(improve_id)) %>%
+  filter(!is.na(group)) %>%
+  dplyr::mutate(
     imaging_visit_id = case_when(
-      record_id %in% ultra_swht_coenrolled_ultra & study == "ULTRA" & imaging_visit == 1 ~ "ultra_swht_baseline",
-      imaging_visit == 1                                                                  ~ "ultra_baseline",
-      imaging_visit == 2                                                                  ~ "ultra_follow_up",
-      record_id %in% ultra_swht_coenrolled & study == "SWEETHEART"                        ~ "ultra_swht_follow_up",
-      record_id %in% imp_swht_coenrolled & study == "IMPROVE"                             ~ "improve_swht_baseline",
-      record_id %in% swht_imp_coenrolled & study == "SWEETHEART"                          ~ "improve_swht_follow_up",
-      study == "IMPROVE" & visit == "baseline"                                            ~ "improve_baseline",
-      study == "IMPROVE" & visit == "3_months_post_surgery"                               ~ "improve_3mo",
-      study == "IMPROVE" & visit == "12_months_post_surgery"                              ~ "improve_12mo",
-      study == "SWEETHEART"                                                               ~ "swht_cs"
-    ),
-    # ── Co-enrollment flag ──
-    coenrolled_id = case_when(
-      !is.na(swht_id) & !is.na(improve_id) ~ "swht_improve_coenrolled",
-      !is.na(swht_id)                       ~ "swht_coenrolled",
-      !is.na(ultra_id)                      ~ "ultra_coenrolled",
-      !is.na(improve_id)                    ~ "improve_coenrolled"
+      # ULTRA
+      study == "ULTRA" & visit == "baseline" &
+        record_id %in% ultra_swht_coenrolled_ultra          ~ "ultra_swht_baseline",
+      study == "ULTRA" & visit == "baseline"                 ~ "ultra_baseline",
+      study == "ULTRA" & visit == "1_week"                   ~ "ultra_follow_up",
+      # IMPROVE
+      study == "IMPROVE" & visit == "baseline" &
+        record_id %in% imp_swht_coenrolled                   ~ "improve_swht_baseline",
+      study == "IMPROVE" & visit == "baseline"               ~ "improve_baseline",
+      study == "IMPROVE" & visit == "3_months_post_surgery"  ~ "improve_3mo",
+      study == "IMPROVE" & visit == "12_months_post_surgery" ~ "improve_12mo",
+      # SWEETHEART
+      study == "SWEETHEART" &
+        record_id %in% ultra_swht_coenrolled                 ~ "ultra_swht_follow_up",
+      study == "SWEETHEART" &
+        record_id %in% swht_imp_coenrolled                   ~ "improve_swht_follow_up",
+      study == "SWEETHEART"                                  ~ "swht_cs"
     ),
     sex       = if_else(study == "ULTRA", "Male", sex),
     cmri_date = if_else(procedure == "cardio_abdominal_mri", date, NA_character_),
-    age       = interval(dob, cmri_date) / years(1)
-  ) %>%
-  summarise(
-    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-    .by = c(record_id, visit)
-  ) %>%  # ── Collapse duplicate rows per participant × cMRI date ──
-  summarise(
-    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-    .by = c(record_id, cmri_date)
-  ) %>%
-  filter(study != "ULTRA" | !is.na(imaging_visit_id)) %>%
-  # ── Carry forward within co-enrolled participants ──
-  # group_by(mrn, coenrolled_id) %>%
-  # fill(-any_of(im_vars), .direction = "down") %>%
-  # ungroup() %>%
-  # ── Derived variables ──
-  mutate(
-    # Kidney function groupings
-    uacr_100 = if_else(acr_u >= 100, "UACR >=100 mg/g", "UACR <100 mg/g"),
-    dkd_group_100 = case_when(
-      eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
-      eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD"
-    ),
-    dkd_group_30 = case_when(
-      eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
-      eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD"
-    ),
-    uacr_group = factor(
-      case_when(
-        eGFR_CKD_epi < 90 | acr_u >= 100  ~ "eGFR < 90 and/or UACR >=100 mg/g",
-        eGFR_CKD_epi >= 90 & acr_u < 100  ~ "eGFR >= 90 and UACR <100 mg/g"
-      ),
-      levels = c("eGFR >= 90 and UACR <100 mg/g", "eGFR < 90 and/or UACR >=100 mg/g")
-    ),
-    egfr_cat = factor(
-      case_when(
-        eGFR_CKD_epi < 60                        ~ "<60",
-        eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90  ~ "60\u2013<90",
-        eGFR_CKD_epi >= 90                       ~ "\u226590"
-      ),
-      levels = c("<60", "60\u2013<90", "\u226590")
-    ),
-    acr_u_cat3 = factor(
-      case_when(
-        acr_u < 30                 ~ "<30",
-        acr_u >= 30 & acr_u < 300  ~ "30\u2013<300",
-        acr_u >= 300               ~ "\u2265300"
-      ),
-      levels = c("<30", "30\u2013<300", "\u2265300")
-    ),
-    acr_u_cat300 = if_else(acr_u >= 300, "\u2265300", "<300"),
-    # Tissue characterisation
-    tr2       = (1 / tt2) * 1000,
-    log_acr_u = log(acr_u),
-    # Zero strain → NA
-    gls = na_if(gls, 0),
-    gcs = na_if(gcs, 0),
-    grs = na_if(grs, 0),
-    # BSA-indexed and height-indexed volumes/mass
-    bsa = sqrt(height * weight / 3600),
-    lvesv_bsa              = lvesv / bsa,
-    rvesv_bsa              = rvesv / bsa,
-    lvedv_bsa              = lvedv / bsa,
-    rvedv_bsa              = rvedv / bsa,
-    lv_stroke_volume_bsa   = lv_stroke_volume / bsa,
-    rv_stroke_volume_bsa   = rv_stroke_volume / bsa,
-    lved_mass_bsa          = lved_mass / bsa,
-    lves_mass_bsa          = lves_mass / bsa,
-    height_m               = height / 100,
-    lvesv_height            = lvesv / height_m,
-    rvesv_height            = rvesv / height_m,
-    lvedv_height            = lvedv / height_m,
-    rvedv_height            = rvedv / height_m,
-    lv_stroke_volume_height = lv_stroke_volume / height_m,
-    rv_stroke_volume_height = rv_stroke_volume / height_m,
-    lved_mass_height        = lved_mass / height_m,
-    lves_mass_height        = lves_mass / height_m
+    age       = coalesce(interval(dob, cmri_date) / years(1), age),
+    tkv       = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual)
   )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. Split into primary (labeled) vs supplementary (unlabeled)
+# ══════════════════════════════════════════════════════════════════════════════
+primary_rows <- harm_labeled %>% filter(!is.na(imaging_visit_id))
+
+supplementary_rows <- harm_labeled %>%
+  filter(
+    is.na(imaging_visit_id),
+    !(study %in% primary_studies) 
+  ) %>%
+  dplyr::select(-imaging_visit_id)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. Build a reference date per person × imaging visit from primary rows
+# ══════════════════════════════════════════════════════════════════════════════
+visit_dates <- primary_rows %>%
+  filter(!is.na(date)) %>%
+  dplyr::summarise(
+    ref_date = first(na.omit(date)),
+    .by = c(mrn, imaging_visit_id)
+  ) %>%
+  dplyr::mutate(ref_date = as.Date(ref_date))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. Match each supplementary row to the closest imaging visit (within window)
+# ══════════════════════════════════════════════════════════════════════════════
+match_supplementary <- function(supp_rows, visit_dates, max_days) {
+  supp_rows %>%
+    filter(!is.na(date), !is.na(mrn)) %>%
+    dplyr::mutate(supp_date = as.Date(date)) %>%
+    left_join(visit_dates, by = "mrn", relationship = "many-to-many") %>%
+    dplyr::mutate(date_diff = abs(supp_date - ref_date)) %>%
+    filter(date_diff <= max_days) %>%
+    slice_min(date_diff, n = 1, by = c(mrn, record_id, date, procedure)) %>%
+    select(-supp_date, -ref_date, -date_diff, mrn, record_id, date, procedure)
+}
+
+supplementary_matched     <- match_supplementary(supplementary_rows, visit_dates, 30)
+supplementary_matched_500 <- match_supplementary(supplementary_rows, visit_dates, 500)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. Stack, collapse, and derive: one row per person × imaging visit
+# ══════════════════════════════════════════════════════════════════════════════
+collapse_and_derive <- function(primary, supplementary) {
+  bind_rows(
+    primary       %>% dplyr::mutate(study_priority = 2L),
+    supplementary %>% dplyr::mutate(study_priority = 1L)
+  ) %>%
+    arrange(study_priority) %>%
+    dplyr::summarise(
+      across(
+        where(negate(is.numeric)),
+        ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))
+      ),
+      across(
+        where(is.numeric),
+        ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))
+      ),
+      .by = c(mrn, imaging_visit_id)
+    ) %>%
+    dplyr::mutate(
+      # Kidney function groupings
+      uacr_100 = if_else(acr_u >= 100, "UACR >=100 mg/g", "UACR <100 mg/g"),
+      dkd_group_100 = case_when(
+        eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+        eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD"
+      ),
+      dkd_group_30 = case_when(
+        eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+        eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD"
+      ),
+      uacr_group = factor(
+        case_when(
+          eGFR_CKD_epi < 90 | acr_u >= 100  ~ "eGFR < 90 and/or UACR >=100 mg/g",
+          eGFR_CKD_epi >= 90 & acr_u < 100  ~ "eGFR >= 90 and UACR <100 mg/g"
+        ),
+        levels = c("eGFR >= 90 and UACR <100 mg/g", "eGFR < 90 and/or UACR >=100 mg/g")
+      ),
+      egfr_cat = factor(
+        case_when(
+          eGFR_CKD_epi < 60                        ~ "<60",
+          eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90  ~ "60\u2013<90",
+          eGFR_CKD_epi >= 90                       ~ "\u226590"
+        ),
+        levels = c("<60", "60\u2013<90", "\u226590")
+      ),
+      acr_u_cat3 = factor(
+        case_when(
+          acr_u < 30                 ~ "<30",
+          acr_u >= 30 & acr_u < 300  ~ "30\u2013<300",
+          acr_u >= 300               ~ "\u2265300"
+        ),
+        levels = c("<30", "30\u2013<300", "\u2265300")
+      ),
+      acr_u_cat300 = if_else(acr_u >= 300, "\u2265300", "<300"),
+      tr2       = (1 / tt2) * 1000,
+      log_acr_u = log(acr_u),
+      gls = na_if(gls, 0),
+      gcs = na_if(gcs, 0),
+      grs = na_if(grs, 0),
+      bsa = sqrt(height * weight / 3600),
+      lvesv_bsa              = lvesv / bsa,
+      rvesv_bsa              = rvesv / bsa,
+      lvedv_bsa              = lvedv / bsa,
+      rvedv_bsa              = rvedv / bsa,
+      lv_stroke_volume_bsa   = lv_stroke_volume / bsa,
+      rv_stroke_volume_bsa   = rv_stroke_volume / bsa,
+      lved_mass_bsa          = lved_mass / bsa,
+      lves_mass_bsa          = lves_mass / bsa,
+      height_m               = height / 100,
+      lvesv_height            = lvesv / height_m,
+      rvesv_height            = rvesv / height_m,
+      lvedv_height            = lvedv / height_m,
+      rvedv_height            = rvedv / height_m,
+      lv_stroke_volume_height = lv_stroke_volume / height_m,
+      rv_stroke_volume_height = rv_stroke_volume / height_m,
+      lved_mass_height        = lved_mass / height_m,
+      lves_mass_height        = lves_mass / height_m
+    )  %>%
+    # manually code in SGLT2i and GLP1RA use for ULTRA (for now, 04/15/26)
+    dplyr::mutate(sglti_timepoint = case_when(study == "ULTRA" ~ "No",
+                                              T ~ sglti_timepoint),
+                  glp1_agonist_timepoint = case_when(record_id %in% c("UT2D-05", "UT2D-07", "UT2D-09", "UT2D-10",  "UT2D-11") ~ "Yes",
+                                                     (study == "ULTRA" & record_id %nin% 
+                                                        c("UT2D-05", "UT2D-07", "UT2D-09", "UT2D-10",  "UT2D-11")) ~ "No", 
+                                                     T ~ glp1_agonist_timepoint))
+}
+
+harm_dat_subset     <- collapse_and_derive(primary_rows, supplementary_matched)
+harm_dat_subset_500 <- collapse_and_derive(primary_rows, supplementary_matched_500)
+```
+
+```{r echo = F, include = F}
+# # date diff between IMPROVE BL and SWHT
+# harm_dat_subset %>%
+#   filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up")) %>%
+#   summarise(
+#     n_visits  = n_distinct(imaging_visit_id),
+#     date_diff_yrs = as.numeric(max(as.Date(cmri_date)) - min(as.Date(cmri_date)), units = "days")/365,
+#     .by = mrn
+#   ) %>%
+#   filter(n_visits == 2)
+#     
+# # date diff between ULTRA BL and SWHT
+# harm_dat_subset %>%
+#   filter(imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up")) %>%
+#   summarise(
+#     n_visits  = n_distinct(imaging_visit_id),
+#     date_diff_yrs = as.numeric(max(as.Date(cmri_date)) - min(as.Date(cmri_date)), units = "days")/365,
+#     .by = mrn
+#   ) %>%
+#   filter(n_visits == 2) %>%
+#   pull(date_diff_yrs)
+
 ```
 
 ```{r analysis-subsets, include=FALSE}
+# check for CMR from Dylan's list
+# marcus_proteomics_id <- c("RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "CRC-04", "IT_11", "IT_12", 
+#                           "RH-71-T", "RH-62-T", "RH-50-T", "IT_13", "RH-74-T", "RH-72-T")
+# harm_dat_subset %>%
+#   filter(croc_id %in% marcus_proteomics_id | rh_id %in% marcus_proteomics_id |
+#            improve_id %in% marcus_proteomics_id)
+
 # ── Analysis subsets ──────────────────────────────────────────────────────────
 harm_dat_baseline <- harm_dat_subset %>%
-  filter(imaging_visit_id != "ultra_follow_up")
+  filter(visit == "baseline" & 
+           imaging_visit_id %nin% c("improve_swht_follow_up", "ultra_swht_follow_up"))
 
-harm_dat_obt2d <- harm_dat_subset %>%
-  filter(group != "Lean Control" & imaging_visit_id != "ultra_follow_up")
+harm_dat_obt2d_baseline <- harm_dat_baseline %>%
+  filter(group != "Lean Control")
 
-harm_dat_obt2d_baseline <- harm_dat_obt2d %>%
-  filter(!imaging_visit_id %in% c("improve_3mo", "improve_12mo"))
+harm_dat_baseline_500 <- harm_dat_subset_500 %>%
+  filter(visit == "baseline" & 
+           imaging_visit_id %nin% c("improve_swht_follow_up", "ultra_swht_follow_up"))
 
-harm_dat_t2d <- harm_dat_subset %>%
-  filter(group == "Type 2 Diabetes" & imaging_visit_id != "ultra_follow_up")
+harm_dat_obt2d_baseline_500 <- harm_dat_subset_500 %>%
+  filter(group != "Lean Control") 
 
-# Longitudinal subset: co-enrolled with baseline + follow-up
+# IMPROVE only dataset (for VSG analysis)
+improve_dat <- harm_dat_subset %>%
+  filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up",
+                                 "improve_baseline", "improve_3mo", "improve_12mo")) %>%
+  group_by(mrn) %>%
+  dplyr::mutate(days_since_baseline = as.numeric(as.Date(coalesce(cmri_date, date)) - 
+                  min(as.Date(coalesce(cmri_date, date))))) %>% # using visit date if cmr date DNE
+  ungroup() %>%
+  filter(!is.na(cmri_date) & record_id != "SWHT_6") # exclude to those with CMRI data
+improve_dat$visit <- ifelse(improve_dat$record_id == "SWHT_33", "12_months_post_surgery", improve_dat$visit)
+
+# Longitudinal subset: ULTRA → SWEETHEART co-enrolled
 harm_dat_longitudinal <- harm_dat_subset %>%
   filter(imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up")) %>%
   arrange(mrn, imaging_visit_id) %>%
-  mutate(
+  dplyr::mutate(
     visit_time = if_else(
       imaging_visit_id == "ultra_swht_baseline", 0, 1
     )
   )
+
+# Longitudinal subset: IMPROVE → SWEETHEART co-enrolled
+harm_dat_longitudinal_imp <- harm_dat_subset %>%
+  filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up")) %>%
+  arrange(mrn, imaging_visit_id) %>%
+  dplyr::mutate(
+    visit_time = if_else(
+      imaging_visit_id == "improve_swht_baseline", 0, 1
+    )
+  )
+
+# Combined longitudinal subset: all co-enrolled → SWEETHEART
+# Pools ULTRA→SWHT and IMPROVE→SWHT to maximize sample size
+harm_dat_longitudinal_all <- harm_dat_subset %>%
+  filter(imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up",
+                                  "improve_swht_baseline", "improve_swht_follow_up")) %>%
+  arrange(mrn, imaging_visit_id) %>%
+  dplyr::mutate(
+    visit_time = if_else(
+      imaging_visit_id %in% c("ultra_swht_baseline", "improve_swht_baseline"), 0, 1
+    ),
+    visit_label = factor(
+      if_else(visit_time == 0, "Baseline", "SWEETHEART Follow-up"),
+      levels = c("Baseline", "SWEETHEART Follow-up")
+    )
+  )
+```
+
+```{r delta-dfs, include=FALSE}
+# ── Helper: compute baseline → 12-month deltas for IMPROVE ──────────────────
+all_vars <- unique(c(im_vars, im_vars_log, mri_vars, anchor_vars))
+
+compute_improve_deltas <- function(dat_subset, ref_cols_from = harm_dat_obt2d_baseline) {
+  wide <- dat_subset %>%
+    dplyr::filter(study == "IMPROVE" & visit != "3_months_post_surgery") %>%
+    dplyr::select(record_id, visit, dplyr::all_of(intersect(all_vars, names(ref_cols_from)))) %>%
+    dplyr::mutate(dplyr::across(
+      dplyr::all_of(intersect(im_vars_log, names(.))),
+      ~ dplyr::if_else(.x <= 0, NA_real_, log10(.x)),
+      .names = "{.col}_log10"
+    )) %>%
+    dplyr::select(-dplyr::all_of(intersect(im_vars_log, names(.)))) %>%
+    tidyr::pivot_wider(names_from = visit, values_from = -c(record_id, visit))
+
+  bl_cols <- wide %>% dplyr::select(dplyr::ends_with("_baseline")) %>% names()
+
+  deltas <- purrr::map_dfc(bl_cols, function(col) {
+    follow_col <- stringr::str_replace(col, "_baseline", "_12_months_post_surgery")
+    delta_name <- stringr::str_replace(col, "_baseline", "_delta")
+    if (follow_col %in% names(wide)) {
+      tibble::tibble(!!delta_name := wide[[follow_col]] - wide[[col]])
+    } else {
+      tibble::tibble(!!delta_name := NA_real_)
+    }
+  })
+
+  dplyr::bind_cols(wide %>% dplyr::select(record_id), deltas)
+}
+
+harm_dat_improve_delta     <- compute_improve_deltas(harm_dat_subset)
+harm_dat_improve_delta_500 <- compute_improve_deltas(harm_dat_subset_500)
 ```
 
 # Descriptive tables
 
+## All data
+
 ```{r tables, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
 summary(tableby(
   imaging_visit_id ~ group + age + sex + bmi +
     kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
     dkd_group_30 + dkd_group_100 + bsa,
-  data = harm_dat_subset
+  data = harm_dat_subset, digits = 1, test = F
 ))
+cat('</div>')
+```
 
+## Baseline
+
+```{r, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
 summary(tableby(
   group ~ imaging_visit_id + age + sex + bmi + sbp + dbp +
     kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
     acr_u_cat3 + dkd_group_30 + dkd_group_100,
-  data = harm_dat_baseline
+  data = harm_dat_baseline, digits = 1
 ))
+cat('</div>')
+```
 
+## Baseline excluding HC
+
+```{r, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
 summary(tableby(
   sex ~ group + imaging_visit_id + age + height + weight + bmi +
     kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
     dkd_group_30 + dkd_group_100,
-  data = subset(harm_dat_baseline, group != "Lean Control")
+  data = subset(harm_dat_baseline, group != "Lean Control"), digits = 1
 ))
+cat('</div>')
 ```
 
-# Box plots
+## IMPROVE w/ CMR
+
+```{r, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(arsenal::tableby(imaging_visit_id ~ days_since_baseline, 
+                         data = improve_dat), digits = 1)
+cat('</div>')
+```
+
+# Cross-sectional analyses
+
+All analyses in this section use one row per person at baseline (`harm_dat_baseline` / `harm_dat_obt2d_baseline`).
+
+## Box plots
 
 ```{r boxplot-function, echo=FALSE}
 plot_boxgrid <- function(df,
@@ -425,7 +666,7 @@ plot_boxgrid <- function(df,
   if (paired) {
     complete_ids <- df %>%
       group_by(.data[[id_var]]) %>%
-      summarise(n_groups = n_distinct(.data[[group_var]]), .groups = "drop") %>%
+      dplyr::summarise(n_groups = n_distinct(.data[[group_var]]), .groups = "drop") %>%
       filter(n_groups == length(unique(df[[group_var]]))) %>%
       pull(.data[[id_var]])
     df <- df %>% filter(.data[[id_var]] %in% complete_ids)
@@ -469,7 +710,7 @@ plot_boxgrid <- function(df,
       stat_args$p.accuracy <- 10^(-p_digits)
     }
     p <- p + do.call(stat_compare_means, stat_args)
-
+    
     p + labs(y = ylab, x = NULL, fill = fill_label) +
       scale_fill_manual(values = fill_colors) +
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
@@ -477,7 +718,9 @@ plot_boxgrid <- function(df,
         panel.background = element_blank(),
         text = element_text(size = text_size),
         axis.text.x = if (show_legend) element_blank() else element_text(angle = 60, hjust = 1),
-        legend.position = "none"
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key = element_rect(fill = "transparent", colour = NA)
       )
   })
 
@@ -503,15 +746,24 @@ plot_boxgrid <- function(df,
 }
 ```
 
-```{r boxplots, echo=FALSE, fig.width=12, fig.height=12}
+---
+
+#### Group comparison (3 groups)
+
+```{r, echo=FALSE, fig.width=16, fig.height=14}
 # Group comparison (3 groups)
 plot_boxgrid(
   df = harm_dat_baseline, group_var = "group",
-  log_vars = im_vars_log,
-  fill_colors = c("#588157", "#f08080", "#98c1d9"),
+  var_labels = im_labels, log_vars = im_vars_log,
+  fill_colors = c("Lean Control" = "#588157", "Obese Control" = "#98c1d9",
+                   "Type 2 Diabetes" = "#f08080"),
   file_prefix = "baseline_group"
 )
+```
 
+#### Sex comparison in obesity/T2D
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 # Sex comparison in obesity/T2D
 plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
@@ -521,6 +773,12 @@ plot_boxgrid(
   width = 18, text_size = 20, star_size = 12,
   p_format = "value", test_method = "wilcox.test"
 )
+```
+
+#### BSA indexed sex comparison in obesity/T2D
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+write.csv(harm_dat_obt2d_baseline, file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_041326.csv"), row.names = F)
 
 # BSA-indexed sex comparison
 plot_boxgrid(
@@ -531,119 +789,490 @@ plot_boxgrid(
   width = 18, text_size = 20, star_size = 12,
   p_format = "value", test_method = "wilcox.test"
 )
+```
 
-# DKD groupings
+#### DKD groupings (DKD defined as UACR >= 30 and/or eGFR < 90)
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+# DKD groupings (DKD = worse → red)
+dkd_colors <- c("DKD" = "#f08080", "non_DKD" = "#98c1d9")
+
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(dkd_group_30)),
-  group_var = "dkd_group_30", log_vars = im_vars_log,
+  group_var = "dkd_group_30", var_labels = im_labels,
+  log_vars = im_vars_log, fill_colors = dkd_colors,
   file_prefix = "obt2d_dkd30"
 )
+```
 
+#### DKD groupings (DKD defined as UACR >= 100 and/or eGFR < 90)
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(dkd_group_100)),
-  group_var = "dkd_group_100", log_vars = im_vars_log,
+  group_var = "dkd_group_100", var_labels = im_labels,
+  log_vars = im_vars_log, fill_colors = dkd_colors,
   file_prefix = "obt2d_dkd100"
 )
+```
 
-# Albuminuria categories
+#### Albuminuria categories
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+# Albuminuria categories (≥300 = worse → red)
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(acr_u_cat300)),
   group_var = "acr_u_cat300", log_vars = im_vars_log,
   var_labels = im_labels, file_prefix = "obt2d_acr300",
+  fill_colors = c("<300" = "#98c1d9", "\u2265300" = "#f08080"),
   fill_label = "UACR\nCategory"
 )
-
-# Longitudinal (paired)
-plot_boxgrid(
-  df = harm_dat_longitudinal, group_var = "imaging_visit_id",
-  log_vars = im_vars_log, var_labels = im_labels,
-  file_prefix = "longitudinal", paired = TRUE
-)
-
-# arteriosclerosis y/n
-# plot_boxgrid(
-#   df = subset(harm_dat_obt2d_baseline, !is.na(acr_u_cat300)),
-#   group_var = "acr_u_cat300", log_vars = im_vars_log,
-#   var_labels = im_labels, file_prefix = "obt2d_acr300",
-#   fill_label = "UACR\nCategory"
-# )
 ```
 
-# Correlation heatmaps
+#### SGLT2i use (Yes / No)
 
-```{r correlations, echo=FALSE, fig.width=10, fig.height=8}
-# ── Log-transform for correlation ─────────────────────────────────────────────
-harm_dat_obt2d_baseline <- harm_dat_obt2d_baseline %>%
-  mutate(across(
-    all_of(im_vars_log),
-    ~ if_else(.x <= 0, NA_real_, log10(.x)),
-    .names = "{.col}_log10"
-  ))
-
-imaging_for_cor <- c(im_vars, paste0(im_vars_log, "_log10"))
-anchor_vars     <- c("log_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma", "bmi", "hba1c")
-
-anchor_labels <- c(
-  bmi = "BMI", eGFR_CKD_epi = "eGFR", gfr_bsa_plasma = "mGFR",
-  hba1c = "HbA1c", log_acr_u = "log(UACR)"
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+plot_boxgrid(
+  df = subset(harm_dat_obt2d_baseline, !is.na(sglti_timepoint)),
+  group_var = "sglti_timepoint", log_vars = im_vars_log,
+  var_labels = im_labels, file_prefix = "obt2d_sglt2i",
+  fill_colors = c("No" = "#98c1d9", "Yes" = "#f08080"),
+  fill_label = "SGLT2i"
 )
+table(harm_dat_obt2d_baseline$sglti_timepoint)
+```
 
-# Compute Spearman correlations
-cor_df <- expand.grid(imaging = imaging_for_cor, anchor = anchor_vars,
-                      stringsAsFactors = FALSE)
-cor_df$rho  <- NA_real_
-cor_df$pval <- NA_real_
+#### GLP1RA use (Yes / No)
 
-for (i in seq_len(nrow(cor_df))) {
-  x   <- harm_dat_obt2d_baseline[[cor_df$imaging[i]]]
-  y   <- harm_dat_obt2d_baseline[[cor_df$anchor[i]]]
-  ok  <- complete.cases(x, y)
-  if (sum(ok) >= 5) {
-    tmp <- cor.test(x[ok], y[ok], method = "spearman", exact = FALSE)
-    cor_df$rho[i]  <- tmp$estimate
-    cor_df$pval[i] <- tmp$p.value
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+harm_dat_obt2d_baseline$glp1_agonist_timepoint <- factor(harm_dat_obt2d_baseline$glp1_agonist_timepoint,
+                                                         levels = c("No", "Yes"))
+plot_boxgrid(
+  df = subset(harm_dat_obt2d_baseline, !is.na(glp1_agonist_timepoint)),
+  group_var = "glp1_agonist_timepoint", log_vars = im_vars_log,
+  var_labels = im_labels, file_prefix = "obt2d_glp1ra",
+  fill_colors = c("No" = "#98c1d9", "Yes" = "#f08080"),
+  fill_label = "GLP1RA"
+)
+table(harm_dat_obt2d_baseline$glp1_agonist_timepoint)
+```
+
+## Correlation heatmaps
+
+### Helper functions
+
+```{r echo = F}
+run_spearman_heatmap <- function(data,
+                                 imaging_vars,
+                                 anchor_vars,
+                                 log_vars       = character(0),
+                                 anchor_labels  = character(0),
+                                 imaging_labels = character(0),
+                                 min_obs        = 2,
+                                 check_coverage = T) {
+  
+  # ── Log-transform columns ───────────────────────────────────────────────────
+  if (length(log_vars) > 0) {
+    data <- data %>%
+      dplyr::mutate(dplyr::across(
+        dplyr::all_of(log_vars),
+        ~ dplyr::if_else(.x <= 0, NA_real_, log10(.x)),
+        .names = "{.col}_log10"
+      ))
   }
-}
+  
+  imaging_for_cor <- if (length(log_vars) > 0) {
+    c(imaging_vars, paste0(log_vars, "_log10"))
+  } else {
+    imaging_vars
+  }
+  
+  # ── Spearman correlations ───────────────────────────────────────────────────
+  cor_df <- expand.grid(imaging = imaging_for_cor, anchor = anchor_vars,
+                        stringsAsFactors = FALSE) %>%
+    dplyr::mutate(rho = NA_real_, pval = NA_real_, n_complete = NA_integer_)
+  
+  for (i in seq_len(nrow(cor_df))) {
+    x <- data[[cor_df$imaging[i]]]
+    y <- data[[cor_df$anchor[i]]]
+    
+    if (is.null(x) || is.null(y))           next
+    if (!is.numeric(x) || !is.numeric(y))   next
+    
+    ok <- complete.cases(x, y)
+    cor_df$n_complete[i] <- sum(ok)
+    
+    if (sum(ok) >= min_obs) {
+      tmp <- cor.test(x[ok], y[ok], method = "spearman", exact = FALSE)
+      cor_df$rho[i]  <- tmp$estimate
+      cor_df$pval[i] <- tmp$p.value
+    }
+  }
+  
+  cor_df$stars <- cut(cor_df$pval,
+                      breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                      labels = c("***", "**", "*", ""))
+  
+  # ── Apply axis labels ───────────────────────────────────────────────────────
+  cor_df$anchor_label <- if (length(anchor_labels) > 0) {
+    dplyr::coalesce(anchor_labels[cor_df$anchor], cor_df$anchor)
+  } else {
+    cor_df$anchor
+  }
+  
+  cor_df$imaging_label <- if (length(imaging_labels) > 0) {
+    dplyr::coalesce(imaging_labels[cor_df$imaging], cor_df$imaging)
+  } else {
+    cor_df$imaging
+  }
 
-cor_df$stars <- cut(cor_df$pval,
-                    breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
-                    labels = c("***", "**", "*", ""))
+  # ── Enforce consistent axis ordering ────────────────────────────────────────
+  # imaging axis follows the order of imaging_vars; anchor axis follows anchor_vars
+  img_label_order <- unique(cor_df$imaging_label[order(match(cor_df$imaging, imaging_for_cor))])
+  anc_label_order <- unique(cor_df$anchor_label[order(match(cor_df$anchor, anchor_vars))])
+  cor_df$imaging_label <- factor(cor_df$imaging_label, levels = rev(img_label_order))
+  cor_df$anchor_label  <- factor(cor_df$anchor_label,  levels = anc_label_order)
+
+  # ── Coverage check ──────────────────────────────────────────────────────────
+  coverage_plot <- NULL
+  if (check_coverage) {
+    coverage_plot <- ggplot2::ggplot(cor_df,
+                                     ggplot2::aes(x = anchor_label,
+                                                  y = imaging_label,
+                                                  fill = n_complete)) +
+      ggplot2::geom_tile(color = "white") +
+      ggplot2::geom_text(ggplot2::aes(label = n_complete), size = 3) +
+      ggplot2::scale_fill_gradient(low = "white", high = "#2166ac") +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(panel.grid = ggplot2::element_blank(),
+                     axis.text.x = ggplot2::element_text(angle = 60, hjust = 1)) +
+      ggplot2::labs(title = "Complete cases per pair",
+                    x = NULL, y = NULL, fill = "n")
+  }
+  
+  # ── Correlation heatmap ─────────────────────────────────────────────────────
+  p <- ggplot2::ggplot(cor_df,
+                       ggplot2::aes(x = anchor_label,
+                                    y = imaging_label,
+                                    fill = rho)) +
+    ggplot2::geom_tile(color = "white") +
+    ggplot2::geom_text(ggplot2::aes(label = stars), color = "black") +
+    ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b",
+                                  midpoint = 0, limits = c(-1, 1)) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(panel.grid = ggplot2::element_blank(),
+                   axis.text.x = ggplot2::element_text(angle = 60, hjust = 1)) +
+    ggplot2::labs(x = NULL, y = NULL, fill = "\u03c1")
+  
+  list(cor_df = cor_df, plot = p, coverage_plot = coverage_plot)
+}
+```
+
+### CMR vs. clinical vars in all baseline OB + T2D
+
+#### Data within 30 days
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+cmr_clinical <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline,
+  imaging_vars   = im_vars,
+  anchor_vars    = anchor_vars,
+  log_vars       = im_vars_log,
+  anchor_labels  = anchor_labels,
+  imaging_labels = im_labels
+)
 
 # Full heatmap
-ggplot(cor_df, aes(x = anchor, y = imaging, fill = rho)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = stars), color = "black") +
-  scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b",
-                       midpoint = 0, limits = c(-1, 1)) +
-  theme_minimal(base_size = 14) +
-  labs(fill = "\u03c1")
-
-# Focused heatmap
-anchor_levels <- c("bmi", "eGFR_CKD_epi", "gfr_bsa_plasma", "hba1c", "log_acr_u")
-
-cor_df %>%
-  filter(imaging %in% c("lv_myo_thickness_total", "lved_mass",
-                         "lv_cardiac_output", "af_pwv", "rvedv", "tt2")) %>%
-  mutate(
-    imaging_label = im_labels[imaging],
-    anchor        = factor(anchor, levels = anchor_levels),
-    anchor_label  = factor(anchor_labels[anchor], levels = anchor_labels[anchor_levels])
-  ) %>%
-  ggplot(aes(x = anchor_label, y = imaging_label, fill = rho)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = stars), color = "black", size = 10) +
-  scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b",
-                       midpoint = 0, limits = c(-1, 1)) +
-  theme_minimal(base_size = 18) +
-  theme(panel.grid = element_blank()) +
-  labs(fill = "\u03c1", x = NULL, y = NULL)
+# cmr_clinical
 ```
 
-# Mixed models
+```{r focused-heatmap-helper, echo=FALSE}
+# ── Helper: focused heatmap from a spearman result ───────────────────────────
+plot_focused_heatmap <- function(cor_df,
+                                 imaging_filter = NULL,
+                                 img_labels     = im_labels,
+                                 anc_labels     = anchor_labels,
+                                 anc_levels     = anchor_levels,
+                                 star_size      = 10) {
+  df <- cor_df
+  if (!is.null(imaging_filter)) df <- df %>% filter(imaging %in% imaging_filter)
 
-## Helper function
+  df %>%
+    dplyr::mutate(
+      imaging_label = img_labels[imaging],
+      anchor        = factor(anchor, levels = anc_levels),
+      anchor_label  = factor(anc_labels[anchor], levels = anc_labels[anc_levels])
+    ) %>%
+    ggplot(aes(x = anchor_label, y = imaging_label, fill = rho)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = stars), color = "black", size = star_size) +
+    scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b",
+                         midpoint = 0, limits = c(-1, 1)) +
+    theme_minimal(base_size = 18) +
+    theme(panel.grid = element_blank()) +
+    labs(fill = "\u03c1", x = NULL, y = NULL)
+}
+
+cmr_focus_vars <- c("lv_myo_thickness_total", "lved_mass",
+                     "lv_cardiac_output", "af_pwv", "rvedv", "rvesv", "tt2")
+```
+
+##### Heatmap 1A.1 (clin variables and CMRI)
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+plot_focused_heatmap(cmr_clinical$cor_df, imaging_filter = cmr_focus_vars)
+```
+
+#### Data within 500 days
+
+##### Heatmap 1A.2 (clin variables and CMRI)
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+cmr_clinical_500 <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline_500,
+  imaging_vars   = im_vars,
+  anchor_vars    = anchor_vars,
+  log_vars       = im_vars_log,
+  anchor_labels  = anchor_labels,
+  imaging_labels = im_labels
+)
+plot_focused_heatmap(cmr_clinical_500$cor_df, imaging_filter = cmr_focus_vars)
+```
+
+### Kidney MRI vs. clinical vars in all baseline OB + T2D
+
+#### Data within 30 days
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+mri_clinical <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline,
+  imaging_vars   = mri_vars,
+  anchor_vars    = anchor_vars,
+  anchor_labels  = anchor_labels,
+  imaging_labels = mri_labels
+)
+```
+
+##### Heatmap 1B.1 (clin variables and kidney MRI)
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+plot_focused_heatmap(mri_clinical$cor_df, img_labels = mri_labels)
+```
+
+#### Data within 500 days
+
+##### Heatmap 1B.2 (clin variables and kidney MRI)
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+mri_clinical_500 <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline_500,
+  imaging_vars   = mri_vars,
+  anchor_vars    = anchor_vars,
+  anchor_labels  = anchor_labels,
+  imaging_labels = mri_labels
+)
+plot_focused_heatmap(mri_clinical_500$cor_df, img_labels = mri_labels)
+```
+
+### Kidney MRI vs. CMR (heatmap)
+
+#### Data within 30 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+# For the baseline data, which would include not only Improve but also Sweetheart and Ultra T2D, could you associate the kidney MRI parameters with the cardiac and aortic MRI parameters? Maybe in a heat map looking at the correlations.
+mri_cmr <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline,
+  imaging_vars   = im_vars,
+  anchor_vars    = mri_vars,
+  log_vars       = im_vars_log,
+  anchor_labels  = mri_labels,
+  imaging_labels = im_labels
+)
+mri_cmr$coverage_plot
+mri_cmr$plot
+```
+
+#### Data within 500 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+mri_cmr_500 <- run_spearman_heatmap(
+  data           = harm_dat_obt2d_baseline_500,
+  imaging_vars   = im_vars,
+  anchor_vars    = mri_vars,
+  log_vars       = im_vars_log,
+  anchor_labels  = mri_labels,
+  imaging_labels = im_labels
+)
+mri_cmr_500$coverage_plot
+mri_cmr_500$plot
+```
+
+# Delta correlation heatmaps
+
+All analyses in this section use IMPROVE participants with both baseline and 12-month visits, computing per-person change scores (12 mo − baseline).
+
+## Change in CMR vs. clinical vars (IMPROVE 12mo - BL)
+
+### Data within 30 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+im_vars_delta_subset <- setdiff(
+  im_vars_delta,
+  c("lv_myo_thickness_total_log10", "lv_myo_thickness_dias_log10")
+)
+improve_delta_cmr_clin <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta,
+  imaging_vars   = paste0(im_vars_delta_subset, "_delta"),
+  anchor_vars    = paste0(anchor_vars_delta, "_delta"),
+  anchor_labels  = anchor_labels_delta,
+  imaging_labels = im_labels_delta
+)
+improve_delta_cmr_clin$plot
+improve_delta_cmr_clin$coverage_plot
+```
+
+### Data within 500 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+improve_delta_cmr_clin_500 <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta_500,
+  imaging_vars   = paste0(im_vars_delta_subset, "_delta"),
+  anchor_vars    = paste0(anchor_vars_delta, "_delta"),
+  anchor_labels  = anchor_labels_delta,
+  imaging_labels = im_labels_delta
+)
+improve_delta_cmr_clin_500$plot
+improve_delta_cmr_clin_500$coverage_plot
+```
+
+## Change in kidney MRI vs. change in clinical vars (IMPROVE 12mo - BL)
+
+### Data within 30 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+improve_delta_mri_clin <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta,
+  imaging_vars   = paste0(mri_vars_delta, "_delta"),
+  anchor_vars    = paste0(anchor_vars_delta, "_delta"),
+  anchor_labels  = anchor_labels_delta,
+  imaging_labels = mri_labels_delta
+)
+improve_delta_mri_clin$plot
+improve_delta_mri_clin$coverage_plot
+```
+
+### Data within 500 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+improve_delta_mri_clin_500 <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta_500,
+  imaging_vars   = paste0(mri_vars_delta, "_delta"),
+  anchor_vars    = paste0(anchor_vars_delta, "_delta"),
+  anchor_labels  = anchor_labels_delta,
+  imaging_labels = mri_labels_delta
+)
+improve_delta_mri_clin_500$plot
+improve_delta_mri_clin_500$coverage_plot
+```
+
+
+## Change in kidney MRI vs. change in CMR (IMPROVE 12mo - BL)
+
+### Data within 30 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+improve_delta_mri_cmr <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta,
+  imaging_vars   = paste0(im_vars_delta_subset, "_delta"),
+  anchor_vars    = paste0(mri_vars_delta, "_delta"),
+  anchor_labels  = mri_labels_delta,
+  imaging_labels = im_labels_delta
+)
+improve_delta_mri_cmr$plot
+improve_delta_mri_cmr$coverage_plot
+```
+
+### Data within 500 days
+
+```{r echo=FALSE, fig.width=10, fig.height=12}
+improve_delta_mri_cmr_500 <- run_spearman_heatmap(
+  data           = harm_dat_improve_delta_500,
+  imaging_vars   = paste0(im_vars_delta_subset, "_delta"),
+  anchor_vars    = paste0(mri_vars_delta, "_delta"),
+  anchor_labels  = mri_labels_delta,
+  imaging_labels = im_labels_delta
+)
+improve_delta_mri_cmr_500$plot
+improve_delta_mri_cmr_500$coverage_plot
+```
+
+# Cross-sectional models
+
+All models in this section use one row per person at baseline (`harm_dat_baseline` / `harm_dat_obt2d_baseline`). Models adjust for age and sex unless noted.
+
+## Helper functions (lm and lmer)
 
 ```{r mixed-model-helpers, echo=FALSE}
+# ── Helper: check whether a fitted lmer model converged properly ─────────────
+# Returns TRUE if the model is usable, FALSE if it should be dropped.
+# ── Helper: drop rows with non-finite estimates / CIs from results ────────────
+drop_nonfinite <- function(results) {
+  if (nrow(results) == 0) return(results)
+  bad <- with(results, !is.finite(estimate) | !is.finite(conf.low) | !is.finite(conf.high) |
+                        !is.finite(std.error) | std.error > 1e6)
+  if (any(bad)) {
+    dropped <- unique(results$outcome[bad])
+    message("  Dropping non-finite results: ", paste(dropped, collapse = ", "))
+  }
+  results[!bad, ]
+}
+
+fit_lm_loop <- function(df,
+                        outcomes,
+                        fixed_rhs,
+                        log_vars   = NULL,
+                        var_labels = im_labels) {
+
+  results <- map_dfr(outcomes, function(y) {
+    if (!is.null(log_vars) && y %in% log_vars) {
+      df[[y]] <- log10(df[[y]])
+      y_label <- paste0("log10(", if (y %in% names(var_labels)) var_labels[y] else y, ")")
+    } else {
+      y_label <- if (y %in% names(var_labels)) var_labels[y] else y
+    }
+
+    df_fit <- df %>% filter(!is.na(.data[[y]]))
+    if (nrow(df_fit) < 5) return(NULL)
+
+    tryCatch({
+      mod <- lm(as.formula(paste0("`", y, "` ~ ", fixed_rhs)), data = df_fit)
+      broom::tidy(mod, conf.int = TRUE) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = y_label,
+          n_obs         = nrow(df_fit),
+          n_subjects    = nrow(df_fit)
+        )
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
+      NULL
+    })
+  })
+
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
+  results %>%
+    dplyr::mutate(
+      stars = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
+}
+
 # ── Helper: fit lmer across multiple imaging outcomes ─────────────────────────
 fit_lmer_loop <- function(df,
                           outcomes,
@@ -678,7 +1307,7 @@ fit_lmer_loop <- function(df,
       mod <- lmer(as.formula(formula_str), data = df_fit, REML = TRUE)
 
       broom.mixed::tidy(mod, effects = "fixed", conf.int = TRUE) %>%
-        mutate(
+        dplyr::mutate(
           outcome       = y,
           outcome_label = y_label,
           n_obs         = nrow(df_fit),
@@ -690,8 +1319,11 @@ fit_lmer_loop <- function(df,
     })
   })
 
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
   results %>%
-    mutate(
+    dplyr::mutate(
       stars = case_when(
         p.value < 0.001 ~ "***",
         p.value < 0.01  ~ "**",
@@ -702,192 +1334,1034 @@ fit_lmer_loop <- function(df,
 }
 
 # ── Helper: format results table for display ──────────────────────────────────
-format_lmer_table <- function(results, caption = "") {
+format_lm_table <- function(results, caption = "") {
+  if (nrow(results) == 0) {
+    message("  No converged results to display for: ", caption)
+    return(invisible(NULL))
+  }
   results %>%
     filter(term != "(Intercept)") %>%
-    mutate(
+    dplyr::mutate(
       estimate_ci = sprintf("%.2f (%.2f, %.2f)", estimate, conf.low, conf.high),
       p_display   = ifelse(p.value < 0.001,
                            sprintf("%.1e", p.value),
                            sprintf("%.3f", p.value))
     ) %>%
-    select(outcome_label, term, estimate_ci, p_display, stars, n_obs, n_subjects) %>%
+    dplyr::select(outcome_label, term, estimate_ci, p_display, stars, n_obs, n_subjects) %>%
     kable(
       col.names = c("Outcome", "Predictor", "Estimate (95% CI)", "p-value", "", "N obs", "N subj"),
       caption   = caption,
       digits    = 3
+    )
+}
+
+# ── Helper: format emmeans contrast results for display ──────────────────────
+# Produces the same table format as format_lm_table() but reads from a
+# run_lmer_emm() output, so that the table p-values and stars come from the
+# same Satterthwaite-df contrasts used by the % change forest plot.
+format_emm_table <- function(emm_results,
+                             caption   = "",
+                             visit_col = NULL,
+                             ref_visit = "Baseline",
+                             show_pct  = FALSE) {
+  if (is.null(emm_results) || nrow(emm_results) == 0) {
+    message("  No EMM results to display for: ", caption)
+    return(invisible(NULL))
+  }
+
+  # Auto-detect the visit column (same logic as plot_forest_pct)
+  if (is.null(visit_col)) {
+    emm_cols <- c("estimate", "SE", "df", "conf.low", "conf.high",
+                  "diff", "diff_se", "diff_low", "diff_high",
+                  "pct_change", "pct_low", "pct_high", "p.value",
+                  "outcome", "outcome_label", "baseline_emm",
+                  "n_obs", "n_subjects", "stars")
+    visit_col <- setdiff(names(emm_results), emm_cols)[1]
+  }
+
+  df <- emm_results %>%
+    filter(.data[[visit_col]] != ref_visit) %>%
+    dplyr::mutate(
+      estimate_ci = sprintf("%.2f (%.2f, %.2f)", diff, diff_low, diff_high),
+      pct_ci      = sprintf("%.1f%% (%.1f%%, %.1f%%)", pct_change, pct_low, pct_high),
+      p_display   = ifelse(is.na(p.value), "",
+                    ifelse(p.value < 0.001,
+                           sprintf("%.1e", p.value),
+                           sprintf("%.3f", p.value)))
+    )
+
+  if (show_pct) {
+    df %>%
+      dplyr::select(outcome_label, all_of(visit_col), estimate_ci, pct_ci, p_display, stars, n_obs, n_subjects) %>%
+      kable(
+        col.names = c("Outcome", "Visit", "Estimate (95% CI)", "% change (95% CI)", "p-value", "", "N obs", "N subj"),
+        caption   = caption,
+        digits    = 3
+      )
+  } else {
+    df %>%
+      dplyr::select(outcome_label, all_of(visit_col), estimate_ci, p_display, stars, n_obs, n_subjects) %>%
+      kable(
+        col.names = c("Outcome", "Visit", "Estimate (95% CI)", "p-value", "", "N obs", "N subj"),
+        caption   = caption,
+        digits    = 3
+      )
+  }
+}
+
+# ── Helper: fit lmer with z-scored outcomes (standardized estimates) ─────────
+# Standardises each outcome to mean 0, SD 1 before fitting so that
+#   • categorical predictors → Cohen's d interpretation
+#   • continuous predictors  → standardised β (if predictor also z-scored)
+# The raw-unit table is produced by fit_lmer_loop; this adds a column showing
+# the SD used so reviewers can back-transform.
+fit_lmer_loop_std <- function(df,
+                              outcomes,
+                              fixed_rhs,
+                              random     = "(1 | mrn)",
+                              log_vars   = NULL,
+                              var_labels = im_labels,
+                              std_predictors = FALSE) {
+
+  results <- map_dfr(outcomes, function(y) {
+
+    # Log-transform if requested
+    if (!is.null(log_vars) && y %in% log_vars) {
+      df[[y]] <- log10(df[[y]])
+      y_label <- paste0("log10(", if (y %in% names(var_labels)) var_labels[y] else y, ")")
+    } else {
+      y_label <- if (y %in% names(var_labels)) var_labels[y] else y
+    }
+
+    df_fit <- df %>% filter(!is.na(.data[[y]]))
+    n_clusters <- n_distinct(df_fit$mrn)
+    if (n_clusters < 3 || nrow(df_fit) < 5) return(NULL)
+
+    # Z-score the outcome
+    y_sd   <- sd(df_fit[[y]], na.rm = TRUE)
+    y_mean <- mean(df_fit[[y]], na.rm = TRUE)
+    if (is.na(y_sd) || y_sd == 0) return(NULL)
+    df_fit[[y]] <- (df_fit[[y]] - y_mean) / y_sd
+
+    # Optionally z-score continuous predictors in fixed_rhs
+    if (std_predictors) {
+      pred_terms <- trimws(strsplit(fixed_rhs, "\\+")[[1]])
+      for (p in pred_terms) {
+        if (is.numeric(df_fit[[p]])) {
+          p_sd <- sd(df_fit[[p]], na.rm = TRUE)
+          if (!is.na(p_sd) && p_sd > 0) {
+            df_fit[[p]] <- (df_fit[[p]] - mean(df_fit[[p]], na.rm = TRUE)) / p_sd
+          }
+        }
+      }
+    }
+
+    formula_str <- paste0("`", y, "` ~ ", fixed_rhs, " + ", random)
+
+    tryCatch({
+      mod <- lmer(as.formula(formula_str), data = df_fit, REML = TRUE)
+
+      broom.mixed::tidy(mod, effects = "fixed", conf.int = TRUE) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = gsub("\n", " ", y_label),
+          outcome_sd    = y_sd,
+          n_obs         = nrow(df_fit),
+          n_subjects    = n_clusters
+        )
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, e$message))
+      NULL
+    })
+  })
+
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
+  results %>%
+    dplyr::mutate(
+      stars = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
+}
+
+fit_lm_loop_std <- function(df,
+                            outcomes,
+                            fixed_rhs,
+                            log_vars       = NULL,
+                            var_labels     = im_labels,
+                            std_predictors = FALSE) {
+
+  results <- map_dfr(outcomes, function(y) {
+    # Optional log-transform first
+    if (!is.null(log_vars) && y %in% log_vars) {
+      df[[y]] <- log10(df[[y]])
+      y_label <- paste0("log10(", if (y %in% names(var_labels)) var_labels[y] else y, ")")
+    } else {
+      y_label <- if (y %in% names(var_labels)) var_labels[y] else y
+    }
+
+    df_fit <- df %>% filter(!is.na(.data[[y]]))
+    if (nrow(df_fit) < 5) return(NULL)
+
+    # z-score the outcome (Cohen's d for categorical predictors;
+    # standardized β if predictors are also z-scored)
+    y_sd <- sd(df_fit[[y]], na.rm = TRUE)
+    if (!is.finite(y_sd) || y_sd == 0) return(NULL)
+    df_fit[[y]] <- as.numeric(scale(df_fit[[y]]))
+
+    # Optionally z-score numeric predictors so β is fully standardized
+    if (std_predictors) {
+      pred_terms <- all.vars(as.formula(paste("~", fixed_rhs)))
+      for (p in pred_terms) {
+        if (is.numeric(df_fit[[p]])) {
+          df_fit[[p]] <- as.numeric(scale(df_fit[[p]]))
+        }
+      }
+    }
+
+    tryCatch({
+      mod <- lm(as.formula(paste0("`", y, "` ~ ", fixed_rhs)), data = df_fit)
+      broom::tidy(mod, conf.int = TRUE) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = gsub("\n", " ", y_label),
+          outcome_sd    = y_sd,
+          n_obs         = nrow(df_fit),
+          n_subjects    = nrow(df_fit)
+        )
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
+      NULL
+    })
+  })
+
+  results <- drop_nonfinite(results)
+  if (nrow(results) == 0) return(results)
+
+  results %>%
+    dplyr::mutate(
+      stars = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
+}
+
+# ── Helper: forest plot for lmer results (raw or standardized) ────────────────
+plot_forest <- function(results, term_filter, x_label = "Estimate") {
+  if (nrow(results) == 0) { message("  No results for forest plot"); return(invisible(NULL)) }
+  results %>%
+    filter(term == term_filter) %>%
+    dplyr::mutate(
+      sig = if_else(p.value < 0.05, "p < 0.05", "ns"),
+      outcome_label = fct_reorder(outcome_label, estimate)
     ) %>%
-    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+    ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
+    geom_vline(xintercept = 0, color = "#edede9") +
+    geom_point(size = 3) +
+    geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
+    labs(y = NULL, x = x_label, color = NULL) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(),
+          legend.position = "none",
+          text = element_text(size = 15)) +
+    scale_color_manual(values = c("p < 0.05" = "#284b63", "ns" = "#d9d9d9"))
+}
+
+# Convenience aliases
+plot_forest_raw <- function(results, term_filter, x_label = "Estimate (raw units)")
+  plot_forest(results, term_filter, x_label)
+plot_forest_std <- function(results_std, term_filter, x_label = "Standardized estimate (SD units)")
+  plot_forest(results_std, term_filter, x_label)
+
+# ── Helper: % change forest plot (IMPROVE-style) ─────────────────────────────
+plot_forest_pct <- function(emm_results,
+                            visit_filter = NULL,
+                            visit_col    = NULL,
+                            ref_visit    = "Baseline",
+                            x_label      = "% Change from baseline") {
+  if (is.null(emm_results) || nrow(emm_results) == 0) return(invisible(NULL))
+
+  # Auto-detect the visit column: look for "visit" or any column that isn't
+
+  # a standard EMM output field
+  if (is.null(visit_col)) {
+    emm_cols <- c("estimate", "SE", "df", "conf.low", "conf.high",
+                  "diff", "diff_se", "diff_low", "diff_high",
+                  "pct_change", "pct_low", "pct_high", "p.value",
+                  "outcome", "outcome_label", "baseline_emm",
+                  "n_obs", "n_subjects", "stars")
+    visit_col <- setdiff(names(emm_results), emm_cols)
+    visit_col <- visit_col[1]
+  }
+
+  df <- emm_results %>%
+    filter(.data[[visit_col]] != ref_visit)
+  if (!is.null(visit_filter)) df <- df %>% filter(.data[[visit_col]] %in% visit_filter)
+
+  # Rename to a standard "visit" column for ggplot aesthetics
+  df <- df %>% dplyr::rename(visit = !!visit_col)
+
+  df <- df %>%
+    dplyr::mutate(outcome_label = fct_reorder(outcome_label, pct_change,
+                                       .fun = function(x) mean(x, na.rm = TRUE)))
+
+  # Build color/shape scales from the actual visit levels present
+  visit_levels <- unique(df$visit)
+  palette <- c("3 months" = "#e07a5f", "12 months" = "#3d405b",
+               "Follow-up" = "#3d405b", "SWEETHEART Follow-up" = "#3d405b")
+  # Fall back to a default color for any unlisted level
+  colors <- ifelse(visit_levels %in% names(palette), palette[visit_levels], "#3d405b")
+  names(colors) <- visit_levels
+  shapes <- ifelse(visit_levels %in% c("3 months"), 16L, 17L)
+  names(shapes) <- visit_levels
+
+  ggplot(df, aes(x = pct_change, y = outcome_label, color = visit, shape = visit)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+    geom_point(size = 3, position = position_dodge(width = 0.5)) +
+    geom_errorbarh(aes(xmin = pct_low, xmax = pct_high),
+                   height = 0.2, position = position_dodge(width = 0.5)) +
+    geom_text(aes(label = stars, x = pct_high + 0.5),
+              size = 5, hjust = 0, show.legend = FALSE,
+              position = position_dodge(width = 0.5)) +
+    scale_color_manual(values = colors, name = "Timepoint") +
+    scale_shape_manual(values = shapes, name = "Timepoint") +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "top") +
+    labs(x = x_label, y = NULL)
+}
+
+# ── Helper: run emm for % differences ──────────────────────────────────
+run_lmer_emm <- function(data,
+                         outcome_vars,
+                         log_vars      = character(0),
+                         labels        = character(0),
+                         id_col        = "mrn",
+                         visit_col     = "visit",
+                         ref_visit     = "Baseline",
+                         min_clusters  = 3,
+                         min_obs       = 2) {
+
+  results <- map_dfr(outcome_vars, function(y) {
+    df_fit <- data %>% filter(!is.na(.data[[y]]))
+
+    # Label and optional log-transform
+    y_label <- if (y %in% names(labels)) labels[y] else y
+    if (y %in% log_vars) {
+      df_fit[[y]] <- log10(df_fit[[y]])
+      y_label     <- paste0("log10(", y_label, ")")
+    }
+
+    # Guards
+    n_clusters <- n_distinct(df_fit[[id_col]])
+    if (n_clusters < min_clusters || nrow(df_fit) < min_obs) return(NULL)
+    if (n_distinct(df_fit[[visit_col]]) < 2)                 return(NULL)
+
+    tryCatch({
+      mod <- lmer(
+        as.formula(paste0("", y, " ~ ", visit_col, " + (1 | ", id_col, ")")),
+        data = df_fit, REML = TRUE
+      )
+      emms    <- emmeans(mod, as.formula(paste0("~", visit_col)))
+      emm_df  <- as.data.frame(emms) %>%
+        dplyr::rename(estimate = emmean, conf.low = lower.CL, conf.high = upper.CL)
+
+      contrasts   <- emmeans(mod,
+                             as.formula(paste0("trt.vs.ctrl ~", visit_col)),
+                             ref = ref_visit)
+      contr_df    <- as.data.frame(confint(contrasts$contrasts))
+      contr_pvals <- as.data.frame(contrasts$contrasts)
+
+      baseline_emm <- emm_df %>%
+        filter(.data[[visit_col]] == ref_visit) %>%
+        pull(estimate)
+      
+      # Helper to parse visit label from contrast string
+      parse_visit <- function(contrast_vec) {
+        non_ref <- setdiff(unique(df_fit[[visit_col]]), ref_visit)
+        non_ref <- non_ref[!is.na(non_ref)]
+        result  <- rep(NA_character_, length(contrast_vec))
+        for (v in non_ref) {
+          result <- ifelse(grepl(v, contrast_vec, fixed = TRUE), v, result)
+        }
+        result
+      }
+      
+      contr_df    <- contr_df    %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
+      contr_pvals <- contr_pvals %>% dplyr::mutate(!!visit_col := parse_visit(contrast))
+
+      bind_rows(
+        # Baseline row
+        emm_df %>%
+          filter(.data[[visit_col]] == ref_visit) %>%
+          dplyr::mutate(
+            diff = 0, diff_se = 0, diff_low = 0, diff_high = 0,
+            pct_change = 0, pct_low = 0, pct_high = 0,
+            p.value = NA_real_
+          ),
+        # Non-baseline rows
+        emm_df %>%
+          filter(.data[[visit_col]] != ref_visit) %>%
+          left_join(
+            contr_df %>%
+              dplyr::select(all_of(visit_col),
+                     diff = estimate, diff_se = SE,
+                     diff_low = lower.CL, diff_high = upper.CL),
+            by = visit_col
+          ) %>%
+          left_join(
+            contr_pvals %>% select(all_of(visit_col), p.value),
+            by = visit_col
+          ) %>%
+          dplyr::mutate(
+            pct_change = (diff / baseline_emm) * 100,
+            pct_low    = (diff_low  / baseline_emm) * 100,
+            pct_high   = (diff_high / baseline_emm) * 100
+          )
+      ) %>%
+        dplyr::mutate(
+          outcome       = y,
+          outcome_label = y_label,
+          baseline_emm  = baseline_emm,
+          n_obs         = nrow(df_fit),
+          n_subjects    = n_clusters,
+          stars = case_when(
+            is.na(p.value)  ~ "",
+            p.value < 0.001 ~ "***",
+            p.value < 0.01  ~ "**",
+            p.value < 0.05  ~ "*",
+            TRUE            ~ ""
+          )
+        )
+
+    }, error = function(e) {
+      message(sprintf("  Skipping %s: %s", y, conditionMessage(e)))
+      print(e)
+      NULL
+    })
+  })
+  # Drop outcomes where any estimate / CI / pct_change is non-finite
+  if (nrow(results) > 0) {
+    bad <- with(results, !is.finite(estimate) | !is.finite(conf.low) | !is.finite(conf.high) |
+                          !is.finite(pct_change) | !is.finite(pct_low) | !is.finite(pct_high))
+    if (any(bad)) {
+      dropped <- unique(results$outcome[bad])
+      message("  Dropping non-finite EMM results: ", paste(dropped, collapse = ", "))
+      results <- results[!bad, ]
+    }
+  }
+  results
 }
 ```
 
 ## Model 1: Group comparisons (Obesity vs T2D)
 
 ```{r model-group, echo=FALSE, results='asis'}
-# Imaging ~ group + age + sex + (1 | mrn)
+# Imaging ~ group + age + sex
 # Reference group: Lean Control (alphabetically first, or relevel as needed)
 harm_dat_baseline <- harm_dat_baseline %>%
-  mutate(group = factor(group, levels = c("Lean Control", "Obese Control", "Type 2 Diabetes")))
+  dplyr::mutate(group = factor(group, levels = c("Lean Control", "Obese Control", "Type 2 Diabetes")))
 
-results_group <- fit_lmer_loop(
+results_group <- fit_lm_loop(
   df       = subset(harm_dat_baseline, group != "Lean Control"),
   outcomes = im_vars_raw,
   fixed_rhs = "group + age + sex",
   log_vars = im_vars_log
 )
 
-format_lmer_table(results_group, caption = "Imaging ~ Group + Age + Sex (random intercept by participant)")
+format_lm_table(results_group, caption = "Imaging ~ Group + Age + Sex")
 ```
 
-### Forest plot
+#### Forest plot (raw estimates)
 
 ```{r echo=FALSE, fig.width=10, fig.height=6}
-results_group %>%
-  filter(term == "groupType 2 Diabetes") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+plot_forest_raw(results_group, "groupType 2 Diabetes",
+                x_label = "Estimate (T2D vs Obese, raw units)")
+```
+
+#### Forest plot (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_group_std <- fit_lm_loop_std(
+  df        = subset(harm_dat_baseline, group != "Lean Control"),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "group + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_group_std, "groupType 2 Diabetes",
+                x_label = "T2D vs Obese (Cohen's d)")
 ```
 
 ## Model 2: Kidney marker associations (Obesity/T2D only)
 
+### log(UACR)
+
 ```{r model-kidney, echo=FALSE, results='asis'}
 # ── 2a. Continuous kidney markers ─────────────────────────────────────────────
 # Imaging ~ log(UACR) + age + sex + (1 | mrn)
-results_uacr <- fit_lmer_loop(
+results_uacr <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "log_acr_u + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_uacr, caption = "Imaging ~ log(UACR) + Age + Sex")
-### Forest plot
-results_uacr %>%
-  filter(term == "log_acr_u") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+format_lm_table(results_uacr, caption = "Imaging ~ log(UACR) + Age + Sex")
+```
 
+#### Forest plot: log(UACR) (raw estimates)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_uacr, "log_acr_u",
+                x_label = "Estimate per unit log(UACR) (raw)")
+```
+
+#### Forest plot: log(UACR) (standardized β)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_uacr_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "log_acr_u + age + sex",
+  log_vars  = im_vars_log,
+  std_predictors = TRUE
+)
+plot_forest_std(results_uacr_std, "log_acr_u",
+                x_label = "Standardized \u03b2 (per SD log UACR)")
+```
+
+### eGFR
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
 # Imaging ~ eGFR + age + sex + (1 | mrn)
-results_egfr <- fit_lmer_loop(
+results_egfr <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline,
   outcomes  = im_vars_raw,
   fixed_rhs = "eGFR_CKD_epi + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_egfr, caption = "Imaging ~ eGFR + Age + Sex")
-### Forest plot
-results_egfr %>%
-  filter(term == "eGFR_CKD_epi") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+format_lm_table(results_egfr, caption = "Imaging ~ eGFR + Age + Sex")
+```
 
+#### Forest plot: eGFR (raw estimates)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_egfr, "eGFR_CKD_epi",
+                x_label = "Estimate per unit eGFR (raw)")
+```
+
+#### Forest plot: eGFR (standardized β)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_egfr_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "eGFR_CKD_epi + age + sex",
+  log_vars  = im_vars_log,
+  std_predictors = TRUE
+)
+plot_forest_std(results_egfr_std, "eGFR_CKD_epi",
+                x_label = "Standardized \u03b2 (per SD eGFR)")
+```
+
+### DKD UACR>=30 or eGFR<90
+
+```{r echo=FALSE}
 # ── 2b. DKD group (binary) ───────────────────────────────────────────────────
-# Imaging ~ DKD (UACR≥30 or eGFR<90) + age + sex + (1 | mrn)
-results_dkd30 <- fit_lmer_loop(
+# Imaging ~ DKD (UACR≥30 or eGFR<90) + age + sex
+results_dkd30 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_30)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_30 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_dkd30, caption = "Imaging ~ DKD group (UACR\u226530) + Age + Sex")
-### Forest plot
-results_dkd30 %>%
-  filter(term == "dkd_group_30non_DKD") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+format_lm_table(results_dkd30, caption = "Imaging ~ DKD group (UACR\u226530) + Age + Sex")
+```
 
+#### Forest plot: DKD (UACR≥30) (raw estimates)
 
-results_dkd100 <- fit_lmer_loop(
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_dkd30, "dkd_group_30non_DKD",
+                x_label = "Estimate (non-DKD vs DKD, raw units)")
+```
+
+#### Forest plot: DKD (UACR≥30) (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_dkd30_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_30)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "dkd_group_30 + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_dkd30_std, "dkd_group_30non_DKD",
+                x_label = "non-DKD vs DKD (Cohen's d)")
+```
+
+### DKD UACR>=100 or eGFR<90
+
+```{r echo = F}
+results_dkd100 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_100)),
   outcomes  = im_vars_raw,
   fixed_rhs = "dkd_group_100 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_dkd100, caption = "Imaging ~ DKD group (UACR\u2265100) + Age + Sex")
+format_lm_table(results_dkd100, caption = "Imaging ~ DKD group (UACR\u2265100) + Age + Sex")
+```
 
-### Forest plot
-results_dkd100 %>%
-  filter(term == "dkd_group_100non_DKD") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+#### Forest plot: DKD (UACR≥100) (raw estimates)
 
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_dkd100, "dkd_group_100non_DKD",
+                x_label = "Estimate (non-DKD vs DKD, raw units)")
+```
+
+#### Forest plot: DKD (UACR≥100) (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_dkd100_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(dkd_group_100)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "dkd_group_100 + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_dkd100_std, "dkd_group_100non_DKD",
+                x_label = "non-DKD vs DKD (Cohen's d)")
+
+```
+
+### Albuminuria
+
+```{r echo = F}
 # ── 2c. Albuminuria categories ────────────────────────────────────────────────
-results_acr300 <- fit_lmer_loop(
+results_acr300 <- fit_lm_loop(
   df        = harm_dat_obt2d_baseline %>% filter(!is.na(acr_u_cat300)),
   outcomes  = im_vars_raw,
   fixed_rhs = "acr_u_cat300 + age + sex",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_acr300, caption = "Imaging ~ Albuminuria (<300 vs \u2265300) + Age + Sex")
-### Forest plot
-results_acr300 %>%
-  filter(term == "acr_u_cat300≥300") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+format_lm_table(results_acr300, caption = "Imaging ~ Albuminuria (<300 vs \u2265300) + Age + Sex")
 ```
 
-## Model 3: Longitudinal change (co-enrolled ULTRA → SWEETHEART)
+#### Forest plot: Albuminuria ≥300 (raw estimates)
 
-```{r model-longitudinal, echo=FALSE, results='asis'}
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_acr300, "acr_u_cat300\u2265300",
+                x_label = "Estimate (UACR \u2265300 vs <300, raw units)")
+```
+
+#### Forest plot: Albuminuria ≥300 (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_acr300_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(acr_u_cat300)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "acr_u_cat300 + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_acr300_std, "acr_u_cat300\u2265300",
+                x_label = "UACR \u2265300 vs <300 (Cohen's d)")
+```
+
+### SGLT2i use
+
+```{r echo=FALSE}
+# ── 2d. SGLT2i users vs non-users ─────────────────────────────────────────────
+results_sglt2i <- fit_lm_loop(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(sglti_timepoint)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "sglti_timepoint + age + sex",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_sglt2i, caption = "Imaging ~ SGLT2i (Yes vs No) + Age + Sex")
+```
+
+#### Forest plot: SGLT2i (raw estimates)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_sglt2i, "sglti_timepointYes",
+                x_label = "Estimate (SGLT2i Yes vs No, raw units)")
+```
+
+#### Forest plot: SGLT2i (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_sglt2i_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(sglti_timepoint)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "sglti_timepoint + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_sglt2i_std, "sglti_timepointYes",
+                x_label = "SGLT2i Yes vs No (Cohen's d)")
+```
+
+### GLP1RA use
+
+```{r echo=FALSE}
+results_glp1ra <- fit_lm_loop(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(glp1_agonist_timepoint)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "glp1_agonist_timepoint + age + sex",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_glp1ra, caption = "Imaging ~ GLP1RA (Yes vs No) + Age + Sex")
+```
+
+#### Forest plot: GLP1RA (raw estimates)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_glp1ra, "glp1_agonist_timepointYes",
+                x_label = "Estimate (GLP1RA Yes vs No, raw units)")
+```
+
+#### Forest plot: GLP1RA (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_glp1ra_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline %>% filter(!is.na(glp1_agonist_timepoint)),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "glp1_agonist_timepoint + age + sex",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_glp1ra_std, "glp1_agonist_timepointYes",
+                x_label = "GLP1RA Yes vs No (Cohen's d)")
+```
+
+## Model 3: Sex differences in Obesity/T2D (adjusted)
+
+* Note that ULTRA is contributing males only *
+
+```{r model-sex, echo=FALSE, results='asis'}
+results_sex <- fit_lm_loop(
+  df        = harm_dat_obt2d_baseline,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "sex + age",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_sex, caption = "Imaging ~ Sex + Age (Obesity/T2D only)")
+```
+
+### Forest plot: Sex (raw estimates)
+
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+sex_term <- results_sex %>%
+  filter(term != "(Intercept)") %>% pull(term) %>% unique()
+plot_forest_raw(results_sex, sex_term[1],
+                x_label = "Estimate (Male vs Female, raw units)")
+```
+
+### Forest plot: Sex (standardized: Cohen's d)
+
+```{r echo=FALSE, fig.width=10, fig.height=6}
+results_sex_std <- fit_lm_loop_std(
+  df        = harm_dat_obt2d_baseline,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "sex + age",
+  log_vars  = im_vars_log
+)
+plot_forest_std(results_sex_std, "sexMale",
+                x_label = "Male vs Female (Cohen's d)")
+```
+
+# Mixed models
+
+## Within IMPROVE (longitudinal) + SWHT_33 (1.4yr follow up treated as 12 month)
+
+### Box plots by visit (CMRI)
+
+```{r improve-boxplot-cmr, echo=FALSE, fig.width=16, fig.height=14}
+improve_dat_box <- improve_dat %>%
+  dplyr::mutate(
+    visit = factor(
+      case_when(
+        imaging_visit_id %in% c("improve_baseline", "improve_swht_baseline") ~ "Baseline",
+        imaging_visit_id == "improve_3mo"  ~ "3 months",
+        imaging_visit_id == "improve_12mo" ~ "12 months",
+        record_id == "SWHT_33" ~ "12 months"
+      ),
+      levels = c("Baseline", "3 months", "12 months")
+    )
+  )
+plot_boxgrid(
+  df          = subset(improve_dat_box, !is.na(visit)),
+  vars        = im_vars,
+  log_vars    = im_vars_log,
+  group_var   = "visit",
+  paired      = FALSE,
+  var_labels  = im_labels,
+  fill_colors = c("#f08080", "#f4a261", "#98c1d9"),
+  save        = FALSE,
+  file_prefix = "improve_visit_cmr"
+)
+```
+
+### Model 4: CMRI Longitudinal change (within IMPROVE + SWHT_33), treating time as categorical (baseline, 3 mo, 12 mo)
+
+```{r echo=FALSE, results='asis'}
+# Imaging ~ visit_time + (1 | mrn)
+improve_dat$visit <- factor(improve_dat$visit, levels = c("baseline", "3_months_post_surgery", "12_months_post_surgery"))
+results_improve <- fit_lmer_loop(
+  df        = improve_dat,
+  outcomes  = im_vars_raw,
+  fixed_rhs = "visit",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_improve,
+                  caption = "Longitudinal change: Imaging ~ Visit")
+```
+
+```{r improve-data-prep, echo=FALSE}
+# ── Prepare IMPROVE longitudinal subset ───────────────────────────────────────
+harm_dat_improve_long <- improve_dat %>%
+  dplyr::mutate(
+    visit = factor(
+      case_when(
+        imaging_visit_id == "improve_baseline" ~ "Baseline",
+        imaging_visit_id == "improve_swht_baseline" ~ "Baseline",
+        imaging_visit_id == "improve_3mo"      ~ "3 months",
+        imaging_visit_id == "improve_12mo"     ~ "12 months",
+        record_id == "SWHT_33"  ~ "12 months"
+      ),
+      levels = c("Baseline", "3 months", "12 months")
+    ),
+      ln_acr_u = log(acr_u)
+  )
+# write.csv(harm_dat_improve_long, file.path(root_path, "IMPROVE T2D/Data_Cleaned/improve_longitudinal_041326.csv"), row.names = F, na = "")
+```
+ 
+```{r improve-models, echo=FALSE, results='asis'}
+# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
+improve_emm_results <- run_lmer_emm(
+  data         = harm_dat_improve_long,
+  outcome_vars = im_vars_raw,
+  log_vars     = im_vars_log,
+  labels       = im_labels,
+  id_col       = "mrn",
+  visit_col    = "visit",
+  ref_visit    = "Baseline"
+)
+```
+
+---
+
+#### Forest plot: IMPROVE change from baseline
+
+```{r forest-improve, echo=FALSE}
+plot_forest_pct(improve_emm_results)
+```
+
+### Model 4b: CMRI Longitudinal change (within IMPROVE + SWHT_33), treating time as continuous months
+
+```{r echo=FALSE, results='asis'}
+# Imaging ~ visit_time + (1 | mrn)
+improve_dat$months_since_baseline <- improve_dat$days_since_baseline/30
+
+# results_improve_cont_sens <- fit_lmer_loop(
+#   df        = improve_dat,
+#   outcomes  = im_vars_raw,
+#   fixed_rhs = "months_since_baseline",
+#   log_vars  = im_vars_log
+# )
+# format_lm_table(results_improve_cont_sens,
+#                   caption = "Longitudinal change (months): Imaging ~ Visit")
+# 
+# results_improve_cont_sens_std <- fit_lmer_loop_std(
+#   df        = improve_dat,
+#   outcomes  = im_vars_raw,
+#   fixed_rhs = "months_since_baseline",
+#   log_vars  = im_vars_log
+# )
+
+results_improve_cont <- fit_lmer_loop(
+  df        = subset(improve_dat, days_since_baseline < 1460),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_improve_cont,
+                  caption = "Longitudinal change (months): Imaging ~ Visit (excluding 4.74 yr follow up)")
+
+results_improve_cont_std <- fit_lmer_loop_std(
+  df        = subset(improve_dat, days_since_baseline < 1460),
+  outcomes  = im_vars_raw,
+  fixed_rhs = "months_since_baseline",
+  log_vars  = im_vars_log
+)
+```
+
+#### Forest plot: raw estimates (per month)
+
+```{r forest-improve-cont-raw, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_raw(results_improve_cont, "months_since_baseline",
+                x_label = "Estimate per month (raw units)")
+```
+
+#### Forest plot: standardized estimates (per month)
+
+```{r forest-improve-cont-std, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_std(results_improve_cont_std, "months_since_baseline",
+                x_label = "Standardized estimate per month (SD units)")
+```
+
+```{r, echo=FALSE, fig.width=12, fig.height=12}
+# spaghetti plot
+colors_30 <- c(
+  "#7EA8BE", "#E8A87C", "#8FB996", "#B08BBB", "#C47B7B",
+  "#7DB8B0", "#D4A96A", "#9B89B4", "#88A96E", "#C4876A",
+  "#6E9BAB", "#BFA76A", "#A07898", "#7DAA8A", "#C49B7B",
+  "#8598BC", "#D49B8A", "#7AA89E", "#B89B6A", "#9B8AAB",
+  "#8DAA7A", "#C4A07B", "#6E8FAB", "#B47A8A", "#8AAF9B",
+  "#A89B7A", "#7B9BB4", "#C4907A", "#8A9B7A", "#B48A9B"
+)
+
+improve_spaghetti <- lapply(im_vars_raw, function(var) {
+  y_label <- if (var %in% names(im_labels)) im_labels[[var]] else var
+  improve_dat %>%
+    filter(days_since_baseline < 1460) %>%
+    ggplot(aes(x = months_since_baseline, y = .data[[var]], group = mrn, color = factor(mrn))) +
+    geom_vline(xintercept = 3, linetype = "dashed", color = "grey") +
+    geom_vline(xintercept = 12, linetype = "dashed", color = "grey") +
+    geom_point() +
+    geom_line(alpha = 0.8) +
+    theme_minimal() +
+    theme(text = element_text(size = 15),
+          panel.grid = element_blank(),
+          legend.position = "none") +
+    labs(x = "Time since baseline (months)", y = y_label) +
+    scale_color_manual(values = colors_30)
+})
+
+patchwork::wrap_plots(improve_spaghetti)  # patchwork, or use cowplot::plot_grid(plotlist = plots)
+```
+
+### Model 5: ACR/GFR longitudinal change (within IMPROVE)
+
+```{r echo=FALSE, results='asis', message=FALSE}
+# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
+acr_dat   <- harm_dat_improve_long
+acr_outs  <- acr_gfr_vars
+acr_logs  <- "acr_u"
+
+improve_acr_gfr_emm_results <- run_lmer_emm(
+  data         = acr_dat,
+  outcome_vars = acr_outs,
+  log_vars     = acr_logs,
+  labels       = acr_gfr_labels,
+  id_col       = "mrn",
+  visit_col    = "visit",
+  ref_visit    = "Baseline"
+)
+
+format_emm_table(improve_acr_gfr_emm_results,
+                 caption   = "Longitudinal change: log10(ACR), GFR vs Baseline",
+                 visit_col = "visit",
+                 ref_visit = "Baseline",
+                 show_pct  = TRUE)
+```
+
+#### Forest plot: IMPROVE ACR/GFR change from baseline
+
+```{r forest-improve2, echo=FALSE, fig.width=10, fig.height=6}
+plot_forest_pct(improve_acr_gfr_emm_results)
+```
+
+```{r weight-change, echo=FALSE}
+# Compute weight change from baseline within each IMPROVE participant
+harm_dat_subset <- harm_dat_subset %>%
+  group_by(mrn) %>%
+  dplyr::mutate(
+    weight_bl = weight[imaging_visit_id == "improve_baseline"][1],
+    weight_change = weight - weight_bl
+  ) %>%
+  ungroup()
+```
+
+### Model 6: CMRI longitudinal change (within IMPROVE)
+
+```{r echo=FALSE, results='asis'}
+improve_mri_results <- fit_lmer_loop(
+  df         = harm_dat_improve_long,
+  outcomes   = im_vars_log,
+  log_vars = im_vars_log, 
+  fixed_rhs  = "visit",
+  var_labels = mri_labels
+)
+
+# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
+improve_mri_emm_results <- run_lmer_emm(
+  data         = harm_dat_improve_long,
+  outcome_vars = mri_vars,
+  log_vars     = im_vars_log,
+  labels       = mri_labels,
+  id_col       = "mrn",
+  visit_col    = "visit",
+  ref_visit    = "Baseline"
+)
+
+format_emm_table(improve_mri_emm_results,
+                  caption = "Longitudinal change: CMRI ~ Visit")
+```
+
+#### Forest plot: IMPROVE kidney MRI change from baseline
+
+```{r forest-improve3, echo=FALSE}
+plot_forest_pct(improve_mri_emm_results)
+```
+
+## ULTRA → SWEETHEART co-enrollment (N=5)
+
+ULTRA participants who later co-enrolled in SWEETHEART (`harm_dat_longitudinal`). Paired baseline (ULTRA) → follow-up (SWEETHEART) comparison.
+
+### Descriptive stats
+
+```{r ultra-swht-descriptives, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(tableby(
+  imaging_visit_id ~ age + sex + bmi + weight +
+    kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
+    eGFR_CKD_epi + gfr_bsa_plasma +
+    lvedv + lvesv + lv_stroke_volume + lvef +
+    rvedv + rvesv + rv_stroke_volume + rvef +
+    lved_mass + lv_myo_thickness_dias + gls + lv_hr +
+    af_meanwss + af_pwv + tt1 + tt2,
+  data = harm_dat_longitudinal, digits = 1, test = FALSE
+))
+cat('</div>')
+```
+
+### Box plot (paired baseline → follow-up)
+
+```{r ultra-swht-boxplot, echo=FALSE, fig.width=16, fig.height=14}
+harm_dat_longitudinal_box <- harm_dat_longitudinal %>%
+  dplyr::mutate(
+    visit = factor(
+      if_else(imaging_visit_id == "ultra_swht_baseline", "Baseline (ULTRA)", "Follow-up (SWHT)"),
+      levels = c("Baseline (ULTRA)", "Follow-up (SWHT)")
+    )
+  )
+plot_boxgrid(
+  df          = harm_dat_longitudinal_box,
+  vars        = im_vars,
+  log_vars    = im_vars_log,
+  group_var   = "visit",
+  paired      = TRUE,
+  var_labels  = im_labels,
+  save        = FALSE,
+  file_prefix = "ultra_swht_paired"
+)
+```
+
+### Model 7: Longitudinal change (ULTRA → SWEETHEART, N=5)
+
+```{r model-longitudinal, echo=FALSE, results='asis', message=F}
 # Imaging ~ visit_time + (1 | mrn)
 results_longitudinal <- fit_lmer_loop(
   df        = harm_dat_longitudinal,
@@ -895,556 +2369,120 @@ results_longitudinal <- fit_lmer_loop(
   fixed_rhs = "imaging_visit_id",
   log_vars  = im_vars_log
 )
-format_lmer_table(results_longitudinal,
+format_lm_table(results_longitudinal,
                   caption = "Longitudinal change: Imaging ~ Visit")
 ```
 
-### Forest plot of longitudinal effects
+#### Forest plot: raw estimates
 
-```{r forest-longitudinal, echo=FALSE, fig.width=10, fig.height=6}
-results_longitudinal %>%
-  filter(term != "(Intercept)") %>%
-  mutate(sig = case_when(p.value < 0.05 ~ "p < 0.05", T ~ "ns")) %>%
-  ggplot(aes(x = estimate, y = outcome_label, color = sig)) +
-  geom_vline(xintercept = 0, color = "#edede9") +
-  geom_point(size = 3) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, linewidth = 0.4) +
-  labs(y = NULL, x = "Estimate") +
-  theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 15)) +
-  scale_color_manual(values = c("p < 0.05" = "#284b63",
-                                "ns" = "#d9d9d9"))
+```{r forest-longitudinal-raw, echo=FALSE, fig.width=10, fig.height=6}
+# The term name is the non-reference level of imaging_visit_id
+longitudinal_term <- results_longitudinal %>%
+  filter(term != "(Intercept)") %>% pull(term) %>% unique()
+plot_forest_raw(results_longitudinal, longitudinal_term[1],
+                x_label = "Estimate (SWEETHEART \u2212 ULTRA, raw units)")
 ```
 
-## Model 4: Sex differences in Obesity/T2D (adjusted)
+#### Forest plot: % change from baseline (ULTRA → SWEETHEART)
 
-```{r model-sex, echo=FALSE, results='asis'}
-results_sex <- fit_lmer_loop(
-  df        = harm_dat_obt2d_baseline,
-  outcomes  = im_vars_raw,
-  fixed_rhs = "sex + age",
-  log_vars  = im_vars_log
-)
-format_lmer_table(results_sex, caption = "Imaging ~ Sex + Age (Obesity/T2D only)")
-```
-
-## Model 5: Longitudinal change (within IMPROVE)
-
-```{r echo=FALSE, results='asis'}
-# Imaging ~ visit_time + (1 | mrn)
-harm_dat_subset$visit <- factor(harm_dat_subset$visit, levels = c("baseline", "3_months_post_surgery", "12_months_post_surgery"))
-results_improve <- fit_lmer_loop(
-  df        = subset(harm_dat_subset, study == "IMPROVE"),
-  outcomes  = im_vars_raw,
-  fixed_rhs = "visit",
-  log_vars  = im_vars_log
-)
-format_lmer_table(results_improve,
-                  caption = "Longitudinal change: Imaging ~ Visit")
-
-# log UACR and GFR
-# what about eGFR and if we do BSA-adjusted GFR too, or mGFr (unadjusted) but adjusting for weight change
-harm_dat_subset$ln_acr_u <- log(harm_dat_subset$acr_u)
-
-acr_gfr_improve <- fit_lmer_loop(
-  df        = subset(harm_dat_subset, study == "IMPROVE"),
-  outcomes  = c("ln_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma"),
-  fixed_rhs = "visit"
-)
-```
-
-```{r improve-data-prep, echo=FALSE}
-# ── Prepare IMPROVE longitudinal subset ───────────────────────────────────────
-harm_dat_improve_long <- harm_dat_subset %>%
-  filter(study == "IMPROVE",
-         imaging_visit_id %in% c("improve_baseline", "improve_3mo", "improve_12mo")) %>%
-  mutate(
+```{r forest-longitudinal-pct, echo=FALSE, fig.width=12, fig.height=8}
+# Prepare ULTRA→SWEETHEART longitudinal subset for EMM-based % change
+harm_dat_ultra_swht_long <- harm_dat_longitudinal %>%
+  dplyr::mutate(
     visit = factor(
-      case_when(
-        imaging_visit_id == "improve_baseline" ~ "Baseline",
-        imaging_visit_id == "improve_3mo"      ~ "3 months",
-        imaging_visit_id == "improve_12mo"     ~ "12 months"
-      ),
-      levels = c("Baseline", "3 months", "12 months")
+      if_else(imaging_visit_id == "ultra_swht_baseline", "Baseline", "Follow-up"),
+      levels = c("Baseline", "Follow-up")
     )
   )
-```
- 
-```{r improve-models, echo=FALSE, results='asis'}
-# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
-improve_emm_results <- map_dfr(im_vars_raw, function(y) {
- 
-  df_fit <- harm_dat_improve_long %>% filter(!is.na(.data[[y]]))
- 
-  # Log-transform if needed
-  y_label <- if (y %in% names(im_labels)) im_labels[y] else y
-  if (y %in% im_vars_log) {
-    df_fit[[y]] <- log10(df_fit[[y]])
-    y_label <- paste0("log10(", y_label, ")")
-  }
- 
-  n_clusters <- n_distinct(df_fit$mrn)
-  if (n_clusters < 3 || nrow(df_fit) < 5) return(NULL)
- 
-  # Need at least 2 visit levels present
-  if (n_distinct(df_fit$visit) < 2) return(NULL)
- 
-  tryCatch({
-    mod <- lmer(as.formula(paste0("`", y, "` ~ visit + (1 | mrn)")),
-                data = df_fit, REML = TRUE)
- 
-    # EMMs at each visit level
-    emms <- emmeans(mod, ~ visit)
-    emm_df <- as.data.frame(emms) %>%
-      rename(estimate = emmean, conf.low = lower.CL, conf.high = upper.CL)
- 
-    # Contrasts: 3 months - Baseline, 12 months - Baseline
-    # Use confint() to get t-based CIs consistent with the p-values
-    contrasts <- emmeans(mod, trt.vs.ctrl ~ visit, ref = "Baseline")
-    contr_df  <- as.data.frame(confint(contrasts$contrasts))
- 
-    # Get baseline EMM for percent-change calculation
-    baseline_emm <- emm_df %>% filter(visit == "Baseline") %>% pull(estimate)
- 
-    # Combine: EMMs + raw differences + percent change from baseline
-    bind_rows(
-      # Baseline row (0% change by definition)
-      emm_df %>%
-        filter(visit == "Baseline") %>%
-        mutate(
-          diff = 0, diff_se = 0, diff_low = 0, diff_high = 0,
-          pct_change = 0, pct_low = 0, pct_high = 0,
-          p.value = NA_real_
-        ),
-      # 3-month and 12-month rows
-      emm_df %>%
-        filter(visit != "Baseline") %>%
-        left_join(
-          contr_df %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, diff = estimate, diff_se = SE,
-                   diff_low = lower.CL, diff_high = upper.CL),
-          by = "visit"
-        ) %>%
-        # Recover p-values from the contrasts summary (not confint)
-        left_join(
-          as.data.frame(contrasts$contrasts) %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, p.value),
-          by = "visit"
-        ) %>%
-        mutate(
-          pct_change = (diff / baseline_emm) * 100,
-          pct_low    = (diff_low / baseline_emm) * 100,
-          pct_high   = (diff_high / baseline_emm) * 100
-        )
-    ) %>%
-      mutate(
-        outcome       = y,
-        outcome_label = y_label,
-        baseline_emm  = baseline_emm,
-        n_obs         = nrow(df_fit),
-        n_subjects    = n_clusters,
-        stars = case_when(
-          is.na(p.value)  ~ "",
-          p.value < 0.001 ~ "***",
-          p.value < 0.01  ~ "**",
-          p.value < 0.05  ~ "*",
-          TRUE            ~ ""
-        )
-      )
-  }, error = function(e) {
-    message(sprintf("  Skipping %s: %s", y, e$message))
-    NULL
-  })
-})
-```
- 
-### Forest plot: IMPROVE change from baseline
- 
-```{r forest-improve, echo=FALSE, fig.width=12, fig.height=8}
-if (nrow(improve_emm_results) > 0) {
-  improve_forest_df <- improve_emm_results %>%
-    filter(visit != "Baseline") %>%
-    mutate(outcome_label = fct_reorder(outcome_label, pct_change,
-                                       .fun = function(x) mean(x, na.rm = TRUE)))
- 
-  ggplot(improve_forest_df,
-         aes(x = pct_change, y = outcome_label, color = visit, shape = visit)) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    geom_point(size = 3, position = position_dodge(width = 0.5)) +
-    geom_errorbarh(
-      aes(xmin = pct_low, xmax = pct_high),
-      height = 0.2,
-      position = position_dodge(width = 0.5)
-    ) +
-    geom_text(
-      aes(label = stars,
-          x = pct_high + 0.5),
-      size = 5, hjust = 0, show.legend = FALSE,
-      position = position_dodge(width = 0.5)
-    ) +
-    scale_color_manual(
-      values = c("3 months" = "#e07a5f", "12 months" = "#3d405b"),
-      name = "Timepoint"
-    ) +
-    scale_shape_manual(
-      values = c("3 months" = 16, "12 months" = 17),
-      name = "Timepoint"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(legend.position = "top") +
-    labs(
-      x = "% Change from baseline",
-      y = NULL
-    )
-}
+
+ultra_swht_emm_results <- run_lmer_emm(
+  data         = harm_dat_ultra_swht_long,
+  outcome_vars = im_vars_raw,
+  log_vars     = im_vars_log,
+  labels       = im_labels,
+  id_col       = "mrn",
+  visit_col    = "visit",
+  ref_visit    = "Baseline"
+)
+
+format_emm_table(ultra_swht_emm_results)
+plot_forest_pct(ultra_swht_emm_results,
+                x_label = "% Change from baseline (ULTRA \u2192 SWEETHEART)")
 ```
 
-## Model 6: Longitudinal change (within IMPROVE)
+## ULTRA + IMPROVE → SWEETHEART co-enrollment (N=7, combined)
 
-```{r echo=FALSE, results='asis'}
-# log UACR and GFR
-# what about eGFR and if we do BSA-adjusted GFR too, or mGFr (unadjusted) but adjusting for weight change
-harm_dat_subset$ln_acr_u <- log(harm_dat_subset$acr_u)
+Pools the 5 ULTRA → SWHT and 2 IMPROVE → SWHT co-enrolled participants (`harm_dat_longitudinal_all`) to maximize sample size.
 
-acr_gfr_vars <- c("ln_acr_u", "eGFR_CKD_epi", "gfr_raw_plasma", "gfr_bsa_plasma", "ff")
+### Descriptive stats
+
+```{r combined-swht-descriptives, echo=FALSE, results='asis'}
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(tableby(
+  visit_label ~ age + sex + bmi + weight +
+    kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
+    eGFR_CKD_epi + gfr_bsa_plasma +
+    lvedv + lvesv + lv_stroke_volume + lvef +
+    rvedv + rvesv + rv_stroke_volume + rvef +
+    lved_mass + lv_myo_thickness_dias + gls + lv_hr +
+    af_meanwss + af_pwv + tt1 + tt2,
+  data = harm_dat_longitudinal_all, digits = 1, test = FALSE
+))
+cat('</div>')
 ```
 
-```{r echo=FALSE, results='asis'}
-# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
-improve_acr_gfr_emm_results <- map_dfr(acr_gfr_vars, function(y) {
- 
-  df_fit <- harm_dat_improve_long %>% filter(!is.na(.data[[y]]))
- 
-  # Log-transform if needed
-  y_label <- if (y %in% names(im_labels)) im_labels[y] else y
-  if (y %in% im_vars_log) {
-    df_fit[[y]] <- log10(df_fit[[y]])
-    y_label <- paste0("log10(", y_label, ")")
-  }
- 
-  n_clusters <- n_distinct(df_fit$mrn)
-  if (n_clusters < 3 || nrow(df_fit) < 5) return(NULL)
- 
-  # Need at least 2 visit levels present
-  if (n_distinct(df_fit$visit) < 2) return(NULL)
- 
-  tryCatch({
-    mod <- lmer(as.formula(paste0("`", y, "` ~ visit + (1 | mrn)")),
-                data = df_fit, REML = TRUE)
- 
-    # EMMs at each visit level
-    emms <- emmeans(mod, ~ visit)
-    emm_df <- as.data.frame(emms) %>%
-      rename(estimate = emmean, conf.low = lower.CL, conf.high = upper.CL)
- 
-    # Contrasts: 3 months - Baseline, 12 months - Baseline
-    # Use confint() to get t-based CIs consistent with the p-values
-    contrasts <- emmeans(mod, trt.vs.ctrl ~ visit, ref = "Baseline")
-    contr_df  <- as.data.frame(confint(contrasts$contrasts))
- 
-    # Get baseline EMM for percent-change calculation
-    baseline_emm <- emm_df %>% filter(visit == "Baseline") %>% pull(estimate)
- 
-    # Combine: EMMs + raw differences + percent change from baseline
-    bind_rows(
-      # Baseline row (0% change by definition)
-      emm_df %>%
-        filter(visit == "Baseline") %>%
-        mutate(
-          diff = 0, diff_se = 0, diff_low = 0, diff_high = 0,
-          pct_change = 0, pct_low = 0, pct_high = 0,
-          p.value = NA_real_
-        ),
-      # 3-month and 12-month rows
-      emm_df %>%
-        filter(visit != "Baseline") %>%
-        left_join(
-          contr_df %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, diff = estimate, diff_se = SE,
-                   diff_low = lower.CL, diff_high = upper.CL),
-          by = "visit"
-        ) %>%
-        # Recover p-values from the contrasts summary (not confint)
-        left_join(
-          as.data.frame(contrasts$contrasts) %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, p.value),
-          by = "visit"
-        ) %>%
-        mutate(
-          pct_change = (diff / baseline_emm) * 100,
-          pct_low    = (diff_low / baseline_emm) * 100,
-          pct_high   = (diff_high / baseline_emm) * 100
-        )
-    ) %>%
-      mutate(
-        outcome       = y,
-        outcome_label = y_label,
-        baseline_emm  = baseline_emm,
-        n_obs         = nrow(df_fit),
-        n_subjects    = n_clusters,
-        stars = case_when(
-          is.na(p.value)  ~ "",
-          p.value < 0.001 ~ "***",
-          p.value < 0.01  ~ "**",
-          p.value < 0.05  ~ "*",
-          TRUE            ~ ""
-        )
-      )
-  }, error = function(e) {
-    message(sprintf("  Skipping %s: %s", y, e$message))
-    NULL
-  })
-})
-```
- 
-### Forest plot: IMPROVE change from baseline
- 
-```{r forest-improve2, echo=FALSE, fig.width=12, fig.height=8}
-if (nrow(improve_acr_gfr_emm_results) > 0) {
-  improve_forest_df <- improve_acr_gfr_emm_results %>%
-    filter(visit != "Baseline") %>%
-    mutate(outcome_label = fct_reorder(outcome_label, pct_change,
-                                       .fun = function(x) mean(x, na.rm = TRUE)))
- 
-  ggplot(improve_forest_df,
-         aes(x = pct_change, y = outcome_label, color = visit, shape = visit)) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    geom_point(size = 3, position = position_dodge(width = 0.5)) +
-    geom_errorbarh(
-      aes(xmin = pct_low, xmax = pct_high),
-      height = 0.2,
-      position = position_dodge(width = 0.5)
-    ) +
-    geom_text(
-      aes(label = stars,
-          x = pct_high + 0.5),
-      size = 5, hjust = 0, show.legend = FALSE,
-      position = position_dodge(width = 0.5)
-    ) +
-    scale_color_manual(
-      values = c("3 months" = "#e07a5f", "12 months" = "#3d405b"),
-      name = "Timepoint"
-    ) +
-    scale_shape_manual(
-      values = c("3 months" = 16, "12 months" = 17),
-      name = "Timepoint"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(legend.position = "top") +
-    labs(
-      x = "% Change from baseline",
-      y = NULL
-    )
-}
+### Box plot (paired baseline → follow-up, combined)
 
-# Compute weight change from baseline within each IMPROVE participant
-harm_dat_subset <- harm_dat_subset %>%
-  group_by(mrn) %>%
-  mutate(
-    weight_bl = weight[imaging_visit_id == "improve_baseline"][1],
-    weight_change = weight - weight_bl
-  ) %>%
-  ungroup()
-
-summary(lmer(gfr_raw_plasma ~ visit + weight_change + (1 | mrn),
-             data = subset(harm_dat_subset, study == "IMPROVE")))
-
-subset(harm_dat_subset, study == "IMPROVE")$erpf_raw_plasma
-subset(harm_dat, study == "IMPROVE" & !is.na(erpf_raw_plasma))$visit
+```{r combined-swht-boxplot, echo=FALSE, fig.width=16, fig.height=14}
+plot_boxgrid(
+  df          = harm_dat_longitudinal_all,
+  vars        = setdiff(im_vars, c("tt1", "tt2")),
+  log_vars    = im_vars_log,
+  group_var   = "visit_label",
+  paired      = TRUE,
+  var_labels  = im_labels,
+  save        = FALSE,
+  file_prefix = "combined_swht_paired"
+)
 ```
 
+### Model 3b: Longitudinal change (combined ULTRA + IMPROVE → SWEETHEART, N=7)
 
-## Model 7: Longitudinal change (within IMPROVE)
-
-```{r echo=FALSE, results='asis'}
-# FSOC, ASL, ADC, TKV, R2* for the 12 month
-mri_vars <- c("avg_c_fsoc", "avg_m_fsoc", 
-              "avg_c_r2", "avg_m_r2",
-              "avg_c_adc", 
-              "avg_pcascl", "total_kidney_volume_ml",
-              "glomerular_pressure")
+```{r model-longitudinal-combined, echo=FALSE, results='asis', message=FALSE}
+results_longitudinal_all <- fit_lmer_loop(
+  df        = harm_dat_longitudinal_all,
+  outcomes  = setdiff(im_vars_raw, c("tt1", "tt2")),
+  fixed_rhs = "visit_label",
+  log_vars  = im_vars_log
+)
+format_lm_table(results_longitudinal_all,
+                  caption = "Longitudinal change (combined \u2192 SWEETHEART): Imaging ~ Visit")
 ```
 
-```{r echo=FALSE, results='asis'}
-# ── Fit lmer and extract EMMs with contrasts vs baseline ──────────────────────
-improve_mri_emm_results <- map_dfr(mri_vars, function(y) {
- 
-  df_fit <- harm_dat_improve_long %>% filter(!is.na(.data[[y]]))
- 
-  # Log-transform if needed
-  y_label <- if (y %in% names(im_labels)) im_labels[y] else y
-  if (y %in% im_vars_log) {
-    df_fit[[y]] <- log10(df_fit[[y]])
-    y_label <- paste0("log10(", y_label, ")")
-  }
- 
-  n_clusters <- n_distinct(df_fit$mrn)
-  if (n_clusters < 3 || nrow(df_fit) < 5) return(NULL)
- 
-  # Need at least 2 visit levels present
-  if (n_distinct(df_fit$visit) < 2) return(NULL)
- 
-  tryCatch({
-    mod <- lmer(as.formula(paste0("`", y, "` ~ visit + (1 | mrn)")),
-                data = df_fit, REML = TRUE)
- 
-    # EMMs at each visit level
-    emms <- emmeans(mod, ~ visit)
-    emm_df <- as.data.frame(emms) %>%
-      rename(estimate = emmean, conf.low = lower.CL, conf.high = upper.CL)
- 
-    # Contrasts: 3 months - Baseline, 12 months - Baseline
-    # Use confint() to get t-based CIs consistent with the p-values
-    contrasts <- emmeans(mod, trt.vs.ctrl ~ visit, ref = "Baseline")
-    contr_df  <- as.data.frame(confint(contrasts$contrasts))
- 
-    # Get baseline EMM for percent-change calculation
-    baseline_emm <- emm_df %>% filter(visit == "Baseline") %>% pull(estimate)
- 
-    # Combine: EMMs + raw differences + percent change from baseline
-    bind_rows(
-      # Baseline row (0% change by definition)
-      emm_df %>%
-        filter(visit == "Baseline") %>%
-        mutate(
-          diff = 0, diff_se = 0, diff_low = 0, diff_high = 0,
-          pct_change = 0, pct_low = 0, pct_high = 0,
-          p.value = NA_real_
-        ),
-      # 3-month and 12-month rows
-      emm_df %>%
-        filter(visit != "Baseline") %>%
-        left_join(
-          contr_df %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, diff = estimate, diff_se = SE,
-                   diff_low = lower.CL, diff_high = upper.CL),
-          by = "visit"
-        ) %>%
-        # Recover p-values from the contrasts summary (not confint)
-        left_join(
-          as.data.frame(contrasts$contrasts) %>%
-            mutate(
-              visit = case_when(
-                grepl("3 months", contrast)  ~ "3 months",
-                grepl("12 months", contrast) ~ "12 months"
-              )
-            ) %>%
-            select(visit, p.value),
-          by = "visit"
-        ) %>%
-        mutate(
-          pct_change = (diff / baseline_emm) * 100,
-          pct_low    = (diff_low / baseline_emm) * 100,
-          pct_high   = (diff_high / baseline_emm) * 100
-        )
-    ) %>%
-      mutate(
-        outcome       = y,
-        outcome_label = y_label,
-        baseline_emm  = baseline_emm,
-        n_obs         = nrow(df_fit),
-        n_subjects    = n_clusters,
-        stars = case_when(
-          is.na(p.value)  ~ "",
-          p.value < 0.001 ~ "***",
-          p.value < 0.01  ~ "**",
-          p.value < 0.05  ~ "*",
-          TRUE            ~ ""
-        )
-      )
-  }, error = function(e) {
-    message(sprintf("  Skipping %s: %s", y, e$message))
-    NULL
-  })
-})
+#### Forest plot: raw estimates (combined)
+
+```{r forest-longitudinal-combined-raw, echo=FALSE, fig.width=10, fig.height=6}
+combined_term <- results_longitudinal_all %>%
+  filter(term != "(Intercept)") %>% pull(term) %>% unique()
+plot_forest_raw(results_longitudinal_all, combined_term[1],
+                x_label = "Estimate (SWEETHEART \u2212 baseline, raw units)")
 ```
- 
-### Forest plot: IMPROVE change from baseline
- 
-```{r forest-improve3, echo=FALSE, fig.width=12, fig.height=8}
-if (nrow(improve_mri_emm_results) > 0) {
-  improve_forest_df <- improve_mri_emm_results %>%
-    filter(visit == "12 months") %>%
-    mutate(outcome_label = fct_reorder(outcome_label, pct_change,
-                                       .fun = function(x) mean(x, na.rm = TRUE)))
- 
-  ggplot(improve_forest_df,
-         aes(x = pct_change, y = outcome_label, color = visit, shape = visit)) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    geom_point(size = 3, position = position_dodge(width = 0.5)) +
-    geom_errorbarh(
-      aes(xmin = pct_low, xmax = pct_high),
-      height = 0.2,
-      position = position_dodge(width = 0.5)
-    ) +
-    geom_text(
-      aes(label = stars,
-          x = pct_high + 0.5),
-      size = 5, hjust = 0, show.legend = FALSE,
-      position = position_dodge(width = 0.5)
-    ) +
-    scale_color_manual(
-      values = c("3 months" = "#e07a5f", "12 months" = "#3d405b"),
-      name = "Timepoint"
-    ) +
-    scale_shape_manual(
-      values = c("3 months" = 16, "12 months" = 17),
-      name = "Timepoint"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(legend.position = "top") +
-    labs(
-      x = "% Change from baseline",
-      y = NULL
-    )
-}
 
-# Compute weight change from baseline within each IMPROVE participant
-harm_dat_subset <- harm_dat_subset %>%
-  group_by(mrn) %>%
-  mutate(
-    weight_bl = weight[imaging_visit_id == "improve_baseline"][1],
-    weight_change = weight - weight_bl
-  ) %>%
-  ungroup()
+#### Forest plot: % change from baseline (combined → SWEETHEART)
 
-summary(lmer(gfr_raw_plasma ~ visit + weight_change + (1 | mrn),
-             data = subset(harm_dat_subset, study == "IMPROVE")))
+```{r forest-longitudinal-combined-pct, echo=FALSE, fig.width=12, fig.height=8}
+combined_emm_results <- run_lmer_emm(
+  data         = harm_dat_longitudinal_all,
+  outcome_vars = setdiff(im_vars_raw, c("tt1", "tt2")),
+  log_vars     = im_vars_log,
+  labels       = im_labels,
+  id_col       = "mrn",
+  visit_col    = "visit_label",
+  ref_visit    = "Baseline"
+)
 
-subset(harm_dat_subset, study == "IMPROVE")$erpf_raw_plasma
-subset(harm_dat, study == "IMPROVE" & !is.na(erpf_raw_plasma))$visit
+plot_forest_pct(combined_emm_results,
+                x_label = "% Change from baseline (combined \u2192 SWEETHEART)")
 ```
 
 # Model 8: Arteriosclerosis y/n

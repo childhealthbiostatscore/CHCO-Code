@@ -1,0 +1,270 @@
+---
+title: "PANTHER PFAS Analysis — Handoff README"
+author: "Hailey Hampson"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+---
+
+# Project Overview
+
+This project examines associations between per- and polyfluoroalkyl substance (PFAS) exposures and kidney function outcomes in the **PANTHER** study (a longitudinal pediatric cohort of youth-onset Type 2 Diabetes and controls). PFAS concentrations were measured from plasma samples collected by Emory University.
+
+Key scientific questions:
+
+1. Are baseline PFAS levels associated with albuminuria (ACR-urine) cross-sectionally and longitudinally?
+2. Are baseline PFAS levels associated with kidney function outcomes (GFR, ERPF, insulin sensitivity, renal perfusion/oxygenation) at baseline and over follow-up?
+3. How do kidney outcomes change over time by diabetes group (T2D, Obese Control, Lean Control)?
+
+**PI:** Petter Bjornstad
+**Biostatisticians:** Hailey Hampson; Savanah Leidholt (plasma volume adjustment)
+**Core:** Laura Pyle — Biostatistics Core, University of Washington
+
+---
+
+# Directory Structure
+
+## Code Repository
+
+```
+PANTHER PFAS/
+├── README.Rmd                          # This file
+├── PANTHER PFAS Analysis.Rmd           # PRIMARY analysis script
+├── PANTHER_PFAS_Cleaning.R             # Data cleaning script
+├── PFAS_Adj_Plasma_Volume.Rmd          # Plasma volume adjustment analysis (Leidholt & Hampson)
+├── PFAS_Analysis_SLL.qmd/.R/.Rmd       # Savanah Leidholt analysis files
+├── Albuminuria TK model Simplified_Panther_heh.R  # Toxicokinetic model (HEH version)
+├── Albuminuria TK model Simplified.R   # Original TK model
+├── Functions.R                         # Custom R functions
+├── Libraries.R                         # All package imports
+├── PANTHER_PFAS_Analysis.R             # R script version of the analysis
+├── PANTHER PFAS.qmd                    # Presentation slides (Quarto)
+└── PANTHER PFAS.Rproj                  # RStudio project file
+```
+
+## Results Directory (OneDrive)
+
+```
+PANTHER/Results/PFAS Results/
+├── figures/                    # Summary outcome figures (used in Quarto presentation)
+├── crude/                      # Unadjusted scatter plots (per PFAS × outcome)
+├── adj_age_sex/                # Age & sex adjusted scatter plots
+├── adj_group/                  # Diabetes group adjusted scatter plots
+├── longitudinal_lme/           # Longitudinal LME results
+│   ├── crude/                  # Unadjusted LME plots
+│   ├── adj_acr_u/              # Adj. for baseline ACR-urine
+│   ├── adj_age_sex_acr/        # Adj. for age, sex, ACR-urine
+│   ├── adj_group_acr/          # Adj. for group + ACR-urine
+│   ├── heatmap_*.png           # Result heatmaps (4 adjustment models)
+│   ├── lme_results.csv/.rds    # LME result tables
+│   └── lme_results2.csv/.rds   # LME result tables (secondary)
+├── cs_results.csv/.rds         # Cross-sectional result tables
+├── PANTHER Tables.xlsx         # Summary tables for manuscript/report
+├── PANTHER_PFAS_Table1_Baseline.png  # Table 1 (baseline characteristics)
+├── PFAS_PANTHER_03_17.html     # Rendered HTML report (March 17 version)
+├── pfas_acru_plots*.pdf        # ACR-urine trajectory plots (with/without outlier, with/without PFOA)
+├── pfas_eGFR_plots.pdf         # eGFR trajectory plots
+├── pfas_microalbumin_plots*.pdf # Microalbumin plots
+├── baseline_pfas_followup_acru_yr*.pdf # Baseline PFAS × follow-up ACRu (yr 1 & 2)
+└── longitudinal_outcomes.pdf   # Longitudinal outcome summary plots
+```
+
+---
+
+# Data Sources
+
+## Primary Data
+
+All data are sourced from the harmonized PANTHER dataset:
+
+```{r}
+# Update dir.dat for your machine (see path setup in §1 of the analysis script)
+dir.dat <- "/Users/[your_username]/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
+
+dat <- read.csv(fs::path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"), na.strings = "")
+lod <- read.csv(fs::path(dir.dat, "PANTHER", "Data_Raw", "PFAS Emory 2025", "8- PFAS Quantification", "PFAS_LODs.csv"))
+```
+
+## Study Visits
+
+| Visit Label | Description |
+|-------------|-------------|
+| `baseline` / `screening` | Collapsed to a single baseline timepoint (averaged) |
+| `year_1` | Year 1 follow-up |
+| `year_2` | Year 2 follow-up |
+
+## Participant Groups
+
+| Group | Description |
+|-------|-------------|
+| T2D | Youth-onset Type 2 Diabetes |
+| Obese Control | Obese youth without diabetes |
+| Lean Control | Lean youth without diabetes |
+
+---
+
+# PFAS Compounds
+
+## LOD Filtering
+
+PFAS compounds were included only if **< 2/3 of values were below the limit of detection (LOD)**. Values below the LOD were imputed with **LOD / √2**.
+
+The following compounds were assessed (from Emory PFAS quantification panel):
+
+**Included (< 2/3 below LOD — retained and imputed):**
+
+| Compound | Class |
+|----------|-------|
+| N.MeFOSAA | Sulfonamide |
+| PFDA | Carboxylic acid |
+| PFHpA | Carboxylic acid |
+| PFNA | Carboxylic acid |
+| PFOA | Carboxylic acid |
+| PFBS | Sulfonate |
+| PFHps | Sulfonate |
+| PFHxS | Sulfonate |
+| PFOS | Sulfonate |
+| PFPeAS | Sulfonate |
+
+**Excluded (≥ 2/3 below LOD):** N.EtFOSAA, PFBA, PFDoA, PFHxA, PFPeA, PFTeDA, PFTrDA, PFUnA, PFDoS, PFNS, PFOSA
+
+All retained PFAS were **log-transformed and scaled** prior to modeling.
+
+---
+
+# Outcomes
+
+| Variable | Description |
+|----------|-------------|
+| `acr_u` | Albumin-to-creatinine ratio (urine) — primary albuminuria outcome |
+| `eGFR_CKiD_U25_avg` | Estimated GFR (CKiD U25 equation, averaged) |
+| `erpf_bsa_plasma` | Effective renal plasma flow (plasma-based, BSA-adjusted) |
+| `erpf_bsa_plasma_urine` | ERPF (plasma + urine-based, BSA-adjusted) |
+| `mm_si` | Insulin sensitivity (mixed-meal clamp) |
+| `pah_clear_bsa` | PAH clearance (BSA-adjusted) |
+| `avg_k_r2` | Renal cortex R2* (MRI oxygenation marker) |
+| `avg_c_r2` | Cortical R2* (MRI oxygenation marker) |
+| `pcasl3d_left` | Left kidney perfusion (3D pCASL MRI) |
+| `pcasl3d_right` | Right kidney perfusion (3D pCASL MRI) |
+
+---
+
+# Analysis Workflow
+
+## 1. Data Cleaning (`PANTHER_PFAS_Cleaning.R`)
+
+- Filters harmonized dataset to PANTHER participants only
+- Collapses baseline/screening visits (numeric variables averaged, character variables take last non-NA)
+- Constructs `race_ethnicity_condensed` variable
+- Loads PFAS LOD data and applies LOD/√2 imputation for retained compounds
+
+## 2. PFAS → ACRu (`§2` in main Rmd)
+
+Cross-sectional and longitudinal associations between baseline PFAS and albumin-to-creatinine ratio.
+
+- **Baseline:** Linear regression of ACRu ~ PFAS (crude, adj. age/sex, adj. group)
+- **Longitudinal:** LME of ACRu trajectory ~ baseline PFAS × time
+
+## 3. ACRu → PFAS (`§3` in main Rmd)
+
+Reverse-direction analysis: ACRu as predictor of PFAS levels (exploratory, cross-sectional and longitudinal).
+
+## 4. Longitudinal Outcome Trends by Group (`§4` in main Rmd)
+
+Characterizes how each kidney outcome changes over time (baseline → year 1 → year 2) stratified by diabetes group. Generates trajectory plots saved to `figures/` and `longitudinal_outcomes.pdf`. Outlier flagging is logged to `figures/outlier_log.rds`.
+
+## 5. PFAS → Kidney Outcomes (`§5` in main Rmd)
+
+Associates baseline PFAS with the full set of kidney outcomes (GFR, ERPF, insulin sensitivity, renal perfusion, oxygenation), adjusting for baseline ACRu, age, sex, and group.
+
+| Sub-analysis | Method | Output |
+|-------------|--------|--------|
+| §5a — Cross-sectional | Linear regression at baseline | Scatter plots in `crude/`, `adj_age_sex/`, `adj_group/`; `cs_results.csv` |
+| §5b — Longitudinal | LME (baseline PFAS × time) | Plots in `longitudinal_lme/`; `lme_results.csv` |
+
+Result heatmaps (`heatmap_*.png`) summarize significance across all PFAS × outcome combinations for each adjustment model.
+
+---
+
+# Path Setup
+
+The analysis script supports multiple users via a `computer` toggle. Update this at the top of `PANTHER PFAS Analysis.Rmd`:
+
+```{r}
+computer <- "mac laptop"  # or "mac studio"
+```
+
+Then add your username/paths in the appropriate `if (user == ...)` block, or simply hardcode:
+
+```{r}
+dir.dat     <- "/Users/[your_username]/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
+dir.results <- file.path(dir.dat, "PANTHER/Results")
+git_path    <- "/Users/[your_username]/CHCO-Code/Petter Bjornstad"
+```
+
+Then source helpers:
+
+```{r}
+source("Libraries.R")
+source("Functions.R")
+```
+
+---
+
+# Key R Packages
+
+| Package | Purpose |
+|---------|---------|
+| `lme4` / `lmerTest` | Linear mixed effects models |
+| `tidyverse` | Data wrangling and plotting |
+| `ggplot2` | Scatter plots, heatmaps, trajectory plots |
+| `table1` | Baseline characteristics (Table 1) |
+| `janitor` | Data cleaning utilities |
+| `broom` | Tidy model output |
+| `fs` | File path management |
+| `openxlsx` | Excel output |
+
+---
+
+# Results Files Summary
+
+| File | Description |
+|------|-------------|
+| `cs_results.csv/.rds` | Cross-sectional linear regression results (all PFAS × outcomes) |
+| `lme_results.csv/.rds` | LME results (baseline PFAS × longitudinal outcomes) |
+| `lme_results2.csv/.rds` | LME results (secondary model specification) |
+| `PANTHER Tables.xlsx` | Formatted tables for manuscript/collaborator review |
+| `PANTHER_PFAS_Table1_Baseline.png` | Table 1 — baseline characteristics by group |
+| `PFAS_PANTHER_03_17.html` | Full rendered HTML report (March 17, 2026 version) |
+
+---
+
+# Notes
+
+- PFOA is included/excluded across different sensitivity analyses — some plot files are labeled `_withPFOA` vs. without; check `pfas_acru_plots_no_outlier_withPFOA.pdf` vs. `pfas_acru_plots_no_outlier.pdf`.
+- Outlier sensitivity analyses are built into §4; the outlier log is saved to `figures/outlier_log.rds` for reference.
+- The `PFAS_Adj_Plasma_Volume.Rmd` script (Leidholt & Hampson) adjusts raw PFAS concentrations for plasma volume — this was an exploratory sensitivity analysis and results are separate from the main analysis.
+- `PFAS_Analysis_SLL.*` files were developed by Savanah Leidholt and may overlap with the main analysis — check for any non-redundant analyses before archiving.
+
+---
+
+# Contact
+
+- **Hailey Hampson** — hehampson@uw.edu (primary biostatistician)
+- **Savanah Leidholt** — sleidholdt@uw.edu (plasma volume adjustment)
+- **Laura Pyle** — lpyle@uw.edu (Biostatistics Core lead)
+- **Petter Bjornstad** — petter.bjornstad@cuanschutz.edu (PI)

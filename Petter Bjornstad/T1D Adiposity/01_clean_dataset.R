@@ -28,6 +28,9 @@ if (user == "choiyej") {
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "hhampson") {
   root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }

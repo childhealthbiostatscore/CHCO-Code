@@ -18,11 +18,35 @@ editor: source
 library(tidyverse)
 library(arsenal)
 library(knitr)
+
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "lpyle") {
+  root_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- '/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad'
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+#setwd(root_path)
+
 # Import and filter
-df <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+df <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 df <- df %>% filter(study == "IMPROVE", visit %in% c("baseline", "3_months_post_surgery", "12_months_post_surgery"))
-load("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/IMPROVE T2D/Olink Data/improve_olink_plasma.Rdata")
-full_vars <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/IMPROVE T2D/Data_Raw/IMPROVE_data_dump_dict.csv", na.strings = "")
+
+load(file.path(root_path, "IMPROVE T2D/Olink Data/improve_olink_plasma.Rdata"))
+
+full_vars <- read.csv(file.path(root_path, "/IMPROVE T2D/Data_Raw/IMPROVE_data_dump_dict.csv"), na.strings = "")
 
 df$diabetes <- as.factor(ifelse(is.na(df$diabetes_duration), 0, 1))
 
@@ -46,7 +70,7 @@ ids <- df$record_id[which(duplicated(df$record_id))]
 df <- df %>% filter(record_id %in% ids) # participants with at least 2 visits
 
 # manual kidney volume
-kv_dat <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Renal HEIR/Data_Cleaned/RENALHEIR_IMPROVE_kidney volume.csv', na.strings = "")
+kv_dat <- read.csv(file.path(root_path, "/Renal HEIR/Data_Cleaned/RENALHEIR_IMPROVE_kidney volume.csv"), na.strings = "")
 
 kv_dat_long <- kv_dat %>%
   filter(record_id %in% df$record_id) %>%
@@ -111,7 +135,7 @@ df_biopsy_baseline_m12 <- df_biopsy_baseline_m12 %>% filter(!record_id %in% c("I
 df_no_biopsy_baseline_m12 <- df %>% filter(!record_id %in% df_biopsy_baseline_m12$record_id)
 
 # Get names
-dict <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv", na.strings = "")
+dict <- read.csv(file.path(root_path, "/Data Harmonization/data_dictionary_master.csv"), na.strings = "")
 vars <- colnames(df)[3:(ncol(df)-1)]
 var_names <- dict[dict$variable_name %in% vars, ]
 labels <- as.list(var_names$label)
@@ -143,22 +167,64 @@ summary(t1, labelTranslations = labels, pfootnote = T)
 ```{r results='asis'}
 #| label: tbl-t1-biopsy
 #| tbl-cap: Comparisons by Visit (Participants with biopsy)
-df_biopsy_baseline_m12 <- df_biopsy_baseline_m12 %>% filter(record_id %nin% "IT_14") # manually removing IT_14 w/o baseline scRNA
-t1_biopsy <- paired(visit ~ sex + notest(age,"Nmiss", "median", "q1q3", "range")  + race + ethnicity + notest(eGFR_CKD_epi,"Nmiss", "median", "q1q3", "range")  + notest(eGFR_fas_cr_cysc,"Nmiss", "median", "q1q3", "range")  + notest(eGFR_CKiD_U25_avg,"Nmiss", "median", "q1q3", "range")  +
-               notest(eGFR_CKiD_U25_Creat,"Nmiss", "median", "q1q3", "range")  + notest(eGFR_CKiD_U25_CystatinC,"Nmiss", "median", "q1q3", "range")  + notest(eGFR_fas_cr,"Nmiss", "median", "q1q3", "range")  +
-               notest(weight,"Nmiss", "median", "q1q3", "range")  + notest(bmi,"Nmiss", "median", "q1q3", "range")  + notest(bod_pod_body_fat,"Nmiss", "median", "q1q3", "range")  + notest(gfr_raw_plasma,"Nmiss", "median", "q1q3", "range")  + notest(gfr_bsa_plasma,"Nmiss", "median", "q1q3", "range")  + 
-               notest(ff,"Nmiss", "median", "q1q3", "range")  + notest(acr_u,"Nmiss", "median", "q1q3", "range") +
-               notest(fasting_insulin,"Nmiss", "median", "q1q3", "range") +
-               diabetes +
-               albuminuria_cat + elevated_albuminuria +
-               notest(fsoc_l_cortex,"Nmiss", "median", "q1q3", "range")  + notest(fsoc_l_kidney,"Nmiss", "median", "q1q3", "range")  + notest(fsoc_l_medulla,"Nmiss", "median", "q1q3", "range")  + 
-               notest(fsoc_r_cortex,"Nmiss", "median", "q1q3", "range")  + notest(fsoc_r_kidney,"Nmiss", "median", "q1q3", "range")  + notest(fsoc_r_medulla,"Nmiss", "median", "q1q3", "range")  + notest(map,"Nmiss", "median", "q1q3", "range")  + notest(sbp,"Nmiss", "median", "q1q3", "range")  + 
-               notest(dbp,"Nmiss", "median", "q1q3", "range")  + notest(fbg,"Nmiss", "median", "q1q3", "range")  + notest(hba1c,"Nmiss", "median", "q1q3", "range")  + notest(airg,"Nmiss", "median", "q1q3", "range")  + notest(acprg,"Nmiss", "median", "q1q3", "range")  + notest(gir_190,"Nmiss", "median", "q1q3", "range")  + notest(m_i,"Nmiss", "median", "q1q3", "range")  + notest(glom_volume_con,"Nmiss", "median", "q1q3", "range")  + notest(glom_volume_weibel,"Nmiss", "median", "q1q3", "range")  + 
-               notest(glom_volume_wiggins,"Nmiss", "median", "q1q3", "range")  + notest(mes_matrix_area,"Nmiss", "median", "q1q3", "range")  + notest(mes_index,"Nmiss", "median", "q1q3", "range")  + notest(mes_volume_con,"Nmiss", "median", "q1q3", "range")  + 
-               notest(mes_volume_weibel,"Nmiss", "median", "q1q3", "range")  + notest(mes_volume_wiggins,"Nmiss", "median", "q1q3", "range")  + notest(glom_nuc_count,"Nmiss", "median", "q1q3", "range")  + 
-               notest(volume_left_comb,"Nmiss", "median", "q1q3", "range")  + notest(volume_right_comb,"Nmiss", "median", "q1q3", "range")  + notest(tkv_comb,"Nmiss", "median", "q1q3", "range") , 
+df_biopsy_baseline_m12 <- df_biopsy_baseline_m12 %>% filter(record_id %nin% "IT_14") %>% ungroup() # manually removing IT_14 w/o baseline scRNA
+t1_biopsy <- paired(visit ~ sex + 
+                      notest(age,"Nmiss", "median", "q1q3", "range")  + 
+                      race + 
+                      ethnicity + 
+                      notest(eGFR_CKD_epi,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(eGFR_fas_cr_cysc,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(eGFR_CKiD_U25_avg,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(eGFR_CKiD_U25_Creat,"Nmiss", "median", "q1q3", "range") + 
+                      notest(eGFR_CKiD_U25_CystatinC,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(eGFR_fas_cr,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(weight,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(bmi,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(bod_pod_body_fat,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(gfr_raw_plasma,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(gfr_bsa_plasma,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(ff,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(acr_u,"Nmiss", "median", "q1q3", "range") + 
+                      notest(fasting_insulin,"Nmiss", "median", "q1q3", "range") + 
+                      diabetes +
+                      albuminuria_cat + 
+                      elevated_albuminuria +
+                      notest(fsoc_l_cortex,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fsoc_l_kidney,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fsoc_l_medulla,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fsoc_r_cortex,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fsoc_r_kidney,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fsoc_r_medulla,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(map,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(sbp,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(dbp,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(fbg,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(hba1c,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(airg,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(acprg,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(gir_190,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(m_i,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(glom_volume_con,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(glom_volume_weibel,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(glom_volume_wiggins,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(mes_matrix_area,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(mes_index,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(mes_volume_con,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(mes_volume_weibel,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(mes_volume_wiggins,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(glom_nuc_count,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(volume_left_comb,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(volume_right_comb,"Nmiss", "median", "q1q3", "range")  + 
+                      notest(tkv_comb,"Nmiss", "median", "q1q3", "range") , 
                     data = df_biopsy_baseline_m12, id = record_id)
 summary(t1_biopsy, labelTranslations = labels,pfootnote = T)
+
+# write datafile that will be uploaded to repository
+repo <- df_biopsy_baseline_m12 %>% select(age, sex, race, weight, bmi, map, fasting_insulin, hba1c, 
+                                          fbg, gir_190, m_i, airg, acprg, eGFR_CKiD_U25_Creat, gfr_raw_plasma,
+                                          gfr_bsa_plasma, acr_u, tkv_comb, glom_volume_wiggins, glom_nuc_count,
+                                          mes_volume_wiggins, mes_matrix_area, mes_index)
+write.csv(repo, file.path(root_path, "/IMPROVE T2D/Data_Cleaned/JCI_VSG_Naik_table1_repository.csv"), row.names = F)
 
 ```
 
@@ -269,7 +335,7 @@ summary(t1, labelTranslations = labels, pfootnote = T, test = F)
 ```
 
 ```{r}
-file.copy("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/IMPROVE/table1_for_Jeet.html",
-          "/Users/pylell/Dropbox/IMPROVE, Teen-LABS, TODAY combined analysis/IMPROVE results/table1_for_Jeet.html",overwrite = TRUE)
+#file.copy("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/IMPROVE/table1_for_Jeet.html",
+#          "/Users/pylell/Dropbox/IMPROVE, Teen-LABS, TODAY combined analysis/IMPROVE results/table1_for_Jeet.html",overwrite = TRUE)
 
 ```

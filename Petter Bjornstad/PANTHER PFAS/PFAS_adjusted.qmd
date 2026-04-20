@@ -1,0 +1,203 @@
+---
+title: "PFAS Analysis — PANTHER Study"
+author: "Savanah Leidholt & Hailey Hampson"
+date: last-modified
+format:
+  html:
+    theme: cerulean
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+# libraries, directories, data loading, variable definitions,
+# helper functions, and all data prep go here
+
+#load libraries
+
+library(ggplot2)
+library(tidyverse)
+library(janitor)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+library(ggeffects)
+library(patchwork)
+library(corrplot)
+library(gt)
+library(table1)
+library(stringr)
+library(ggpubr)
+library(patchwork)
+
+#Directories
+#computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "sleidholt") {
+    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "savanahleidholt") {
+    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/PFAS/Results/unadjusted_pfas_results")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Panther PFAS"
+  } 
+}
+
+git_path
+source(file.path(git_path, "PFAS_Adj_Plasma_Volume.R"))
+
+
+```
+
+------------------------------------------------------------------------
+
+## PFAS Levels by Group
+
+```{r}
+#| label: baseline-pfas-plots
+#| fig-width: 20
+#| fig-height: 18
+
+plots_by_group <- lapply(
+  pfas_group_vars,
+  function(pfas) {
+    plot_baseline_pfas_group_boxplot(
+      data = dat_baseline,
+      exposure = pfas,
+      results_list = baseline_group_pfas_results
+    )
+  }
+)
+
+wrap_plots(plots_by_group, ncol = 3)
+```
+
+------------------------------------------------------------------------
+
+# Checking LBB vs Nadler on LC
+
+```{r}
+#| label: boxplot
+#| fig-width: 16
+#| fig-height: 14
+
+ggplot(plot_dat, aes(x = equation_type, y = plasma_volume, fill = equation_type)) +
+  scale_fill_viridis_d(option = "C") +
+  geom_boxplot(alpha = 0.7, width = 0.6, outlier.shape = NA) +
+  geom_jitter(aes(shape = sex), width = 0.1, alpha = 0.7) +
+  stat_compare_means(paired = F, method = "t.test") +
+  theme_bw() +
+  labs(
+    title = "Plasma volume estimates in Lean Controls by equation type",
+    x = "Equation type",
+    y = "Estimated plasma volume",
+    size = "Sex"
+  )
+
+```
+
+# Model 1: Cross-Sectional PFAS–Outcome Associations
+
+```{r}
+#| label: Forest Plots
+#| fig-width: 16
+#| fig-height: 14
+
+forest_df <- baseline_table %>%
+  dplyr::mutate(
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
+
+plot_list <- list()
+
+
+for (outcome in unique(forest_df$outcome)) {
+  df <- forest_df %>%
+    dplyr::filter(outcome == !!outcome)
+  p <- ggplot(df, aes(x = estimate, y = exposure)) +
+  geom_point(aes(shape = sig_fdr)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_bw() +
+  labs(
+    title = paste("PFAS associations with", get_outcome_label(outcome)),
+    x = "Effect size (β)",
+    y = "PFAS",
+    shape = "FDR <0.05"
+  )
+plot_list[[outcome]] <- p
+}
+
+
+wrap_plots(plot_list, ncol = 3)
+```
+
+------------------------------------------------------------------------
+
+# Model 3: Baseline PFAS Predicting Longitudinal Outcomes
+
+## Model 3A: Longitudinal Heatmap of Base Model
+
+```{r}
+#| label: model3a-heatmap
+#| fig-width: 12
+#| fig-height: 7
+plot_model_3a
+```
+
+## Model 3B: Longitudinal Heatmap Adjusted for Baseline uACR
+
+```{r}
+#| label: model3b-heatmap
+#| fig-width: 12
+#| fig-height: 7
+plot_mod3b
+```
+
+## Model 3C: Longitudinal Heatmap Adjusted for Tanner Stage
+
+```{r}
+#| label: model3c-heatmap
+#| fig-width: 12
+#| fig-height: 7
+plot_mod3c
+```
+
+## Model 3D: Longitudinal Heatmap Adjusted for Baseline uACR & Tanner Stage
+
+```{r}
+#| label: model3d-heatmap
+#| fig-width: 12
+#| fig-height: 7
+plot_mod3d
+```
+
+------------------------------------------------------------------------
+
+# Appendix
+
+```{r}
+#| label: session-info
+sessionInfo()
+```

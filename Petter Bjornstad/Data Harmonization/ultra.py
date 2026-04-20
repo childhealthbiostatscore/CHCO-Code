@@ -55,9 +55,9 @@ def clean_ultra():
     # Demographics
     # --------------------------------------------------------------------------
 
-    dem_cols = ["record_id", "dob", "participation_status", "mrn", "race", "ethnicity"]
+    var =  [v for v in meta.loc[meta["form_name"] == "demographics", "field_name"]]
     # # Export
-    demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    demo = pd.DataFrame(proj.export_records(fields=var))
     # print(type(demo))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
     # print(len(demo))        # Number of records exported
     # print(demo[:3]) 
@@ -67,36 +67,41 @@ def clean_ultra():
     else:
         demo.replace(rep, np.nan, inplace=True)    
         demo["group"] = "Type 2 Diabetes"
-        demo.drop(redcap_cols, axis=1, inplace=True)
-        demo = demo.rename({"gender": "sex", "mr_number": "mrn"}, axis=1)#, inplace=True)
+        demo.drop(redcap_cols + ["name_first", "name_last", "phone", "race_other"], axis=1, inplace=True)
         #Race columns combined into one
-        combine_checkboxes(demo, base_name="race", levels=[
+        demo = combine_checkboxes(demo, base_name="race", levels=[
             "American Indian or Alaskan Native", "Asian",
             "Hawaiian or Pacific Islander", "Black or African American",
             "White", "Unknown", "Other"])
         # Same for ethnicity
-        combine_checkboxes(demo,
+        demo = combine_checkboxes(demo,
                                 base_name="ethnicity",
                                 levels=["Hispanic or Latino",
                                         "Not Hispanic or Latino",
                                         "Unknown/Not Reported"])
         demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
+        demo["sex"] = "Male"
+        dem_cols = ["mrn", "dob", "group", "race", "ethnicity"]
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
 
-    var = ["record_id", "diabetes_diag", "med_hx_hypertension"] #"insulin_type",met_hx
-           #"cvd_type", "met_hx", "med_hx_hypertension"] #"diabetes_meds"]
+    var =  [v for v in meta.loc[meta["form_name"] == "medical_history", "field_name"]]
     med = pd.DataFrame(proj.export_records(fields=var))
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
-    med.replace(rep, np.nan)#, inplace=True)
+    med = med.replace(rep, np.nan)
 
-    # med["diabetes_meds"].replace(
-    #      {"diabetes_meds___1": "Metformin", "diabetes_meds___2": "Insulin", "diabetes_meds___3": "Thiazolinediones (TZDs)", "diabetes_meds___4": "GLP-1 agonists", "diabetes_meds___5": "SGLT-1/2 inhibitors", "diabetes_meds___6": "Other", "diabetes_meds___7":"None"}, inplace=True)
+    med = med.rename(
+          {"diabetes_meds___1": "metformin_timepoint", "diabetes_meds___2": "insulin_timepoint", "diabetes_meds___3": "tzd_timepoint", 
+           "diabetes_meds___4": "glp1_agonist_timepoint", "diabetes_meds___5": "sglti_timepoint"}, axis=1)#, inplace=True)
+    #TO DROP: diabetes_meds___6, diabetes_meds___7, insulin_type, other_cvd, cvd_other, cardio_meds_yes, medhx_met, met_hx___3, met_hx___5, met_other, t2d_less_21
+    med = med.drop(columns = ["diabetes_meds___6", "diabetes_meds___7", "insulin_type", "other_cvd", "cvd_other", "cardio_meds_yes", "medhx_met", "met_hx___3", 
+                              "met_hx___5", "met_other", "t2d_less_21", "insulin_type___1", "insulin_type___2", "insulin_type___3", "diabetes_med_other", 
+                              "insulin_other", "hypertension_med_type___7", "cvd_type___5", "hypertension_other", "cardio_meds", "ua_med_prev_when",
+                              "ua_med_prev_dur"], errors='ignore')
+    med = med.drop(columns = [c for c in med.columns if c.startswith("incl")], errors='ignore')
     #Metformin
-    # med["insuline_type"].replace(
-    #     {1: "Long acting", 2: "Short acting", 3: "Other"}, inplace=True)
     # med.rename({"diabetes_med___1": "metformin_timepoint"},
     #            axis=1, inplace=True)
     #Insulin
@@ -107,24 +112,42 @@ def clean_ultra():
     #     {1: "Hyperlipidemia", 3: "Obesity", 4: "Sleep Apnea", 5: "Other"}, inplace=True)
     med["med_hx_hypertension"] = med["med_hx_hypertension"].replace(
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
-    med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
-
-
+    med["hypertension_meds"] = med["hypertension_meds"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    
+    # med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
+    med = med.rename(
+        {"hypertension_med_type___1" : "ace_inhibitor", "hypertension_med_type___2": "angiotensin_receptor_blocker", "hypertension_med_type___3": "beta_blocker", 
+         "hypertension_med_type___4": "calcium_channel_blocker", "hypertension_med_type___5": "diuretic", "hypertension_med_type___6": "statin"}, axis=1)
+    med["medhx_cvd"] = med["medhx_cvd"].replace({0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    med = med.rename({
+        "cvd_type___1": "congestive_heart_failure", "cvd_type___2": "myocardial_infarction", "cvd_type___3": "coronary_artery_disease", "cvd_type___4": "peripheral_vascular_disease"}, axis=1)
+    med = med.rename(
+        {
+            "met_hx___1": "hyperlipidemia", "met_hx___4": "apnea"}, axis = 1)
+    med = med.rename({ "metdx_meds": "hx_met_meds"}, axis = 1)
     med["procedure"] = "screening"
+    meds_yn = ["metformin_timepoint", "insulin_timepoint", "tzd_timepoint", "glp1_agonist_timepoint", "sglti_timepoint", "ace_inhibitor", "angiotensin_receptor_blocker", "beta_blocker", 
+               "calcium_channel_blocker", "diuretic", "statin", "congestive_heart_failure", "myocardial_infarction", "coronary_artery_disease", "peripheral_vascular_disease", "medhx_cvd", 
+               "hyperlipidemia", "apnea", "hx_met_meds", "met_meds_yes"]
+    med[meds_yn] = med[meds_yn].apply(lambda col: col.map(
+         lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+         ))
     
     
     # --------------------------------------------------------------------------
     # Physical exam
     # --------------------------------------------------------------------------
 
-    var = ["record_id", "pe_date", "pe_height", "pe_weight",
-           "pe_bmi", "pe_sbp", "pe_dbp", "pe_waist", "pe_hip"]
+    var =  [v for v in meta.loc[meta["form_name"] == "physical_exam", "field_name"]]
+
     phys = pd.DataFrame(proj.export_records(fields=var))
-    phys.drop(redcap_cols, axis=1, inplace=True)
+    phys = phys.drop(redcap_cols, axis=1)
+    phys = phys.drop(columns = ["pe_normal", "pe_abnormal", "physical_exam_complete"], errors='ignore')
+
     # Replace missing values
-    phys.replace(rep, np.nan, inplace=True)
-    phys.columns = phys.columns.str.replace(r"phys_|screen_", "", regex=True)
-    phys.rename({"pe_sbp": "sbp", "pe_dbp": "dbp", "pe_date":"date", "pe_height":"height", "pe_weight":"weight", "pe_bmi":"bmi", "pe_waist":"waistcm", "pe_hip": "hipcm"}, inplace=True, axis=1)
+    phys = phys.replace(rep, np.nan)
+    phys = phys.rename({"pe_sbp": "sbp", "pe_dbp": "dbp", "pe_date":"date", "pe_height":"height", "pe_weight":"weight", "pe_bmi":"bmi", "pe_waist":"waistcm", "pe_hip": "hipcm"}, axis=1)
     phys["procedure"] = "physical_exam"
 
     # --------------------------------------------------------------------------
@@ -136,11 +159,11 @@ def clean_ultra():
     screen = pd.DataFrame(proj.export_records(fields=var))
     
     screen = screen.replace(rep, np.nan)#, inplace=True)  # Replace missing values
-    screen.drop(redcap_cols + ['prescreen_a1c', 'prescreen_a1c_date'],#, "screening_labs_complete"],
+    screen.drop(redcap_cols + ['prescreen_a1c_date'],
                 axis=1, inplace=True)
-    screen.columns = screen.columns.str.replace(
-        r"screen_|_of_screen", "", regex=True)
-    screen.rename({"a1c": "hba1c"},
+    screen["g6pd"] = screen["g6pd"].replace(
+        {0: "Incomplete", "0": "Incomplete", 1: "Unverified", "1": "Unverified", 2: "Complete", "2": "Complete"})#, inplace=True)
+    screen.rename({"a1c": "hba1c", "screening_labs_date":"date_of_screen"},
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
 
@@ -151,11 +174,13 @@ def clean_ultra():
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                                == "study_visit_vitalslabs", "field_name"]]
     vital = pd.DataFrame(proj.export_records(fields=var))
-    if not vital.empty and "visit" in vital.columns:
-        vital = vital.replace(rep, np.nan)#, inplace=True)  # Replace missing values
-    vital.drop(redcap_cols + ["sv_vitals_yn", "pilabs_yn"],
+    vital = vital.replace(rep, np.nan)
+    vital.drop(redcap_cols + ["sv_vitals_yn", "pilabs_yn", "labs_yn", "iohexol_yn", "iohexol_abs_gfr", "iohexol_bsa_gfr", 
+                              "pilabs_s_osmo", "pilabs_u_osmo", "pilabs_copeptin", "egfr"],
                 axis=1, inplace=True)
-    vital.rename({"studyvisit_type":"visit", "sv_date":"date", "labs_s_creatinine": "creatinine_s", "labs_u_creatinine":"creatinine_u", "labs_u_microalbumin":"microalbumin_u", "labs_cystatinc":"cystatin_c_s"},
+    vital.rename({"studyvisit_type":"visit", "sv_date":"date", "labs_s_creatinine": "creatinine_s", 
+                  "labs_u_creatinine":"creatinine_u", "labs_u_microalbumin":"microalbumin_u", 
+                  "labs_cystatinc":"cystatin_c_s"},
                   axis=1, inplace=True)
     vital.columns = vital.columns.str.replace(
         r"vitals_", "", regex=True)
@@ -163,6 +188,11 @@ def clean_ultra():
         r"labs_", "", regex=True)
     vital.columns = vital.columns.str.replace(
         r"pilabs_", "", regex=True)
+    vital = vital.rename({"s_na": "na_s", "s_k":"k_base", "s_cl":"cl_base", "s_hc03":"bicarb_base", 
+                          "s_ca":"ca_base", "tot_prot": "tot_protein", "albumin": "alb_base", 
+                          "u_na": "sodium_u", "u_glucose": "urine_glucose", "s_creatinine":"creatinine_s", 
+                          "u_creatinine": "creatinine_u", "acr": "acr_u", "iohexol_ecv": "ecv", 
+                          "iohexol_ec_gfr": "gfr_ecv_percent", "iohexol_gfr_ecv_std": "gfr_ecv_std"}, axis=1)
     print("studyvisit_type unique values:", vital["visit"].unique())
     print("studyvisit_type value counts:\n",
           vital["visit"].value_counts(dropna=False))
@@ -179,6 +209,7 @@ def clean_ultra():
     mri.drop(redcap_cols, axis=1, inplace=True)#+ ["mri_cardio", "mri_abdo",
                             #"mri_aortic", "study_visit_mri"],
     print([c for c in mri.columns if 'date' in c.lower() or 'imaging' in c.lower()]) 
+    mri.rename({"imaging_visit": "visit"}, axis=1, inplace=True)
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
     mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output",
@@ -187,10 +218,6 @@ def clean_ultra():
                 "imaging_hr": "lv_hr", "imaging_date": "date",
                 "af_pwv_xcor3": "af_pwv",
                 "radial_peak": "grs", "circum_peak": "gcs", "long_peak": "gls"}, axis=1, inplace=True)
-    print("af_pwv PULLED?")                                                       
-    print("af_pwv" in mri.columns)                            
-    print("TOTAL NOT NULLS IN date:")                                           
-    print(mri["date"].notna().sum())
      
                 
     mri["procedure"] = "cardio_abdominal_mri"
@@ -200,10 +227,10 @@ def clean_ultra():
     # --------------------------------------------------------------------------
 
     med.dropna(thresh=3, axis=0, inplace=True)
-    vital.dropna(thresh=3, axis=0, inplace=True)
+    vital.dropna(thresh=5, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
-    demo.dropna(thresh=3, axis=0, inplace=True)
+    demo.dropna(thresh=6, axis=0, inplace=True)
     mri.dropna(thresh=4, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
@@ -215,8 +242,9 @@ def clean_ultra():
     df = pd.concat([df, phys], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
+    df = pd.merge(df, demo, on='record_id', how="outer")
 
-    df = pd.merge(df, demo, how="outer")
+    #df = pd.merge(df, demo, how="outer")
 #     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
 #     df = df.copy()
 
@@ -227,10 +255,11 @@ def clean_ultra():
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "ULTRA"
     id_cols = ["record_id", "study"] + \
-        [ "dob", "participation_status", "mrn"] + ["visit", "procedure", "date"]
+        [ "dob", "participation_status", "mrn", "race", "ethnicity"] + ["visit", "procedure", "date"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
+
     # Change study visit names
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)

@@ -30,7 +30,7 @@ if (user == "choiyej") { # local version
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/mmfs1/home/pylell/keys.json")
 } else if (user == "kristenmiller") {
-  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
   git_path <- "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/Users/kristenmiller/keys.json")
 } else {

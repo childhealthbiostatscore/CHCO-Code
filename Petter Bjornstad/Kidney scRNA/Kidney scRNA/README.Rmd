@@ -1,0 +1,301 @@
+---
+title: "Kidney scRNAseq Project — Handoff README"
+author: "Hailey Hampson"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+---
+
+# Project Overview
+
+This project investigates early kidney dysfunction in youth-onset Type 2 Diabetes (T2D) using single-cell RNA sequencing (scRNAseq) from two complementary sample types:
+
+- **Kidney biopsies** from participants with T2D and lean controls (LC)
+- **Kidney organoids** derived from participants with T2D and LC, cultured under normal (15 mM) and high (30 mM) glucose concentrations
+
+The central scientific questions are:
+
+1. What transcriptomic differences exist between T2D and LC kidney cells (biopsy and organoid)?
+2. Does high-glucose treatment (30 mM vs. 15 mM) recapitulate T2D-associated gene expression patterns in organoids?
+3. Is there a glucose-treatment × diabetes-group interaction effect in organoid gene expression?
+
+**PI:** Petter Bjornstad
+**Biostatistician:** Hailey Hampson
+**Core:** Laura Pyle — Biostatistics Core, University of Washington
+
+---
+
+# Directory Structure
+
+## Data Directory (OneDrive)
+
+All data are stored on the shared OneDrive drive:
+
+```
+OneDrive: Laura Pyle - Biostatistics Core Shared Drive/
+└── Kidney scRNAseq Project/
+    ├── Data/                        # Seurat objects, raw/harmonized data, gene set files
+    ├── IPA Results/                 # Ingenuity Pathway Analysis outputs
+    ├── Organoid Results/            # Figures, DE result tables, NEBULA outputs
+    │   ├── NEBULA/                  # NEBULA mixed model results (biopsy + organoid)
+    │   ├── Organoid Results/        # Final organoid figures and tables
+    │   ├── Organoid Results 02_12/  # Intermediate results
+    │   ├── Preliminary Results/     # Early exploratory results
+    │   └── Results 01_28/           # Earlier dated results
+    ├── Reports/                     # Word document reports for collaborators
+    └── Results/Archive/             # Archived per-cell-type DE result CSVs
+```
+
+## Code Repository (Local / GitHub)
+
+```
+Kidney scRNA/Kidney scRNA/
+├── README.Rmd                          # This file
+├── Kidney_Organoid_Lambda_Clean.Rmd    # PRIMARY analysis script (run on Lambda HPC)
+├── Kidney_Organoid_Lambda2.Rmd         # Secondary/updated analysis version
+├── Kidney_Organoid_Local2.Rmd          # Local machine version (subset of analyses)
+├── Organoid_Samples_Analysis_NEBULA_06_02.Rmd  # Standalone NEBULA analysis
+├── Organoid.qmd                        # Presentation slides (Quarto/Reveal.js)
+├── overflow.qmd                        # Overflow slides
+├── Kidney_functions_sc.R               # Custom analysis functions
+├── Celltype_Annotation_Function.R      # Cell type annotation pipeline
+├── Rename_Seurat_Function.R            # Seurat object renaming utilities
+├── Libraries.R                         # All package imports
+├── neg_binom_mixed_model.R             # NEBULA model script for HPC
+├── neg_binom_mixed_model.slurm         # SLURM job submission script (Hyak/Lambda)
+└── Archive/                            # Older/deprecated scripts
+```
+
+---
+
+# Data Files
+
+## Key Seurat Objects
+
+Set your data directory at the top of any analysis script:
+
+```{r}
+dir.dat <- "/Users/[your_username]/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project"
+```
+
+| File | Description |
+|------|-------------|
+| `Data/cleaned_biopsy.rds` | Cleaned, QC-filtered kidney biopsy Seurat object (subset) |
+| `Data/cleaned_biopsy_full.rds` | Full cleaned biopsy Seurat object (all samples) |
+| `Data/cleaned_organoid.rds` | Cleaned, QC-filtered organoid Seurat object |
+| `Data/annotated_cleaned_organoid.rds` | Organoid object with final cell type annotations |
+| `Data/so_kidney_sc_filtered_10_mito.rds` | Early-stage filtered SC object (≤10% mitochondrial reads) |
+| `Data/Test_Seurat_Object_for_Laura.rds` | Small test object for QC/debugging |
+
+## Metadata & Reference Files
+
+| File | Description |
+|------|-------------|
+| `Data/harmonized_data_kidney_sc_all_metadata2.csv` | Full harmonized metadata across all samples |
+| `Data/harmonized_dataset.csv` | Harmonized gene expression + metadata |
+| `Data/hailey_subset_data.csv` | Small subset for development/testing |
+| `Data/Biopsies_w_mrn_Oct3.xlsx` | Biopsy sample manifest with MRNs |
+| `Data/KPMP_Celltype_Markers_High_Res.csv/.xlsx` | KPMP high-resolution cell type marker gene lists |
+| `Data/KPMP_Celltype_Markers_Low_Res.csv/.xlsx` | KPMP low-resolution cell type marker gene lists |
+| `Data/D29 Kidney Organoid Gene Markers.pdf` | D29 organoid gene marker reference (Beno lab) |
+
+## Gene Set Files (`Data/gmt_files/`)
+
+These `.gmt` files are used for GSEA with `fgsea` and `enrichR`:
+
+| File | Source |
+|------|--------|
+| `c2.cp.kegg_legacy.v2024.1.Hs.symbols.gmt` | KEGG Legacy pathways (MSigDB v2024.1) |
+| `c2.cp.kegg_medicus.v2024.1.Hs.symbols.gmt` | KEGG Medicus pathways (MSigDB v2024.1) |
+| `c2.cp.reactome.v2024.1.Hs.symbols.gmt` | Reactome pathways (MSigDB v2024.1) |
+| `c5.go.v2024.1.Hs.symbols.gmt` | Gene Ontology (MSigDB v2024.1) |
+| `c8.all.v2025.1.Hs.symbols.gmt` | Cell type signature gene sets (MSigDB v2025.1) |
+
+---
+
+# Analysis Workflow
+
+## 1. Data Loading & Preprocessing
+
+- Raw data originated from the **Lambda HPC cluster** (UW) and **Kopah S3 object storage** (`scrna` bucket)
+- Biopsy and organoid data were processed separately, then harmonized
+- QC filtering: ≤10% mitochondrial reads, doublet removal
+- Cell type annotation was performed using KPMP marker gene lists (high- and low-resolution) and Beno-lab D29 organoid markers
+
+```{r}
+# Load cleaned objects (adjust path to your machine)
+biopsy   <- readRDS(file.path(dir.dat, "Data/cleaned_biopsy_full.rds"))
+organoid <- readRDS(file.path(dir.dat, "Data/annotated_cleaned_organoid.rds"))
+```
+
+## 2. Cell Type Annotation
+
+Cell type annotation is handled by `Celltype_Annotation_Function.R` and validated against:
+
+- KPMP reference markers (high- and low-resolution)
+- Beno-lab D29 organoid markers
+- Manual review of UMAP clustering and marker gene expression
+
+The organoid was filtered to **6 matched organoid samples** for the primary comparisons. Sample **IT_19** was removed as an outlier prior to final analysis (see `##e.` annotation section in the main script, line ~963).
+
+## 3. Differential Expression
+
+Three primary DE frameworks were used:
+
+### NEBULA (Primary Method)
+
+Mixed-effects negative binomial model accounting for subject-level random effects. Run on Lambda HPC using `neg_binom_mixed_model.R` + `neg_binom_mixed_model.slurm`.
+
+```{r}
+# NEBULA is run per cell type; results stored as CSVs in:
+# Organoid Results/NEBULA/
+# Results/Archive/
+```
+
+### Pseudobulk — Limma-voom
+
+Pseudobulk aggregation by sample × cell type, followed by `limma-voom` DE. Used for both organoid and biopsy data.
+
+### Pseudobulk — DESeq2
+
+Alternative pseudobulk approach using `DESeq2` for validation.
+
+## 4. Primary Comparisons
+
+| Comparison | Data | Model |
+|-----------|------|-------|
+| T2D vs. LC | Organoid (pooled glucose) | NEBULA + Pseudobulk |
+| T2D vs. LC × Glucose (interaction) | Organoid | NEBULA + Pseudobulk |
+| 30 mM vs. 15 mM glucose | Organoid (pooled by group) | NEBULA + Pseudobulk |
+| T2D vs. LC | Biopsy | NEBULA + Pseudobulk |
+
+## 5. Gene Set Enrichment Analysis (GSEA)
+
+GSEA is run using both `fgsea` (rank-based) and `enrichR` (ORA) with the following databases:
+
+- GO Biological Process 2023
+- KEGG 2021 Human
+- Reactome Pathways 2024
+- MSigDB Hallmark 2020
+- Cell type databases: CellMarker 2024, Azimuth, PanglaoDB, Descartes
+
+Results include volcano plots, pathway bar charts, and EMM (estimated marginal means) heatmaps.
+
+---
+
+# Running the Analysis
+
+## Primary Script: `Kidney_Organoid_Lambda_Clean.Rmd`
+
+This is the main analysis script. It is designed to run on the **Lambda HPC server** but can be adapted for local use by updating file paths.
+
+**Steps to run:**
+
+1. Update the `dir.dat` and `dir.results` path variables in the setup chunk to match your machine
+2. Source the helper scripts:
+
+```{r}
+source("Kidney_functions_sc.R")
+source("Rename_Seurat_Function.R")
+source("Celltype_Annotation_Function.R")
+```
+
+3. Knit the document or run chunks interactively in RStudio
+
+**Script sections:**
+
+| Section | Description |
+|---------|-------------|
+| §1 — Set Up | Libraries, paths, helper functions |
+| §2 — Pre-Processing & QC | Filtering, annotation, descriptive stats |
+| §3 — Organoid Analysis | DE (NEBULA + pseudobulk), GSEA, EMM heatmaps |
+| §4 — Biopsy Analysis | Visualization, DE, pseudobulk, GSEA |
+
+## HPC Job Submission (NEBULA)
+
+To run NEBULA models on the cluster:
+
+```bash
+sbatch neg_binom_mixed_model.slurm
+```
+
+Results are written to the `Organoid Results/NEBULA/` directory.
+
+---
+
+# Key R Packages
+
+| Package | Purpose |
+|---------|---------|
+| `Seurat` | Single-cell data structures, clustering, UMAP |
+| `nebula` | Negative binomial mixed models for scRNAseq DE |
+| `limma` / `edgeR` | Pseudobulk DE (voom pipeline) |
+| `DESeq2` | Pseudobulk DE (count-based) |
+| `fgsea` | Fast gene set enrichment analysis |
+| `enrichR` | Over-representation analysis (ORA) |
+| `EnhancedVolcano` | Volcano plots |
+| `speckle` | Cell type proportion testing |
+| `pheatmap` | Heatmaps |
+| `emmeans` | Estimated marginal means (interaction models) |
+| `glmmTMB` | Generalized linear mixed models |
+| `msigdbr` | MSigDB gene set retrieval in R |
+
+All packages are loaded in `Libraries.R`. Install any missing packages with:
+
+```{r}
+# Bioconductor packages
+BiocManager::install(c("limma", "edgeR", "fgsea", "EnhancedVolcano",
+                       "SingleCellExperiment", "scran", "speckle"))
+
+# GitHub packages
+devtools::install_github("lhe17/nebula")
+devtools::install_github("immunogenomics/presto")
+```
+
+---
+
+# Reports & Outputs
+
+Rendered Word reports are saved in `Reports/`:
+
+| File | Description |
+|------|-------------|
+| `DECODE_Kidney_scRNAseq.docx` | DECODE study kidney scRNAseq report |
+| `Kidney_scRNAseq_02_09.docx` | Report dated Feb 9, 2025 |
+| `Kidney_scRNAseq_02_13.docx` | Report dated Feb 13, 2025 |
+| `Pathway_Genes_Results.docx` | Pathway-level gene result summary |
+
+IPA (Ingenuity Pathway Analysis) results are in `IPA Results/`, sourced from bulk DE output files in `IPA Results/` (e.g., `Bulk_T2D_LC.txt`).
+
+---
+
+# Notes & Known Issues
+
+- The organoid Seurat object is filtered to **6 samples** for the primary analysis. Sample **IT_19** is removed as an outlier (see `##e.` in main script, `sc_org <- subset(sc_org, record_id != "IT_19")`). The full organoid object retains all samples.
+- File paths in the main Rmd reference Lambda HPC paths; **update `dir.dat` and `dir.results`** before running locally.
+- Several packages (e.g., `MAST`, `DoubletFinder`, `ideas`) are commented out in `Libraries.R` — these were used in earlier iterations and are not required for the current analysis.
+- The `python` / `reticulate` setup at the top of the script is only needed for S3 data loading on Lambda; it can be skipped if loading `.rds` files directly from OneDrive.
+
+---
+
+# Contact
+
+For questions about the analysis, contact:
+
+- **Hailey Hampson** — hehampson@uw.edu (biostatistics, code)
+- **Laura Pyle** — lpyle@uw.edu (Biostatistics Core lead)
+- **Petter Bjornstad** — petter.bjornstad@cuanschutz.edu (PI)
