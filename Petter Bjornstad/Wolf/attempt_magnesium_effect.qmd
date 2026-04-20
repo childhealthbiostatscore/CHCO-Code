@@ -1,7 +1,7 @@
 ---
-title: "Christine Limonte Autophagy in ATTEMPT"
+title: "Magnesium effect on ATTEMPT (Matthias Wolf)"
 author: "Ye Ji Choi"
-format: docx
+format: html
 ---
 
 ```{r echo = F}
@@ -111,7 +111,6 @@ s3write_using_region <- function(FUN, ..., object, bucket,
 
 ```{r echo = F}
 attempt_so <- s3readRDS(bucket = "attempt", object = 'cleaned_data/attempt_clean_so.rds', region = "")
-attempt_so$elevated_albuminuria <- ifelse(attempt_so$emu_urine_acr_mean > 30, "Yes", "No")
 ```
 
 ```{r echo = F}
@@ -146,73 +145,25 @@ map_celltype_to_general <- function(celltype, celltype_groups) {
 attempt_so$KPMP_celltype_general <- sapply(attempt_so$KPMP_celltype, 
                                            map_celltype_to_general, 
                                            celltype_groups = celltype_groups)
+
+attempt_tal <- subset(attempt_so, KPMP_celltype_general == "TAL")
+attempt_dct <- subset(attempt_so, KPMP_celltype %in% c("DCT", "dDCT"))
 ```
 
 ```{r echo = F}
-gene_lists <- s3read_using_region(FUN = read.xlsx,
-                                  object = "data_clean/Autophagy_gene_protein_lists_CL.xlsx", 
+gene_lists <- s3read_using_region(FUN = read.csv,
+                                  object = "data_clean/sglt2i_magnesium_data.csv", 
                                   bucket = "scrna",
-                                  sheet = "Gene lists",
-                                  startRow = 3,colNames = TRUE,
-                                  region = "")
+                                  region = "",
+                                  na = "")
 
-#create gene lists from Christine's files
-overall_autophagy_genes <- c(
-  gene_lists$`Overall.autophagy-related.genes.(n=589)`[!is.na(gene_lists$`Overall.autophagy-related.genes.(n=589)`)]
-)
-autophagy_induction_genes <- c(
-  gene_lists$`Autophagy.induction.genes.(n=20)`[!is.na(gene_lists$`Autophagy.induction.genes.(n=20)`)]
-)
-lysosomal_biogenesis_genes <- c(
-  gene_lists$`Lysosomal.biogenesis.genes.(n=26)`[!is.na(gene_lists$`Lysosomal.biogenesis.genes.(n=26)`)]
-)
-tfeb_genes <- c(
-  gene_lists$`TFEB.genes.(n=13)`[!is.na(gene_lists$`TFEB.genes.(n=13)`)]
-)
+#create gene lists from Matthias Wolf's files
+tal_genes <- c(gene_lists$tal, gene_lists$tal_2)[!is.na(c(gene_lists$tal, gene_lists$tal_2))]
+dct_genes <- gene_lists$dct[!is.na(gene_lists$dct)]
+mitochondria_genes <- gene_lists$mitochondria[!is.na(gene_lists$mitochondria)]
+mtorc_genes <- gene_lists$mtorc1[!is.na(gene_lists$mtorc1)]
 
-#MTORC1 pathway genes from JIC paper Supplemental Table S6 (https://www.jci.org/articles/view/164486/sd/1)
-mtorc_genes<-c("STRADA",
-               "STRADB",
-               "RPS6",
-               "TSC2",
-               "TSC1",
-               "PRKAB1",
-               "PRKAB2",
-               "MTOR",
-               "PPM1A",
-               "RRAGB",
-               "RRAGA",
-               "RRAGD",
-               "RHEB",
-               "RPS6KB1",
-               "RRAGC",
-               "AKT1S1",
-               "EIF4G1",
-               "LAMTOR1",
-               "LAMTOR3",
-               "LAMTOR2",
-               "LAMTOR5",
-               "LAMTOR4",
-               "EIF4B",
-               "PRKAA2",
-               "YWHAB",
-               "CAB39L",
-               "CAB39",
-               "EIF4EBP1",
-               "PRKAG2",
-               "PRKAG3",
-               "PRKAG1",
-               "PRKAA1",
-               "STK11",
-               "RPTOR",
-               "EEF2K",
-               "MLST8",
-               "AKT1",
-               "AKT2",
-               "EIF4E")
-
-signature_gs <- c("overall_autophagy", "autophagy_induction", 
-                  "lysosomal_biogenesis", "tfeb", "mtorc")
+magnesium_gs <- c("tal", "dct", "mitochondria", "mtorc")
 ```
 
 ```{r echo = F}
@@ -543,7 +494,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          text_size = 15, caption_size = 8.5,
                          cell_type = "",
                          bucket = "scrna",
-                         output_base_path = "Projects/Christine Limonte Autophagy/Figures/",
+                         output_base_path = "Projects/Matthias Wolf Magnesium/Figures/",
                          geom_text_size = 3,
                          arrow_padding = 0.09,
                          arrow_text_padding = 0.14,
@@ -752,356 +703,23 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
 
 ```
 
-# Methods
-
-Single-cell RNA sequencing data from the ATTEMPT cohort were used for this analysis (young adults with T1D randomized to dapagliflozin vs. placebo, biopsies collected at baseline and 16 weeks post treatment).
-
-Five gene signatures were scored for each cell using gene lists: overall autophagy-related genes, autophagy induction genes, lysosomal biogenesis genes, and TFEB target genes (all provided by Dr. Limonte), as well as an mTORC1 activity signature derived from Table S6 of Schaub et al. (doi: 10.1172/JCI164486). Genes signatures scores were calculated using AddModuleScore in R. Genes absent from our dataset were excluded from their respective signatures (Table 0). Gene signatures were scored separately for all cell types and for PT cells only. 
-
-Signature scores were summarized at the individual level by averaging across all cells and across PT cells only. Group comparisons were performed using the Wilcoxon rank-sum test for pre and post treatment visits separately. UMAPs are shown to visualize the scores across all the cell types and across PT subtypes. Mixed models were used to assess the visit*treatment interaction (differences in differences; DiD). Pairwise correlations between gene signature scores were assessed using Pearson's correlation coefficient. NEBULA was performed on overall cells and PT cells only, and the DiD effects have been summarized. 
-
-
-# Compute signature scores
-
-```{r echo = F}
-#add christine gene signatures to seurat object:
-# have to do this separately for all cells and PT only, because AddModuleScore derives the score relative to other cells in the pool
-
-# first do in all cells:
-for (sig in signature_gs) {
-  
-  result <- run_module_score(attempt_so, 
-                             get(paste0(sig, "_genes")), 
-                             paste0(sig, "_signature"))
-  
-  attempt_so <- result$seurat_obj
-  assign(paste0("missing_genes_", sig), result$warning)
-}
-
-# second do in PT only cells:
-attempt_pt <- subset(attempt_so, KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT"))
-for (sig in signature_gs) {
-  
-  result <- run_module_score(attempt_pt, 
-                             get(paste0(sig, "_genes")), 
-                             paste0(sig, "_signature"))
-  
-  attempt_pt <- result$seurat_obj
-  assign(paste0("missing_genes_", sig), result$warning)
-}
-
-features <- paste0(signature_gs, "_signature1")
-```
-
-```{r echo = F}
-# Create long datasets; one row per cell:
-attempt_so$elevated_albuminuria <- ifelse(attempt_so$emu_urine_acr_mean > 30, "Yes", "No")
-attempt_pt$elevated_albuminuria <- ifelse(attempt_pt$emu_urine_acr_mean > 30, "Yes", "No")
-
-df_allcells <- data.frame(
-  subject_id = attempt_so$subject_id,
-  treatment=attempt_so$treatment,
-  visit = attempt_so$visit,
-  elevated_albuminuria=attempt_so$elevated_albuminuria,
-  overall_score = attempt_so$overall_autophagy_signature1,
-  induction_score = attempt_so$autophagy_induction_signature1,
-  lysosomal_score = attempt_so$lysosomal_biogenesis_signature1,
-  tfeb_score = attempt_so$tfeb_signature1,
-  mtorc_score = attempt_so$mtorc_signature1
-)
-df_ptcells <- data.frame(
-  subject_id = attempt_pt$subject_id,
-  treatment=attempt_pt$treatment,
-  visit = attempt_pt$visit,
-  elevated_albuminuria=attempt_pt$elevated_albuminuria,
-  overall_score = attempt_pt$overall_autophagy_signature1,
-  induction_score = attempt_pt$autophagy_induction_signature1,
-  lysosomal_score = attempt_pt$lysosomal_biogenesis_signature1,
-  tfeb_score = attempt_pt$tfeb_signature1,
-  mtorc_score = attempt_pt$mtorc_signature1
-)
-
-# mean scores per patient dataset:
-df.1.allcells <- df_allcells %>%
-  dplyr::summarise(mean_overall_autophagy_score=mean(overall_score,na.rm=T),
-                   mean_autophagy_induction_score=mean(induction_score,na.rm=T),
-                   mean_lysosomal_biogenesis_score=mean(lysosomal_score,na.rm=T),
-                   mean_tfeb_score=mean(tfeb_score,na.rm=T),
-                   mean_mtorc_score=mean(mtorc_score,na.rm=T),
-                   .by = c("subject_id", "visit", "treatment"))
-
-df.1.ptcells <- df_ptcells %>%
-  summarise(mean_overall_autophagy_score_ptcells=mean(overall_score,na.rm=T),
-            mean_autophagy_induction_score_ptcells=mean(induction_score,na.rm=T),
-            mean_lysosomal_biogenesis_score_ptcells=mean(lysosomal_score,na.rm=T),
-            mean_tfeb_score_ptcells=mean(tfeb_score,na.rm=T),
-            mean_mtorc_score_ptcells=mean(mtorc_score,na.rm=T),
-            .by = c("subject_id", "visit", "treatment"))
-
-# merge together: 
-df.1 <- merge(df.1.allcells,
-              df.1.ptcells,
-              by=c("subject_id", "visit", "treatment"),
-              all=T)
-```
-
-# Tables of gene signature scores at baseline
-
-```{r echo = F}
-#table of person level comparisons across visits:
-pvalue_wcx <- function(x, ...) {
-  # x is a list of vectors, one per visit
-  p <- wilcox.test(x[[1]], x[[2]])$p.value
-  p_formatted <- ifelse(p < 0.001, "<0.001", formatC(p, digits = 3, format = "f"))
-  c("", p_formatted)
-}
-tab_visit_pre <- table1(~ mean_overall_autophagy_score +
-                          mean_autophagy_induction_score +
-                          mean_lysosomal_biogenesis_score +
-                          mean_tfeb_score +
-                          mean_mtorc_score +
-                          mean_overall_autophagy_score_ptcells +
-                          mean_autophagy_induction_score_ptcells +
-                          mean_lysosomal_biogenesis_score_ptcells +
-                          mean_tfeb_score_ptcells +
-                          mean_mtorc_score_ptcells|factor(treatment),
-                        data = subset(df.1, visit == "PRE"),
-                        overall=F,
-                        render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
-                                            "Mean (SD)"="MEAN (SD)"),
-                        extra.col = list("P-value" = pvalue_wcx))
-kable(tab_visit_pre, digits = 2)
-```
-
-*p-values from Wilcoxon rank sum test. 
-
-# Tables of gene signature scores at follow up
-
-```{r echo = F}
-tab_visit_post <- table1(~ mean_overall_autophagy_score +
-                           mean_autophagy_induction_score +
-                           mean_lysosomal_biogenesis_score +
-                           mean_tfeb_score +
-                           mean_mtorc_score +
-                           mean_overall_autophagy_score_ptcells +
-                           mean_autophagy_induction_score_ptcells +
-                           mean_lysosomal_biogenesis_score_ptcells +
-                           mean_tfeb_score_ptcells +
-                           mean_mtorc_score_ptcells|factor(treatment),
-                         data = subset(df.1, visit == "POST"),
-                         overall=F,
-                         render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
-                                             "Mean (SD)"="MEAN (SD)"),
-                         extra.col = list("P-value" = pvalue_wcx), digits = 2)
-kable(tab_visit_post)
-```
-
-*p-values from Wilcoxon rank sum test. 
-
-# Visualize in UMAPs (Overall cells)
-
-```{r echo = F}
-plot_df <- prepare_umap_geneset_metadata(
-  seurat_obj = attempt_so,
-  celltype_col = "KPMP_celltype_general",
-  geneset_scores = features)
-
-umap_list <- list()
-for (f in features) {
-  p <- plot_geneset_umap(
-    geneset_score = f,
-    metadata = plot_df$metadata,
-    centers = plot_df$centers,
-    celltype_colors = plot_df$celltype_colors,
-    celltype_col = "KPMP_celltype_general",
-    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
-    s3_suffix = "",
-    save_to_s3 = T
-  )
-  umap_list[[f]] <- p
-}
-
-```
-
-# Visualize in UMAPs (PT cells)
-
-```{r echo = F}
-# Limited to PT
-plot_df_pt <- prepare_umap_geneset_metadata(
-  seurat_obj = attempt_pt,
-  celltype_col = "KPMP_celltype",
-  geneset_scores = features)
-
-umap_list_pt <- list()
-for (f in features) {
-  p <- plot_geneset_umap(
-    geneset_score = f,
-    metadata = plot_df_pt$metadata,
-    centers = plot_df_pt$centers,
-    celltype_colors = plot_df_pt$celltype_colors,
-    celltype_col = "KPMP_celltype",
-    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
-    s3_suffix = "_pt",
-    save_to_s3 = T
-  )
-  umap_list_pt[[f]] <- p
-}
-```
-
-# Mixed models emmeans (DiD)
-
-# Mixed model: Overall cells
-
-```{r echo = F}
-res_overall <- run_lmer_signatures(signature_gs, df.1, outcome_suffix = "_score")
-
-kable(res_overall$summary,
-      col.names = c("Signature", "Estimate (95% CI)", "P-value", "FDR"),
-      caption = "Overall autophagy scores",
-      digits = 3)
-```
-
-# Mixed model: PT cells
-
-```{r echo = F}
-# PT only
-res_pt <- run_lmer_signatures(signature_gs, df.1, outcome_suffix = "_score_ptcells")
-
-kable(res_pt$summary,
-      col.names = c("Signature", "Estimate (95% CI)", "P-value", "FDR"),
-      caption = "PT cell autophagy scores",
-      digits = 3)
-```
-
-# Pearson correlations on delta scores: overall cells
-
-```{r echo = F}
-# pearson correlation
-mean_score <- paste0("mean_", signature_gs, "_score")
-
-deltas <- df.1 %>%
-  pivot_longer(
-    cols = all_of(mean_score),
-    names_to = "score",
-    values_to = "value"
-  ) %>%
-  pivot_wider(
-    names_from = visit,
-    values_from = value
-  ) %>%
-  group_by(score, subject_id) %>%
-  fill(POST, PRE) %>%
-  ungroup() %>%
-  filter(!is.na(PRE)) %>%
-  dplyr::mutate(delta = POST - PRE) %>%
-  dplyr::select(subject_id, treatment, score, delta) %>%
-  pivot_wider(
-    names_from = score,
-    values_from = delta,
-    names_prefix = "delta_"
-  )
-
-delta_mean_score <- paste0("delta_", mean_score)
-delta_mean_score_labs <- as.data.frame(
-  setNames(
-    list(
-      "\u0394 Overall Autophagy",
-      "\u0394 Autophagy Induction",
-      "\u0394 Lysosomal Biogenesis",
-      "\u0394 TFEB",
-      "\u0394 MTORC"),
-    delta_mean_score))
-
-temp_file <- tempfile(fileext = ".png")
-png(height = 1500, width = 1500,
-    file = temp_file, res = 170)
-corr_plot_modified(data = deltas,
-                   X = delta_mean_score,
-                   Y = delta_mean_score,
-                   dict = delta_mean_score_labs)
-dev.off()
-```
-
-# Pearson correlations on delta scores: PT cells
-
-```{r echo = F}
-put_object(
-  file = temp_file,
-  object = "Projects/Christine Limonte Autophagy/Figures/delta_pearson_heatmap_overall.png",
-  bucket = "scrna",
-  region = ""
-)
-
-# PT cells only
-mean_score_pt <- paste0("mean_", signature_gs, "_score_ptcells")
-
-deltas_pt <- df.1 %>%
-  pivot_longer(
-    cols = all_of(mean_score_pt),
-    names_to = "score",
-    values_to = "value"
-  ) %>%
-  pivot_wider(
-    names_from = visit,
-    values_from = value
-  ) %>%
-  group_by(score, subject_id) %>%
-  fill(POST, PRE) %>%
-  ungroup() %>%
-  filter(!is.na(PRE)) %>%
-  dplyr::mutate(delta = POST - PRE) %>%
-  dplyr::select(subject_id, treatment, score, delta) %>%
-  pivot_wider(
-    names_from = score,
-    values_from = delta,
-    names_prefix = "delta_"
-  )
-
-delta_mean_score_pt <- paste0("delta_", mean_score_pt)
-
-delta_mean_score_labs_pt <- as.data.frame(
-  setNames(
-    list(
-      "\u0394 Overall Autophagy",
-      "\u0394 Autophagy Induction",
-      "\u0394 Lysosomal Biogenesis",
-      "\u0394 TFEB",
-      "\u0394 MTORC"),
-    delta_mean_score_pt))
-
-temp_file <- tempfile(fileext = ".png")
-png(height = 1500, width = 1500, 
-    file = temp_file, res = 170)
-corr_plot_modified(data = deltas_pt,
-                   X = delta_mean_score_pt,
-                   Y = delta_mean_score_pt,
-                   dict = delta_mean_score_labs_pt)
-dev.off()
-put_object(
-  file = temp_file,
-  object = "Projects/Christine Limonte Autophagy/Figures/delta_pearson_heatmap_pt.png",
-  bucket = "scrna",
-  region = ""
-)
-```
-
 # NEBULA results (DiD)
 
-## NEBULA results: overall cells
+## NEBULA results: TAL cells
 
 ```{r}
 # nebula
-nebula_compiled <- list()
-for (sig in signature_gs) {
+nebula_compiled_tal <- list()
+for (sig in magnesium_gs[1]) {
   message("Starting ", sig)
   sig_start_time <- Sys.time()
   
   genes <- get(paste0(sig, "_genes"))
-  attempt_so_subset <- subset(attempt_so, features = genes)
+  attempt_tal_subset <- subset(attempt_tal, features = genes)
   
-  counts_subset <- round(GetAssayData(attempt_so_subset, layer = "counts"))
+  counts_subset <- round(GetAssayData(attempt_tal_subset, layer = "counts"))
   genes_list    <- rownames(counts_subset)
-  meta_subset   <- attempt_so_subset@meta.data
+  meta_subset   <- attempt_tal_subset@meta.data
   
   nebula_res <- lapply(genes_list, function(g) {
     tryCatch({
@@ -1141,11 +759,11 @@ for (sig in signature_gs) {
   
   # save the results
   s3saveRDS(nebula_res, 
-            object = paste0("Projects/Christine Limonte Autophagy/Tables/attempt_nebula_", sig, ".rds"),
+            object = paste0("Projects/Matthias Wolf Magnesium/Tables/attempt_nebula_", sig, ".rds"),
             bucket = "scrna",
             region = "")
   
-  nebula_compiled[[sig]] <- nebula_res
+  nebula_compiled_tal[[sig]] <- nebula_res
   
   message(sprintf("%s took %.1f min",
                   sig,
@@ -1155,7 +773,7 @@ for (sig in signature_gs) {
 
 ```{r echo = F}
 # Compile all nebula results into one tidy dataframe
-nebula_tidy <- map_dfr(nebula_compiled, function(sig_res) {
+nebula_tidy <- map_dfr(nebula_compiled_tal, function(sig_res) {
   imap_dfr(sig_res, function(gene_summary, gene_name) {
     as_tibble(gene_summary) %>%
       mutate(Gene = gene_name, .before = 1)
@@ -1176,76 +794,29 @@ nebula_interaction <- nebula_tidy %>%
   ungroup()
 
 s3write_using_region(nebula_interaction, FUN = write.csv,
-                     object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_interaction_compiled.csv",
+                     object = "Projects/Matthias Wolf Magnesium/Tables/attempt_nebula_interaction_tal.csv",
                      bucket = "scrna", region = "",
                      row.names = FALSE)
-
-nebula_summary <- nebula_interaction %>%
-  group_by(signature) %>%
-  summarise(
-    n_genes_tested = n(),
-    n_nominal_sig  = sum(p < 0.05, na.rm = TRUE),
-    n_fdr_sig      = sum(fdr < 0.05, na.rm = TRUE),
-    n_up           = sum(fdr < 0.05 & logFC > 0, na.rm = TRUE),
-    n_down         = sum(fdr < 0.05 & logFC < 0, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-kable(nebula_summary,
-      col.names = c("Signature", "Genes tested", "p < 0.05", "FDR < 0.05",
-                    "↑ with Dapa", "↓ with Dapa"))
-
-volcano_plots <- map(unique(nebula_interaction$signature), function(sig) {
-  dat <- nebula_interaction %>% filter(signature == sig)
-  
-  plot_volcano(
-    data = dat,
-    fc = "logFC",
-    p_col = "p",
-    title = toupper(sig),
-    x_axis = "LogFC (interaction term)",
-    y_axis = "-log10(p)",
-    file_suffix = paste0("nebula_interaction_", sig),
-    cell_type = "all cells",
-    formula = "visit * treatment",
-    positive_text = "Positive with Dapagliflozin",
-    negative_text = "Negative with Dapagliflozin",
-  )
-})
-names(volcano_plots) <- unique(nebula_interaction$signature)
-
-volcano_plots_compiled <- plot_volcano(
-  data = nebula_interaction,
-  fc = "logFC",
-  p_col = "p",
-  x_axis = "LogFC (interaction term)",
-  y_axis = "-log10(p)",
-  file_suffix = "nebula_interaction_",
-  cell_type = "all cells",
-  formula = "visit * treatment",
-  positive_text = "Positive with Dapagliflozin",
-  negative_text = "Negative with Dapagliflozin",
-)
 ```
 
-## NEBULA results: PT only
+
+## NEBULA results: DCT cells
 
 ```{r}
 # nebula
-nebula_compiled_pt <- list()
-
-for (sig in signature_gs) {
+nebula_compiled_dct <- list()
+for (sig in magnesium_gs[2]) {
   message("Starting ", sig)
   sig_start_time <- Sys.time()
   
   genes <- get(paste0(sig, "_genes"))
-  attempt_pt_subset <- subset(attempt_pt, features = genes)
+  attempt_dct_subset <- subset(attempt_dct, features = genes)
   
-  counts_subset <- round(GetAssayData(attempt_pt_subset, layer = "counts"))
+  counts_subset <- round(GetAssayData(attempt_dct_subset, layer = "counts"))
   genes_list    <- rownames(counts_subset)
-  meta_subset   <- attempt_pt_subset@meta.data
+  meta_subset   <- attempt_dct_subset@meta.data
   
-  nebula_res_pt <- lapply(genes_list, function(g) {
+  nebula_res <- lapply(genes_list, function(g) {
     tryCatch({
       count_gene <- counts_subset[g, , drop = FALSE]
       pred_gene  <- model.matrix(~ treatment * visit, data = meta_subset)
@@ -1271,39 +842,33 @@ for (sig in signature_gs) {
     })
   })
   
-  names(nebula_res_pt) <- genes_list
-  nebula_res_pt <- Filter(Negate(is.null), nebula_res_pt)
+  names(nebula_res) <- genes_list
+  nebula_res <- Filter(Negate(is.null), nebula_res)
   
-  pct_nonconv <- (length(genes_list) - length(nebula_res_pt)) / length(genes_list)
+  pct_nonconv <- (length(genes_list) - length(nebula_res)) / length(genes_list)
   message(sprintf("%.2f%% models failed to converge for %s",
                   100 * pct_nonconv, sig))
   
   # Extract the summary table from each gene's result
-  nebula_res_pt <- lapply(nebula_res_pt, `[[`, "summary")
+  nebula_res <- lapply(nebula_res, `[[`, "summary")
   
   # save the results
-  s3saveRDS(nebula_res_pt, 
-            object = paste0("Projects/Christine Limonte Autophagy/Tables/attempt_nebula_", sig, "_pt.rds"),
+  s3saveRDS(nebula_res, 
+            object = paste0("Projects/Matthias Wolf Magnesium/Tables/attempt_nebula_", sig, ".rds"),
             bucket = "scrna",
             region = "")
   
-  nebula_compiled_pt[[sig]] <- nebula_res_pt
+  nebula_compiled_dct[[sig]] <- nebula_res
   
   message(sprintf("%s took %.1f min",
-                  sig, as.numeric(difftime(Sys.time(), sig_start_time, units = "mins"))))
-
+                  sig,
+                  as.numeric(difftime(Sys.time(), sig_start_time, units = "mins"))))
 }
-# 
-# attempt_nebula_overall_autophagy_pt <- s3readRDS(object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_overall_autophagy_pt.rds",
-#                                                  bucket = "scrna",
-#                                                  region = "")
-# 
-# nebula_compiled_pt[["overall_autophagy"]] <- attempt_nebula_overall_autophagy_pt
 ```
 
 ```{r echo = F}
 # Compile all nebula results into one tidy dataframe
-nebula_tidy_pt <- map_dfr(nebula_compiled_pt, function(sig_res) {
+nebula_tidy <- map_dfr(nebula_compiled_dct, function(sig_res) {
   imap_dfr(sig_res, function(gene_summary, gene_name) {
     as_tibble(gene_summary) %>%
       mutate(Gene = gene_name, .before = 1)
@@ -1311,7 +876,7 @@ nebula_tidy_pt <- map_dfr(nebula_compiled_pt, function(sig_res) {
 }, .id = "signature")
 
 
-nebula_interaction_pt <- nebula_tidy_pt %>%
+nebula_interaction <- nebula_tidy %>%
   select(
     signature,
     Gene = Gene,
@@ -1323,56 +888,9 @@ nebula_interaction_pt <- nebula_tidy_pt %>%
   mutate(fdr = p.adjust(p, method = "BH")) %>%
   ungroup()
 
-s3write_using_region(nebula_interaction_pt, FUN = write.csv,
-                     object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_interaction_pt_compiled_pt.csv",
+s3write_using_region(nebula_interaction, FUN = write.csv,
+                     object = "Projects/Matthias Wolf Magnesium/Tables/attempt_nebula_interaction_dct.csv",
                      bucket = "scrna", region = "",
                      row.names = FALSE)
-
-nebula_summary_pt <- nebula_interaction_pt %>%
-  group_by(signature) %>%
-  summarise(
-    n_genes_tested = n(),
-    n_nominal_sig  = sum(p < 0.05, na.rm = TRUE),
-    n_fdr_sig      = sum(fdr < 0.05, na.rm = TRUE),
-    n_up           = sum(fdr < 0.05 & logFC > 0, na.rm = TRUE),
-    n_down         = sum(fdr < 0.05 & logFC < 0, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-kable(nebula_summary_pt,
-      col.names = c("Signature", "Genes tested", "p < 0.05", "FDR < 0.05",
-                    "↑ with Dapa", "↓ with Dapa"))
-
-volcano_plots_pt <- map(unique(nebula_interaction_pt$signature), function(sig) {
-  dat <- nebula_interaction_pt %>% filter(signature == sig)
-  
-  plot_volcano(
-    data = dat,
-    fc = "logFC",
-    p_col = "p",
-    title = toupper(sig),
-    x_axis = "LogFC (interaction term)",
-    y_axis = "-log10(p)",
-    file_suffix = paste0("nebula_interaction_pt_", sig),
-    cell_type = "PT",
-    formula = "visit * treatment",
-    positive_text = "Positive with Dapagliflozin",
-    negative_text = "Negative with Dapagliflozin",
-  )
-})
-names(volcano_plots_pt) <- unique(nebula_interaction_pt$signature)
-
-volcano_plots_pt_compiled <- 
-  plot_volcano(
-    data = nebula_interaction_pt,
-    fc = "logFC",
-    p_col = "p",
-    x_axis = "LogFC (interaction term)",
-    y_axis = "-log10(p)",
-    file_suffix = "nebula_interaction_pt_",
-    cell_type = "PT",
-    formula = "visit * treatment",
-    positive_text = "Positive with Dapagliflozin",
-    negative_text = "Negative with Dapagliflozin",
-  )
 ```
+
