@@ -1,5 +1,5 @@
 ---
-title: "scRNA_analysis"
+title: "scRNA_data_cleaning"
 author: "Savanah Leidholt"
 date: "`r Sys.Date()`"
 output: html_document
@@ -11,35 +11,56 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(reticulate)
-library(jsonlite)
-library(arsenal)
-library(Biobase)
-library(broom.mixed)
-library(colorspace)
-library(cowplot)
-library(data.table)
-library(dplyr)
-#BiocManager::install("edgeR")
-library(edgeR)
-library(emmeans)
-#BiocManager::install("enrichR")
-library(enrichR)
-library(foreach)
-library(future)
-library(future.apply)
-library(kableExtra)
-library(limma)
-library(msigdbr)
-library(patchwork)
-library(pheatmap)
-library(readxl)
-library(Seurat)
-#BiocManager::install("SingleCellExperiment")
-library(SingleCellExperiment)
+#loading packages
 library(tidyverse)
-library(UpSetR)
+library(arsenal)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(Hmisc)
+library(readxl)
+library(purrr)
+library(aws.s3)
+library(jsonlite)
 
+```
+
+```{r}
+#directores
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+} else if (user == "savanahleidholt") {
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+} else if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 ```
 
 ```{r}
@@ -52,7 +73,6 @@ boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
 
 ## Create an S3 client
-keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
 session <- boto3$session$Session(
   aws_access_key_id = keys$MY_ACCESS_KEY,
   aws_secret_access_key = keys$MY_SECRET_KEY
@@ -64,27 +84,166 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 
 ```{r echo = F, eval = T}
 # Read in clean seurat object saved
-temp_file <- tempfile(fileext = ".rds")
-s3$download_file("scrna", 'data_clean/pb90_multiomics_savanah_baseline_20260406.rds', temp_file)
-dat_scrna <- readRDS(temp_file)
-meta_dat <- dat_scrna@meta.data
-ids <- meta_dat$record_id %>% 
-  distinct(meta_dat$record_id)
-View(ids)
+#temp_file <- tempfile(fileext = ".rds")
+#s3$download_file("scrna", 'data_clean/pb90_multiomics_savanah_baseline_20260406.rds', temp_file)
+#pb90_multiomics <- readRDS(temp_file)
+#ids <- pb90_multiomics@meta.data$record_id 
+#ids <- as.data.frame(ids) %>%
+ # dplyr::distinct(ids) %>%
+  #dplyr::pull(ids)  
+``` 
+
+
+
+```{r}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F, eval = T}
+pb90_multiomics<- s3readRDS(
+          object = "data_clean/pb90_multiomics_savanah_baseline_20260406.rds", 
+          bucket = "scrna",
+          region = "")
+
+
+ids <- pb90_multiomics@meta.data$record_id 
+ids <- as.data.frame(ids) %>%
+  dplyr::distinct(ids) %>%
+  dplyr::pull(ids)  
 ``` 
 
 ```{r}
 #Load harmonized data for biopsy
+
+#harm_meta_data <- s3read_using(FUN = readr::read_csv,
+ #   object = "harmonized_dataset.csv",
+  #  bucket = "harmonized.dataset",
+   # region = "")
+
+
 bucket <- "harmonized.dataset" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
 s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 harm_meta_data <- read.csv(temp_file)
 
 ```
 
 ```{r}
-#Load celltype annotation database
-temp_file <- tempfile(fileext = ".gmt")
-s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
-c8 <- GSA.read.gmt(temp_file)
+#same with ids columns (all categorical)
+id_cols <- as.character(c(
+  "record_id","mrn","attempt_id","croc_id","improve_id","rh_id","rh2_id","panther_id",
+  "study","visit","group","sex","race","ethnicity"
+))
+
+#clinical numeric data I want to keep stored in a list
+clin_cols <- c(
+  "age","bmi","eGFR_fas_cr","hba1c",
+  "acr_u"
+)
+#filtering the same way as metabolomic and proteomic metadata
+ # for non-numeric: keep value only if it's consistent within record_id+visit
+ # for numeric: mean within record_id+visit (not counting NAs within the mean)
+meta_scrna <- harm_meta_data %>%
+  arrange(record_id) %>%
+  filter(record_id %in% ids) %>%
+  filter(visit == "baseline") %>%
+  select(any_of(c(id_cols, clin_cols))) %>%
+  summarise(
+    across(
+      where(~ !is.numeric(.x)),
+      ~{
+        vals <- unique(na.omit(.x))
+        if (length(vals) == 0) NA_character_
+        else if (length(vals) == 1) as.character(vals)
+        else NA_character_
+      }
+    ),
+    across(
+      where(is.numeric),
+      ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+    ),
+    .by = c(record_id, visit)
+  ) %>%
+  mutate(
+    race_ethnicity_condensed = case_when(
+      race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+      race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+      TRUE ~ "Not Hispanic or Latino Other"
+    )
+  )
 ```
+
+```{r}
+pb90_multiomics_meta_subset <- pb90_multiomics@meta.data %>%
+  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype) %>%
+  dplyr::mutate(kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)),
+                visit = case_when(visit == "screening" ~ "baseline",
+                                  T ~ visit)) %>%
+  left_join(meta_scrna) %>%
+  dplyr::mutate(rownames = paste0(source, "_", barcode)) 
+```
+
+```{r}
+#Load celltype annotation database
+#temp_file <- tempfile(fileext = ".gmt")
+#s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
+#c8 <- GSA.read.gmt(temp_file)
+```
+
+```{r}
+# create KPMP_celltype_general
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
+  DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",                         # mesangial cells
+  PEC = "PEC",                       # parietal epithelial cells
+  Schwann = "SchwannCells",
+  Other = c("non-specific")          # catchall
+)
+
+map_celltype_to_general <- function(celltype, celltype_groups) {
+  for (group_name in names(celltype_groups)) {
+    if (celltype %in% celltype_groups[[group_name]]) {
+      return(group_name)
+    }
+  }
+  return("Other")  # For any celltype not found in groups
+}
+
+pb90_multiomics_meta_subset$KPMP_celltype_general <- sapply(
+  pb90_multiomics_meta_subset$KPMP_celltype, 
+  map_celltype_to_general, 
+  celltype_groups = celltype_groups)
+
+rownames(pb90_multiomics_meta_subset) <- pb90_multiomics_meta_subset$rownames
+
+table((pb90_multiomics_meta_subset %>%
+  distinct(record_id, visit, .keep_all = T))$study) # confirmed 16 ATTEMPT BL T1D, 5 PANDA T1D, 28 CROC T1D, 12 CROC HC
+
+pb90_multiomics_subset <- pb90_multiomics[, colnames(pb90_multiomics) %in% rownames(pb90_multiomics_meta_subset)]
+pb90_multiomics_subset@meta.data <- pb90_multiomics_meta_subset
+
+s3saveRDS(pb90_multiomics_subset, 
+          object = "data_clean/pb90_multiomics_subset_savanah_20260420", 
+          bucket = "scrna",
+          region = "",
+          multipart = T)
+```
+
