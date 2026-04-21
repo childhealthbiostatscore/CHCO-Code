@@ -48,6 +48,9 @@ library(enrichR)
 library(nebula)
 #BiocManager::install("doParallel")
 library(doParallel)
+library(Matrix)
+library(edgeR)
+library(stringr)
 ```
 
 ```{r}
@@ -317,14 +320,13 @@ label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
 
 table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr| group, data= pb90_multiomics_subset_meta)
 
-
-# Continuous variables 
 continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
 
-m0 <- lm.fit()
+#uneven groups so using kruskal wallis
 for (var in continuous_vars) {
-  anova <- anova(pb90_multiomics_subset_meta[[var]] ~ pb90_multiomics_subset_meta$group)
-  cat(var, "p-value:", round(t_test$p.value, 4), "\n")
+  formula <- as.formula(paste(var, "~ group"))
+  kw <- kruskal.test(formula, data = pb90_multiomics_subset_meta)
+  cat(var, "Kruskal-Wallis p-value:", round(kw$p.value, 4), "\n")
 }
 
 # Categorical variables - chi-square tests
@@ -339,7 +341,7 @@ for (var in categorical_vars) {
 
 ```{r}
 ## a. Aim 1.1: Perform differential expression between all group comparisons (T1D, T2D, LC, OC)
-### i. Pre-Analysis Steps
+### using nebula
 # Verify dimensions
 pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
   pb90_multiomics_subset@meta.data$cell_type_abbrev, 
@@ -348,9 +350,6 @@ pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
 )
 nrow(pb90_multiomics_subset) # genes 31974
 ncol(pb90_multiomics_subset) # cells 307386
-
-#set up contrasts
-
 ```
 ```{r}
 # Check your metadata
@@ -361,6 +360,7 @@ table(pb90_multiomics_subset$study)
 table(pb90_multiomics_subset$KPMP_celltype_general)
 head(pb90_multiomics_subset@meta.data[, c("group", "kit_id", "record_id", "KPMP_celltype_general")])
 ```
+
 ```{r}
 groups      <- unique(pb90_multiomics_subset_meta$group)
 group_pairs <- combn(groups, 2, simplify = FALSE)  # all pairwise combos
@@ -385,36 +385,423 @@ for (pair in group_pairs) {
   res$comparison <- pair_name
   propeller_results[[pair_name]] <- res
   
-  write.csv(
-    x    = res,
-    file = file.path(dir.results, "T1D-T2D", "Results",
-                     paste0("propeller_", pair_name, ".csv")),
-    row.names = TRUE
-  )
+ # write.csv(
+  #  x    = res,
+   # file = file.path(dir.results, "T1D-T2D", "Results",
+    #                 paste0("propeller_", pair_name, ".csv")),
+    #row.names = TRUE
+  #)
 }
 ```
+
+# =========================================================
+# CLEANER NEBULA PIPELINE
+# - pairwise group comparisons
+# - loop over cell types
+# - run one gene at a time
+# - append results directly to disk
+# - minimal memory growth
+# =========================================================
+
 ```{r}
-# --- Propeller test: all groups---
-# propeller needs: clusters, sample, group stored in metadata
-# Make sure "group" and "record_id" are columns in so_combined metadata
-#propeller_group <- propeller(
-#  clusters = pb90_multiomics_subset_meta$KPMP_celltype_general,
-#  sample = pb90_multiomics_subset_meta$record_id,
-#  group = pb90_multiomics_subset_meta$group,
-#  transform = "logit"
-#)
+n_hvg <- 500 #change to to 1000 then 2000 to see if it can still run
+min_cells_per_celltype <- 50   # skip tiny cell types
+overwrite_existing <- TRUE     # FALSE = skip if output file exists
 
-#cat("\n=== Propeller Results: All GROUPs ===\n")
-#print(propeller_group)
+# -----------------------------
+# group pairs
+# -----------------------------
+groups <- unique(pb90_multiomics_subset_meta$group)
+group_pairs <- combn(groups, 2, simplify = FALSE)
 
-# Save results
-#write.csv(
-#  x    = propeller_group,
-#  file = file.path(dir.results, "T1D-T2D", "Results", "propeller_group.csv"),
-#  row.names = FALSE
-#)
+celltypes_list <- unique(pb90_multiomics_subset_meta$KPMP_celltype_general)
+
+# -----------------------------
+# main loop
+# -----------------------------
+for (pair in group_pairs) {
+  
+  pair_name <- paste(pair, collapse = "_vs_")
+  cat("\n============================\n")
+  cat("Comparison:", pair_name, "\n")
+  cat("============================\n")
+  
+  # subset once per comparison
+  seurat_pair <- subset(pb90_multiomics_subset, group %in% pair)
+  seurat_pair$group <- droplevels(factor(seurat_pair$group, levels = pair))
+  
+  for (cell_name in celltypes_list) {
+    
+    cat("\n--- Cell type:", cell_name, "---\n")
+    
+    # subset once per cell type
+    seurat_sub <- subset(seurat_pair, KPMP_celltype_general == cell_name)
+    
+    n_cells <- ncol(seurat_sub)
+    if (n_cells < min_cells_per_celltype) {
+      cat("Skipping", cell_name, "- too few cells:", n_cells, "\n")
+      next
+    }
+    
+    DefaultAssay(seurat_sub) <- "RNA"
+    meta_full <- seurat_sub@meta.data
+    
+    # make sure factors are clean
+    meta_full$group <- droplevels(factor(meta_full$group, levels = pair))
+    meta_full$sex   <- factor(meta_full$sex)
+    meta_full$study <- factor(meta_full$study)
+    
+    # model matrix ONCE per cell type
+    pred_gene <- model.matrix(~ group + age + sex + study, data = meta_full)
+    library_offset <- meta_full$pooled_offset
+    subject_id <- meta_full$record_id
+    
+    # choose HVGs once per cell type
+    seurat_sub <- FindVariableFeatures(
+      seurat_sub,
+      selection.method = "vst",
+      nfeatures = n_hvg
+    )
+    
+    genes_list <- VariableFeatures(seurat_sub)
+    cat("Cells:", n_cells, "| HVGs:", length(genes_list), "\n")
+    
+    # counts matrix once per cell type
+    counts_hvg <- GetAssayData(seurat_sub, layer = "counts")[genes_list, , drop = FALSE]
+    counts_hvg <- round(counts_hvg)
+    
+    # output file
+    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
+    out_path <- file.path(
+      dir.results, "T1D-T2D", "Results",
+      paste0("nebula_", pair_name, "_", cell_name_file, ".csv")
+    )
+    
+    if (file.exists(out_path) && !overwrite_existing) {
+      cat("Skipping existing file:", out_path, "\n")
+      next
+    }
+    
+    if (file.exists(out_path) && overwrite_existing) {
+      file.remove(out_path)
+    }
+    
+    first_write <- TRUE
+    error_log <- character(0)
+    converged_vec <- c()
+    
+    start_time <- Sys.time()
+    
+    for (g in genes_list) {
+      
+      tryCatch({
+        count_gene <- counts_hvg[g, , drop = FALSE]
+        
+        data_g_gene <- group_cell(
+          count  = count_gene,
+          id     = subject_id,
+          pred   = pred_gene,
+          offset = library_offset
+        )
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(
+            count  = count_gene,
+            id     = subject_id,
+            pred   = pred_gene,
+            offset = library_offset
+          )
+        }
+        
+        fit <- nebula(
+          count      = data_g_gene$count,
+          id         = data_g_gene$id,
+          pred       = data_g_gene$pred,
+          offset     = data_g_gene$offset,
+          ncore      = 1,
+          reml       = TRUE,
+          model      = "NBLMM",
+          output_re  = FALSE,
+          covariance = FALSE
+        )
+        
+        # store convergence code separately
+        conv_code <- fit$convergence
+        converged_vec[g] <- conv_code
+        
+        # extract result summary
+        res <- as.data.frame(fit$summary)
+        res$gene <- g
+        res$comparison <- pair_name
+        res$celltype <- cell_name
+        res$cells <- n_cells
+        
+        # append directly to disk
+        write.table(
+          res,
+          file = out_path,
+          sep = ",",
+          row.names = FALSE,
+          col.names = first_write,
+          append = !first_write
+        )
+        
+        first_write <- FALSE
+        
+        rm(count_gene, data_g_gene, fit, res)
+        gc(verbose = FALSE)
+        
+      }, error = function(e) {
+        msg <- paste("Gene:", g, "| Error:", conditionMessage(e))
+        cat(msg, "\n")
+        error_log <<- c(error_log, msg)
+      })
+    }
+    
+    elapsed <- difftime(Sys.time(), start_time, units = "mins")
+    cat("Finished", cell_name, "in", round(elapsed, 2), "minutes\n")
+    
+    # save convergence table
+    conv_df <- data.frame(
+      gene = names(converged_vec),
+      convergence_code = as.numeric(converged_vec),
+      comparison = pair_name,
+      celltype = cell_name
+    )
+    
+    conv_path <- file.path(
+      dir.results, "T1D-T2D", "Results",
+      paste0("nebula_", pair_name, "_", cell_name_file, "_convergence.csv")
+    )
+    write.csv(conv_df, conv_path, row.names = FALSE)
+    
+    # save errors if any
+    if (length(error_log) > 0) {
+      err_path <- file.path(
+        dir.results, "T1D-T2D", "Results",
+        paste0("nebula_", pair_name, "_", cell_name_file, "_errors.txt")
+      )
+      writeLines(error_log, err_path)
+    }
+    
+    # clean memory before next cell type
+    rm(seurat_sub, meta_full, pred_gene, library_offset, subject_id,
+       genes_list, counts_hvg, conv_df, converged_vec, error_log)
+    gc(verbose = FALSE)
+  }
+  
+  rm(seurat_pair)
+  gc(verbose = FALSE)
+}
+```
+#-----------------------------------------------------
+#psuedobulk analysis since OC only have 3 particpants
+#-----------------------------------------------------
+```{r}
+#settings should already be min cell counts but just in case
+min_cells_per_sample <- 20     # minimum cells contributing to a pseudobulk sample
+min_donors_per_group <- 3      # minimum donors per group required to run DE
+min_total_count <- 10          # edgeR gene filter helper
+min_samples_expr <- 2          # edgeR gene filter helper
+
+# output directory
+pb_out_dir <- file.path(dir.results, "T1D-T2D", "Results", "pseudobulk")
+dir.create(pb_out_dir, recursive = TRUE, showWarnings = FALSE)
 ```
 
+#----------------------------
+# prepping metadata for edgeR
+#----------------------------
+```{r}
+meta <- pb90_multiomics_subset@meta.data %>%
+  mutate(
+    cell_barcode = rownames(pb90_multiomics_subset@meta.data),
+    record_id = as.character(record_id),
+    group = as.character(group),
+    sex = as.character(sex),
+    study = as.character(study),
+    celltype = as.character(KPMP_celltype_general)
+  )
+
+#keeping only complete metadata for modeling
+meta <- meta %>%
+  filter(
+    !is.na(record_id),
+    !is.na(group),
+    !is.na(age),
+    !is.na(sex),
+    !is.na(study),
+    !is.na(celltype)
+  )
+
+# make sure cell order matches metadata row order
+counts <- GetAssayData(pb90_multiomics_subset, layer = "counts")
+counts <- counts[, meta$cell_barcode, drop = FALSE]
+```
+#----------------------------------------------------------
+# building pseudobulk cell counts
+# one pseudobulk sample = one donor within one cell type
+#---------------------------------------------------------
+```{r}
+meta <- meta %>%
+  mutate(sample_celltype_id = paste(record_id, celltype, sep = "__"))
+
+pb_ids <- unique(meta$sample_celltype_id)
+
+pb_count_list <- vector("list", length(pb_ids))
+pb_meta_list  <- vector("list", length(pb_ids))
+
+for (i in seq_along(pb_ids)) {
+  sid <- pb_ids[i]
+  idx <- which(meta$sample_celltype_id == sid)
+  
+  # skip tiny pseudobulks
+  if (length(idx) < min_cells_per_sample) next
+  
+  sub_counts <- counts[, idx, drop = FALSE]
+  agg_counts <- Matrix::rowSums(sub_counts)
+  
+  meta_sub <- meta[idx, ]
+  
+  pb_count_list[[i]] <- agg_counts
+  pb_meta_list[[i]] <- data.frame(
+    pseudobulk_id = sid,
+    record_id = meta_sub$record_id[1],
+    group = meta_sub$group[1],
+    age = meta_sub$age[1],
+    sex = meta_sub$sex[1],
+    study = meta_sub$study[1],
+    celltype = meta_sub$celltype[1],
+    n_cells = nrow(meta_sub),
+    stringsAsFactors = FALSE
+  )
+}
+
+# remove NULL entries
+keep_idx <- which(!sapply(pb_count_list, is.null))
+pb_count_list <- pb_count_list[keep_idx]
+pb_meta_list  <- pb_meta_list[keep_idx]
+
+# combine into matrix + metadata
+pb_counts <- do.call(cbind, pb_count_list)
+colnames(pb_counts) <- sapply(pb_meta_list, function(x) x$pseudobulk_id)
+pb_meta <- bind_rows(pb_meta_list)
+
+# make sure order matches
+pb_meta <- pb_meta %>% slice(match(colnames(pb_counts), pseudobulk_id))
+stopifnot(identical(colnames(pb_counts), pb_meta$pseudobulk_id))
+```
+
+#------------------------
+#running edgeR/cell type
+#-----------------------
+```{r}
+#setting up pairwise comparisons
+groups <- sort(unique(pb_meta$group))
+group_pairs <- combn(groups, 2, simplify = FALSE)
+
+celltypes <- sort(unique(pb_meta$celltype))
+
+for (cell_name in celltypes) {
+  
+  cat("\n============================\n")
+  cat("Cell type:", cell_name, "\n")
+  cat("============================\n")
+  
+  cell_idx <- which(pb_meta$celltype == cell_name)
+  
+  if (length(cell_idx) == 0) next
+  
+  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
+  meta_ct   <- pb_meta[cell_idx, , drop = FALSE]
+  
+  for (pair in group_pairs) {
+    
+    pair_name <- paste(pair, collapse = "_vs_")
+    cat("\n--- Comparison:", pair_name, "---\n")
+    
+    keep_pair <- meta_ct$group %in% pair
+    counts_sub <- counts_ct[, keep_pair, drop = FALSE]
+    meta_sub   <- meta_ct[keep_pair, , drop = FALSE]
+    
+    meta_sub$group <- factor(meta_sub$group, levels = pair)
+    meta_sub$sex   <- factor(meta_sub$sex)
+    meta_sub$study <- factor(meta_sub$study)
+    
+    # donor counts per group
+    donor_tab <- table(meta_sub$group)
+    print(donor_tab)
+    
+    if (any(donor_tab < min_donors_per_group)) {
+      cat("Skipping", pair_name, "for", cell_name, "- too few donors in at least one group\n")
+      next
+    }
+    
+    #design matrix
+    design <- model.matrix(~ group + age + sex + study, data = meta_sub)
+    
+    # edgeR object
+    y <- DGEList(counts = counts_sub)
+    
+    # filter low-expression genes
+    keep_genes <- filterByExpr(y, design = design)
+    y <- y[keep_genes, , keep.lib.sizes = FALSE]
+    
+    if (nrow(y) == 0) {
+      cat("Skipping", pair_name, "for", cell_name, "- no genes passed filtering\n")
+      next
+    }
+    
+    # normalization
+    y <- calcNormFactors(y)
+    
+    # estimate dispersion
+    y <- estimateDisp(y, design)
+    
+    # fit the model
+    fit <- glmQLFit(y, design, robust = TRUE)
+    
+    coef_name <- grep("^group", colnames(design), value = TRUE)
+    
+    if (length(coef_name) != 1) {
+      cat("Skipping", pair_name, "for", cell_name, "- could not identify unique group coefficient\n")
+      next
+    }
+    
+    qlf <- glmQLFTest(fit, coef = which(colnames(design) == coef_name))
+    tt <- topTags(qlf, n = Inf)$table
+    tt$gene <- rownames(tt)
+    tt$comparison <- pair_name
+    tt$celltype <- cell_name
+    tt$n_donors_group1 <- as.numeric(donor_tab[1])
+    tt$n_donors_group2 <- as.numeric(donor_tab[2])
+    tt$coef_tested <- coef_name
+    
+    #add average CPM
+    logcpm <- cpm(y, log = TRUE)
+    tt$mean_logCPM_check <- rowMeans(logcpm[tt$gene, , drop = FALSE])
+    
+    # save
+    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
+    out_file <- file.path(
+      pb_out_dir,
+      paste0("pseudobulk_edgeR_", pair_name, "_", cell_name_file, ".csv")
+    )
+    
+    write.csv(tt, out_file, row.names = FALSE)
+    cat("Saved:", out_file, "\n")
+  }
+}
+```
+
+
+
+
+
+
+#----------------------
+#archived code
+----------------------
 ```{r}
 groups      <- unique(pb90_multiomics_subset_meta$group)
 group_pairs <- combn(groups, 2, simplify = FALSE)
@@ -505,114 +892,3 @@ for (pair in group_pairs) {
   }
 }
 ```
-
-```{r}
-# Process results
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
-  
-  # Check convergence
-  nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      data.frame(Gene = gene_name, Convergence_Code = converged)
-    }
-  )
-  
-  # Extract summaries
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  
-  # Identify non-converged genes
-  nonconverge_genes <- unique(
-    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
-  )
-  
-  # Format results
-  full_results <- as.data.frame(nebula_summaries)
-  colnames(full_results) <- c("logFC_Intercept", "logFC_group","logFC_treatment", "se_Intercept", 
-                              "se_group","se_treatment", "p_Intercept", "p_group","p_treatment", 
-                              "gene_id", "gene")
-  
-  full_results$Variable <- "T1D_vs_LC"
-  full_results$Celltype <- cell_name
-  
-  # Calculate number of genes filtered out for low expression
-  full_results$low_exp <- length(genes_list) - nrow(full_results)
-  
-  # Filter non-converged genes
-  full_results <- full_results %>% 
-    filter(!gene %in% nonconverge_genes)
-  
-  # Calculate non-convergence rate
-  full_results$nebula_nonconverged_percent <- 
-    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
-                    length(genes_list)) * 100, 3), "%")
-  
-  full_results$Cells <- Cells
-  full_results$Genes <- nrow(full_results)
-  
-  # FDR correction
-  full_results$fdr <- p.adjust(full_results$p_group, method = "fdr")
-  full_results$PValue10 <- -log10(pmax(full_results$p_group, 1e-10))
-  
-  # Save results
-  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
-  output_file <- file.path(paste0("/home/hhampson/Results/NEBULA_T2DvsLC_", cell_name_clean, 
-                                  "_treatment_adjusted_2000.csv"))
-  write.csv(full_results, output_file, row.names = FALSE)
-  
-  cat("Results saved:", output_file, "\n\n")
-  
-  # Create volcano plot
-  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC_group > 0, "#990000",
-                               ifelse(full_results$fdr < 0.05 & full_results$logFC_group < 0, "#003366", "gray"))
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cells <- Cells  # Already defined earlier in the loop
-  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
-  low_exp <- unique(full_results$low_exp)[1]
-  
-  # Get min/max for x-axis
-  max_fc <- max(full_results$logFC_group)
-  min_fc <- min(full_results$logFC_group)
-  
-  # Create the volcano plot using ggplot
-  volcano_plot <- ggplot(full_results, aes(x = logFC_group, y = PValue10, color = color)) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity() +
-    theme_minimal() +
-    labs(
-      title = paste("Type 2 Diabetes vs. Lean Controls -", cell_name),
-      subtitle = "Organoids, Adjusted for Treatment",
-      x = "Log Fold Change",
-      y = "-log10(P-Value)",
-      color = "FC Direction",
-      caption = paste0("FDR < 0.05, Genes = ", Genes, 
-                       ", Cells = ", Cells, 
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered for Low Expression: ", low_exp)
-    ) +
-    theme(
-      plot.title = element_text(hjust = 0),
-      axis.text.x = element_text(angle = 0, hjust = 1)
-    ) +
-    xlim(-3, 3) +
-    geom_text(data = significant_df, aes(label = gene),
-              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-  
-
-cat("\n=== NEBULA Analysis Complete ===\n")
-```
-
