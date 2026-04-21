@@ -11,6 +11,13 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+R.version$arch    
+```
+
+```{r}
+#BiocManager::install("Seurat")
+#BiocManager::install("SeuratObject")
+library(Seurat)
 library(tidyverse)
 library(arsenal)
 library(dplyr)
@@ -25,6 +32,22 @@ library(jsonlite)
 library(RColorBrewer)
 #install.packages("ggtrace")
 library(ggtrace)
+library(kableExtra)
+library(data.table)
+library(table1)
+#BiocManager::install("speckle")
+library(speckle)
+#BiocManager::install("GSA")
+library(GSA)
+library(emmeans)
+library(pheatmap)
+#BiocManager::install("enrichplot")
+library(enrichplot)
+library(enrichR)
+#BiocManager::install("nebula")
+library(nebula)
+#BiocManager::install("doParallel")
+library(doParallel)
 ```
 
 ```{r}
@@ -39,6 +62,7 @@ if (user == "leidholt") {
     root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
     git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "savanahleidholt") {
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
@@ -67,7 +91,6 @@ if (user == "leidholt") {
 
 ```{r}
 ## Create an S3 client
-
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
   "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
@@ -86,14 +109,14 @@ pb90_multiomics_subset <- s3readRDS(
 ```{r}
 my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
 # Read Seurat object and run UMAP, obtain cell numbers, etc
-pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
-  cbind(pb90_multiomics_subset@reductions$umap.harmony@cell.embeddings)
+#pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
+ # cbind(pb90_multiomics_subset@reductions$umap.harmony@cell.embeddings)
 
-s3saveRDS(pb90_multiomics_subset_meta, 
- object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
- bucket = "scrna", 
- region = "", 
- multipart = T)
+#s3saveRDS(pb90_multiomics_subset_meta, 
+# object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
+# bucket = "scrna", 
+# region = "", 
+# multipart = T)
 ```
 
 
@@ -142,22 +165,27 @@ umap_p
 ```
 
 ```{r}
-
+pb90_multiomics_subset_meta%>%
+  distinct(record_id, group)
 # UMAP by source
-umap_p_source <- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = source)) +
+umap_p_study<- ggplot(pb90_multiomics_subset_meta,
+                 aes(x = umapharmony_1, y = umapharmony_2, color = study)) +
   geom_point(alpha = 0.05, shape = 16) +
-  scale_color_manual(values = c("attempt" = "darkred", 
-                                "pb90" = "darkcyan")) +
+  scale_color_manual(values = c("RENAL-HEIR" = "darkcyan",
+                                "RENAL-HEIRitage"= "gold4",
+                                "IMPROVE" = "orange",
+                                "CROCODILE" = "black",
+                                "ATTEMPT" = "lightpink"
+                                )) +
   theme_minimal() + 
   theme(panel.grid = element_blank(),
         axis.title.x = element_text(hjust = 0),   # move x label to left
         axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
   labs(x = "UMAP1", y = "UMAP2",
-       color = "Source") +
+       color = "study") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
 
-umap_p_source
+umap_p_study
 ```
 
 ```{r}
@@ -174,6 +202,28 @@ umap_p_source
 #)
 ```
 
+```{r}
+table((pb90_multiomics_subset_meta%>%
+  distinct(record_id, visit, .keep_all = T))$group)
+# UMAP by source
+umap_p_study<- ggplot(pb90_multiomics_subset_meta,
+                 aes(x = umapharmony_1, y = umapharmony_2, color = group)) +
+  geom_point(alpha = 0.05, shape = 16) +
+  scale_color_manual(values = c("Obese Control" = "darkcyan",
+                                "Lean Control"= "plum4",
+                                "Type 1 Diabetes" = "orange",
+                                "Type 2 Diabetes" = "black"
+                                )) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        axis.title.x = element_text(hjust = 0),   # move x label to left
+        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  labs(x = "UMAP1", y = "UMAP2",
+       color = "group") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+umap_p_study
+```
 ```{r}
 cell_counts <- pb90_multiomics_subset_meta %>%
   dplyr::count(KPMP_celltype_general) %>%
@@ -194,7 +244,6 @@ cell_count_bar <- ggplot(cell_counts, aes(x = reorder(KPMP_celltype_general, n),
 
 cell_count_bar
 ```
-
 ```{r}
 # Save to a temporary connection
 #tmp <- tempfile(fileext = ".png")
@@ -210,6 +259,9 @@ cell_count_bar
 ```
 
 ```{r}
+table((pb90_multiomics_subset_meta%>%
+  distinct(record_id, visit, .keep_all = T))$group)
+
 # cell counts per group
 cell_counts_group <- pb90_multiomics_subset_meta %>%
   group_by(group) %>%
@@ -222,10 +274,10 @@ cell_counts_group <- pb90_multiomics_subset_meta %>%
 
 ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill = group)) +
   geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("T1D" = "darkred",
-                               "LC" = "#81b29a",
-                               "OC" = "navy",
-                               "T2D"= "lightpink")) +
+  scale_fill_manual(values = c("T1D" = "orange2",
+                               "LC" = "plum4",
+                               "OC" = "darkcyan",
+                               "T2D"= "black")) +
   coord_flip() +
   labs(x = NULL, 
        y = "Count",
@@ -250,4 +302,317 @@ ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill
 #)
 ```
 
+## b. Descriptive Statistics
+```{r}
+#Load Metadata cleaned
+#Table 1
+label(pb90_multiomics_subset_meta$age) <- "Age (years)"
+label(pb90_multiomics_subset_meta$sex) <- "Sex"
+label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
+label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
+label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
+label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
+label(pb90_multiomics_subset_meta$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
+
+table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr| group, data= pb90_multiomics_subset_meta)
+
+
+# Continuous variables 
+continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
+
+m0 <- lm.fit()
+for (var in continuous_vars) {
+  anova <- anova(pb90_multiomics_subset_meta[[var]] ~ pb90_multiomics_subset_meta$group)
+  cat(var, "p-value:", round(t_test$p.value, 4), "\n")
+}
+
+# Categorical variables - chi-square tests
+categorical_vars <- c("sex", "race_ethnicity_condensed")
+
+for (var in categorical_vars) {
+  chi_test <- chisq.test(table(pb90_multiomics_subset_meta[[var]], pb90_multiomics_subset_meta$group))
+  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
+}
+
+```
+
+```{r}
+## a. Aim 1.1: Perform differential expression between all group comparisons (T1D, T2D, LC, OC)
+### i. Pre-Analysis Steps
+# Verify dimensions
+pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
+  pb90_multiomics_subset@meta.data$cell_type_abbrev, 
+  " = ", 
+  pb90_multiomics_subset@meta.data$cell_type
+)
+nrow(pb90_multiomics_subset) # genes 31974
+ncol(pb90_multiomics_subset) # cells 307386
+
+#set up contrasts
+
+```
+```{r}
+# Check your metadata
+table(pb90_multiomics_subset$group)
+table(pb90_multiomics_subset$kit_id)
+table(pb90_multiomics_subset$source)
+table(pb90_multiomics_subset$study)
+table(pb90_multiomics_subset$KPMP_celltype_general)
+head(pb90_multiomics_subset@meta.data[, c("group", "kit_id", "record_id", "KPMP_celltype_general")])
+```
+```{r}
+groups      <- unique(pb90_multiomics_subset_meta$group)
+group_pairs <- combn(groups, 2, simplify = FALSE)  # all pairwise combos
+
+propeller_results <- list()
+
+for (pair in group_pairs) {
+  pair_name <- paste(pair, collapse = "_vs_")
+  cat("\n=== Propeller:", pair_name, "===\n")
+  
+  # Subset metadata to just these two groups
+  meta_sub <- pb90_multiomics_subset_meta[pb90_multiomics_subset_meta$group %in% pair, ]
+  meta_sub$group <- droplevels(factor(meta_sub$group))  # drop unused levels
+  
+  res <- propeller(
+    clusters  = meta_sub$KPMP_celltype_general,
+    sample    = meta_sub$record_id,
+    group     = meta_sub$group,
+    transform = "logit"
+  )
+  
+  res$comparison <- pair_name
+  propeller_results[[pair_name]] <- res
+  
+  write.csv(
+    x    = res,
+    file = file.path(dir.results, "T1D-T2D", "Results",
+                     paste0("propeller_", pair_name, ".csv")),
+    row.names = TRUE
+  )
+}
+```
+```{r}
+# --- Propeller test: all groups---
+# propeller needs: clusters, sample, group stored in metadata
+# Make sure "group" and "record_id" are columns in so_combined metadata
+#propeller_group <- propeller(
+#  clusters = pb90_multiomics_subset_meta$KPMP_celltype_general,
+#  sample = pb90_multiomics_subset_meta$record_id,
+#  group = pb90_multiomics_subset_meta$group,
+#  transform = "logit"
+#)
+
+#cat("\n=== Propeller Results: All GROUPs ===\n")
+#print(propeller_group)
+
+# Save results
+#write.csv(
+#  x    = propeller_group,
+#  file = file.path(dir.results, "T1D-T2D", "Results", "propeller_group.csv"),
+#  row.names = FALSE
+#)
+```
+
+```{r}
+groups      <- unique(pb90_multiomics_subset_meta$group)
+group_pairs <- combn(groups, 2, simplify = FALSE)
+
+celltypes_list <- unique(pb90_multiomics_subset_meta$KPMP_celltype_general)
+
+for (pair in group_pairs) {
+  pair_name <- paste(pair, collapse = "_vs_")
+  cat("\n\n============================")
+  cat("\nComparison:", pair_name)
+  cat("\n============================\n")
+  
+  # Subset to this pair of groups
+  seurat_pair <- subset(pb90_multiomics_subset,
+                        group %in% pair)
+  seurat_pair$group <- droplevels(factor(seurat_pair$group, levels = pair))  # pair[1] = reference
+  
+  for (cell_name in celltypes_list) {
+    cat("\n=== Processing:", cell_name, "===\n")
+    
+    seurat_sub <- subset(seurat_pair, KPMP_celltype_general == cell_name)
+    DefaultAssay(seurat_sub) <- "RNA"
+
+    
+    cat("Genes:", nrow(seurat_sub), "| Cells:", ncol(seurat_sub), "\n")
+    
+    seurat_sub <- FindVariableFeatures(seurat_sub,
+                                       selection.method = "vst",
+                                       nfeatures = 500)
+    
+    hvgs       <- VariableFeatures(seurat_sub)
+    genes_list <- hvgs
+    meta_full  <- seurat_sub@meta.data
+    cat("HVGs:", length(hvgs), "\n")
+    
+    counts_hvg <- round(GetAssayData(seurat_sub, layer = "counts")[hvgs, , drop = FALSE])
+    
+    #setting up parallel processing
+    cl <- makeCluster(4)
+    registerDoParallel(cl)
+    start_time <- Sys.time()
+    
+    nebula_results_list <- foreach(g = genes_list,
+                                   .packages = c("nebula", "Matrix")) %dopar% {
+      tryCatch({
+        count_gene <- counts_hvg[g, , drop = FALSE]
+        pred_gene  <- model.matrix(~ group + age + sex + study, data = meta_full)
+        library    <- meta_full$pooled_offset
+        
+        data_g_gene <- group_cell(count  = count_gene,
+                                  id     = meta_full$record_id,
+                                  pred   = pred_gene,
+                                  offset = library)
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(count  = count_gene,
+                              id     = meta_full$record_id,
+                              pred   = pred_gene,
+                              offset = library)
+        }
+        
+        result <- nebula(count      = data_g_gene$count,
+                         id         = data_g_gene$id,
+                         pred       = data_g_gene$pred,
+                         ncore      = 1,
+                         reml       = TRUE,
+                         model      = "NBLMM",
+                         output_re  = TRUE,
+                         covariance = TRUE,
+                         offset     = data_g_gene$offset)
+        
+        list(gene = g, result = result)
+        
+      }, error = function(e) {
+        cat("Error on gene", g, ":", conditionMessage(e), "\n")
+        NULL
+      })
+    }
+    
+    stopCluster(cl)
+    cat("Time elapsed:", round(difftime(Sys.time(), start_time, units = "mins"), 2), "mins\n")
+    
+    out_path <- file.path(dir.results, "T1D-T2D", "Results",
+                          paste0("nebula_", pair_name, "_",
+                                 gsub(" ", "_", cell_name), ".rds"))
+    saveRDS(nebula_results_list, file = out_path)
+    cat("Saved:", out_path, "\n")
+  }
+}
+```
+
+```{r}
+# Process results
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+  
+  # Check convergence
+  nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      data.frame(Gene = gene_name, Convergence_Code = converged)
+    }
+  )
+  
+  # Extract summaries
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Identify non-converged genes
+  nonconverge_genes <- unique(
+    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+  )
+  
+  # Format results
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept", "logFC_group","logFC_treatment", "se_Intercept", 
+                              "se_group","se_treatment", "p_Intercept", "p_group","p_treatment", 
+                              "gene_id", "gene")
+  
+  full_results$Variable <- "T1D_vs_LC"
+  full_results$Celltype <- cell_name
+  
+  # Calculate number of genes filtered out for low expression
+  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  
+  # Filter non-converged genes
+  full_results <- full_results %>% 
+    filter(!gene %in% nonconverge_genes)
+  
+  # Calculate non-convergence rate
+  full_results$nebula_nonconverged_percent <- 
+    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
+                    length(genes_list)) * 100, 3), "%")
+  
+  full_results$Cells <- Cells
+  full_results$Genes <- nrow(full_results)
+  
+  # FDR correction
+  full_results$fdr <- p.adjust(full_results$p_group, method = "fdr")
+  full_results$PValue10 <- -log10(pmax(full_results$p_group, 1e-10))
+  
+  # Save results
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  output_file <- file.path(paste0("/home/hhampson/Results/NEBULA_T2DvsLC_", cell_name_clean, 
+                                  "_treatment_adjusted_2000.csv"))
+  write.csv(full_results, output_file, row.names = FALSE)
+  
+  cat("Results saved:", output_file, "\n\n")
+  
+  # Create volcano plot
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC_group > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC_group < 0, "#003366", "gray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cells <- Cells  # Already defined earlier in the loop
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  
+  # Get min/max for x-axis
+  max_fc <- max(full_results$logFC_group)
+  min_fc <- min(full_results$logFC_group)
+  
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC_group, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("Type 2 Diabetes vs. Lean Controls -", cell_name),
+      subtitle = "Organoids, Adjusted for Treatment",
+      x = "Log Fold Change",
+      y = "-log10(P-Value)",
+      color = "FC Direction",
+      caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                       ", Cells = ", Cells, 
+                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                       ", Genes Filtered for Low Expression: ", low_exp)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+
+cat("\n=== NEBULA Analysis Complete ===\n")
+```
 
