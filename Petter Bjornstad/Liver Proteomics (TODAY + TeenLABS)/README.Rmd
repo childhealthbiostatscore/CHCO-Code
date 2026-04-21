@@ -1,0 +1,270 @@
+---
+title: "Liver Proteomics (TODAY + TeenLABS) — Handoff README"
+author: "Hailey Hampson"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+---
+
+# Project Overview
+
+This project investigates associations between circulating proteomics (SomaScan platform) and liver enzyme trajectories (ALT and AST) in two youth-onset obesity/diabetes cohorts:
+
+- **TODAY** (Treatment Options for type 2 Diabetes in Adolescents and Youth) — a multi-center RCT of youth-onset T2D; provides longitudinal proteomics and ALT/AST from baseline (~M00) through ~10-year follow-up (~P120)
+- **TeenLABS** — a surgical weight loss cohort; provides proteomics before and after bariatric surgery
+
+Key scientific questions:
+
+1. Are baseline circulating protein levels associated with ALT/AST trajectories over time?
+2. Are changes in protein levels associated with changes in ALT/AST?
+3. Which proteins/pathways are most predictive of liver enzyme trajectories (via elastic net feature selection)?
+
+**PI:** Petter Bjornstad
+**Biostatisticians:** Hailey Hampson; Laura Pyle (elastic net Cox model approach)
+**Core:** Laura Pyle — Biostatistics Core, University of Washington
+
+---
+
+# Directory Structure
+
+## Code Repository
+
+```
+Liver Proteomics (TODAY + TeenLABS)/
+├── README.Rmd                                      # This file
+├── Lambda_Liver_Proteomics.Rmd                     # PRIMARY analysis script (run on Lambda HPC)
+├── TODAY_TeenLABS_Proteomics_Lambda.Rmd            # TODAY + TeenLABS combined analysis (Lambda)
+├── Lambda_Liver_Proteomics_Functions.R             # Custom functions and gene sets
+├── Lambda_Libraries_Liver_Proteomics.R             # Package imports
+└── Local/
+    ├── Local_Liver_Proteomics.Rmd                  # Local version (loads from OneDrive)
+    ├── TODAY somalogic elastic net models baseline_heh.Rmd  # Elastic net Cox models (Laura Pyle, adapted)
+    └── Local.Rproj                                 # RStudio project
+```
+
+## Results Directory (OneDrive)
+
+```
+Hailey Hampson/1_Ongoing Projects/Liver Proteomics/
+├── Results/
+│   ├── ALT_AST_Overtime_TODAY.png              # ALT/AST trajectory plot (visit-based x-axis)
+│   ├── ALT_AST_Overtime_TODAY_Months.png       # ALT/AST trajectory plot (months x-axis)
+│   └── Model_Performance_Approach1/
+│       ├── n_proteins_selected.png             # Number of proteins selected by elastic net
+│       ├── r2_heatmap.png                      # R² heatmap across outcomes/approaches
+│       └── r2_performance.png                  # Elastic net model R² performance summary
+├── Results.docx                                # Full results write-up (most recent: April 2026)
+├── Methods.docx                                # Methods section draft
+└── Liver Enzymes and Proteomics Project.pptx  # Presentation slides
+```
+
+---
+
+# Data Sources
+
+All data are stored in the **Kopah S3 object storage** (`harmonized.dataset` bucket) at UW and accessed via Python/boto3 through `reticulate` on the Lambda HPC server.
+
+## Key Data Files (Kopah S3)
+
+| File | Description |
+|------|-------------|
+| `today_proteomics_longitudinal_log2.rds` | Longitudinal TODAY proteomics (log2-transformed, baseline + follow-up) |
+| `today_proteomics_log2.rds` | Cross-sectional TODAY proteomics (baseline only, log2-transformed) |
+| `CBL.csv` | TODAY clinical data — includes ALT, AST, and visit information |
+| `gene_prot.RDS` | Gene-protein key: maps SomaScan `AptName` (seq.XXXX) IDs to gene symbols |
+
+## Kopah S3 Access Setup
+
+Data loading requires Lambda HPC access with Python/boto3 credentials:
+
+```{r}
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
+library(jsonlite)
+
+keys <- fromJSON("/home/[your_lambda_username]/keys.json")
+boto3 <- reticulate::import("boto3")
+session <- boto3$session$Session(
+  aws_access_key_id     = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+# Example: download proteomics data
+bucket    <- "harmonized.dataset"
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file(bucket, "today_proteomics_longitudinal_log2.rds", temp_file)
+prot <- readRDS(temp_file)
+```
+
+For **local use**, load directly from OneDrive (see `Local/Local_Liver_Proteomics.Rmd`):
+
+```{r}
+dir.dat <- "/Users/[your_username]/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
+prot <- readRDS(fs::path(dir.dat, "Liver project", "Data", "today_proteomics_longitudinal_log2.rds"))
+```
+
+---
+
+# Proteomics Platform
+
+- **Platform:** SomaScan (SomaLogic) — ~7,288 protein aptamers
+- **Identifier format:** `seq.XXXX.XX` column names in the proteomics data frames
+- **Transformation:** log2-transformed prior to analysis
+- **Gene mapping:** `gene_prot.RDS` maps aptamer IDs to `EntrezGeneSymbol`; used to filter to proteins with matched gene symbols from the liver scRNAseq atlas
+
+---
+
+# Study Populations
+
+## TODAY
+
+- Multi-center RCT of youth-onset T2D
+- **~376 participants** with proteomics; **~265 with both proteomics and ALT/AST** (201 with ALT and/or AST at relevant timepoints)
+- **Baseline visit:** M00; **~10-year follow-up:** P120
+- **Outcomes:** ALT, AST, ALT/AST ratio, NAFLD status
+- Proteomics filtered to genes expressed in the liver scRNAseq atlas
+
+## TeenLABS
+
+- Bariatric surgery cohort (adolescent/young adult)
+- Proteomics before and after surgical weight loss
+- Analysis in `TODAY_TeenLABS_Proteomics_Lambda.Rmd` (in progress)
+
+---
+
+# Analysis Workflow
+
+## 1. Data Loading & Formatting (`§3a` in main Rmd)
+
+- Load longitudinal proteomics and clinical (ALT/AST) data from Kopah
+- Merge proteomics with ALT/AST by participant ID
+- Filter proteomics to proteins with gene symbols represented in the liver scRNAseq atlas
+
+## 2. ALT/AST Trajectory Characterization
+
+- Spaghetti plots of individual ALT and AST trajectories over time (saved to `Results/`)
+- Derive a **slope variable** per person representing their ALT or AST trajectory (linear fit)
+- Construct mean ALT/AST as a summary outcome
+
+## 3. Dataset Construction (Three Analytical Approaches)
+
+Three protein feature datasets are constructed for the elastic net:
+
+| Dataset | Description | Dimensions |
+|---------|-------------|------------|
+| **A** — Baseline proteins | Baseline protein levels | 265 × 7,288 |
+| **B** — Protein changes | Change from baseline to follow-up | 265 × 7,288 |
+| **C** — Combined | Baseline + change features | 265 × 14,576 |
+
+## 4. Elastic Net Feature Selection (`§3b` in main Rmd)
+
+Elastic net regression (α = 0.5, 10-fold cross-validation) is used to select proteins predictive of ALT/AST outcomes. Two regularization thresholds are reported:
+
+- **`lambda.min`** — minimizes CV error (more features selected)
+- **`lambda.1se`** — 1 SE above minimum (more regularized, more stable)
+
+Results include number of selected proteins and R² performance metrics, saved to `Results/Model_Performance_Approach1/`.
+
+## 5. Linear Regression — Proteins ~ ALT/AST
+
+Per-protein linear regression loops across all proteins for both crude and adjusted models:
+
+| Model | Covariates |
+|-------|-----------|
+| Crude | Protein only |
+| Adjusted | Protein + age + sex (+ other covariates as applicable) |
+
+Outcomes: ALT, AST, ALT/AST ratio. Results annotated with gene names via `gene_prot.RDS`.
+
+## 6. Mixed Models — Longitudinal Associations (`TODAY_TeenLABS_Proteomics_Lambda.Rmd`)
+
+Linear mixed effects models associating baseline proteins with mean ALT and mean AST over time, accounting for repeated measures per participant.
+
+## 7. GSEA
+
+Gene set enrichment analysis on ranked protein associations (crude), using custom gene sets defined in `Lambda_Liver_Proteomics_Functions.R`, including:
+
+- Senescence-associated secretory phenotype (SASP) genes
+- Metabolic pathway gene sets (TCA cycle, glycolysis)
+
+## 8. Other Outcomes
+
+- **NAFLD status** — protein associations with NAFLD1 (mixed model)
+- Additional liver outcomes as available
+
+---
+
+# Custom Gene Sets (`Lambda_Liver_Proteomics_Functions.R`)
+
+Key gene sets defined in the functions file:
+
+| Gene Set | Description |
+|----------|-------------|
+| `sens_genes` | Senescence / SASP gene panel (~100 genes, including IL6, TNF, MMP family, CXCL family, VEGFA, IGFBP family) |
+| TCA cycle | Tricarboxylic acid cycle genes (from external CSV) |
+| Glycolysis | Glycolytic pathway genes (from external CSV) |
+
+---
+
+# Key R Packages
+
+| Package | Purpose |
+|---------|---------|
+| `glmnet` | Elastic net regularized regression |
+| `lme4` / `lmerTest` | Linear mixed effects models |
+| `PGEE` | Penalized generalized estimating equations |
+| `tidyverse` | Data wrangling and visualization |
+| `ggplot2` / `ggrepel` | Plotting, volcano plots |
+| `reticulate` | Python/boto3 interface for Kopah S3 access |
+| `jsonlite` | Load Kopah credentials from JSON |
+| `fs` | File path management |
+| `SomaDataIO` | SomaScan data I/O (used in Laura Pyle's elastic net script) |
+| `limma` | Linear models for proteomics |
+
+---
+
+# Results Files Summary
+
+| File | Description |
+|------|-------------|
+| `Results/ALT_AST_Overtime_TODAY.png` | Individual ALT/AST trajectories by visit |
+| `Results/ALT_AST_Overtime_TODAY_Months.png` | Same plot with months on x-axis |
+| `Results/Model_Performance_Approach1/r2_heatmap.png` | R² across protein datasets and outcomes |
+| `Results/Model_Performance_Approach1/n_proteins_selected.png` | Proteins selected by elastic net |
+| `Results/Model_Performance_Approach1/r2_performance.png` | Overall elastic net model performance |
+| `Results.docx` | Full results write-up (April 2026) |
+| `Methods.docx` | Methods draft |
+| `Liver Enzymes and Proteomics Project.pptx` | Slide deck for presentations |
+
+---
+
+# Notes
+
+- **Kopah access is required** to run the Lambda scripts — data cannot be loaded locally without either Kopah credentials or downloading files manually to OneDrive first. Use `Local/Local_Liver_Proteomics.Rmd` for local runs once data files are on OneDrive.
+- The `gene_prot.RDS` key is essential for translating SomaScan `seq.XXXX` aptamer IDs to gene symbols. Always load this before filtering proteins.
+- Proteins are filtered to those with gene symbols present in the liver scRNAseq atlas — this substantially reduces the feature space from the full SomaScan panel.
+- The TeenLABS analysis in `TODAY_TeenLABS_Proteomics_Lambda.Rmd` is in progress; TODAY analyses are more complete.
+- `TODAY somalogic elastic net models baseline_heh.Rmd` (in `Local/`) was originally written by Laura Pyle and adapted for this project — it focuses on Cox proportional hazards elastic net for time-to-event ALT/AST outcomes.
+
+---
+
+# Contact
+
+- **Hailey Hampson** — hehampson@uw.edu (primary biostatistician)
+- **Laura Pyle** — lpyle@uw.edu (Biostatistics Core lead, elastic net Cox approach)
+- **Petter Bjornstad** — petter.bjornstad@cuanschutz.edu (PI)

@@ -109,12 +109,17 @@ def clean_improve():
     # Replace missing values
     med.replace(rep, np.nan, inplace=True)
     # SGLT2i (diabetes_med_other___4), RAASi (htn_med_type___1, htn_med_type___2), Metformin (diabetes_med_other___1)
-    med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "htn_med_type___1",
+    med = med[["subject_id", "study_visit", "med_date", "diabetes_med_other___3", "diabetes_med_other___2", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
     med["diabetes_med_other___3"] = med["diabetes_med_other___3"].replace(
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___3": "sglti_timepoint"},
+               axis=1, inplace=True)
+    # GLP1RA
+    med["diabetes_med_other___2"] = med["diabetes_med_other___2"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
+    med.rename({"diabetes_med_other___2": "glp1_agonist_timepoint"},
                axis=1, inplace=True)
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
@@ -227,8 +232,7 @@ def clean_improve():
     mri.rename({"lv_grs" : "grs", "lv_gcs": "gcs", "lv_gls": "gls", "af_pwv_xcor3": "af_pwv",
                     "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
                     "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
-    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri",
-              "lvedvi", "lvesvi","lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
+    mri.drop(redcap_cols + ["cardio", "abdo", "aortic", "study_mri"],
              axis=1, inplace=True)
 
     mri["procedure"] = "cardio_abdominal_mri"
@@ -399,7 +403,8 @@ def clean_improve():
              axis=1, inplace=True)
     # Kidney outcomes like GFR, etc. were collected with the clamp, not
     # necessarily the day of the MRI
-    bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
+    bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)
+                     or c.startswith("adc_") or c.startswith("volume_")]
     bold_mri = out[["subject_id", "study_visit",
                     "mri_visit_date"] + bold_mri_cols].copy()
     bold_mri.rename({"mri_visit_date": "date",

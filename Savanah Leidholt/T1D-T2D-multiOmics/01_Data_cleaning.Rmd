@@ -18,13 +18,17 @@ library(haven)
 library(SeuratObject)
 ```
 
+#double check metabolite data
+#make pretty summary tables with descriptive statistics
+
+
 #---------------------------------------------------
 # inputting all directories and storage locations
 #---------------------------------------------------
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "sleidholt") {
@@ -43,19 +47,16 @@ if (computer == "mac studio") {
 ```
 
 ```{r}
-# ------------
-#load objects 
-#------------
 harm <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
 dict <- readRDS(file.path(dir.dat, "Data Harmonization", "Data Clean", "data_dictionary_master.rds"))
 harm_soma <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv"))
 load(file.path(dir.dat, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther
 ```
 
-```{r}
 #--------------------------
 #reading in attempt
 #--------------------------
+```{r}
 attempt <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "attempt_dat.rds"))
 
 #trasnforming data to match the harmonized data
@@ -72,12 +73,10 @@ panther_hba1c <- panther %>%
   select(record_id, visit, hba1c)
   
 ```
-
-```{r}
 #-----------------------------------------------
 # bind attmempt & panther data to larger harmonized dataset
 #-----------------------------------------------
-
+```{r}
 harm <- harm %>%
   mutate(
     record_id = as.character(record_id),
@@ -124,11 +123,10 @@ metab <- metab_bl_tiss$variable_name
 lipids <- dict[grepl("lipidomics", dict$form_name), c("variable_name", "label", "form_name")] #lipids more straight forward
 lip <- lipids$variable_name
 ```
-
-```{r}
 #-----------------
 #bind metabolomics 
 #-----------------
+```{r}
 #Checking if any metabolites listed are not in the larger dataset---three don't exist in the larger dataset
 setdiff(metab, colnames(harm))
 
@@ -232,12 +230,10 @@ length(non_numeric)
 head(non_numeric, 50)   # show first 50 offenders
 ```
 
-
-```{r}
 #-----------------------
 #binding lipid data
 #-----------------------
-
+```{r}
 harm_lipids <- harm %>%
   filter(study %in% studies_keep) %>%
   select(any_of(c(id_cols, clin_cols, lip))) %>%
@@ -356,12 +352,10 @@ unique_mrn <- harm_proteins%>%
 #combined unique ids
 harm_proteins<- bind_rows(na_mrn, unique_mrn)
 ```
-
-```{r}
 #-----------------------------
 #adding in attempt acr_u
 #-----------------------------
-
+```{r}
 harm_proteins <- harm_proteins %>%
   left_join(attempt_acr, by = c("record_id" = "subject_id", "visit" = "visit")) %>%
   mutate(
@@ -439,8 +433,7 @@ n_table
 ```
 
 ```{r}
-
-# ---- save for other Rmd ----
+#save for later
 out_path <- file.path(dir.dat, "Savanah Leidholt", "T1D-T2D","Data","omics_split_objects3.rds")
 
 saveRDS(
@@ -463,18 +456,13 @@ out_path
 ```
 
 ```{r}
-# =========================================================
-# Combine metabolomics + lipidomics + proteomics (union IDs)
-# NO feature prefixes, NO metadata suffixes
-# =========================================================
-
 # --- inputs assumed to already exist ---
 # meta_metab, metabolites
 # meta_lips,  lipids
 # meta_prot,  prot_plasma, prot_urine
 
 # -----------------------------
-# 0) helpers
+#helpers
 # -----------------------------
 make_unique_ids <- function(x) {
   # if record_id duplicates exist, make them unique (rare but safe)
@@ -530,9 +518,8 @@ fill_to_ids <- function(mat, ids) {
 
 coalesce3 <- function(a, b, c) dplyr::coalesce(a, b, c)
 
-# -----------------------------
-# 1) standardize rownames everywhere
-# -----------------------------
+
+#standardize rownames 
 metab_fixed <- fix_rownames_to_record_id(meta_metab, metabolites, id_col = "record_id")
 meta_metab2 <- metab_fixed$meta
 metab_mat   <- metab_fixed$mat
@@ -559,18 +546,15 @@ stopifnot(
   identical(rownames(meta_prot2),  rownames(protU_mat))
 )
 
-# -----------------------------
-# 2) union IDs (allow missing blocks)
-# -----------------------------
+
+# union IDs (allow missing blocks)
 ids <- Reduce(union, list(
   rownames(metab_mat),
   rownames(lipid_mat),
   rownames(meta_prot2)
 ))
 
-# -----------------------------
-# 3) Build meta_all WITHOUT suffixes (coalesce across sources)
-# -----------------------------
+#  Build meta_all 
 meta_cols_keep <- c(
   "record_id", "mrn", "study", "visit", "group", "sex", "race", "ethnicity",
   "age", "bmi", "eGFR_fas_cr", "hba1c", "acr_u",
@@ -588,9 +572,6 @@ if (!("record_id" %in% names(mp))) mp$record_id <- rownames(mp)
 if (!("record_id" %in% names(ml))) ml$record_id <- rownames(ml)
 if (!("record_id" %in% names(mm))) mm$record_id <- rownames(mm)
 
-# --------------------------------------
-# ADD meta_numeric HERE (before the loop)
-# --------------------------------------
 meta_numeric <- c(
   "age", "bmi", "eGFR_fas_cr", "hba1c", "acr_u"
 )
@@ -599,9 +580,6 @@ meta_numeric <- c(
 meta_all <- as.data.frame(matrix(NA, nrow = length(ids), ncol = 0))
 rownames(meta_all) <- ids
 
-# --------------------------------------
-# THEN your coalescing loop
-# --------------------------------------
 for (cc in meta_cols_keep) {
   a <- if (cc %in% names(mp)) mp[[cc]] else rep(NA, length(ids))
   b <- if (cc %in% names(ml)) ml[[cc]] else rep(NA, length(ids))
@@ -641,10 +619,6 @@ omics_all <- cbind(meta_all, X_all)
 
 ```{r}
 dim(omics_all)
-
-# -----------------------------
-# 6) Save
-# -----------------------------
 saveRDS(
   omics_all,
   file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_all.rds")

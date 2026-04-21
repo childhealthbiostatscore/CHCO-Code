@@ -137,6 +137,108 @@ analysis_config <- list(
   ),
 
   # =========================================================================
+  # STEP 2 DIAGNOSTIC: BMI comparisons restricted to non-ATTEMPT studies
+  # (same subject pool as the DXA analyses, to isolate the ATTEMPT study
+  # confound from the BMI-vs-DXA measurement difference)
+  # =========================================================================
+
+  T1D_normal_vs_ow_obese_bmi_noattempt = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & study != 'ATTEMPT'",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_noattempt", file_suffix = "t1d_norm_owob_bmi_noattempt",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_bmi_noattempt_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & study != 'ATTEMPT'",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_noattempt_adj_age",
+    file_suffix = "t1d_norm_owob_bmi_noattempt_adj_age",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_bmi_noattempt_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & study != 'ATTEMPT'",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese", logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_noattempt_adj_age_sex",
+    file_suffix = "t1d_norm_owob_bmi_noattempt_adj_age_sex",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
+  T1D_nonobese_vs_obese_bmi_noattempt = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & study != 'ATTEMPT'",
+    group_var = "bmi_obese_binary", ref_level = "Non_Obese",
+    pval_col = "p_bmi_obese_binaryObese", logfc_col = "logFC_bmi_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_bmi_noattempt",
+    file_suffix = "t1d_nonob_ob_bmi_noattempt",
+    needs_binary_bmi = TRUE
+  ),
+
+  # =========================================================================
+  # STEP 6 DIAGNOSTIC: matched-subject analysis (has_both_bmi_dxa == TRUE)
+  # Restrict to the ~42 subjects who have both BMI and DXA obesity
+  # categories. Running BMI and DXA NEBULA on the same cell pool isolates
+  # the *measurement-definition* effect from the *subject-composition*
+  # effect.
+  # Requires 02_meta_merge_w_seurat.R to have added has_both_bmi_dxa.
+  # =========================================================================
+
+  T1D_normal_vs_ow_obese_bmi_matched = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & has_both_bmi_dxa & !is.na(bmi_obesity)",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_matched",
+    file_suffix = "t1d_norm_owob_bmi_matched",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_dxa_matched = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & has_both_bmi_dxa & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_matched",
+    file_suffix = "t1d_norm_owob_dxa_matched",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_bmi_matched_adj_age_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & has_both_bmi_dxa & !is.na(bmi_obesity)",
+    group_var = "bmi_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_bmi_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_bmi_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_bmi_matched_adj_age_study",
+    file_suffix = "t1d_norm_owob_bmi_matched_adj_age_study",
+    needs_binary_ow_obese_bmi = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_dxa_matched_adj_age_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & has_both_bmi_dxa & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_matched_adj_age_study",
+    file_suffix = "t1d_norm_owob_dxa_matched_adj_age_study",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
+  # =========================================================================
   # CATEGORICAL COMPARISONS (DXA-defined)
   # =========================================================================
   
@@ -1301,6 +1403,110 @@ analysis_config <- list(
     continuous_var = "dexa_trunk_mass", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_group_age_sex"
+  ),
+
+  # =========================================================================
+  # STEP 3 DIAGNOSTIC: DXA models adjusted for study
+  # (study acts as a fixed effect to absorb study-level batch/biology.
+  # Only meaningful for DXA analyses, since ATTEMPT has no DXA; adding
+  # "study" to a BMI model that includes ATTEMPT would be collinear with
+  # the adiposity contrast for the all-ATTEMPT Overweight cells.)
+  # =========================================================================
+
+  # ---- Categorical DXA, adj for study ----
+  T1D_normal_vs_ow_obese_dxa_adj_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("study"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_adj_study",
+    file_suffix = "t1d_norm_owob_dxa_adj_study",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_dxa_adj_age_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_adj_age_study",
+    file_suffix = "t1d_norm_owob_dxa_adj_age_study",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
+  T1D_normal_vs_ow_obese_dxa_adj_age_sex_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "sex", "study"),
+    pval_col = "p_dxa_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_dxa_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_dxa_adj_age_sex_study",
+    file_suffix = "t1d_norm_owob_dxa_adj_age_sex_study",
+    needs_binary_ow_obese_dxa = TRUE
+  ),
+
+  T1D_nonobese_vs_obese_dxa_adj_age_study = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dxa_obesity)",
+    group_var = "dxa_obese_binary", ref_level = "Non_Obese",
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dxa_obese_binaryObese",
+    logfc_col = "logFC_dxa_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_dxa_adj_age_study",
+    file_suffix = "t1d_nonob_ob_dxa_adj_age_study",
+    needs_binary_dxa = TRUE
+  ),
+
+  # ---- Continuous DXA (T1D only), adj for age + study ----
+  cont_dexa_body_fat_t1d_adj_age_study = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_body_fat)",
+    continuous_var = "dexa_body_fat", adjust_group = FALSE,
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dexa_body_fat", logfc_col = "logFC_dexa_body_fat",
+    s3_subdir = "continuous/dexa_body_fat_t1d_adj_age_study",
+    file_suffix = "cont_dexa_body_fat_t1d_adj_age_study"
+  ),
+  cont_dexa_est_vat_t1d_adj_age_study = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_est_vat)",
+    continuous_var = "dexa_est_vat", adjust_group = FALSE,
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dexa_est_vat", logfc_col = "logFC_dexa_est_vat",
+    s3_subdir = "continuous/dexa_est_vat_t1d_adj_age_study",
+    file_suffix = "cont_dexa_est_vat_t1d_adj_age_study"
+  ),
+  cont_dexa_ag_ratio_t1d_adj_age_study = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_ag_ratio)",
+    continuous_var = "dexa_ag_ratio", adjust_group = FALSE,
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dexa_ag_ratio", logfc_col = "logFC_dexa_ag_ratio",
+    s3_subdir = "continuous/dexa_ag_ratio_t1d_adj_age_study",
+    file_suffix = "cont_dexa_ag_ratio_t1d_adj_age_study"
+  ),
+  cont_dexa_trunk_kg_t1d_adj_age_study = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_trunk_kg)",
+    continuous_var = "dexa_trunk_kg", adjust_group = FALSE,
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dexa_trunk_kg", logfc_col = "logFC_dexa_trunk_kg",
+    s3_subdir = "continuous/dexa_trunk_kg_t1d_adj_age_study",
+    file_suffix = "cont_dexa_trunk_kg_t1d_adj_age_study"
+  ),
+  cont_dexa_lean_mass_t1d_adj_age_study = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_lean_mass)",
+    continuous_var = "dexa_lean_mass", adjust_group = FALSE,
+    adjust_covariates = c("age", "study"),
+    pval_col = "p_dexa_lean_mass", logfc_col = "logFC_dexa_lean_mass",
+    s3_subdir = "continuous/dexa_lean_mass_t1d_adj_age_study",
+    file_suffix = "cont_dexa_lean_mass_t1d_adj_age_study"
   )
 )
 
@@ -1442,12 +1648,32 @@ if (!is.null(config$adjust_covariates)) {
   cat(sprintf("Removed %d cells with NA in covariates (%s): %d -> %d cells\n",
               n_before - n_after, paste(config$adjust_covariates, collapse = ", "),
               n_before, n_after))
-  
+
   # Re-check minimum cells after covariate NA removal
   if (n_after < 30) {
     cat(sprintf("SKIPPING: Too few cells (%d < 30) after covariate NA removal for %s - %s\n",
                 n_after, analysis_type, celltype_group_input))
     quit(save = "no", status = 0)
+  }
+
+  # Coerce character covariates (e.g. "study", "sex") to factor and check that
+  # each has > 1 level -- otherwise NEBULA's design matrix will be singular.
+  for (cov in config$adjust_covariates) {
+    if (is.character(pb90_celltype@meta.data[[cov]])) {
+      pb90_celltype@meta.data[[cov]] <- factor(pb90_celltype@meta.data[[cov]])
+    }
+    if (is.factor(pb90_celltype@meta.data[[cov]])) {
+      pb90_celltype@meta.data[[cov]] <- droplevels(pb90_celltype@meta.data[[cov]])
+      n_lev <- nlevels(pb90_celltype@meta.data[[cov]])
+      cat(sprintf("Covariate '%s' levels after subset: %d (%s)\n",
+                  cov, n_lev,
+                  paste(levels(pb90_celltype@meta.data[[cov]]), collapse = ", ")))
+      if (n_lev < 2) {
+        cat(sprintf("SKIPPING: Covariate '%s' has <2 levels after subsetting for %s - %s\n",
+                    cov, analysis_type, celltype_group_input))
+        quit(save = "no", status = 0)
+      }
+    }
   }
 }
 

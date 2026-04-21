@@ -69,9 +69,9 @@ if (computer == "mac studio") {
 }
 ```
 
-# -----------------------------
-# MSigDB gene sets (Human)
-# -----------------------------
+#-------------------------------
+# getting KEGG and GO databases
+#-------------------------------
 ```{r}
 msig_hs <- msigdbr(species = "Homo sapiens")
 
@@ -108,7 +108,6 @@ summary(lengths(pathways))
 #model ~age + sex
 #----------------
 ```{r}
-# read in limma results from plasma DE analysis that does NOT have stuy in the model
 obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "limma_gsea_inputs_age_sex_study.rds"))
 
 dat1 <- obj$all_studies
@@ -354,6 +353,7 @@ plots2 <- lapply(contrast_names, function(cn) {
 plots2
 
 ```
+
 ```{r}
 #plotting only top 10 reactome pathways in each contrast
 fgsea_reactome2 <- fgsea_all2 %>%
@@ -416,7 +416,6 @@ fgsea_all3 %>%
 
 ```
 
-
 ```{r}
 plots3 <- lapply(contrast_names, function(cn) {
   df <- fgsea_all3 %>% filter(contrast == cn)
@@ -426,6 +425,7 @@ plots3 <- lapply(contrast_names, function(cn) {
 plots
 
 ```
+
 ```{r}
 #plotting only top 10 reactome pathways in each contrast
 fgsea_reactome3 <- fgsea_all3 %>%
@@ -461,11 +461,11 @@ sig2$analysis <- "no_attempt"
 sig3$analysis <- "all3_omics"
 
 sig_all <- bind_rows(sig1, sig2, sig3)
-
-heatmap_all <- sig_all %>%
-  unite("analysis_contrast", analysis, contrast, sep = "_") %>%
-  select(pathway, analysis_contrast, NES) %>%
-  pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
+sig_all_all3 <- bind_rows(sig1, sig3)
+heatmap_all <- sig_all_all3 %>%
+  tidyr::unite("analysis_contrast", analysis, contrast, sep = "_") %>%
+  dplyr::select(pathway, analysis_contrast, NES) %>%
+  tidyr::pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
   column_to_rownames("pathway") %>%
   as.matrix()
 
@@ -487,10 +487,14 @@ shared_pathways <- Reduce(
   list(sig1$pathway, sig2$pathway, sig3$pathway)
 )
 
-heatmap_shared <- sig_all %>%
-  filter(pathway %in% shared_pathways) %>%
-  unite("analysis_contrast", analysis, contrast, sep = "_") %>%
-  select(pathway, analysis_contrast, NES) %>%
+shared_pathways2 <- Reduce(
+  intersect,
+  list(sig1$pathway, sig3$pathway)
+)
+heatmap_shared <- sig_all_all3 %>%
+  filter(pathway %in% shared_pathways2) %>%
+  tidyr::unite("analysis_contrast", analysis, contrast, sep = "_") %>%
+  dplyr::select(pathway, analysis_contrast, NES) %>%
   pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
   column_to_rownames("pathway") %>%
   as.matrix()

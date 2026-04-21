@@ -1,25 +1,33 @@
 #!/bin/bash
-#SBATCH --job-name=scD3_oom128
-#SBATCH --time=02:00:00
-#SBATCH --mem=128G
+#SBATCH --job-name=scD3_oom400
+#SBATCH --time=03:00:00
+#SBATCH --mem=400G
 #SBATCH --cpus-per-task=4
 #SBATCH --partition=ckpt
 #SBATCH --account=togo
-#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/output/02_sim_oom128_%A_%a.out"
-#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/error/02_sim_oom128_%A_%a.err"
+#SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/output/02_sim_oom400_%A_%a.out"
+#SBATCH --error="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/error/02_sim_oom400_%A_%a.err"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
 # File containing array IDs to rerun (one per line)
-ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_040626_1.txt"
+ID_FILE="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_arrays_040626_2.txt"
 
 ################################################################################
 # Self-submission: if not inside a SLURM array task, submit ourselves
 ################################################################################
 if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     N_JOBS=$(wc -l < "${ID_FILE}")
-    echo "OOM 128GB resubmission: ${N_JOBS} jobs from ${ID_FILE}"
-    sbatch --array=1-${N_JOBS}%100 "$0"
+    echo "OOM 400GB resubmission: ${N_JOBS} jobs from ${ID_FILE}"
+    BATCH_SIZE=1000
+    for ((START=1; START<=N_JOBS; START+=BATCH_SIZE)); do
+        END=$((START + BATCH_SIZE - 1))
+        if [ ${END} -gt ${N_JOBS} ]; then
+            END=${N_JOBS}
+        fi
+        echo "Submitting array ${START}-${END}%100"
+        sbatch --array=${START}-${END}%100 "$0"
+    done
     exit 0
 fi
 
@@ -31,7 +39,7 @@ SCRIPT_DIR="${BASE_DIR}/R"
 N_CORES=4
 
 # Failure log
-FAIL_LOG="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_oom128_${SLURM_ARRAY_JOB_ID}.txt"
+FAIL_LOG="/mmfs1/gscratch/togo/yejichoi/project_logs/scD3_logs/02_sim/failed_oom256_${SLURM_ARRAY_JOB_ID}.txt"
 
 # Get the PARAM_ID for this task from the ID file
 # SLURM_ARRAY_TASK_ID is the line number (1-indexed)
@@ -48,7 +56,7 @@ CONTAINER="/mmfs1/gscratch/togo/YC_scRNA.sif"
 
 cd "${BASE_DIR}"
 echo "Working directory: $(pwd)"
-echo "Resubmission (128GB): SLURM task ${SLURM_ARRAY_TASK_ID} → PARAM_ID ${PARAM_ID}"
+echo "Resubmission (256GB): SLURM task ${SLURM_ARRAY_TASK_ID} → PARAM_ID ${PARAM_ID}"
 echo "Job started at: $(date)"
 
 apptainer exec --bind /mmfs1 "${CONTAINER}" \

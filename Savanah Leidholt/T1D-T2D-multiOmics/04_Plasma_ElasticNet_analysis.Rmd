@@ -1,0 +1,563 @@
+---
+title: "Elastic Net Analysis"
+output: pdf_document
+author: "Savanah Leidholt"
+date: "02/17/2026"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths("~/leidholt/R")
+```
+
+```{r}
+#load packages
+library(dplyr)
+library(tidyr)
+library(glmnet)
+library(pROC)
+library(ggplot2)
+library(tibble)
+```
+
+```{r}
+#Directories
+computer <- "mac studio"
+#computer <- "mac laptop"
+
+user <- Sys.info()[["user"]]
+
+if (computer == "mac studio") {
+  
+  if (user == "sleidholt") {
+    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+    
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+
+} else if (computer == "mac laptop") {
+
+  if (user == "savanahleidholt") {
+    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    
+  } else if (user == "shivaniramesh") {
+    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
+  }
+}
+```
+
+#-----------------------------
+#Data cleaning and naming setup
+#---------------------------
+```{r}
+prot_mat_out1 <- read.csv(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "prot_imp"), row.names = "X")
+
+obj2 <- readRDS(file.path(
+  dir.dat, "Savanah Leidholt", "T1D-T2D", "Data",
+  "limma_gsea_inputs_age_sex_study.rds"
+))
+
+dat1 <- obj2$all_studies
+meta1 <- dat1$samples
+meta1
+#dat2 <- obj2$no_attempt
+dat3 <- obj2$all3_omics
+
+out1 <- dat1$out
+#out2 <- dat2$out
+out3 <- dat3$out
+
+
+dim(prot_mat_out1)
+```
+
+```{r}
+# clean IDs
+meta1$record_id <- trimws(as.character(meta1$record_id))
+rownames(prot_mat_out1) <- trimws(rownames(prot_mat_out1))
+
+# keep only overlapping samples
+olap <- intersect(meta1$record_id, rownames(prot_mat_out1))
+
+meta1 <- meta1 %>%
+  dplyr::filter(record_id %in% olap) %>%
+  dplyr::mutate(
+    age = suppressWarnings(as.numeric(age)),
+    sex = as.character(sex),
+    study6 = as.character(study6)
+  )
+
+# drop rows missing anything needed for removeBatchEffect
+meta1 <- meta1 %>%
+  dplyr::filter(!is.na(age), !is.na(sex), sex != "", !is.na(study6), study6 != "")
+
+
+prot_mat <- prot_mat_out1[meta1$record_id, , drop = FALSE]
+
+#final checks
+stopifnot(identical(rownames(prot_mat), meta1$record_id))
+stopifnot(nrow(prot_mat) == nrow(meta1))
+
+meta1 <- meta1 %>%
+  dplyr::mutate(
+    sex = factor(sex),
+    study6 = factor(study6),
+    group4 = factor(group4, levels = c("LC", "OC", "T1D", "T2D"))
+  )
+
+# check row counts
+nrow(prot_mat)
+nrow(meta1)
+length(meta1$study6)
+
+# prot_mat currently: samples x proteins
+dim(prot_mat)
+
+# transpose to proteins x samples for limma
+prot_mat_t <- t(prot_mat)
+
+stopifnot(ncol(prot_mat_t) == nrow(meta1))
+stopifnot(colnames(prot_mat_t) == meta1$record_id)
+
+design <- model.matrix(~ group4, data = meta1)
+
+sum(is.na(prot_mat))
+table(rowSums(is.na(prot_mat)) > 0)
+table(colSums(is.na(prot_mat)) > 0)
+
+
+prot_resid_t <- limma::removeBatchEffect(
+  prot_mat_t,
+  batch = meta1$study6,
+  design = design
+)
+
+# transpose back to samples x proteins for glmnet
+prot_resid <- t(prot_resid_t)
+
+# restore rownames check
+stopifnot(rownames(prot_resid) == meta1$record_id)
+dim(prot_resid)
+
+```
+#----------------------------------------------
+#reading in analyte file for easier annotation
+#---------------------------------------------
+```{r}
+analytes <- read.csv(
+  file.path(dir.dat, "Data Harmonization", "Combined SomaScan", "analytes.csv")
+)
+
+prot_panel <- unique(trimws(as.character(analytes$AptName)))
+
+aptamers_keep <- intersect(prot_panel, colnames(prot_mat))
+protein2symbol <- analytes %>%
+  transmute(
+    feature_id  = trimws(as.character(AptName)),
+    gene_symbol = trimws(as.character(EntrezGeneSymbol))
+  ) %>%
+  distinct()
+```
+
+#------------------------
+#elasticNet function
+#------------------------
+```{r}
+run_elastic_net <- function(
+  cc,
+  out_list,
+  meta_df,
+  X_mat,
+  top_n = 100,
+  covars = c("age", "sex"),
+  alpha_grid = seq(0.1, 1, by = 0.1),
+  nfolds = 10,
+  seed = 1,
+  min_per_class = 5,
+  maxit = 1e6
+) {
+  
+  cat("\n============================\n")
+  cat("Running contrast:", cc, "\n")
+  
+  if (!cc %in% names(out_list)) {
+    stop("Contrast not found in out_list: ", cc)
+  }
+  
+  if (!grepl("_vs_", cc)) {
+    stop("Contrast name must contain '_vs_'")
+  }
+  
+  parts <- strsplit(cc, "_vs_")[[1]]
+  if (length(parts) != 2) {
+    stop("Contrast could not be split into two groups")
+  }
+  
+  g_pos <- parts[1]
+  g_neg <- parts[2]
+  
+ idx <- which(meta_df$group4 %in% c(g_pos, g_neg))
+meta_sub <- meta_df[idx, , drop = FALSE]
+meta_sub$record_id <- as.character(meta_sub$record_id)
+
+meta_sub$group4 <- droplevels(meta_sub$group4)
+
+y <- ifelse(meta_sub$group4 == g_pos, 1, 0)
+y <- as.numeric(y)
+
+tab <- table(meta_sub$group4)
+if (any(tab < min_per_class)) {
+  stop(
+    "Too few samples in at least one class for contrast: ",
+    cc,
+    " | counts = ",
+    paste(names(tab), tab, collapse = ", ")
+  )
+}
+  
+  t <- out_list[[cc]]
+  if (is.null(t)) {
+    stop("Contrast table is NULL for: ", cc)
+  }
+  t <- as.data.frame(t)
+  
+  cat("Columns in contrast table:\n")
+  print(names(t))
+  
+  if (!"feature_id" %in% names(t)) {
+    fid <- rownames(t)
+    if (is.null(fid)) stop("No feature_id column or rownames found")
+    t$feature_id <- fid
+  }
+  
+  if (!all(c("adj.P.Val", "P.Value") %in% names(t))) {
+    stop("Contrast table is missing adj.P.Val and/or P.Value")
+  }
+  
+  cat("Rows in limma table:", nrow(t), "\n")
+  cat("Overlap with protein matrix:", sum(t$feature_id %in% colnames(X_mat)), "\n")
+  
+  top_feats <- t %>%
+    dplyr::filter(!is.na(adj.P.Val)) %>%
+    dplyr::arrange(adj.P.Val, P.Value) %>%
+    dplyr::slice_head(n = top_n) %>%
+    dplyr::pull(feature_id) %>%
+    intersect(colnames(X_mat))
+  
+  cat("Top overlapping features:", length(top_feats), "\n")
+  cat("First few top features:\n")
+  print(head(top_feats, 10))
+  
+  if (length(top_feats) < 5) {
+    stop("Fewer than 5 overlapping top features for contrast: ", cc)
+  }
+  
+  meta_sub <- meta_sub %>%
+    dplyr::mutate(
+      sex = factor(sex),
+      study6 = factor(study6)
+    )
+  
+  covars_present <- covars[covars %in% colnames(meta_sub)]
+  cat("Covariates used:", paste(covars_present, collapse = ", "), "\n")
+  
+  if (length(covars_present) > 0) {
+    form_cov <- as.formula(paste("~", paste(covars_present, collapse = " + ")))
+    Z <- model.matrix(form_cov, data = meta_sub)
+  } else {
+    Z <- matrix(1, nrow = nrow(meta_sub), ncol = 1)
+    colnames(Z) <- "(Intercept)"
+  }
+  
+  Xp <- X_mat[meta_sub$record_id, top_feats, drop = FALSE]
+  
+  X <- cbind(Z, Xp)
+  X <- as.matrix(X)
+  storage.mode(X) <- "double"
+  
+  pf <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
+  
+  sds <- apply(X, 2, sd)
+  keep <- which(is.finite(sds) & sds > 0)
+  
+  X <- X[, keep, drop = FALSE]
+  pf <- pf[keep]
+  
+  cat("Final design matrix dim:", dim(X), "\n")
+  
+  nfolds_use <- min(nfolds, sum(y == 0), sum(y == 1))
+  cat("nfolds used:", nfolds_use, "\n")
+  
+  if (nfolds_use < 2) {
+    stop("Not enough samples per class for CV")
+  }
+  
+  set.seed(seed)
+  
+  fit_list <- lapply(alpha_grid, function(a) {
+    cv <- tryCatch(
+      cv.glmnet(
+        x = X,
+        y = y,
+        family = "binomial",
+        alpha = a,
+        nfolds = nfolds_use,
+        type.measure = "deviance",
+        penalty.factor = pf,
+        standardize = TRUE,
+        maxit = maxit
+      ),
+      error = function(e) {
+        message("glmnet failed at alpha = ", a, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    
+    if (is.null(cv)) return(NULL)
+    list(alpha = a, cvfit = cv)
+  })
+  
+  fit_list <- Filter(Negate(is.null), fit_list)
+  
+  if (length(fit_list) == 0) {
+    stop("All glmnet fits failed")
+  }
+  
+  best_idx <- which.min(sapply(fit_list, function(z) min(z$cvfit$cvm)))
+  best <- fit_list[[best_idx]]
+  
+  coef_mat <- as.matrix(coef(best$cvfit, s = "lambda.1se"))
+  coef_df <- tibble::tibble(
+    term = rownames(coef_mat),
+    beta = as.numeric(coef_mat)
+  ) %>%
+    dplyr::filter(beta != 0)
+  
+  protein_terms <- intersect(colnames(Xp), coef_df$term)
+  
+  p_hat <- as.numeric(
+    predict(best$cvfit, newx = X, s = "lambda.1se", type = "response")
+  )
+  
+  auc_val <- as.numeric(
+    pROC::auc(pROC::roc(y, p_hat, quiet = TRUE))
+  )
+  
+  cat("Best alpha:", best$alpha, "\n")
+  cat("AUC:", auc_val, "\n")
+  cat("Nonzero coefficients:", nrow(coef_df), "\n")
+  cat("Selected protein terms:", length(protein_terms), "\n")
+  
+  list(
+    contrast         = cc,
+    positive         = g_pos,
+    negative         = g_neg,
+    best_alpha       = best$alpha,
+    lambda_1se       = best$cvfit$lambda.1se,
+    lambda_min       = best$cvfit$lambda.min,
+    auc_train        = auc_val,
+    n_input_proteins = length(top_feats),
+    coef_df          = coef_df,
+    protein_terms    = protein_terms,
+    cvfit            = best$cvfit,
+    top_feats        = top_feats
+  )
+}
+```
+
+#-----------------------------------
+#Contrast specific feature selection
+#------------------------------------
+```{r}
+res_T1D_LC <- run_elastic_net(
+  cc = "T1D_vs_LC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_T1D_OC <- run_elastic_net(
+  cc = "T1D_vs_OC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_T1D_T2D <- run_elastic_net(
+  cc = "T1D_vs_T2D",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_mat,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_T2D_LC<- run_elastic_net(
+  cc = "T2D_vs_LC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_T2D_OC<- run_elastic_net(
+  cc = "T2D_vs_OC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+```{r}
+res_OC_LC<- run_elastic_net(
+  cc = "OC_vs_LC",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  top_n = 100,
+  covars = c("age", "sex")
+)
+```
+
+#------------------------------
+#reuslts tables per contrast
+#------------------------------
+```{r}
+#sig T1D vs LC
+tibble::tibble(
+  contrast = res_T1D_LC$contrast,
+  alpha = res_T1D_LC$best_alpha,
+  lambda_1se = res_T1D_LC$lambda_1se,
+  lambda_min = res_T1D_LC$lambda_min,
+  auc = res_T1D_LC$auc_train,
+  n_input_proteins = res_T1D_LC$n_input_proteins,
+  n_selected_proteins = length(res_T1D_LC$protein_terms)
+)
+
+sig_tbl_T1D_LC <- res_T1D_LC$coef_df %>%
+  dplyr::filter(term %in% res_T1D_LC$protein_terms) %>%
+  dplyr::rename(feature_id = term) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(abs_beta = abs(beta)) %>%
+  dplyr::arrange(desc(abs_beta))
+
+head(sig_tbl_T1D_LC)
+```
+
+```{r}
+#sig T1D vs OC
+tibble::tibble(
+  contrast = res_T1D_OC$contrast,
+  alpha = res_T1D_OC$best_alpha,
+  lambda_1se = res_T1D_OC$lambda_1se,
+  lambda_min = res_T1D_OC$lambda_min,
+  auc = res_T1D_OC$auc_train,
+  n_input_proteins = res_T1D_OC$n_input_proteins,
+  n_selected_proteins = length(res_T1D_OC$protein_terms)
+)
+
+sig_tbl_T1D_OC <- res_T1D_OC$coef_df %>%
+  dplyr::filter(term %in% res_T1D_OC$protein_terms) %>%
+  dplyr::rename(feature_id = term) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(abs_beta = abs(beta)) %>%
+  dplyr::arrange(desc(abs_beta))
+
+head(sig_tbl_T1D_OC)
+```
+
+```{r}
+#sig T1D vs T2D
+tibble::tibble(
+  contrast = res_T1D_T2D$contrast,
+  alpha = res_T1D_T2D$best_alpha,
+  lambda_1se = res_T1D_T2D$lambda_1se,
+  lambda_min = res_T1D_T2D$lambda_min,
+  auc = res_T1D_T2D$auc_train,
+  n_input_proteins = res_T1D_T2D$n_input_proteins,
+  n_selected_proteins = length(res_T1D_T2D$protein_terms)
+)
+
+sig_tbl_T1D_T2D<- res_T1D_T2D$coef_df %>%
+  dplyr::filter(term %in% res_T1D_T2D$protein_terms) %>%
+  dplyr::rename(feature_id = term) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(abs_beta = abs(beta)) %>%
+  dplyr::arrange(desc(abs_beta))
+
+head(sig_tbl_T1D_T2D)
+```
+
+```{r}
+#sig T2D vs LC
+tibble::tibble(
+  contrast = res_T2D_LC$contrast,
+  alpha = res_T2D_LC$best_alpha,
+  lambda_1se = res_T2D_LC$lambda_1se,
+  lambda_min = res_T2D_LC$lambda_min,
+  auc = res_T2D_LC$auc_train,
+  n_input_proteins = res_T2D_LC$n_input_proteins,
+  n_selected_proteins = length(res_T2D_LC$protein_terms)
+)
+
+sig_tbl_T2D_LC <- res_T2D_LC$coef_df %>%
+  dplyr::filter(term %in% res_T2D_LC$protein_terms) %>%
+  dplyr::rename(feature_id = term) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(abs_beta = abs(beta)) %>%
+  dplyr::arrange(desc(abs_beta))
+
+head(sig_tbl_T2D_LC)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

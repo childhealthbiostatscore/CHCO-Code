@@ -46,6 +46,7 @@ suppressPackageStartupMessages({
   library(optparse)
   library(tibble)
   library(aws.s3)
+  library(scuttle)
 })
 
 # ── S3 / Multi-user setup ─────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ option_list <- list(
 opt <- parse_args(OptionParser(option_list = option_list))
 
 # manual mods for debugging
-# opt$cell_type <- "POD"
+# opt$cell_type <- "PT"
 # opt$n_hvg <- 10
 
 set.seed(opt$seed)
@@ -235,6 +236,59 @@ s3saveRDS(sce_ref,
           bucket = S3_BUCKET,
           region = "")
 message("  sce_ref.rds saved to S3")
+
+
+sce_ref <- s3readRDS(object = paste0(S3_PREFIX, "sce_ref.rds"),
+                     bucket = S3_BUCKET,
+                     region = "")
+
+# 1. Pseudobulk
+pb <- aggregateAcrossCells(sce_ref,
+                           ids = DataFrame(subject = colData(sce_ref)$subject_id,
+                                           visit   = colData(sce_ref)$visit))
+
+logcounts <- log1p(sweep(counts(pb), 2, colSums(counts(pb)), "/") * 1e4)
+
+# 2. Variance decomposition using one-way ANOVA per gene
+#    ICC = var_between / (var_between + var_within)
+genes <- rownames(logcounts)
+var_decomp <- do.call(rbind, lapply(genes, function(g) {
+  dat <- data.frame(
+    y       = logcounts[g, ],
+    subject = factor(pb$subject)
+  )
+  # One-way ANOVA: y ~ subject
+  fit <- tryCatch(aov(y ~ subject, data = dat), error = function(e) NULL)
+  if (is.null(fit)) return(NULL)
+  
+  ms <- summary(fit)[[1]]
+  ms_between <- ms["subject",   "Mean Sq"]
+  ms_within  <- ms["Residuals", "Mean Sq"]
+  n_per_subj <- nrow(dat) / nlevels(dat$subject)  # ~2 (visits)
+  
+  # Variance components from expected mean squares
+  var_within  <- ms_within
+  var_between <- max((ms_between - ms_within) / n_per_subj, 0)
+  icc         <- var_between / (var_between + var_within)
+  
+  data.frame(gene = g, var_between = var_between,
+             var_within = var_within, icc = icc)
+}))
+
+# 3. Summary
+cat("ICC summary:\n")
+print(summary(var_decomp$icc))
+cat("\nBetween-subject variance:\n")
+print(summary(var_decomp$var_between))
+cat("\nWithin-subject variance:\n")
+print(summary(var_decomp$var_within))
+cat("\nRatio (between/within):\n")
+print(summary(var_decomp$var_between / var_decomp$var_within))
+
+# 4. Quick histogram
+hist(var_decomp$icc, breaks = 50, main = "ICC Distribution",
+     xlab = "ICC (fraction of variance due to subject)")
+abline(v = median(var_decomp$icc), col = "red", lty = 2)
 
 # ── 4. Compute realistic effect sizes from data ───────────────────────────────
 # We compute log2FC(timepoint2/timepoint1) per treatment group and summarise
@@ -378,3 +432,217 @@ message(sprintf("── [00] Done. All reference outputs saved to s3://%s/%s ─
 # cells_per_group <- ref_cov %>%
 #   group_by(subject_id, celltype, visit, treatment) %>%
 #   summarise(n_cells = n(), .groups = "drop")
+
+################################################################################
+# 6. REFERENCE DATA DIAGNOSTICS
+#
+# Characterize individual-level variance, zero inflation, and cell count
+# distributions in the reference data. These diagnostics help interpret
+# simulation results — particularly why indiv_var_factor had negligible
+# effect on power and why NEBULA vs pseudobulk power gap is smaller in
+# simulation than in real data.
+################################################################################
+message("── [00] Running reference data diagnostics ──")
+
+library(ggplot2)
+counts <- assay(sce_ref, "counts")
+cd     <- as.data.frame(colData(sce_ref))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6a. Variance decomposition: between-subject ICC per gene
+#     (using pseudobulk log-CPM, separate from the ANOVA above)
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Computing ICC distribution across genes...")
+
+pb_diag <- aggregate(t(as.matrix(counts)),
+                     by = list(subject_id = cd$subject_id, visit = cd$visit),
+                     FUN = sum)
+pb_mat_diag <- t(as.matrix(pb_diag[, -(1:2)]))
+lib_diag    <- colSums(pb_mat_diag)
+log_cpm     <- log2(t(t(pb_mat_diag) / lib_diag * 1e6) + 1)
+
+icc_df <- do.call(rbind, lapply(seq_len(nrow(log_cpm)), function(g) {
+  y <- log_cpm[g, ]
+  s <- pb_diag$subject_id
+  total_var <- var(y)
+  if (total_var == 0) return(data.frame(gene = rownames(log_cpm)[g],
+                                        between = 0, within = 0, icc = 0))
+  subj_means  <- tapply(y, s, mean)
+  between_var <- var(subj_means)
+  within_var  <- mean(tapply(y, s, var), na.rm = TRUE)
+  icc <- between_var / (between_var + within_var)
+  data.frame(gene = rownames(log_cpm)[g],
+             between = between_var, within = within_var, icc = icc)
+}))
+
+cat("\n── ICC distribution (pseudobulk log-CPM) ──\n")
+cat(sprintf("  Median ICC:           %.3f\n", median(icc_df$icc, na.rm = TRUE)))
+cat(sprintf("  Mean ICC:             %.3f\n", mean(icc_df$icc, na.rm = TRUE)))
+cat(sprintf("  Genes with ICC > 0.3: %d / %d (%.1f%%)\n",
+            sum(icc_df$icc > 0.3, na.rm = TRUE), nrow(icc_df),
+            100 * mean(icc_df$icc > 0.3, na.rm = TRUE)))
+cat(sprintf("  Genes with ICC > 0.5: %d / %d (%.1f%%)\n",
+            sum(icc_df$icc > 0.5, na.rm = TRUE), nrow(icc_df),
+            100 * mean(icc_df$icc > 0.5, na.rm = TRUE)))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6b. scDesign3 fitted dispersion (sigma) — what does inflating it do?
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Extracting fitted dispersion parameters...")
+
+sigmas <- sapply(ref_data$ref_fit_marginal, function(gm) {
+  if (!is.null(gm$fit)) {
+    log_theta <- gm$fit$family$getTheta()
+    if (!is.null(log_theta) && is.finite(log_theta)) {
+      theta <- exp(log_theta)
+      return(1 / theta)  # sigma = 1/theta
+    }
+  }
+  NA
+})
+sigmas <- sigmas[!is.na(sigmas)]
+
+cat("\n── Fitted NB dispersion (sigma) ──\n")
+cat(sprintf("  N genes:  %d\n", length(sigmas)))
+cat(sprintf("  Median:   %.4f\n", median(sigmas)))
+cat(sprintf("  Mean:     %.4f\n", mean(sigmas)))
+cat(sprintf("  SD:       %.4f\n", sd(sigmas)))
+cat(sprintf("  Range:    [%.4f, %.4f]\n", min(sigmas), max(sigmas)))
+
+# NB variance = mu + sigma * mu^2
+# So sigma controls how much variance exceeds Poisson.
+# If sigma is already small, multiplying by 1.5x or 2.5x barely changes counts.
+# Show what the NB CV looks like at a typical mean expression level:
+typical_mu <- 1.0  # ~ median expression for HVGs in raw counts
+for (fct in c(1.0, 1.5, 2.5)) {
+  nb_var <- typical_mu + fct * median(sigmas) * typical_mu^2
+  nb_cv  <- sqrt(nb_var) / typical_mu
+  cat(sprintf("  At mu=%.1f, sigma_factor=%.1fx: NB_var=%.3f, CV=%.3f\n",
+              typical_mu, fct, nb_var, nb_cv))
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6c. Zero inflation: observed vs NB-predicted zero rates
+#
+# P(Y=0 | NB) = (theta / (theta + mu))^theta where theta = 1/sigma
+# If observed >> predicted, the NB model underestimates sparsity.
+# This artificially helps pseudobulk in simulation (cleaner aggregates)
+# while in real data, sparsity hurts pseudobulk more than NEBULA.
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Computing observed vs NB-predicted zero rates...")
+
+obs_zero_rate <- rowMeans(counts == 0)
+
+pred_zero_rate <- sapply(seq_along(ref_data$ref_fit_marginal), function(g) {
+  gm <- ref_data$ref_fit_marginal[[g]]
+  if (is.null(gm$fit)) return(NA)
+  log_theta <- gm$fit$family$getTheta()
+  if (is.null(log_theta) || !is.finite(log_theta)) return(NA)
+  mu    <- mean(fitted(gm$fit))
+  theta <- exp(log_theta)
+  (theta / (theta + mu))^theta
+})
+names(pred_zero_rate) <- names(ref_data$ref_fit_marginal)
+
+zero_df <- data.frame(
+  gene         = rownames(counts),
+  observed     = obs_zero_rate,
+  predicted_NB = pred_zero_rate[rownames(counts)]
+) %>% filter(!is.na(predicted_NB))
+
+excess <- zero_df$observed - zero_df$predicted_NB
+
+cat("\n── Zero inflation diagnostic ──\n")
+cat(sprintf("  Median observed zero rate:     %.3f\n", median(zero_df$observed)))
+cat(sprintf("  Median NB-predicted zero rate: %.3f\n", median(zero_df$predicted_NB)))
+cat(sprintf("  Median excess zeros:           %.3f\n", median(excess)))
+cat(sprintf("  Genes with >10%% excess zeros: %d / %d (%.1f%%)\n",
+            sum(excess > 0.10), nrow(zero_df),
+            100 * mean(excess > 0.10)))
+cat(sprintf("  Genes with >20%% excess zeros: %d / %d (%.1f%%)\n",
+            sum(excess > 0.20), nrow(zero_df),
+            100 * mean(excess > 0.20)))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6d. Cell count distribution per subject x visit
+#
+# If highly uneven in real data but symmetric in simulation (clipped normal),
+# pseudobulk gets artificially uniform precision in simulation.
+# ─────────────────────────────────────────────────────────────────────────────
+message("  Summarizing cell counts per subject x visit...")
+
+cell_counts <- cd %>%
+  group_by(subject_id, visit, treatment) %>%
+  summarise(n_cells = n(), .groups = "drop")
+
+cat("\n── Cell counts per subject x visit ──\n")
+cat(sprintf("  Min:    %d\n",   min(cell_counts$n_cells)))
+cat(sprintf("  Median: %d\n",   median(cell_counts$n_cells)))
+cat(sprintf("  Mean:   %.0f\n", mean(cell_counts$n_cells)))
+cat(sprintf("  Max:    %d\n",   max(cell_counts$n_cells)))
+cat(sprintf("  SD:     %.0f\n", sd(cell_counts$n_cells)))
+cat(sprintf("  CV:     %.2f\n", sd(cell_counts$n_cells) / mean(cell_counts$n_cells)))
+print(as.data.frame(cell_counts))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6e. Save diagnostics and plots
+# ─────────────────────────────────────────────────────────────────────────────
+diag_output <- list(
+  icc_df      = icc_df,
+  sigmas      = sigmas,
+  zero_df     = zero_df,
+  cell_counts = cell_counts
+)
+s3saveRDS(diag_output,
+          object = paste0(S3_PREFIX, "ref_diagnostics.rds"),
+          bucket = S3_BUCKET, region = "")
+message("  ref_diagnostics.rds saved to S3")
+
+# plots
+pdf_tmp <- tempfile(fileext = ".pdf")
+pdf(pdf_tmp, width = 10, height = 8)
+
+# ICC histogram
+hist(icc_df$icc, breaks = 50, col = "steelblue",
+     main = "ICC Distribution (between-subject / total variance)",
+     xlab = "ICC", ylab = "Number of genes")
+abline(v = median(icc_df$icc, na.rm = TRUE), col = "red", lty = 2)
+
+# sigma distribution with inflation overlay
+sigma_all <- data.frame(
+  sigma  = c(sigmas, sigmas * 1.5, sigmas * 2.5),
+  factor = rep(c("1.0x (ref)", "1.5x", "2.5x"), each = length(sigmas))
+)
+print(ggplot(sigma_all, aes(x = sigma, fill = factor)) +
+        geom_density(alpha = 0.4) +
+        labs(title = "NB dispersion: reference vs inflated",
+             x = "sigma", y = "Density") +
+        theme_minimal())
+
+# observed vs predicted zeros
+print(ggplot(zero_df, aes(x = predicted_NB, y = observed)) +
+        geom_point(alpha = 0.3, size = 0.8) +
+        geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+        labs(title = "Observed vs NB-predicted zero rates",
+             subtitle = "Above diagonal = excess zeros not captured by NB",
+             x = "Predicted P(Y=0) under NB", y = "Observed zero rate") +
+        coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+        theme_minimal())
+
+# cell counts bar chart
+print(ggplot(cell_counts, aes(x = interaction(subject_id, visit),
+                              y = n_cells, fill = treatment)) +
+        geom_col() +
+        labs(title = "Cell counts per subject x visit (reference)",
+             x = NULL, y = "Number of cells") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7)))
+
+dev.off()
+put_object(file = pdf_tmp,
+           object = paste0(S3_PREFIX, "ref_diagnostics.pdf"),
+           bucket = S3_BUCKET, region = "")
+unlink(pdf_tmp)
+
+message("  ref_diagnostics.pdf saved to S3")
+message("── [00] Diagnostics complete ──")

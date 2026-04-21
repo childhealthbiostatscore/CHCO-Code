@@ -256,31 +256,22 @@ def clean_renal_heiritage():
     dextran.replace(rep, np.nan, inplace=True)
 
     # --------------------------------------------------------------------------
-    # Outcomes
+    # BOLD MRI
     # --------------------------------------------------------------------------
 
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                 == "study_visit_boldasl_mri", "field_name"]]
-    out = pd.DataFrame(proj.export_records(fields=var))
-    out = out.loc[out["redcap_event_name"].str.startswith("kidney_and", na=False)].copy()
-    out.drop(["redcap_event_name", "adc_outcomes"], axis=1, inplace=True)
+    bold_mri = pd.DataFrame(proj.export_records(fields=var))
+    bold_mri = bold_mri.loc[bold_mri["redcap_event_name"].str.startswith("kidney_and", na=False)].copy()
+    bold_mri.drop(["redcap_event_name", "adc_outcomes"], axis=1, inplace=True)
     # Replace missing values
-    out.replace(rep, np.nan, inplace=True)
-    # Kidney outcomes like GFR, etc. were collected with the clamp, not
-    # necessarily the day of the MRI
-    bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
-    bold_mri = out[["record_id"] + bold_mri_cols].copy()
-    out = out[list(set(out.columns).difference(bold_mri_cols))]
+    bold_mri.replace(rep, np.nan, inplace=True)
     rename = {"volume_left": "left_kidney_volume_ml",
               "volume_right": "right_kidney_volume_ml",
               "mri_lab_date": "date", "t1_r_cortex": "bold_r_t1_cortex", "t1_r_kidney":"bold_r_t1_kidney" , "t1_l_cortex":"bold_l_t1_cortex", "t1_l_kidney": "bold_l_t1_kidney"}
-    out.rename(rename, axis=1, inplace=True)
-    out["procedure"] = "clamp"
-    out["visit"] = "baseline"
-    out = out[out['date'].notna()]
+    bold_mri.rename(rename, axis=1, inplace=True)
     bold_mri["procedure"] = "bold_mri"
     bold_mri["visit"] = "baseline"
-    bold_mri["date"] = out["date"]
   
     # --------------------------------------------------------------------------
     # PET scan
@@ -460,7 +451,6 @@ def clean_renal_heiritage():
     annual_labs.dropna(thresh=4, axis=0, inplace=True)
     rct.dropna(thresh=4, axis=0, inplace=True)
     dextran.dropna(thresh=4, axis=0, inplace=True)
-    out.dropna(thresh=4, axis=0, inplace=True)
     bold_mri.dropna(thresh=4, axis=0, inplace=True)
     pet.dropna(thresh=6, axis=0, inplace=True)
     liver_pet.dropna(thresh=5, axis=0, inplace=True)
@@ -485,7 +475,6 @@ def clean_renal_heiritage():
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)
     df = pd.concat([df, rct], join='outer', ignore_index=True)
     df = pd.concat([df, dextran], join='outer', ignore_index=True)
-    df = pd.merge(df, out, how='outer')
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
     pet = pd.merge(pet, voxelwise, how = 'outer')
     df = pd.concat([df, pet], join='outer', ignore_index=True)

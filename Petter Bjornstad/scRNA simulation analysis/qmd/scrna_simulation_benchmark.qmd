@@ -1,0 +1,384 @@
+---
+title: "scRNA Simulation Analysis"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+```
+
+```{r paths, include=FALSE}
+# ── User-specific paths ──────────────────────────────────────────────────────
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path  <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path  <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys      <- fromJSON("/Users/pylell/Library/CloudStorage/OneDrive-UW/keys.json")
+} else {
+  stop("Unknown user: please specify root path.")
+}
+```
+
+```{r s3-setup, include=FALSE}
+# ── S3 credentials ────────────────────────────────────────────────────────────
+Sys.setenv(
+  AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
+  AWS_SECRET_ACCESS_KEY = keys$MY_SECRET_KEY,
+  AWS_DEFAULT_REGION    = "",
+  AWS_REGION            = "",
+  AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+benchmark <- s3readRDS(object = "Projects/Paired scRNA simulation analysis/results/benchmark/benchmark_avg.rds", 
+                       bucket = "scrna", region = "")
+
+benchmark <- benchmark %>%
+  dplyr::mutate(method_family = case_when(method %in% c("mast", "wilcox") ~ "pseudoreplication",
+                                          method %in% c("edger", "limma") ~ "pseudobulk",
+                                          method == "nebula" ~ "mixed model"),
+                method = factor(method, labels = c("mast" = "MAST",
+                                                   "wilcox" = "Wilcoxon rank-sum",
+                                                   "edger" = "edgeR",
+                                                   "limma" = "limma-voom",
+                                                   "nebula" = "NEBULA"),
+                                levels = c("mast", "wilcox",
+                                           "edger", "limma",
+                                           "nebula")))
+```
+
+```{r}
+method_palette <- c("edgeR"  = "#98c1d9",
+                    "limma-voom"  = "#3d5a80",
+                    "MAST"   = "#f4978e",
+                    "NEBULA" = "#52796f",
+                    "Wilcoxon rank-sum" = "#edafb8")
+
+plot_metric_by <- function(data, x_var, x_levels = NULL,
+                           x_label = x_var, y_var = "mean_power",
+                           y_label = "Average Power", hline = 0.8) {
+  
+  # Coerce x to ordered factor if levels supplied
+  if (!is.null(x_levels)) {
+    data[[x_var]] <- factor(data[[x_var]], levels = x_levels)
+  } else {
+    data[[x_var]] <- factor(data[[x_var]])
+  }
+  
+  p <- ggplot(data, aes(x = .data[[x_var]], y = .data[[y_var]], fill = method)) +
+    geom_boxplot() +
+    facet_wrap(~ method, ncol = 2) +
+    theme_bw() +
+    theme(text = element_text(size = 15),
+          legend.position = "none",
+          strip.background = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()) +
+    labs(x = x_label, y = y_label) +
+    scale_fill_manual(values = method_palette)
+  
+  if (!is.null(hline)) {
+    p <- p + geom_hline(yintercept = hline, linetype = "dashed")
+  }
+  
+  p
+}
+
+param_specs <- list(
+  list(x_var = "n_subjects_per_arm", x_levels = c(5, 10, 20),
+       x_label = "N Subjects/Arm"),
+  list(x_var = "lfc_label",          x_levels = c("vlow", "low", "med", "high"),
+       x_label = "Log2 FC"),
+  list(x_var = "indiv_var_label",    x_levels = c("no", "med", "high"),
+       x_label = "Between subject SD"),
+  list(x_var = "cells_label",        x_levels = c("low", "high"),
+       x_label = "Cells per Subject"),
+  list(x_var = "corr_cells",         x_levels = NULL,
+       x_label = "Cell-Cell Correlation"),
+  list(x_var = "prop_de",            x_levels = NULL,
+       x_label = "Proportion DE")
+)
+```
+
+# Power comparisons
+
+```{r}
+power_plots <- lapply(param_specs, function(spec) {
+  plot_metric_by(benchmark,
+                 x_var    = spec$x_var,
+                 x_levels = spec$x_levels,
+                 x_label  = spec$x_label)
+})
+names(power_plots) <- sapply(param_specs, `[[`, "x_var")
+
+power_plots
+
+# benchmark %>%
+#   ggplot(aes(x = factor(lfc_label, levels = c("vlow", "low", "med", "high")), 
+#              y = mean_power, fill = method)) +
+#   geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey") +
+#   geom_boxplot() +
+#   scale_fill_manual(values = method_palette) +
+#   theme_minimal()
+
+for (nm in names(power_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/power_by_", nm, ".png")), 
+         power_plots[[nm]],
+         width = 7, height = 5)
+}
+```
+
+# T1E comparisons
+
+```{r}
+t1e_plots <- lapply(param_specs, function(spec) {
+  plot_metric_by(benchmark,
+                 x_var    = spec$x_var,
+                 x_levels = spec$x_levels,
+                 x_label  = spec$x_label,
+                 y_var = "mean_t1e",
+                 y_label = "Average Type 1 Error",
+                 hline = 0.05)
+})
+names(t1e_plots) <- sapply(param_specs, `[[`, "x_var")
+
+t1e_plots
+
+for (nm in names(t1e_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/t1e_by_", nm, ".png")), 
+         t1e_plots[[nm]],
+         width = 7, height = 5)
+  }
+```
+
+# FDR comparisons
+
+```{r}
+fdr_plots <- lapply(param_specs, function(spec) {
+  plot_metric_by(benchmark,
+                 x_var    = spec$x_var,
+                 x_levels = spec$x_levels,
+                 x_label  = spec$x_label,
+                 y_var = "mean_fdr",
+                 y_label = "Average False Discovery Rate",
+                 hline = 0.05)
+})
+names(fdr_plots) <- sapply(param_specs, `[[`, "x_var")
+
+fdr_plots
+
+for (nm in names(fdr_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/fdr_by_", nm, ".png")), 
+         fdr_plots[[nm]],
+         width = 7, height = 5)
+  }
+```
+
+# Compute time comparisons
+
+```{r}
+compute_s_plots <- lapply(param_specs, function(spec) {
+  plot_metric_by(benchmark,
+                 x_var    = spec$x_var,
+                 x_levels = spec$x_levels,
+                 x_label  = spec$x_label,
+                 y_var = "mean_compute_s",
+                 y_label = "Computing time (s)",
+                 hline = NULL)
+})
+names(compute_s_plots) <- sapply(param_specs, `[[`, "x_var")
+
+compute_s_plots
+```
+
+```{r}
+methods <- unique(benchmark$method)
+
+# ---- Option 1: facet by metric (recommended) ----
+plot_power_t1e_facet <- function(data, m, x_var = "n_subjects_per_arm") {
+  data %>%
+    filter(method == m) %>%
+    select(all_of(x_var), mean_power, mean_t1e) %>%
+    pivot_longer(c(mean_power, mean_t1e),
+                 names_to = "metric", values_to = "value") %>%
+    mutate(metric = recode(metric,
+                           mean_power = "Power",
+                           mean_t1e   = "Type I Error"),
+           xf = factor(.data[[x_var]])) %>%
+    ggplot(aes(x = xf, y = value, fill = metric)) +
+      geom_violin(trim = FALSE, alpha = 0.7) +
+      geom_hline(data = data.frame(metric = c("Power","Type I Error"),
+                                   yint   = c(0.80, 0.05)),
+                 aes(yintercept = yint), linetype = "dashed") +
+      facet_wrap(~ metric, scales = "free_y") +
+      labs(x = x_var, y = NULL, title = m) +
+      theme_bw() + theme(legend.position = "none")
+}
+
+plots_facet <- map(methods, ~ plot_power_t1e_facet(benchmark, .x))
+# print: walk(plots_facet, print)
+walk(plots_facet, print)
+# ---- Option 2: overlay on same panel ----
+plot_power_t1e_overlay <- function(data, m, x_var = "n_subjects_per_arm") {
+  data %>%
+    filter(method == m) %>%
+    select(all_of(x_var), mean_power, mean_t1e) %>%
+    pivot_longer(c(mean_power, mean_t1e),
+                 names_to = "metric", values_to = "value") %>%
+    mutate(metric = recode(metric,
+                           mean_power = "Power",
+                           mean_t1e   = "Type I Error"),
+           xf = factor(.data[[x_var]])) %>%
+    ggplot(aes(x = xf, y = value, fill = metric)) +
+      geom_violin(position = position_dodge(0.8), alpha = 0.7, trim = FALSE) +
+      geom_hline(yintercept = 0.05, linetype = "dotted",  color = "red") +
+      geom_hline(yintercept = 0.80, linetype = "dashed", color = "black") +
+      labs(x = x_var, y = "Proportion", title = m, fill = NULL) +
+      theme_bw()
+}
+
+plots_overlay <- map(methods, ~ plot_power_t1e_overlay(benchmark, .x))
+plots_overlay
+# ---- Option 3: ROC-style scatter (all methods together) ----
+plot_power_vs_t1e <- function(data) {
+  ggplot(data, aes(x = mean_t1e, y = mean_power, color = method)) +
+    geom_vline(xintercept = 0.05, linetype = "dotted") +
+    geom_hline(yintercept = 0.80, linetype = "dashed") +
+    geom_point(alpha = 0.5) +
+    scale_x_continuous(limits = c(0, NA)) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(x = "Type I Error", y = "Power",
+         color = "Method") +
+    # scale_color_manual(values = method_palette) +
+    theme_minimal() +
+    theme(text = element_text(size = 15),
+          panel.grid = element_blank())
+}
+
+plot_power_vs_t1e(benchmark %>% filter(prop_de > 0))
+```
+
+# KS statistics at null
+
+```{r}
+benchmark %>%
+  filter(!is.na(mean_ks_stat)) %>%
+  ggplot(aes(x = method, y = mean_ks_stat, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "KS statistic")
+```
+
+
+# logFC bias
+
+```{r}
+benchmark %>%
+  filter(!is.na(mean_logfc_bias)) %>%
+  ggplot(aes(x = method, y = mean_logfc_bias, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "LogFC Bias")
+
+benchmark %>%
+  filter(!is.na(mean_logfc_mae)) %>%
+  ggplot(aes(x = method, y = mean_logfc_mae, fill = method)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  scale_fill_manual(values = method_palette) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  labs(x = NULL, y = "LogFC MAE")
+```
+
+# Reference (ATTEMPT) data
+
+```{r}
+ref_dat <- s3readRDS(object = "Projects/Paired scRNA simulation analysis/results/reference/de_results_PT.rds", bucket = "scrna", region = "")
+ref_dat_summary <- ref_dat$summary_table
+
+# 7 in placebo; 9 in dapa at baseline
+# 4 in placebo; 7 in dapa at follow up
+# avg ~ 6-7 subjects per arm
+# median number of cells: 839 (low)
+# median LFC: ~ 0.5 (med)
+# ICC: 0.42 (med)
+
+benchmark_ref <- benchmark %>%
+  filter(n_subjects_per_arm == 10 &
+           lfc_label == "med" &
+           cells_label == "low" &
+           indiv_var_label == "med")
+summary(benchmark_ref[benchmark_ref$method == "MAST",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "Wilcoxon rank-sum",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "edgeR",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "limma-voom",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "NEBULA",]$mean_power)
+
+benchmark_ref %>%
+  ggplot(aes(x = method, y = mean_power, fill = method)) +
+  geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "MAST",]$Pct_Sig_FDR)))/100,
+             color = method_palette["MAST"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "NEBULA",]$Pct_Sig_FDR)))/100,
+             color = method_palette["NEBULA"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "edgeR",]$Pct_Sig_FDR)))/100,
+             color = method_palette["edgeR"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "limma",]$Pct_Sig_FDR)))/100,
+             color = method_palette["limma"], linetype = "dashed") +
+    geom_hline(yintercept = as.numeric(gsub("%", "", (ref_dat_summary[ref_dat_summary$Method == "Wilcoxon",]$Pct_Sig_FDR)))/100,
+             color = method_palette["Wilcoxon rank-sum"], linetype = "dashed") +
+  geom_boxplot() +
+  scale_fill_manual(values = method_palette)  +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = "Average Power", 
+       fill = "Method",
+       caption = "In ATTEMPT: 7, 9 at baseline; 4, 7 at follow up\n
+       Median LFC ~ 0.5 (corresponds to med)\n
+       Median number of cells/person: 839 (corresponds to low)\n
+       ICC: 0.42 (corresponds to med)")
+
+ggsave(file.path(root_path, "scRNA simulation analysis/Results/Figures/attempt_simulations.png"))
+
+
+
+```
+
+```{r}
+summary(arsenal::tableby(method ~ mean_compute_s + mean_compute_m, data = benchmark,
+                         numeric.stats=c("median","q1q3")))
+benchmark$mean_compute_m <- benchmark$mean_compute_s/60
+```

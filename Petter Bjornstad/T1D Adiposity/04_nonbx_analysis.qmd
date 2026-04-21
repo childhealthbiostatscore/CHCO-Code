@@ -14,6 +14,10 @@ library(ggforce)
 library(enrichR)
 library(stringr)
 library(arsenal)
+library(irr)
+library(psych)
+library(irrNA)
+library(DescTools)
 ```
 
 ```{r}
@@ -33,7 +37,7 @@ if (user == "choiyej") { # local version
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")      
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -53,21 +57,42 @@ t1d_hc_dat_bx_collapsed <- t1d_hc_dat_bx %>%
 
 table(t1d_hc_dat_bx_collapsed$bmi_obesity, # rowwise
       t1d_hc_dat_bx_collapsed$dxa_obesity) # colwise
+table(t1d_hc_dat_bx_collapsed$bmi_obesity)
+table(t1d_hc_dat_bx_collapsed$dxa_obesity)
+
+table(t1d_hc_dat$bmi_obesity,
+      t1d_hc_dat$study)
+table(t1d_hc_dat$dxa_obesity,
+      t1d_hc_dat$study)
+```
+
+# Inter-rater reliability on DXA and BMI categories
+
+```{r}
+kappa2(data.frame(bmi = t1d_hc_dat_bx_collapsed$bmi_obesity, 
+                  dxa = t1d_hc_dat_bx_collapsed$dxa_obesity))
+# Kappa = 0.133 (Slight agreement)
+# 42 with both DXA and BMI obesity categories
+
+# 19 people with BMI and NO DXA
+subset(t1d_hc_dat_bx_collapsed, !is.na(bmi_obesity))$record_id[subset(t1d_hc_dat_bx_collapsed, !is.na(bmi_obesity))$record_id %nin% subset(t1d_hc_dat_bx_collapsed, !is.na(dxa_obesity))$record_id]
+# all 16 from ATTEMPT, CRC-01, 40, 08 missing from CROCODILE
 ```
 
 # Descriptive tables
+
 ```{r}
-summary(tableby(bmi_obesity ~ group + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat))
+summary(tableby(bmi_obesity ~ group + study + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat))
 
 # limit to those with biopsies
-summary(tableby(bmi_obesity ~ group + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat_bx_collapsed))
+summary(tableby(bmi_obesity ~ group + study + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat_bx_collapsed))
 
-summary(tableby(dxa_obesity ~ group + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat))
+summary(tableby(dxa_obesity ~ group + study + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat))
 
 # limit to those with biopsies
-summary(tableby(dxa_obesity ~ group + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat_bx_collapsed))
-
+summary(tableby(dxa_obesity ~ group + study + age + sex + hba1c + sbp + dbp + kwt(acr_u, "Nmiss", "medianq1q3") + bmi + bmip, data = t1d_hc_dat_bx_collapsed))
 ```
+
 
 # Data availability by cohort
 ```{r}
@@ -106,6 +131,7 @@ t1d_hc_dat %>%
 ```
 
 # Descriptive table
+
 ```{r}
 summary(arsenal::tableby(bmi_obesity ~ 
                            age + sex + group + study + weight + height + 

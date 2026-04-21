@@ -189,13 +189,23 @@ ref_subjects <- levels(ref_data$ref_construct_data$newCovariate$subject_id)
 
 n_ref_per_arm <- sum(grepl("^grpPlacebo", ref_subjects))
 
+# Empirical cell count parameters from reference
+# Mean=1248, SD=1776, CV=1.42, some subject-visits missing entirely
 make_subject_cells <- function(subj_id, trt, cells_mean, cells_sd) {
-  n_total <- max(50L, round(rnorm(1, cells_mean, cells_sd)))
-  n_pre   <- round(n_total * runif(1, 0.4, 0.6))
-  n_post  <- n_total - n_pre
+  # Log-normal to match the right-skewed, high-CV distribution in reference
+  log_mu    <- log(cells_mean^2 / sqrt(cells_mean^2 + cells_sd^2))
+  log_sigma <- sqrt(log(1 + (cells_sd / cells_mean)^2))
+  
+  n_total <- max(50L, round(rlnorm(1, log_mu, log_sigma)))
+  
+  # Allow uneven visit split (real data ranges from 0.1 to 0.9)
+  visit_frac <- rbeta(1, 2, 2)  # centered at 0.5 but with wider spread than uniform
+  n_pre  <- max(1L, round(n_total * visit_frac))
+  n_post <- n_total - n_pre
+  
   data.frame(
     subject_id = rep(subj_id, n_total),
-    treatment  = rep(trt,     n_total),
+    treatment  = rep(trt, n_total),
     visit      = c(rep("timepoint1", n_pre), rep("timepoint2", n_post)),
     stringsAsFactors = FALSE
   )
@@ -260,7 +270,9 @@ truth_df <- data.frame(
 # ─────────────────────────────────────────────────────────────────────────────
 COEF_INT <- "visittimepoint2:treatmentTreatment"
 
-modify_gene_model <- function(gm, beta_int, iv_factor) {
+# sigma inflation removed; individual variance is now handled via
+# subject-level random intercepts applied to mean_mat after extract_para()
+modify_gene_model <- function(gm, beta_int) {
   if (!is.null(gm$fit)) {
     cf <- coef(gm$fit)
     if (COEF_INT %in% names(cf)) {
@@ -270,9 +282,6 @@ modify_gene_model <- function(gm, beta_int, iv_factor) {
     }
     gm$fit$coefficients <- cf
   }
-  if (!is.null(gm$sigma) && iv_factor > 1.0) {
-    gm$sigma <- gm$sigma * iv_factor
-  }
   gm
 }
 
@@ -280,8 +289,7 @@ message("  Modifying scDesign3 model (DE injection + individual variance)...")
 modified_marginal <- bplapply(
   seq_along(ref_data$ref_fit_marginal),
   function(g) modify_gene_model(ref_data$ref_fit_marginal[[g]],
-                                beta_int  = beta_int_true[g],
-                                iv_factor = params$indiv_var_factor),
+                                beta_int = beta_int_true[g]),
   BPPARAM = BiocParallel::MulticoreParam(opt$n_cores)
 )
 names(modified_marginal) <- names(ref_data$ref_fit_marginal)
@@ -327,6 +335,42 @@ if (is.null(sim_para)) {
             bucket = S3_BUCKET,
             region = "")
   quit(status = 1)
+}
+
+# ── Apply subject-level random intercepts to mean_mat ─────────────────────────
+# The indiv_var_factor parameter is now interpreted as the SD of a per-subject,
+# per-gene random intercept on the log-mean scale. This directly inflates
+# between-subject variance (ICC) without proportionally increasing cell-level
+# noise — unlike the previous approach of multiplying the NB dispersion (sigma),
+# which inflated total overdispersion but did not differentially increase the
+# between-subject component.
+#
+# Calibration guide (from reference ICC analysis):
+#   indiv_var_factor = 0    -> no subject effect (ICC ~ 0)
+#   indiv_var_factor = 0.2  -> mild (near reference ICC ~ 0.2)
+#   indiv_var_factor = 0.5  -> moderate
+#   indiv_var_factor = 1.0  -> strong subject effect
+if (params$indiv_var_factor > 0) {
+  message(sprintf("  Applying subject-level random intercepts (sigma_subj = %.2f)...",
+                  params$indiv_var_factor))
+  sim_subjects <- unique(as.character(new_covariate_for_sim$subject_id))
+  
+  # mean_mat is cells x genes, so subject effects are per-column (gene)
+  subj_effects <- matrix(
+    rnorm(n_genes * length(sim_subjects), mean = 0, sd = params$indiv_var_factor),
+    nrow = length(sim_subjects), ncol = n_genes,
+    dimnames = list(sim_subjects, hvg_genes)
+  )
+  
+  for (s in sim_subjects) {
+    s_idx <- which(as.character(new_covariate_for_sim$subject_id) == s)
+    # each row is a cell, each column is a gene
+    # exp(subj_effects[s, ]) is length n_genes, broadcast across rows
+    sim_para$mean_mat[s_idx, ] <- t(t(sim_para$mean_mat[s_idx, , drop = FALSE]) * exp(subj_effects[s, ]))
+  }
+  
+  message(sprintf("  Subject effects applied: mean |shift| = %.3f on log scale",
+                  mean(abs(subj_effects))))
 }
 
 message("  Remap copula list and input data for new subject design...")
