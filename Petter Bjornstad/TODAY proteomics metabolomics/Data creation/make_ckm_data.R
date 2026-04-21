@@ -1059,40 +1059,6 @@ filename <- "Clinical data/CKM_long.Rdata"
 full_path <- file.path(data_path, filename)
 save(comorb_ckm2, file = full_path)
 
-
-# create a dataframe with the component parts of the stage definitions only, to collapse to 1 record per person
-comorb_ckm2_criteria <- comorb_ckm2 %>% select(RELEASEID, CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,
-                                               PAD, STROKE, TIA, ULCER, DEATH, risk_level, HTN, TGDLP, high_pwv, high_bnp) 
-comorb_ckm2_criteria$KDIGO_num <- ifelse(is.na(comorb_ckm2_criteria$risk_level), NA, 
-                                         ifelse(comorb_ckm2_criteria$risk_level == "Very high", 4, 
-                                                ifelse(comorb_ckm2_criteria$risk_level == "High", 3, 
-                                                       ifelse(comorb_ckm2_criteria$risk_level == "Moderate", 2, 1))))
-comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-risk_level)
-comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)] <- apply(comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)], 2, as.numeric)
-# take the max across all criteria
-comorb_ckm2_criteria <- comorb_ckm2_criteria %>% group_by(RELEASEID) %>%
-  mutate(across(c(CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
-                  HTN, TGDLP, high_pwv, high_bnp), max, .names = "max_{.col}"))
-comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-c(max_CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
-                                                           HTN, TGDLP, high_pwv, high_bnp))
-comorb_ckm2_criteria <- unique(comorb_ckm2_criteria)
-comorb_ckm2_criteria$CKM_max_char <- case_when(
-  comorb_ckm2_criteria$CKM_max == 1 ~ "Stage 2",
-  comorb_ckm2_criteria$CKM_max == 2 ~ "Stage 2+",
-  comorb_ckm2_criteria$CKM_max == 3 ~ "Stage 3",
-  comorb_ckm2_criteria$CKM_max == 4 ~ "Stage 4"
-)
-comorb_ckm2_criteria$max_KDIGO_char <- case_when(
-  comorb_ckm2_criteria$max_KDIGO_num == 1 ~ "Low",
-  comorb_ckm2_criteria$max_KDIGO_num == 2 ~ "Moderate",
-  comorb_ckm2_criteria$max_KDIGO_num == 3 ~ "High",
-  comorb_ckm2_criteria$max_KDIGO_num == 4 ~ "Very High"
-)
-comorb_ckm2_criteria$max_KDIGO_char <- factor(comorb_ckm2_criteria$max_KDIGO_char, levels = c("Low", "Moderate", "High", "Very High"))
-comorb_ckm2_criteria <- comorb_ckm2_criteria %>% 
-  mutate(across(c(max_clin_cvd, max_hfpef, max_ARRHYTHMIA, max_CAD, max_CHF, max_LVSD, max_MI, max_DVT, max_PAD, max_STROKE, max_TIA, max_ULCER,
-                  max_DEATH, max_KDIGO_num, max_HTN, max_TGDLP, max_high_pwv, max_high_bnp), as.factor))
-
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
 prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, 
@@ -1122,24 +1088,6 @@ label(prog_summary_final$CKM_max_char) <- "Maximum CKM stage"
 label(prog_summary_final$num_prog) <- "Number of progression events"
 label(prog_summary_final$days_to_first_ckm_prog) <- "Days to first progression event"
 label(prog_summary_final$years_to_first_ckm_prog_nocensor) <- "Years to first progression event"
-label(comorb_ckm2_criteria$max_ARRHYTHMIA) <- "ARRHYTHMIA"
-label(comorb_ckm2_criteria$max_clin_cvd) <- "Clinical CVD"
-label(comorb_ckm2_criteria$max_hfpef) <- "HFpEF"
-label(comorb_ckm2_criteria$max_CAD) <- "CAD"
-label(comorb_ckm2_criteria$max_CHF) <- "CHF"
-label(comorb_ckm2_criteria$max_LVSD) <- "LVSD"
-label(comorb_ckm2_criteria$max_MI) <- "MI"
-label(comorb_ckm2_criteria$max_DVT) <- "DVT"
-label(comorb_ckm2_criteria$max_PAD) <- "PAD"
-label(comorb_ckm2_criteria$max_STROKE) <- "Stroke"
-label(comorb_ckm2_criteria$max_TIA) <- "TIA"
-label(comorb_ckm2_criteria$max_ULCER) <- "Ulcer"
-label(comorb_ckm2_criteria$max_DEATH) <- "Death"
-label(comorb_ckm2_criteria$max_KDIGO_char) <- "Maximum KDIGO stage"
-label(comorb_ckm2_criteria$max_HTN) <- "Hypertension"
-label(comorb_ckm2_criteria$max_TGDLP) <- "Hypertriglyceridemia"
-label(comorb_ckm2_criteria$max_high_pwv) <- "Elevated cf-PWV"
-label(comorb_ckm2_criteria$max_high_bnp) <- "Elevated BNP"
 
 # make a descriptive dataset using progression summary data and baseline/comorb info
 prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
