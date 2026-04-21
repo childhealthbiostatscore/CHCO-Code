@@ -27,7 +27,6 @@ library(RColorBrewer)
 library(ggtrace)
 ```
 
-
 ```{r}
 #directores
 user <- Sys.info()[["user"]]
@@ -39,11 +38,12 @@ if (user == "leidholt") {
 } else if (user == "sleidholt") {
     root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "savanahleidholt") {
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "choiyej") {
   root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -67,6 +67,7 @@ if (user == "leidholt") {
 
 ```{r}
 ## Create an S3 client
+
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
   "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
@@ -75,8 +76,9 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
+
 pb90_multiomics_subset <- s3readRDS(
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420", 
+          object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
           bucket = "scrna",
           region = "")
 ```
@@ -88,7 +90,7 @@ pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
   cbind(pb90_multiomics_subset@reductions$umap.harmony@cell.embeddings)
 
 s3saveRDS(pb90_multiomics_subset_meta, 
- object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420", 
+ object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
  bucket = "scrna", 
  region = "", 
  multipart = T)
@@ -98,7 +100,7 @@ s3saveRDS(pb90_multiomics_subset_meta,
 ```{r}
 # start from here if file already saved
 pb90_multiomics_subset_meta <- s3readRDS(
-  object = "data_clean/pb90_attempt_multiomics_meta.rds", 
+  object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
   bucket = "scrna", 
   region = "")
 
@@ -121,20 +123,22 @@ umap_p <- ggplot(pb90_multiomics_subset_meta,
         axis.title.x = element_text(hjust = 0),   # move x label to left
         axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
   labs(x = "UMAP1", y = "UMAP2")
+
+umap_p
 ```
 
 ```{r}
 # Save to a temporary connection
-tmp <- tempfile(fileext = ".png")
-ggsave(tmp, plot = umap_p, width = 10, height = 8, dpi = 300)
+#tmp <- tempfile(fileext = ".png")
+#ggsave(tmp, plot = umap_p, width = 10, height = 8, dpi = 300)
 
 # Upload directly
-put_object(
-  file = tmp,
-  object = "results/figures/t1d_hc_umap_kpmpcelltype.png",
-  bucket = "scrna",
-  region = ""
-)
+#put_object(
+ # file = tmp,
+#  object = "results/figures/t1d_hc_umap_kpmpcelltype.png",
+#  bucket = "scrna",
+#  region = ""
+#)
 ```
 
 ```{r}
@@ -143,11 +147,8 @@ put_object(
 umap_p_source <- ggplot(pb90_multiomics_subset_meta,
                  aes(x = umapharmony_1, y = umapharmony_2, color = source)) +
   geom_point(alpha = 0.05, shape = 16) +
-  scale_color_manual(values = c("ATTEMPT" = "darkred", 
-                                "RENAL-HEIR" = "purple",
-                                "RENAL-HERItage" = "darkcyan",
-                                "CROCODILE" = "lightpink",
-                                "IMPROVE"= "gold")) +
+  scale_color_manual(values = c("attempt" = "darkred", 
+                                "pb90" = "darkcyan")) +
   theme_minimal() + 
   theme(panel.grid = element_blank(),
         axis.title.x = element_text(hjust = 0),   # move x label to left
@@ -155,20 +156,22 @@ umap_p_source <- ggplot(pb90_multiomics_subset_meta,
   labs(x = "UMAP1", y = "UMAP2",
        color = "Source") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+umap_p_source
 ```
 
 ```{r}
 # Save to a temporary connection
-tmp <- tempfile(fileext = ".png")
-ggsave(tmp, plot = umap_p_source, width = 10, height = 8, dpi = 300)
+#tmp <- tempfile(fileext = ".png")
+#ggsave(tmp, plot = umap_p_source, width = 10, height = 8, dpi = 300)
 
 # Upload directly
-put_object(
-  file = tmp,
-  object = "results/figures/t1d_hc_umap_source.png",
-  bucket = "t1d.adiposity",
-  region = ""
-)
+#put_object(
+#  file = tmp,
+#  object = "results/figures/t1d_hc_umap_source.png",
+#  bucket = "t1d.adiposity",
+#  region = ""
+#)
 ```
 
 ```{r}
@@ -186,22 +189,24 @@ cell_count_bar <- ggplot(cell_counts, aes(x = reorder(KPMP_celltype_general, n),
   theme(text = element_text(size = 15),
         legend.position = "none",
         panel.grid = element_blank()) +
-  theme_transparent +
+  theme_transparent() +
   scale_y_continuous(expand = expansion(add = 5000)) 
+
+cell_count_bar
 ```
 
 ```{r}
 # Save to a temporary connection
-tmp <- tempfile(fileext = ".png")
-ggsave(tmp, plot = cell_count_bar, width = 10, height = 8, dpi = 300)
+#tmp <- tempfile(fileext = ".png")
+#ggsave(tmp, plot = cell_count_bar, width = 10, height = 8, dpi = 300)
 
 # Upload directly
-put_object(
-  file = tmp,
-  object = "results/figures/t1d_hc_kpmp_cell_count_bar.png",
-  bucket = "t1d.adiposity",
-  region = ""
-)
+#put_object(
+#  file = tmp,
+#  object = "results/figures/t1d_hc_kpmp_cell_count_bar.png",
+#  bucket = "t1d.adiposity",
+#  region = ""
+#)
 ```
 
 ```{r}
@@ -211,9 +216,9 @@ cell_counts_group <- pb90_multiomics_subset_meta %>%
   dplyr::count(KPMP_celltype_general) %>%
   arrange(desc(n)) %>%
   dplyr::mutate(group = case_when(group == "Lean Control" ~ "LC",
-                                  group == "Obese Controle" ~ "OC",
+                                  group == "Obese Control" ~ "OC",
                                   group == "Type 1 Diabetes" ~ "T1D",
-                                  gropu == "Type 2 Diabetes" ~ "T2D"))
+                                  group == "Type 2 Diabetes" ~ "T2D"))
 
 ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill = group)) +
   geom_bar(stat = "identity") +
@@ -227,22 +232,22 @@ ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill
        fill = "Group") +
   theme(text = element_text(size = 15),
         panel.grid = element_blank()) +
-  theme_transparent +
+  theme_transparent() +
   scale_y_continuous(expand = expansion(add = 5000)) 
 ```
 
 ```{r}
 # Save to a temporary connection
-tmp <- tempfile(fileext = ".png")
-ggsave(tmp, width = 10, height = 8, dpi = 300)
+#tmp <- tempfile(fileext = ".png")
+#ggsave(tmp, width = 10, height = 8, dpi = 300)
 
 # Upload directly
-put_object(
-  file = tmp,
-  object = "results/figures/t1d_hc_grp_kpmp_cell_count_bar.png",
-  bucket = "t1d.adiposity",
-  region = ""
-)
+#put_object(
+#  file = tmp,
+#  object = "results/figures/t1d_hc_grp_kpmp_cell_count_bar.png",
+#  bucket = "t1d.adiposity",
+#  region = ""
+#)
 ```
 
 
