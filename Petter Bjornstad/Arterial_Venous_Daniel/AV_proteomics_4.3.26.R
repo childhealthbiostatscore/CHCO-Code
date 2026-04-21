@@ -214,29 +214,228 @@ save_results(res_av,  paste0(path_out, "significant_AV_Difference.csv"))
 
 cat("\nAll outputs saved to:", path_out, "\n")
 
+# ============================================================
+# PATHS (add to your existing PATHS block at the top)
+# ============================================================
+
+path_omics <- "../../Downloads/Omics_subgroup_ROCKIES_OGTT_Database_final_june24_DVR.sav"
+
 
 # ============================================================
-# 8. GLUCOSE CLEARANCE CORRELATIONS (uncomment when available)
+# 8. LOAD T=90 CLINICAL VARIABLES (FEgluc + Feins)
 # ============================================================
 
-# clin$glucose_clearance <- c(...)  # add per-participant values from Daniel
-#
-# run_correlation <- function(mat, gc, annot_df, filename) {
-#   apply(mat, 1, function(vals) {
-#     t <- cor.test(vals, gc, method = "spearman")
-#     c(rho = unname(t$estimate), p = t$p.value)
-#   }) %>%
-#     t() %>% as.data.frame() %>%
-#     rownames_to_column("Feature_ID") %>%
-#     mutate(p_adj = p.adjust(p, method = "BH")) %>%
-#     left_join(annot_df, by = "Feature_ID") %>%
-#     arrange(p_adj) %>%
-#     write.csv(filename, row.names = FALSE)
-# }
-#
-# run_correlation(art_mat, clin$glucose_clearance, annot,
-#                 paste0(path_out, "correlation_gc_Arterial.csv"))
-# run_correlation(ven_mat, clin$glucose_clearance, annot,
-#                 paste0(path_out, "correlation_gc_Venous.csv"))
-# run_correlation(av_mat,  clin$glucose_clearance, annot,
-#                 paste0(path_out, "correlation_gc_AV_Difference.csv"))
+omics_raw <- read_sav(path_omics)
+
+# ── Check available variable names ──────────────────────────
+# Run this once to confirm exact column names in your .sav:
+# names(omics_raw)
+
+omics_t90 <- omics_raw %>%
+  transmute(
+    participant_id = as.character(Participant),   # adjust if ID column differs
+    FEgluc_T90     = FEgluc,                      # adjust to exact column name
+    Feins_T90      = Feins                         # adjust to exact column name
+  ) %>%
+  filter(!is.na(FEgluc_T90) | !is.na(Feins_T90))
+
+# Merge with matched participants from main analysis
+clin_t90 <- clin %>%
+  left_join(omics_t90, by = "participant_id")
+
+cat("\nT=90 variable availability:\n")
+cat("  FEgluc available N:", sum(!is.na(clin_t90$FEgluc_T90)), "\n")
+cat("  Feins  available N:", sum(!is.na(clin_t90$Feins_T90)),  "\n")
+
+
+# ============================================================
+# 9. SPEARMAN CORRELATION FUNCTION (proteins ~ FEgluc / Feins)
+# ============================================================
+
+run_correlation <- function(mat, outcome_vec, outcome_name, annot_df, label) {
+  
+  # Only use participants with non-missing outcome
+  keep      <- !is.na(outcome_vec)
+  mat_sub   <- mat[, keep]
+  out_sub   <- outcome_vec[keep]
+  cat("\n---", label, "~", outcome_name, "| N =", sum(keep), "---\n")
+  
+  res_cor <- apply(mat_sub, 1, function(vals) {
+    tt <- cor.test(vals, out_sub, method = "spearman", exact = FALSE)
+    c(rho = unname(tt$estimate), p = tt$p.value)
+  }) %>%
+    t() %>%
+    as.data.frame() %>%
+    rownames_to_column("Feature_ID") %>%
+    mutate(
+      p_adj     = p.adjust(p, method = "BH"),
+      sig       = p_adj < fdr_thresh,
+      sig_nom   = p     < p_thresh,
+      direction = case_when(
+        sig_nom & rho > 0 ~ "Positive",
+        sig_nom & rho < 0 ~ "Negative",
+        TRUE              ~ "ns"
+      ),
+      outcome   = outcome_name,
+      analysis  = label
+    ) %>%
+    left_join(annot_df, by = "Feature_ID") %>%
+    arrange(p_adj)
+  
+  cat("  Significant FDR <", fdr_thresh, ":", sum(res_cor$sig),    "\n")
+  cat("  Nominal p < 0.05: ", sum(res_cor$sig_nom), "\n")
+  res_cor
+}
+
+# Run for all matrix × outcome combinations
+cor_results <- list(
+  run_correlation(art_mat, clin_t90$FEgluc_T90, "FEgluc", annot, "Arterial"),
+  run_correlation(ven_mat, clin_t90$FEgluc_T90, "FEgluc", annot, "Venous"),
+  run_correlation(av_mat,  clin_t90$FEgluc_T90, "FEgluc", annot, "AV Difference"),
+  run_correlation(art_mat, clin_t90$Feins_T90,  "Feins",  annot, "Arterial"),
+  run_correlation(ven_mat, clin_t90$Feins_T90,  "Feins",  annot, "Venous"),
+  run_correlation(av_mat,  clin_t90$Feins_T90,  "Feins",  annot, "AV Difference")
+)
+
+
+# ============================================================
+# 10. CORRELATION VOLCANO PLOTS (rho vs -log10 p)
+# ============================================================
+
+make_cor_volcano <- function(res, mat_label, outcome_label) {
+  use_sig     <- if (any(res$sig)) "sig" else "sig_nom"
+  thresh_label <- if (use_sig == "sig") paste("FDR <", fdr_thresh) else "nominal p < 0.05"
+  
+  top_ids <- res %>% filter(.data[[use_sig]]) %>% slice_min(p, n = 20) %>% pull(Feature_ID)
+  res     <- res %>% mutate(label = ifelse(Feature_ID %in% top_ids, Target, NA))
+  
+  ggplot(res, aes(x = rho, y = -log10(p), color = direction)) +
+    geom_point(alpha = 0.5, size = 1.5) +
+    geom_text_repel(aes(label = label), size = 2.8, max.overlaps = 20,
+                    na.rm = TRUE, box.padding = 0.4, segment.color = "grey60") +
+    scale_color_manual(values = c(
+      "Positive" = "firebrick",
+      "Negative" = "steelblue",
+      "ns"       = "grey70"
+    )) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    labs(
+      title    = paste(mat_label, "proteins ~", outcome_label, "(T=90)"),
+      subtitle = paste0(sum(res[[use_sig]]), " proteins at ", thresh_label),
+      x        = "Spearman ρ", y = "-log10(p-value)", color = NULL
+    ) +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "top")
+}
+
+# Generate and save all 6 volcano plots
+cor_plot_params <- list(
+  list("Arterial",     "FEgluc"), list("Venous",       "FEgluc"), list("AV Difference", "FEgluc"),
+  list("Arterial",     "Feins"),  list("Venous",       "Feins"),  list("AV Difference", "Feins")
+)
+
+for (i in seq_along(cor_results)) {
+  p     <- cor_plot_params[[i]]
+  fname <- paste0(path_out, "volcano_cor_", gsub(" ", "_", p[[1]]), "_", p[[2]], ".pdf")
+  ggsave(fname, make_cor_volcano(cor_results[[i]], p[[1]], p[[2]]), width = 8, height = 7)
+}
+
+
+# ============================================================
+# 11. SAVE CORRELATION RESULTS TABLES
+# ============================================================
+
+for (i in seq_along(cor_results)) {
+  res     <- cor_results[[i]]
+  use_sig <- if (any(res$sig)) "sig" else "sig_nom"
+  p       <- cor_plot_params[[i]]
+  fname   <- paste0(path_out, "correlation_", gsub(" ", "_", p[[1]]), "_", p[[2]], ".csv")
+  
+  res %>%
+    filter(.data[[use_sig]]) %>%
+    arrange(p_adj) %>%
+    select(Feature_ID, Target, TargetFullName, UniProt,
+           rho, p, p_adj, direction, outcome, analysis) %>%
+    write.csv(fname, row.names = FALSE)
+}
+
+
+# ============================================================
+# 12. PATHWAY ENRICHMENT (enrichR) ON SIGNIFICANT PROTEINS
+# ============================================================
+
+# install.packages("enrichR")   # run once if needed
+library(enrichR)
+
+# Databases to query — covers GO, KEGG, Reactome, WikiPathways
+enrich_dbs <- c(
+  "GO_Biological_Process_2023",
+  "KEGG_2021_Human",
+  "Reactome_2022",
+  "WikiPathway_2023_Human"
+)
+
+run_enrichment <- function(res, mat_label, outcome_label) {
+  use_sig  <- if (any(res$sig)) "sig" else "sig_nom"
+  sig_genes <- res %>% filter(.data[[use_sig]]) %>% pull(Target)
+  
+  if (length(sig_genes) < 3) {
+    cat("Too few significant proteins for enrichment:", mat_label, outcome_label, "\n")
+    return(NULL)
+  }
+  cat("\nRunning enrichment for", mat_label, "~", outcome_label,
+      "| N genes =", length(sig_genes), "\n")
+  
+  enrich_res <- enrichr(sig_genes, enrich_dbs)
+  
+  # Combine databases, keep significant terms
+  combined <- bind_rows(enrich_res, .id = "database") %>%
+    filter(Adjusted.P.value < 0.05) %>%
+    arrange(Adjusted.P.value) %>%
+    mutate(mat = mat_label, outcome = outcome_label)
+  
+  cat("  Enriched terms (adj.p < 0.05):", nrow(combined), "\n")
+  
+  # Save table
+  fname <- paste0(path_out, "enrichment_", gsub(" ", "_", mat_label), "_", outcome_label, ".csv")
+  write.csv(combined, fname, row.names = FALSE)
+  
+  # Dot plot of top 15 terms per database
+  if (nrow(combined) > 0) {
+    plot_data <- combined %>%
+      group_by(database) %>%
+      slice_min(Adjusted.P.value, n = 15) %>%
+      ungroup() %>%
+      mutate(
+        Term       = str_trunc(Term, 50),
+        Gene_count = as.integer(str_extract(Overlap, "^\\d+"))
+      )
+    
+    p <- ggplot(plot_data, aes(x = -log10(Adjusted.P.value), y = reorder(Term, -Adjusted.P.value),
+                               size = Gene_count, color = database)) +
+      geom_point(alpha = 0.8) +
+      labs(
+        title    = paste("Pathway Enrichment —", mat_label, "~", outcome_label),
+        subtitle = "Top 15 terms per database, adj.p < 0.05",
+        x        = "-log10(adjusted p-value)", y = NULL,
+        size     = "Gene count", color = "Database"
+      ) +
+      theme_bw(base_size = 10) +
+      theme(axis.text.y = element_text(size = 7), legend.position = "right")
+    
+    ggsave(paste0(path_out, "enrichment_dotplot_", gsub(" ", "_", mat_label), "_", outcome_label, ".pdf"),
+           p, width = 10, height = 8)
+  }
+  combined
+}
+
+# Run enrichment for all 6 result sets
+enrich_results <- mapply(
+  function(res, p) run_enrichment(res, p[[1]], p[[2]]),
+  cor_results, cor_plot_params,
+  SIMPLIFY = FALSE
+)
+
+cat("\nAll correlation and pathway outputs saved to:", path_out, "\n")
+
+

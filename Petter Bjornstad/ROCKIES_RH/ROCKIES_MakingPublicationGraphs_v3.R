@@ -834,11 +834,11 @@ fig2_colors <- c("Healthy Control\n(CROCODILE)" = cols$control,
                  "T2D\n(RENAL-HEIRitage)" = cols$t2d)
 
 fig2b <- plot_two_group(dat_fig2, "Cohort", "avg_c_k2", fig2_colors,
-                        ylab = expression(bold("Cortical k"[2]*" (min"^{-1}*")")), tag = "B")
+                        ylab = expression(bold("Cortical k"[2]*" (min"^{-1}*")")), tag = "A")
 fig2c <- plot_two_group(dat_fig2, "Cohort", "avg_c_f", fig2_colors,
-                        ylab = expression(bold("Cortical F (ml/g/min)")), tag = "C")
+                        ylab = expression(bold("Cortical F (ml/g/min)")), tag = "B")
 fig2d <- plot_two_group(dat_fig2, "Cohort", "avg_c_k2_f", fig2_colors,
-                        ylab = expression(bold("Cortical k"[2]*"/F")), tag = "D")
+                        ylab = expression(bold("Cortical k"[2]*"/F")), tag = "C")
 
 fig2 <- (fig2b | fig2c | fig2d) +
   plot_annotation(
