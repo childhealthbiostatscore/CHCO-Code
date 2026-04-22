@@ -501,103 +501,12 @@ theme(
 ```
 
 ```{r}
-# nebula for gene level analysis:
-#following pipeline on Notion
+##### NEBULA FOR GENE LEVEL ANALYSIS #####
 
-#8.2.1 Prepare Data for Analysis
+#### Diabetes vs. Healthy Controls####
 
-#### (1): Diabetes vs. Healthy Controls; PT cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
-seurat_object_hvg<-pb90_ptcells
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
+### ALL CELLS ###
 
-# Create a list of genes from the row names of the counts matrix
-genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
-
-# Make sure the exposure/independent/x variable (group variable) is a factor
-seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
-
-source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
-
-# Create the volcano plot using ggplot
-diabetes_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "Diabetes vs. Healthy Controls",  # Main title
-    subtitle = "PT Cells Only",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-# Display the volcano plot
-diabetes_ptcell_volcano_plot
-
-#### (2): SGLT2i vs. no; PT cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
-pb90_ptcells_t2d<-subset(pb90_ptcells,pb90_ptcells$group=="Type 2 Diabetes")
-seurat_object_hvg<-pb90_ptcells_t2d
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
-
-# Create a list of genes from the row names of the counts matrix
-genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
-
-# Make sure the exposure/independent/x variable (group variable) is a factor
-seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
-
-source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
-
-# Create the volcano plot using ggplot
-sglt2i_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "SGLT2i vs. No SGLT2i",  # Main title
-    subtitle = "PT Cells Only",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-# Display the volcano plot
-sglt2i_ptcell_volcano_plot
-
-#### (3): Diabetes vs. Healthy Controls; all cells ####
 # Load counts data from the object and round to nearest integer
 # use counts_hvg to match pipeline
 seurat_object_hvg<-pb90_allcells
@@ -610,21 +519,23 @@ genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biog
 seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
 
 source("nebula_pipeline_onecall.R")
+write.csv(full_results,file.path(root_path, "Limonte/nebula_all_diabetes.csv"),row.names=F)
 # ---- Volcano Plot ----
 
 # Create the volcano plot using ggplot
-diabetes_allcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
+#unadjusted:
+diabetes_allcell_volcano_plot_unadjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_unadjusted, color = color_unadjusted)) +
   geom_point(alpha = 0.7) +  # Add points with transparency
   scale_color_identity() +  # Use color directly from 'color' column
   theme_minimal() +  # Apply minimalistic theme
   labs(
-    title = "Diabetes vs. Healthy Controls",  # Main title
+    title = "Diabetes vs. reference (unadjusted)",  # Main title
     subtitle = "All cells",  # Subtitle
     x = "logFC",  # X-axis label
     y = "-log10(P-Value)",  # Y-axis label
     color = "LogFC Direction",
     caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
+      "Genes = ", Genes, 
       ", Nuclei = ", Nuclei, 
       ", Non-Convergence Rate: ", Nonconvergence_Rate, 
       ", Genes Filtered out for Low Expression: ", low_exp
@@ -636,12 +547,122 @@ diabetes_allcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = 
   ) +
   xlim(min, max) +  # Set x-axis limits
   # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
+  geom_text(data = significant_df_unadjusted, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
 
 # Display the volcano plot
-diabetes_allcell_volcano_plot
+diabetes_allcell_volcano_plot_unadjusted
+#FDR-adjusted:
+diabetes_allcell_volcano_plot_adjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_adjusted, color = color_adjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "Diabetes vs reference (FDR ADJUSTED)",  # Main title
+    subtitle = "All cells",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_adjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
 
+# Display the volcano plot
+diabetes_allcell_volcano_plot_adjusted
+
+### PT CELLS ###
+
+seurat_object_hvg<-pb90_ptcells
+counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
+
+# Create a list of genes from the row names of the counts matrix
+genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
+
+# Make sure the exposure/independent/x variable (group variable) is a factor
+seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
+
+source("nebula_pipeline_onecall.R")
+write.csv(full_results,file.path(root_path, "Limonte/nebula_pt_diabetes.csv"),row.names=F)
+# ---- Volcano Plot ----
+
+# Create the volcano plot using ggplot
+#unadjusted:
+diabetes_ptcell_volcano_plot_unadjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_unadjusted, color = color_unadjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "Diabetes vs. Healthy Controls (unadjusted)",  # Main title
+    subtitle = "PT Cells Only",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_unadjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# Display the volcano plot
+diabetes_ptcell_volcano_plot_unadjusted
+#FDR-adjusted:
+diabetes_ptcell_volcano_plot_adjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_adjusted, color = color_adjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "Diabetes vs. Healthy Controls (FDR ADJUSTED)",  # Main title
+    subtitle = "PT Cells Only",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_adjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# Display the volcano plot
+diabetes_ptcell_volcano_plot_adjusted
+```
+
+```{r}
+##### NEBULA FOR GENE LEVEL ANALYSIS #####
+
+#### SGLT2i vs. no SGLT2i####
+### ALL CELLS ###
 #### (2): SGLT2i vs. no; all cells ####
 # Load counts data from the object and round to nearest integer
 # use counts_hvg to match pipeline
@@ -656,21 +677,22 @@ genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biog
 seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
 
 source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
+write.csv(full_results,file.path(root_path, "Limonte/nebula_all_sgl2ti.csv"),row.names=F)
 
-# Create the volcano plot using ggplot
-sglt2i_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
+# ---- Volcano Plot ----
+#unadjusted:
+sglt2i_allcell_volcano_plot_unadjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_unadjusted, color = color_unadjusted)) +
   geom_point(alpha = 0.7) +  # Add points with transparency
   scale_color_identity() +  # Use color directly from 'color' column
   theme_minimal() +  # Apply minimalistic theme
   labs(
-    title = "SGLT2i vs. No SGLT2i",  # Main title
+    title = "sglt2i vs. no sglt2i (unadjusted)",  # Main title
     subtitle = "All cells",  # Subtitle
     x = "logFC",  # X-axis label
     y = "-log10(P-Value)",  # Y-axis label
     color = "LogFC Direction",
     caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
+      "Genes = ", Genes, 
       ", Nuclei = ", Nuclei, 
       ", Non-Convergence Rate: ", Nonconvergence_Rate, 
       ", Genes Filtered out for Low Expression: ", low_exp
@@ -682,11 +704,118 @@ sglt2i_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PVa
   ) +
   xlim(min, max) +  # Set x-axis limits
   # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
+  geom_text(data = significant_df_unadjusted, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
 
 # Display the volcano plot
-sglt2i_ptcell_volcano_plot
+sglt2i_allcell_volcano_plot_unadjusted
+#FDR-adjusted:
+sglt2i_allcell_volcano_plot_adjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_adjusted, color = color_adjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "sglt2i vs. no sglt2i (FDR ADJUSTED)",  # Main title
+    subtitle = "All cells",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_adjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# Display the volcano plot
+sglt2i_allcell_volcano_plot_adjusted
+
+# Load counts data from the object and round to nearest integer
+# use counts_hvg to match pipeline
+pb90_ptcells_t2d<-subset(pb90_ptcells,pb90_ptcells$group=="Type 2 Diabetes")
+seurat_object_hvg<-pb90_ptcells_t2d
+counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
+
+# Create a list of genes from the row names of the counts matrix
+genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
+
+# Make sure the exposure/independent/x variable (group variable) is a factor
+seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
+
+source("nebula_pipeline_onecall.R")
+write.csv(full_results,file.path(root_path, "Limonte/nebula_pt_sgl2ti.csv"),row.names=F)
+# ---- Volcano Plot ----
+
+# Create the volcano plot using ggplot
+#unadjusted:
+sglt2i_ptcell_volcano_plot_unadjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_unadjusted, color = color_unadjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "sglt2i vs. no sglt2i (unadjusted)",  # Main title
+    subtitle = "PT Cells Only",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_unadjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# Display the volcano plot
+sglt2i_ptcell_volcano_plot_unadjusted
+#FDR-adjusted:
+sglt2i_ptcell_volcano_plot_adjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_adjusted, color = color_adjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "sglt2i vs. no sglt2i (FDR ADJUSTED)",  # Main title
+    subtitle = "PT Cells Only",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      ", Genes Filtered out for Low Expression: ", low_exp
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_adjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# Display the volcano plot
+sglt2i_ptcell_volcano_plot_adjusted
+
+
 
 
 ```
