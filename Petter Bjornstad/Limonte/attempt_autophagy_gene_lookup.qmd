@@ -29,6 +29,7 @@ library(foreach)
 library(emmeans)
 library(knitr)
 library(kableExtra)
+library(future)
 ```
 
 ```{r echo = F}
@@ -111,7 +112,6 @@ s3write_using_region <- function(FUN, ..., object, bucket,
 
 ```{r echo = F}
 attempt_so <- s3readRDS(bucket = "attempt", object = 'cleaned_data/attempt_clean_so.rds', region = "")
-attempt_so$elevated_albuminuria <- ifelse(attempt_so$emu_urine_acr_mean > 30, "Yes", "No")
 ```
 
 ```{r echo = F}
@@ -795,9 +795,6 @@ features <- paste0(signature_gs, "_signature1")
 
 ```{r echo = F}
 # Create long datasets; one row per cell:
-attempt_so$elevated_albuminuria <- ifelse(attempt_so$emu_urine_acr_mean > 30, "Yes", "No")
-attempt_pt$elevated_albuminuria <- ifelse(attempt_pt$emu_urine_acr_mean > 30, "Yes", "No")
-
 df_allcells <- data.frame(
   subject_id = attempt_so$subject_id,
   treatment=attempt_so$treatment,
@@ -1022,6 +1019,20 @@ corr_plot_modified(data = deltas,
 dev.off()
 ```
 
+```{r echo = F}
+tab_visit_delta <- table1(~ delta_mean_overall_autophagy_score +
+                           delta_mean_autophagy_induction_score +
+                           delta_mean_lysosomal_biogenesis_score +
+                           delta_mean_tfeb_score +
+                           delta_mean_mtorc_score|factor(treatment),
+                         data = deltas,
+                         overall=F,
+                         render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
+                                             "Mean (SD)"="MEAN (SD)"),
+                         extra.col = list("P-value" = pvalue_wcx), digits = 2)
+kable(tab_visit_delta)
+```
+
 # Pearson correlations on delta scores: PT cells
 
 ```{r echo = F}
@@ -1085,88 +1096,81 @@ put_object(
 )
 ```
 
+
+```{r echo = F}
+tab_visit_delta_pt <- table1(~ delta_mean_overall_autophagy_score_ptcells +
+                           delta_mean_autophagy_induction_score_ptcells +
+                           delta_mean_lysosomal_biogenesis_score_ptcells +
+                           delta_mean_tfeb_score_ptcells +
+                           delta_mean_mtorc_score_ptcells|factor(treatment),
+                         data = deltas_pt,
+                         overall=F,
+                         render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)",
+                                             "Mean (SD)"="MEAN (SD)"),
+                         extra.col = list("P-value" = pvalue_wcx), digits = 2)
+kable(tab_visit_delta_pt)
+```
+
 # NEBULA results (DiD)
 
 ## NEBULA results: overall cells
 
 ```{r}
 # nebula
-nebula_compiled <- list()
-for (sig in signature_gs) {
-  message("Starting ", sig)
-  sig_start_time <- Sys.time()
-  
-  genes <- get(paste0(sig, "_genes"))
-  attempt_so_subset <- subset(attempt_so, features = genes)
-  
-  counts_subset <- round(GetAssayData(attempt_so_subset, layer = "counts"))
-  genes_list    <- rownames(counts_subset)
-  meta_subset   <- attempt_so_subset@meta.data
-  
-  nebula_res <- lapply(genes_list, function(g) {
-    tryCatch({
-      count_gene <- counts_subset[g, , drop = FALSE]
-      pred_gene  <- model.matrix(~ treatment * visit, data = meta_subset)
-      data_gene  <- group_cell(
-        count = count_gene,
-        id    = meta_subset$subject_id,
-        pred  = pred_gene
-      )
-      
-      nebula(
-        count      = data_gene$count,
-        id         = data_gene$id,
-        pred       = data_gene$pred,
-        ncore      = 1,
-        output_re  = TRUE,
-        covariance = TRUE,
-        reml       = 1,
-        model      = "NBLMM"
-      )
-    }, error = function(e) {
-      message(sprintf("Gene %s failed: %s", g, e$message))
-      NULL
-    })
-  })
-  
-  names(nebula_res) <- genes_list
-  nebula_res <- Filter(Negate(is.null), nebula_res)
-  
-  pct_nonconv <- (length(genes_list) - length(nebula_res)) / length(genes_list)
-  message(sprintf("%.2f%% models failed to converge for %s",
-                  100 * pct_nonconv, sig))
-  
-  # Extract the summary table from each gene's result
-  nebula_res <- lapply(nebula_res, `[[`, "summary")
-  
-  # save the results
-  s3saveRDS(nebula_res, 
-            object = paste0("Projects/Christine Limonte Autophagy/Tables/attempt_nebula_", sig, ".rds"),
-            bucket = "scrna",
-            region = "")
-  
-  nebula_compiled[[sig]] <- nebula_res
-  
-  message(sprintf("%s took %.1f min",
-                  sig,
-                  as.numeric(difftime(Sys.time(), sig_start_time, units = "mins"))))
-}
+gene_list <- c(overall_autophagy_genes, autophagy_induction_genes, 
+               lysosomal_biogenesis_genes, tfeb_genes, 
+               mtorc_genes)
+attempt_so_subset <- subset(attempt_so, features = gene_list)
+
+attempt_so_counts <- round(GetAssayData(attempt_so_subset, layer = "counts"))
+attempt_meta <- attempt_so_subset@meta.data
+attempt_pred  <- model.matrix(~ treatment * visit, data = attempt_meta)
+attempt_data  <- group_cell(count = attempt_so_counts,
+                            id    = attempt_meta$subject_id,
+                            pred  = attempt_pred,
+                            offset = attempt_so_subset$pooled_offset)
+
+nebula_compiled <- nebula(
+  count      = attempt_data$count,
+  id         = attempt_data$id,
+  pred       = attempt_data$pred,
+  offset     = attempt_data$offset,
+  ncore      = 4,
+  reml       = 1,
+  model      = "NBLMM")
+
+nebula_res <- nebula_compiled$summary[nebula_compiled$convergence == 1, ]
+nrow(nebula_res) / nrow(attempt_so_counts)
+
+gene_sets <- list(
+  overall_autophagy    = overall_autophagy_genes,
+  autophagy_induction  = autophagy_induction_genes,
+  lysosomal_biogenesis = lysosomal_biogenesis_genes,
+  tfeb                 = tfeb_genes,
+  mtorc                = mtorc_genes
+)
+
+signature_df <- tibble(
+  gene = unlist(gene_sets),
+  signature = rep(names(gene_sets), lengths(gene_sets))
+)
+
+nebula_res_long <- nebula_res %>%
+  inner_join(signature_df, by = "gene")
+
+# save the results
+s3saveRDS(nebula_res_long,
+          object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_allcells.rds",
+          bucket = "scrna",
+          region = "")
 ```
 
 ```{r echo = F}
 # Compile all nebula results into one tidy dataframe
-nebula_tidy <- map_dfr(nebula_compiled, function(sig_res) {
-  imap_dfr(sig_res, function(gene_summary, gene_name) {
-    as_tibble(gene_summary) %>%
-      mutate(Gene = gene_name, .before = 1)
-  })
-}, .id = "signature")
-
-
-nebula_interaction <- nebula_tidy %>%
+nebula_interaction <- nebula_res_long %>%
   select(
     signature,
-    Gene = Gene,
+    Gene = gene,
     logFC = `logFC_treatmentDapagliflozin:visitPOST`,
     se    = `se_treatmentDapagliflozin:visitPOST`,
     p     = `p_treatmentDapagliflozin:visitPOST`
@@ -1232,89 +1236,44 @@ volcano_plots_compiled <- plot_volcano(
 
 ```{r}
 # nebula
-nebula_compiled_pt <- list()
+attempt_pt_subset <- subset(attempt_pt, features = gene_list)
 
-for (sig in signature_gs) {
-  message("Starting ", sig)
-  sig_start_time <- Sys.time()
-  
-  genes <- get(paste0(sig, "_genes"))
-  attempt_pt_subset <- subset(attempt_pt, features = genes)
-  
-  counts_subset <- round(GetAssayData(attempt_pt_subset, layer = "counts"))
-  genes_list    <- rownames(counts_subset)
-  meta_subset   <- attempt_pt_subset@meta.data
-  
-  nebula_res_pt <- lapply(genes_list, function(g) {
-    tryCatch({
-      count_gene <- counts_subset[g, , drop = FALSE]
-      pred_gene  <- model.matrix(~ treatment * visit, data = meta_subset)
-      data_gene  <- group_cell(
-        count = count_gene,
-        id    = meta_subset$subject_id,
-        pred  = pred_gene
-      )
-      
-      nebula(
-        count      = data_gene$count,
-        id         = data_gene$id,
-        pred       = data_gene$pred,
-        ncore      = 1,
-        output_re  = TRUE,
-        covariance = TRUE,
-        reml       = 1,
-        model      = "NBLMM"
-      )
-    }, error = function(e) {
-      message(sprintf("Gene %s failed: %s", g, e$message))
-      NULL
-    })
-  })
-  
-  names(nebula_res_pt) <- genes_list
-  nebula_res_pt <- Filter(Negate(is.null), nebula_res_pt)
-  
-  pct_nonconv <- (length(genes_list) - length(nebula_res_pt)) / length(genes_list)
-  message(sprintf("%.2f%% models failed to converge for %s",
-                  100 * pct_nonconv, sig))
-  
-  # Extract the summary table from each gene's result
-  nebula_res_pt <- lapply(nebula_res_pt, `[[`, "summary")
-  
-  # save the results
-  s3saveRDS(nebula_res_pt, 
-            object = paste0("Projects/Christine Limonte Autophagy/Tables/attempt_nebula_", sig, "_pt.rds"),
-            bucket = "scrna",
-            region = "")
-  
-  nebula_compiled_pt[[sig]] <- nebula_res_pt
-  
-  message(sprintf("%s took %.1f min",
-                  sig, as.numeric(difftime(Sys.time(), sig_start_time, units = "mins"))))
+attempt_pt_counts <- round(GetAssayData(attempt_pt_subset, layer = "counts"))
+attempt_meta_pt <- attempt_pt_subset@meta.data
+attempt_pred_pt  <- model.matrix(~ treatment * visit, data = attempt_meta_pt)
+attempt_data_pt  <- group_cell(count = attempt_pt_counts,
+                            id    = attempt_meta_pt$subject_id,
+                            pred  = attempt_pred_pt,
+                            offset = attempt_pt_subset$pooled_offset)
 
-}
-# 
-# attempt_nebula_overall_autophagy_pt <- s3readRDS(object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_overall_autophagy_pt.rds",
-#                                                  bucket = "scrna",
-#                                                  region = "")
-# 
-# nebula_compiled_pt[["overall_autophagy"]] <- attempt_nebula_overall_autophagy_pt
+nebula_compiled_pt <- nebula(
+  count      = attempt_data_pt$count,
+  id         = attempt_data_pt$id,
+  pred       = attempt_data_pt$pred,
+  offset     = attempt_data_pt$offset,
+  ncore      = 4,
+  reml       = 1,
+  model      = "NBLMM")
+
+nebula_res_pt <- nebula_compiled_pt$summary[nebula_compiled_pt$convergence == 1, ]
+nrow(nebula_res_pt) / nrow(attempt_pt_counts)
+
+nebula_res_long_pt <- nebula_res_pt %>%
+  inner_join(signature_df, by = "gene")
+
+# save the results
+s3saveRDS(nebula_res_long_pt,
+          object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_pt.rds",
+          bucket = "scrna",
+          region = "")
 ```
 
 ```{r echo = F}
 # Compile all nebula results into one tidy dataframe
-nebula_tidy_pt <- map_dfr(nebula_compiled_pt, function(sig_res) {
-  imap_dfr(sig_res, function(gene_summary, gene_name) {
-    as_tibble(gene_summary) %>%
-      mutate(Gene = gene_name, .before = 1)
-  })
-}, .id = "signature")
-
-
-nebula_interaction_pt <- nebula_tidy_pt %>%
+nebula_interaction_pt <- nebula_res_long_pt %>%
   select(
     signature,
-    Gene = Gene,
+    Gene = gene,
     logFC = `logFC_treatmentDapagliflozin:visitPOST`,
     se    = `se_treatmentDapagliflozin:visitPOST`,
     p     = `p_treatmentDapagliflozin:visitPOST`
@@ -1324,7 +1283,7 @@ nebula_interaction_pt <- nebula_tidy_pt %>%
   ungroup()
 
 s3write_using_region(nebula_interaction_pt, FUN = write.csv,
-                     object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_interaction_pt_compiled_pt.csv",
+                     object = "Projects/Christine Limonte Autophagy/Tables/attempt_nebula_interaction_compiled_pt.csv",
                      bucket = "scrna", region = "",
                      row.names = FALSE)
 
@@ -1362,17 +1321,17 @@ volcano_plots_pt <- map(unique(nebula_interaction_pt$signature), function(sig) {
 })
 names(volcano_plots_pt) <- unique(nebula_interaction_pt$signature)
 
-volcano_plots_pt_compiled <- 
-  plot_volcano(
-    data = nebula_interaction_pt,
-    fc = "logFC",
-    p_col = "p",
-    x_axis = "LogFC (interaction term)",
-    y_axis = "-log10(p)",
-    file_suffix = "nebula_interaction_pt_",
-    cell_type = "PT",
-    formula = "visit * treatment",
-    positive_text = "Positive with Dapagliflozin",
-    negative_text = "Negative with Dapagliflozin",
-  )
+volcano_plots_compiled_pt <- plot_volcano(
+  data = nebula_interaction_pt,
+  fc = "logFC",
+  p_col = "p",
+  x_axis = "LogFC (interaction term)",
+  y_axis = "-log10(p)",
+  file_suffix = "nebula_interaction_pt_",
+  cell_type = "PT",
+  formula = "visit * treatment",
+  positive_text = "Positive with Dapagliflozin",
+  negative_text = "Negative with Dapagliflozin",
+)
+
 ```
