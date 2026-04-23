@@ -191,7 +191,7 @@ def clean_rpc2_redcap():
     
     screen.drop(["time_of_screen_blood", "screen_egfr", "time_of_screen_urine", "screen_pregnant"], axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'].isin(screen.columns), 'form_name'] = 'screening_labs'
-    screen["procedure"] = "screening_labs"
+    screen["procedure"] = screen["visit"].apply(lambda x: "screening" if x == "screening" else "labs")
     med["date"] = screen["date"]
     
     # --------------------------------------------------------------------------
@@ -364,13 +364,13 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
 
     demo.dropna(thresh=5, axis=0, inplace=True)
-    med.dropna(thresh=4, axis=0, inplace=True)
+    screen.dropna(thresh=4, axis=0, inplace = True)
+    med.dropna(thresh=5, axis=0, inplace=True)
     # disp.dropna(thresh=4, axis=0, inplace=True)
     phys.dropna(thresh=5, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
     # kidney_outcomes.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=5, axis=0, inplace=True)
-    biopsy = biopsy[biopsy["success_note"] != "Not eligble for bx"]
     mri.dropna(thresh=5, axis=0, inplace=True)
     rct.dropna(thresh=6, axis=0, inplace=True)
 
@@ -380,6 +380,7 @@ def clean_rpc2_redcap():
 
     # df = pd.concat([med, phys], join='outer', ignore_index=True)
     df = pd.concat([phys, labs], join='outer', ignore_index=True)
+    df = pd.concat([df, screen], join='outer', ignore_index=True)
     # df = pd.concat([df, kidney_outcomes], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     # df = pd.concat([df, disp], join='outer', ignore_index=True)
