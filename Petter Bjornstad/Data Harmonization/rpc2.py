@@ -151,7 +151,7 @@ def clean_rpc2_redcap():
     phys.replace(rep, np.nan, inplace=True)
     phys.rename({"sys_bp": "sbp", "dys_bp": "dbp", "vitals_date": "date"}, axis=1, inplace=True)
     phys["procedure"] = "physical_exam"
-    phys.drop(["bmi_percentile", "bp_arm", "bp_position", "bp_rest_yn", "sys_bp_1", "sys_bp_2", "sys_bp_3", 
+    phys.drop(["bp_arm", "bp_position", "bp_rest_yn", "sys_bp_1", "sys_bp_2", "sys_bp_3", 
                 "dys_bp_1","dys_bp_2", "dys_bp_3", "pulse_1", "pulse_2", "pulse_3", "vitals_norm", "vitals_no"], axis=1, inplace=True)
 
     phys["redcap_event_name"] = phys["redcap_event_name"].replace(
@@ -205,7 +205,7 @@ def clean_rpc2_redcap():
     labs.rename({ "labs_hg": "hemoglobin", "labs_pltct": "pltct", "serum_sodium": "sodium_s", 
                   "serum_creatinine": "creatinine_s", "totprot_base": "tot_prot", "spotalbumin": "microalbumin_u", 
                   "spotcreatinine": "creatinine_u", "labs_bun": "bun"}, axis=1, inplace=True)
-    labs.drop(["wbc", "rbc", "mcv", "mch", "rdw", "mpv", "immgran", "chol_fractions", "ua_color", "ua_norm", 
+    labs.drop(["wbc", "rbc", "mcv", "mch", "rdw", "immgran", "ua_color", "ua_norm", 
               "ua_specgrav", "ua_ph", "ua_leukest", "ua_nitrate", "ua_protein", "ua_glucose", "ua_ketone", 
               "ua_urobilinogen", "ua_bilirubin", "ua_blood", "urineculture", "uric_acid", "phys_date", "vitals_date"], axis=1, inplace=True)            
     labs["microalbumin_u"] = pd.to_numeric(labs["microalbumin_u"], errors="coerce") * 10

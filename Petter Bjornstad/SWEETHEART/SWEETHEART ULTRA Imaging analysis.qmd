@@ -229,7 +229,9 @@ im_vars_delta <- c("rvesv", "rvef", "rvedv", "rv_stroke_volume", "rv_cardiac_out
                    "lvesv", "lvef", "lvedv", "lv_stroke_volume", "lv_cardiac_output",
                    "lv_hr", "lv_cardiac_output", "grs", "gls", "gcs",
                    paste0(im_vars_log, "_log10"))
-mri_vars_delta <- c("avg_c_r2", "avg_m_r2", "avg_pcascl", "glomerular_pressure")
+mri_vars_delta <- c("avg_c_r2", "avg_m_r2", 
+                    "avg_c_fsoc", "avg_m_fsoc",
+                    "avg_pcascl", "glomerular_pressure")
 
 anchor_vars_delta <- anchor_vars
 
@@ -492,8 +494,8 @@ improve_dat <- harm_dat_subset %>%
   filter(imaging_visit_id %in% c("improve_swht_baseline", "improve_swht_follow_up",
                                  "improve_baseline", "improve_3mo", "improve_12mo")) %>%
   group_by(mrn) %>%
-  dplyr::mutate(days_since_baseline = as.numeric(as.Date(coalesce(cmri_date, date)) - 
-                  min(as.Date(coalesce(cmri_date, date))))) %>% # using visit date if cmr date DNE
+  dplyr::mutate(days_since_baseline = as.numeric(as.Date(coalesce(cmri_date, vsg_surgery_date)) - 
+                  min(as.Date(coalesce(cmri_date, vsg_surgery_date))))) %>% # using visit date if cmr date DNE
   ungroup() %>%
   filter(!is.na(cmri_date) & record_id != "SWHT_6") # exclude to those with CMRI data
 improve_dat$visit <- ifelse(improve_dat$record_id == "SWHT_33", "12_months_post_surgery", improve_dat$visit)
@@ -651,7 +653,8 @@ plot_boxgrid <- function(df,
                          p_format = "stars",
                          p_digits = 3,
                          p_size = 5,
-                         test_method = "wilcox.test") {
+                         test_method = "wilcox.test",
+                         jitter = F) {
 
   if (is.numeric(vars))     vars     <- names(df)[vars]
   if (!is.null(log_vars) && is.numeric(log_vars)) log_vars <- names(df)[log_vars]
@@ -687,9 +690,9 @@ plot_boxgrid <- function(df,
 
     comps <- combn(unique(df[[group_var]]), 2, simplify = FALSE)
 
-    p <- ggplot(df, aes(x = as.character(.data[[group_var]]),
+    p <- ggplot(df, aes(x = .data[[group_var]],
                         y = .data[[ycol]],
-                        fill = as.character(.data[[group_var]]))) +
+                        fill = .data[[group_var]])) +
       geom_boxplot(size = 1)
 
     # Add statistical comparisons
@@ -711,7 +714,7 @@ plot_boxgrid <- function(df,
     }
     p <- p + do.call(stat_compare_means, stat_args)
     
-    p + labs(y = ylab, x = NULL, fill = fill_label) +
+    p <- p + labs(y = ylab, x = NULL, fill = fill_label) +
       scale_fill_manual(values = fill_colors) +
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
       theme(
@@ -722,9 +725,11 @@ plot_boxgrid <- function(df,
         legend.background = element_rect(fill = "transparent", colour = NA),
         legend.key = element_rect(fill = "transparent", colour = NA)
       )
+    if (jitter) {
+      p <- p + geom_jitter()
+    }
+  p  
   })
-
-  legend <- cowplot::get_legend(plots[[1]] + theme(legend.position = "right"))
 
   # Save pages
   if (save) dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
@@ -735,7 +740,7 @@ plot_boxgrid <- function(df,
   for (page in seq_len(pages)) {
     idx <- ((page - 1) * per_page + 1):min(page * per_page, n_plots)
     page_grid <- plot_grid(plotlist = plots[idx], ncol = ncol)
-    page_plot <- plot_grid(page_grid, legend, ncol = 3, rel_widths = c(1, 0.1, 0.15))
+    page_plot <- plot_grid(page_grid, ncol = 2, rel_widths = c(1, 0.1))
     print(page_plot)
     if (save) {
       ggsave(file.path(save_dir, sprintf("%s_%02d.%s", file_prefix, page, file_type)),
@@ -750,14 +755,15 @@ plot_boxgrid <- function(df,
 
 #### Group comparison (3 groups)
 
-```{r, echo=FALSE, fig.width=16, fig.height=14}
+```{r, echo=FALSE, fig.width=12, fig.height=14}
 # Group comparison (3 groups)
 plot_boxgrid(
   df = harm_dat_baseline, group_var = "group",
   var_labels = im_labels, log_vars = im_vars_log,
   fill_colors = c("Lean Control" = "#588157", "Obese Control" = "#98c1d9",
                    "Type 2 Diabetes" = "#f08080"),
-  file_prefix = "baseline_group"
+  file_prefix = "baseline_group",
+  text_size = 20, star_size = 12,
 )
 ```
 
@@ -769,8 +775,7 @@ plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
   vars = im_vars_raw, var_labels = im_labels,
   log_vars = im_vars_log, file_prefix = "obt2d_sex",
-  ncol = 4, per_page = 16, show_legend = TRUE, fill_label = "Sex",
-  width = 18, text_size = 20, star_size = 12,
+  text_size = 20, star_size = 12,
   p_format = "value", test_method = "wilcox.test"
 )
 ```
@@ -778,22 +783,28 @@ plot_boxgrid(
 #### BSA indexed sex comparison in obesity/T2D
 
 ```{r, echo=FALSE, fig.width=12, fig.height=12}
-write.csv(harm_dat_obt2d_baseline, file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_041326.csv"), row.names = F)
+write.csv(harm_dat_obt2d_baseline, file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_042326.csv"), row.names = F)
+
+
+# temp <- read_csv(file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_040826.csv"),
+#                  na = "NA", col_select = c(record_id, visit, study, imaging_visit_id, sex, anchor_vars, im_vars))
+# 
+# write.csv(temp, file.path(root_path, "IMPROVE T2D/Data_Cleaned/cmri_dat_obt2d_baseline_040826_subset.csv"),
+#                  na = "", row.names = F)
 
 # BSA-indexed sex comparison
 plot_boxgrid(
   df = harm_dat_obt2d_baseline, group_var = "sex",
   vars = im_vars_bsa, var_labels = im_labels,
   log_vars = im_vars_log, file_prefix = "obt2d_sex_bsa",
-  ncol = 4, per_page = 16, show_legend = TRUE, fill_label = "Sex",
-  width = 18, text_size = 20, star_size = 12,
+  text_size = 20, star_size = 12,
   p_format = "value", test_method = "wilcox.test"
 )
 ```
 
 #### DKD groupings (DKD defined as UACR >= 30 and/or eGFR < 90)
 
-```{r, echo=FALSE, fig.width=12, fig.height=12}
+```{r, echo=FALSE, fig.width=12, fig.height=14}
 # DKD groupings (DKD = worse → red)
 dkd_colors <- c("DKD" = "#f08080", "non_DKD" = "#98c1d9")
 
@@ -801,18 +812,20 @@ plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(dkd_group_30)),
   group_var = "dkd_group_30", var_labels = im_labels,
   log_vars = im_vars_log, fill_colors = dkd_colors,
-  file_prefix = "obt2d_dkd30"
+  file_prefix = "obt2d_dkd30",
+  text_size = 20, star_size = 12
 )
 ```
 
 #### DKD groupings (DKD defined as UACR >= 100 and/or eGFR < 90)
 
-```{r, echo=FALSE, fig.width=12, fig.height=12}
+```{r, echo=FALSE, fig.width=12, fig.height=14}
 plot_boxgrid(
   df = subset(harm_dat_obt2d_baseline, !is.na(dkd_group_100)),
   group_var = "dkd_group_100", var_labels = im_labels,
   log_vars = im_vars_log, fill_colors = dkd_colors,
-  file_prefix = "obt2d_dkd100"
+  file_prefix = "obt2d_dkd100",
+  text_size = 20, star_size = 12
 )
 ```
 
@@ -825,7 +838,8 @@ plot_boxgrid(
   group_var = "acr_u_cat300", log_vars = im_vars_log,
   var_labels = im_labels, file_prefix = "obt2d_acr300",
   fill_colors = c("<300" = "#98c1d9", "\u2265300" = "#f08080"),
-  fill_label = "UACR\nCategory"
+  fill_label = "UACR\nCategory",
+  text_size = 20, star_size = 12
 )
 ```
 
@@ -837,9 +851,11 @@ plot_boxgrid(
   group_var = "sglti_timepoint", log_vars = im_vars_log,
   var_labels = im_labels, file_prefix = "obt2d_sglt2i",
   fill_colors = c("No" = "#98c1d9", "Yes" = "#f08080"),
-  fill_label = "SGLT2i"
+  fill_label = "SGLT2i",
+  text_size = 20, star_size = 12,
+  jitter = T
 )
-table(harm_dat_obt2d_baseline$sglti_timepoint)
+# table(harm_dat_obt2d_baseline$sglti_timepoint)
 ```
 
 #### GLP1RA use (Yes / No)
@@ -852,9 +868,11 @@ plot_boxgrid(
   group_var = "glp1_agonist_timepoint", log_vars = im_vars_log,
   var_labels = im_labels, file_prefix = "obt2d_glp1ra",
   fill_colors = c("No" = "#98c1d9", "Yes" = "#f08080"),
-  fill_label = "GLP1RA"
+  fill_label = "GLP1RA",
+  text_size = 20, star_size = 12,
+  jitter = T
 )
-table(harm_dat_obt2d_baseline$glp1_agonist_timepoint)
+# table(harm_dat_obt2d_baseline$glp1_agonist_timepoint)
 ```
 
 ## Correlation heatmaps
