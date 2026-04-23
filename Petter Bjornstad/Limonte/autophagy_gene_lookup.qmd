@@ -20,7 +20,8 @@ library(table1)
 library(nlme)
 library(reshape2)
 library(nebula)
-
+library(ggrepel)
+library(ggtext)
 ```
 
 ```{r}
@@ -571,4 +572,211 @@ volcano_plot_unadjusted
 dev.off()
 
 ```
+```{r}
+### UMAP code from Ye Ji:
+# Helper functions
+prepare_umap_geneset_metadata <- function(
+    seurat_obj,
+    geneset_scores,
+    celltype_col = "KPMP_celltype_general",
+    umap_reduction = "umap.harmony",
+    color_palette = "Set3",
+    custom_colors = NULL
+) {
+  
+  # Determine cell type levels
+  celltypes <- unique(seurat_obj@meta.data[[celltype_col]])
+  n_celltypes <- length(celltypes)
+  
+  # Build color mapping
+  if (!is.null(custom_colors)) {
+    celltype_colors <- custom_colors
+  } else {
+    umap_colors <- colorRampPalette(brewer.pal(min(brewer.pal.info[color_palette, "maxcolors"], n_celltypes), color_palette))(n_celltypes)
+    celltype_colors <- setNames(umap_colors, celltypes)
+  }
+  
+  # Get UMAP embeddings
+  umap_embed_cols <- colnames(seurat_obj@reductions[[umap_reduction]]@cell.embeddings)
+  
+  # Build metadata with UMAP embeddings and specified geneset scores
+  metadata <- seurat_obj@meta.data %>%
+    cbind(seurat_obj@reductions[[umap_reduction]]@cell.embeddings) %>%
+    select(all_of(c(celltype_col, geneset_scores)), all_of(umap_embed_cols))
+  
+  # Rename UMAP columns for consistency
+  colnames(metadata)[colnames(metadata) %in% umap_embed_cols] <- c("UMAP_1", "UMAP_2")
+  
+  # Compute cell type centers
+  centers <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(x = median(UMAP_1),
+              y = median(UMAP_2), .groups = "drop") %>%
+    dplyr::rename(!!celltype_col := 1) # Ensure consistent naming
+  
+  list(
+    metadata = metadata,
+    centers = centers,
+    celltype_colors = celltype_colors
+  )
+}
 
+plot_geneset_umap <- function(
+    geneset_score,     # single column name from metadata
+    metadata,          # from prepare_umap_geneset_metadata
+    centers,           # centers dataframe
+    celltype_colors,   # named color vector
+    celltype_col = "KPMP_celltype_general",
+    score_threshold = NULL,  # optional threshold to highlight high-scoring cells
+    save_to_s3 = FALSE,
+    s3_prefix = "",
+    s3_suffix = "",
+    s3_bucket = "scrna",
+    plot_height = 8,
+    plot_width = 8
+) {
+  
+  # Calculate score stats per cell type
+  score_stats <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(
+      mean_score = round(mean(.data[[geneset_score]], na.rm = TRUE), 3),
+      median_score = round(median(.data[[geneset_score]], na.rm = TRUE), 3),
+      n_cells = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(mean_score))
+  
+  # Build caption with top cell types by mean score
+  caption_text <- score_stats %>%
+    mutate(
+      color = celltype_colors[.data[[celltype_col]]],
+      label = paste0("<span style='color:", color, "'>&#9679; </span>**", 
+                    .data[[celltype_col]], "**: ", mean_score),
+      group = ceiling(row_number() / 6)  # Group every 6 cell types
+    ) %>%
+    group_by(group) %>%
+    summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
+    pull(line) %>%
+    paste(collapse = "<br><br>") %>%
+    paste0("**Mean ", gsub("_", " ", 
+                           gsub("_signature1", "", geneset_score)), " by cell type:**<br><br>", .)
+  
+  # Create the plot with custom diverging color scale
+  p <- metadata %>%
+    ggplot(aes(x = UMAP_1, y = UMAP_2, color = .data[[geneset_score]])) +
+    geom_point(alpha = 0.6, size = 0.3) +
+    scale_color_gradient2(
+      low = "#89c2d9",     # Blue for negative/low values
+      mid = "white",       # White at 0
+      high = "#ee7674",    # Red for positive/high values
+      midpoint = 0,
+      name = "Score"
+    ) +
+    geom_text_repel(
+      data = centers,
+      aes(x = x, y = y, label = .data[[celltype_col]]),
+      inherit.aes = FALSE,
+      size = 3.5,
+      fontface = "bold",
+      color = "black",
+      bg.color = "white",
+      bg.r = 0.1,
+      max.overlaps = Inf
+    ) +
+    theme_void() +
+    theme(
+      text = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      plot.caption = element_markdown(size = 10, hjust = 0),
+      legend.position = "right"
+    ) +
+    labs(title = toupper(gsub("_", " ", 
+                           gsub("_signature1", "", geneset_score))), caption = caption_text)
+  
+  if (save_to_s3) {
+    s3write_using_region(
+      p,
+      FUN = ggsave,
+      object = paste0(s3_prefix, geneset_score, "_GeneSetScorePlot", s3_suffix, ".png"),
+      bucket = s3_bucket,
+      region = "",
+      height = plot_height,
+      width = plot_width
+    )
+  }
+  
+  return(p)
+}
+
+# all cells:
+plot_df <- prepare_umap_geneset_metadata(
+  seurat_obj = pb90_allcells,
+  celltype_col = "KPMP_celltype_general",
+  geneset_scores = features)
+
+umap_list <- list()
+for (f in features) {
+  p <- plot_geneset_umap(
+    geneset_score = f,
+    metadata = plot_df$metadata,
+    centers = plot_df$centers,
+    celltype_colors = plot_df$celltype_colors,
+    celltype_col = "KPMP_celltype_general",
+    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
+    s3_suffix = "",
+    save_to_s3 = F
+  )
+  umap_list[[f]] <- p
+}
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_overallautophagy.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[1]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_autophagyinduction.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[2]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_lysosomalbiogenesis.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[3]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_tfeb.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[4]]
+dev.off()
+
+plot_df <- prepare_umap_geneset_metadata(
+  seurat_obj = pb90_ptcells,
+  celltype_col = "KPMP_celltype",
+  geneset_scores = features)
+
+umap_list <- list()
+for (f in features) {
+  p <- plot_geneset_umap(
+    geneset_score = f,
+    metadata = plot_df$metadata,
+    centers = plot_df$centers,
+    celltype_colors = plot_df$celltype_colors,
+    celltype_col = "KPMP_celltype",
+    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
+    s3_suffix = "",
+    save_to_s3 = F
+  )
+  umap_list[[f]] <- p
+}
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_overallautophagy.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[1]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_autophagyinduction.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[2]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_lysosomalbiogenesis.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[3]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_tfeb.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[4]]
+dev.off()
+```
