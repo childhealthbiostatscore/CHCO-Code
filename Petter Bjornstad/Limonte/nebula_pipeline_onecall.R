@@ -37,24 +37,25 @@ print(end_time - start_time)
 
 ###8.2.3 Post-Analysis Results Processing
 re_summary<-re$summary
+# Calculate number of genes filtered out
+nebula_genes<-nrow(re_summary)
+low_exp <- nrow(count_subset) - nebula_genes
+
 # Remove NULL entries (failed analyses) from the results
 re_summary$convergecode<-re$convergence
 re_summary$converged<-ifelse(re_summary$convergecode==1,1,0)
-nonconverge_genes<-subset(re_summary,re_summary$converged==0)
-# Create a full results dataframe
-full_results <- as.data.frame(re_summary)
 
-# Calculate number of genes filtered out
-low_exp <- length(genes_list) - length(full_results$gene)
+# Calculate number of nonconverged genes:
+nonconverge_genes<-nrow(subset(re_summary,re_summary$converged==0))
 
-# Filter out non-converging genes from the results
-full_results<-subset(full_results,full_results$converged==1)
+# Create a dataframe of converged nebula results:
+full_results<-subset(re_summary,re_summary$converged==1)
 
 # Calculate non-convergence percentage
 nebula_nonconverged_percent <- paste0(
   round(
     (1 -
-       (length(genes_list) - nrow(nonconverge_genes)) / length(genes_list)) *
+       (nrow(count_subset) - nonconverge_genes) / nrow(count_subset)) *
       100,
     3
   ),
@@ -69,7 +70,7 @@ full_results$p_adjusted<-p.adjust(full_results$p_unadjusted, method = "fdr")
 full_results$p10_unadjusted <- -log10(pmax(full_results$p_unadjusted, 1e-10))
 full_results$p10_adjusted <- -log10(pmax(full_results$p_adjusted, 1e-10))
 
-# Assign colors based on log fold-change and FDR significance
+# Assign colors based on log fold-change p-value significance: 
 full_results$color_unadjusted <- ifelse(
   full_results$p_unadjusted < 0.05 & full_results$logFC_group1 > 0,
   "lightcoral",
@@ -109,4 +110,59 @@ max <- max(full_results$logFC_group1)
 min <- min(full_results$logFC_group1)
 
 # ---- Volcano Plot ----
+volcano_plot_adjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_adjusted, color = color_adjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "FDR Adjusted Pvalues",  # Main title
+    subtitle = "",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      " (Genes Filtered out for Low Expression: ", low_exp,
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      
+      ")"
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_adjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
 
+
+volcano_plot_unadjusted <- ggplot(full_results, aes(x = logFC_group1, y = p10_unadjusted, color = color_unadjusted)) +
+  geom_point(alpha = 0.7) +  # Add points with transparency
+  scale_color_identity() +  # Use color directly from 'color' column
+  theme_minimal() +  # Apply minimalistic theme
+  labs(
+    title = "Unadjusted PValues",  # Main title
+    subtitle = "",  # Subtitle
+    x = "logFC",  # X-axis label
+    y = "-log10(P-Value)",  # Y-axis label
+    color = "LogFC Direction",
+    caption = paste0(
+      "Genes = ", Genes, 
+      ", Nuclei = ", Nuclei, 
+      " (Genes Filtered out for Low Expression: ", low_exp,
+      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
+      
+      ")"
+    )  # Plot caption
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +  # Set x-axis limits
+  # Add gene labels for significant points
+  geom_text(data = significant_df_unadjusted, aes(label = gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
