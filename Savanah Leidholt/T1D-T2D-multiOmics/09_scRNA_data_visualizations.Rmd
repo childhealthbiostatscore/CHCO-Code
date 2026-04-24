@@ -95,6 +95,7 @@ pb90_multiomics_subset <- s3readRDS(
           object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
           bucket = "scrna",
           region = "")
+table(pb90_multiomics_subset$harmony_clusters)
 ```
 
 ```{r}
@@ -109,7 +110,6 @@ my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
 # region = "", 
 # multipart = T)
 ```
-
 
 ```{r}
 # start from here if file already saved
@@ -215,15 +215,53 @@ umap_p_study<- ggplot(pb90_multiomics_subset_meta,
 
 umap_p_study
 ```
+## b. Descriptive Statistics
+```{r}
+#Load Metadata cleaned
+#Table 1
+label(pb90_multiomics_subset_meta$age) <- "Age (years)"
+label(pb90_multiomics_subset_meta$sex) <- "Sex"
+label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
+label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
+label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
+label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
+label(pb90_multiomics_subset_meta$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
+
+table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr + group| group, data= pb90_multiomics_subset_meta)
+
+continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
+
+#uneven groups so using kruskal wallis
+for (var in continuous_vars) {
+  formula <- as.formula(paste(var, "~ group"))
+  kw <- kruskal.test(formula, data = pb90_multiomics_subset_meta)
+  cat(var, "Kruskal-Wallis p-value:", round(kw$p.value, 4), "\n")
+}
+
+# Categorical variables - chi-square tests
+categorical_vars <- c("sex", "race_ethnicity_condensed")
+
+for (var in categorical_vars) {
+  chi_test <- chisq.test(table(pb90_multiomics_subset_meta[[var]], pb90_multiomics_subset_meta$group))
+  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
+}
+
+```
+
 ```{r}
 cell_counts <- pb90_multiomics_subset_meta %>%
   dplyr::count(KPMP_celltype_general) %>%
   arrange(desc(n))
 
-# Create bar plot
 cell_count_bar <- ggplot(cell_counts, aes(x = reorder(KPMP_celltype_general, n), y = n)) +
   geom_bar(stat = "identity", fill = "#97a97c") +
-  geom_text(aes(label = n), hjust = -0.1, size = 4) +
+  # counts inside the bar
+  geom_text(aes(label = n), 
+            hjust = 1.1, color = "white", size = 4) +
+  # cell type outside the bar
+  geom_text(aes(label = KPMP_celltype_general), 
+            hjust = -0.1, size = 4) +
   coord_flip() +
   labs(x = NULL, 
        y = "Count") +
@@ -278,60 +316,25 @@ ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill
   theme_transparent() +
   scale_y_continuous(expand = expansion(add = 5000)) 
 ```
-
 ```{r}
-# Save to a temporary connection
-#tmp <- tempfile(fileext = ".png")
-#ggsave(tmp, width = 10, height = 8, dpi = 300)
+# Barplot sample proportion by celltype 
+ggplot(pb90_multiomics_subset@meta.data) +
+    geom_bar(aes(x=study, fill=KPMP_celltype_general), 
+                 position=position_fill(), color="black") +
+    theme_classic() +
+    labs(x="Study", y="Proportion of Cells")
 
-# Upload directly
-#put_object(
-#  file = tmp,
-#  object = "results/figures/t1d_hc_grp_kpmp_cell_count_bar.png",
-#  bucket = "t1d.adiposity",
-#  region = ""
-#)
+ggplot(pb90_multiomics_subset@meta.data) +
+    geom_bar(aes(x=group, fill=KPMP_celltype_general), 
+                 position=position_fill(), color="black") +
+    theme_classic() +
+    labs(x="group", y="Proportion of Cells")
 ```
 
-## b. Descriptive Statistics
-```{r}
-#Load Metadata cleaned
-#Table 1
-label(pb90_multiomics_subset_meta$age) <- "Age (years)"
-label(pb90_multiomics_subset_meta$sex) <- "Sex"
-label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
-label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
-label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
-label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
-label(pb90_multiomics_subset_meta$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
-label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
-
-table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr| group, data= pb90_multiomics_subset_meta)
-
-continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
-
-#uneven groups so using kruskal wallis
-for (var in continuous_vars) {
-  formula <- as.formula(paste(var, "~ group"))
-  kw <- kruskal.test(formula, data = pb90_multiomics_subset_meta)
-  cat(var, "Kruskal-Wallis p-value:", round(kw$p.value, 4), "\n")
-}
-
-# Categorical variables - chi-square tests
-categorical_vars <- c("sex", "race_ethnicity_condensed")
-
-for (var in categorical_vars) {
-  chi_test <- chisq.test(table(pb90_multiomics_subset_meta[[var]], pb90_multiomics_subset_meta$group))
-  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
-}
-
-```
 
 ```{r}
-## a. Aim 1.1: Perform differential expression between all group comparisons (T1D, T2D, LC, OC)
-# Verify dimensions
 pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
-  pb90_multiomics_subset@meta.data$cell_type_abbrev, 
+  pb90_multiomics_subset@meta.data$KPMP_celltype_general, 
   " = ", 
   pb90_multiomics_subset@meta.data$cell_type
 )
@@ -347,7 +350,9 @@ table(pb90_multiomics_subset$study)
 table(pb90_multiomics_subset$KPMP_celltype_general)
 head(pb90_multiomics_subset@meta.data[, c("group", "kit_id", "record_id", "KPMP_celltype_general")])
 ```
-
+#------------------
+#propeller analysis
+#------------------
 ```{r}
 groups      <- unique(pb90_multiomics_subset_meta$group)
 group_pairs <- combn(groups, 2, simplify = FALSE)  # all pairwise combos
@@ -380,6 +385,299 @@ for (pair in group_pairs) {
   #)
 }
 ```
+#-----------------------------------------------------
+#psuedobulk analysis since OC only have 3 particpants
+#-----------------------------------------------------
+```{r}
+#settings should already be min cell counts but just in case
+min_cells_per_sample <- 20     # minimum cells contributing to a pseudobulk sample
+min_donors_per_group <- 3      # minimum donors per group required to run DE
+min_total_count <- 10          # edgeR gene filter helper
+min_samples_expr <- 2          # edgeR gene filter helper
+
+# output directory
+pb_out_dir <- file.path(dir.results, "T1D-T2D", "Results", "pseudobulk_1")
+dir.create(pb_out_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+#----------------------------
+# prepping metadata for edgeR
+#----------------------------
+```{r}
+meta <- pb90_multiomics_subset@meta.data %>%
+  mutate(
+    cell_barcode = rownames(pb90_multiomics_subset@meta.data),
+    record_id = as.character(record_id),
+    group = as.character(group),
+    sex = as.character(sex),
+    study = as.character(study),
+    celltype = as.character(KPMP_celltype_general)
+  )
+
+#keeping only complete metadata for modeling
+meta <- meta %>%
+  filter(
+    !is.na(record_id),
+    !is.na(group),
+    !is.na(age),
+    !is.na(sex),
+    !is.na(study),
+    !is.na(celltype)
+  )
+
+# make sure cell order matches metadata row order
+counts <- GetAssayData(pb90_multiomics_subset, layer = "counts")
+counts <- counts[, meta$cell_barcode, drop = FALSE]
+
+# Number of cells by sample and celltype
+bulk <- AggregateExpression(
+            pb90_multiomics_subset,
+            return.seurat = TRUE,
+            assays = "RNA",
+            group.by = c("KPMP_celltype_general", "record_id", "group"))
+
+n_cells <- pb90_multiomics_subset@meta.data %>% 
+  dplyr::count(record_id, KPMP_celltype_general) %>% 
+  dplyr::rename(n_cells = n)
+
+n_cells$record_id <- str_replace(n_cells$record_id, "_", "-")
+
+meta_bulk <- left_join(bulk@meta.data, n_cells)
+rownames(meta_bulk) <- meta_bulk$orig.ident
+bulk@meta.data <- meta_bulk
+
+# Turn condition into a factor
+bulk$condition <- factor(bulk$condition, levels=c("TN", "RT", "cold2", "cold7"))
+
+bulk@meta.data %>% head()
+```
+
+#----------------------------------------------------------
+# building pseudobulk cell counts
+# one pseudobulk sample = one donor within one cell type
+#---------------------------------------------------------
+```{r}
+meta <- meta %>%
+  mutate(sample_celltype_id = paste(record_id, celltype, sep = "__"))
+
+pb_ids <- unique(meta$sample_celltype_id)
+
+pb_count_list <- vector("list", length(pb_ids))
+pb_meta_list  <- vector("list", length(pb_ids))
+
+for (i in seq_along(pb_ids)) {
+  sid <- pb_ids[i]
+  idx <- which(meta$sample_celltype_id == sid)
+  
+  # skip tiny pseudobulks
+  if (length(idx) < min_cells_per_sample) next
+  
+  sub_counts <- counts[, idx, drop = FALSE]
+  agg_counts <- Matrix::rowSums(sub_counts)
+  
+  meta_sub <- meta[idx, ]
+  
+  pb_count_list[[i]] <- agg_counts
+  pb_meta_list[[i]] <- data.frame(
+    pseudobulk_id = sid,
+    record_id = meta_sub$record_id[1],
+    group = meta_sub$group[1],
+    age = meta_sub$age[1],
+    sex = meta_sub$sex[1],
+    study = meta_sub$study[1],
+    celltype = meta_sub$celltype[1],
+    n_cells = nrow(meta_sub),
+    stringsAsFactors = FALSE
+  )
+}
+
+# remove NULL entries
+keep_idx <- which(!sapply(pb_count_list, is.null))
+pb_count_list <- pb_count_list[keep_idx]
+pb_meta_list  <- pb_meta_list[keep_idx]
+
+# combine into matrix + metadata
+pb_counts <- do.call(cbind, pb_count_list)
+colnames(pb_counts) <- sapply(pb_meta_list, function(x) x$pseudobulk_id)
+pb_meta <- bind_rows(pb_meta_list)
+
+# make sure order matches
+pb_meta <- pb_meta %>% slice(match(colnames(pb_counts), pseudobulk_id))
+stopifnot(identical(colnames(pb_counts), pb_meta$pseudobulk_id))
+```
+
+#------------------------
+#running edgeR/cell type
+#-----------------------
+```{r}
+#be careful how I compute the mean as this can be sensitive to outliers (less so with normalized data)
+#not sure if I should aggregate by mean or by the sum of the cells. 
+#setting up pairwise comparisons
+groups <- sort(unique(pb_meta$group))
+group_pairs <- combn(groups, 2, simplify = FALSE)
+
+celltypes <- sort(unique(pb_meta$celltype))
+
+for (cell_name in celltypes) {
+  
+  cat("\n============================\n")
+  cat("Cell type:", cell_name, "\n")
+  cat("============================\n")
+  
+  cell_idx <- which(pb_meta$celltype == cell_name)
+  
+  if (length(cell_idx) == 0) next
+  
+  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
+  meta_ct   <- pb_meta[cell_idx, , drop = FALSE]
+  
+  for (pair in group_pairs) {
+    
+    pair_name <- paste(pair, collapse = "_vs_")
+    cat("\n--- Comparison:", pair_name, "---\n")
+    
+    keep_pair <- meta_ct$group %in% pair
+    counts_sub <- counts_ct[, keep_pair, drop = FALSE]
+    meta_sub   <- meta_ct[keep_pair, , drop = FALSE]
+    
+    meta_sub$group <- factor(meta_sub$group, levels = pair)
+    meta_sub$sex   <- factor(meta_sub$sex)
+    meta_sub$study <- factor(meta_sub$study)
+    
+    # donor counts per group
+    donor_tab <- table(meta_sub$group)
+    print(donor_tab)
+    
+    if (any(donor_tab < min_donors_per_group)) {
+      cat("Skipping", pair_name, "for", cell_name, "- too few donors in at least one group\n")
+      next
+    }
+    
+    #design matrix
+    design <- model.matrix(~ group + age + sex, data = meta_sub)
+    
+    # edgeR object
+    y <- DGEList(counts = counts_sub)
+    
+    # filter low-expression genes
+    keep_genes <- filterByExpr(y, design = design)
+    y <- y[keep_genes, , keep.lib.sizes = FALSE]
+    
+    if (nrow(y) == 0) {
+      cat("Skipping", pair_name, "for", cell_name, "- no genes passed filtering\n")
+      next
+    }
+    
+    # normalization
+    y <- calcNormFactors(y)
+    
+    # estimate dispersion
+    y <- estimateDisp(y, design)
+    
+    # fit the model
+    fit <- glmQLFit(y, design, robust = TRUE)
+    
+    coef_name <- grep("^group", colnames(design), value = TRUE)
+    
+    if (length(coef_name) != 1) {
+      cat("Skipping", pair_name, "for", cell_name, "- could not identify unique group coefficient\n")
+      next
+    }
+    
+    qlf <- glmQLFTest(fit, coef = which(colnames(design) == coef_name))
+    tt <- topTags(qlf, n = Inf)$table
+    tt$gene <- rownames(tt)
+    tt$comparison <- pair_name
+    tt$celltype <- cell_name
+    tt$n_donors_group1 <- as.numeric(donor_tab[1])
+    tt$n_donors_group2 <- as.numeric(donor_tab[2])
+    tt$coef_tested <- coef_name
+    
+    #add average CPM
+    logcpm <- cpm(y, log = TRUE)
+    tt$mean_logCPM_check <- rowMeans(logcpm[tt$gene, , drop = FALSE])
+    
+    # save
+    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
+    out_file <- file.path(
+      pb_out_dir,
+      paste0("pseudobulk_edgeR_", pair_name, "_", cell_name_file, ".csv")
+    )
+    
+    write.csv(tt, out_file, row.names = FALSE)
+    cat("Saved:", out_file, "\n")
+  
+    
+    # -------------------------
+    # make volcano plot function
+    # -------------------------
+  plot_volcano <- function(tt, title = "", fdr_cutoff = 0.05, lfc_cutoff = 0.5, n_labels = 10) {
+  
+  tt <- tt %>%
+    mutate(
+      neg_log10_fdr = -log10(FDR),
+      sig = case_when(
+        FDR < fdr_cutoff & logFC > lfc_cutoff  ~ "Up",
+        FDR < fdr_cutoff & logFC < -lfc_cutoff ~ "Down",
+        TRUE ~ "NS"
+      )
+    )
+  #labeling top 10 DEGs
+  label_df <- tt %>%
+    filter(FDR < fdr_cutoff) %>%
+    arrange(FDR) %>%
+    slice_head(n = n_labels)
+  
+  ggplot(tt, aes(x = logFC, y = neg_log10_fdr, color = sig)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_text_repel(
+      data = label_df,
+      aes(label = gene),
+      size = 3,
+      max.overlaps = Inf,
+      box.padding = 0.4,
+      point.padding = 0.3
+    ) +
+    scale_color_manual(values = c("Up" = "red", "Down" = "blue", "NS" = "grey")) +
+    geom_vline(xintercept = c(-lfc_cutoff, lfc_cutoff), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    labs(
+      title = title,
+      x = "log2 Fold Change",
+      y = "-log10(FDR)",
+      color = ""
+    ) +
+    theme_classic()
+}
+    
+    #---------------------------------------------
+    #calling each plot per contrast and cell type
+    #---------------------------------------------
+    volcano_plot <- plot_volcano(
+      tt,
+      title = paste(cell_name, pair_name),
+      fdr_cutoff = 0.05,
+      lfc_cutoff = 0.5
+    )
+    
+    ggsave(
+      filename = file.path(pb_out_dir, paste0("volcano_", pair_name, "_", cell_name_file, ".png")),
+      plot = volcano_plot,
+      width = 6,
+      height = 5,
+      dpi = 300
+    )
+    
+    cat("Saved volcano:", pair_name, cell_name, "\n")
+  }
+}
+
+```
+
+
+
+
+
 
 # =========================================================
 # CLEANER NEBULA PIPELINE
@@ -389,7 +687,7 @@ for (pair in group_pairs) {
 # =========================================================
 ```{r}
 n_hvg <- 500 #change to to 1000 then 2000 to see if it can still run
-min_cells_per_celltype <- 50   # skip tiny cell types
+min_cells_per_celltype <- 50   # skip tiny cell types (not really necessary since small cells are grouped as "other")
 overwrite_existing <- TRUE     # FALSE = skip if output file exists
 
 
@@ -577,205 +875,6 @@ for (pair in group_pairs) {
 }
 ```
 
-#-----------------------------------------------------
-#psuedobulk analysis since OC only have 3 particpants
-#-----------------------------------------------------
-```{r}
-#settings should already be min cell counts but just in case
-min_cells_per_sample <- 20     # minimum cells contributing to a pseudobulk sample
-min_donors_per_group <- 3      # minimum donors per group required to run DE
-min_total_count <- 10          # edgeR gene filter helper
-min_samples_expr <- 2          # edgeR gene filter helper
-
-# output directory
-pb_out_dir <- file.path(dir.results, "T1D-T2D", "Results", "pseudobulk")
-dir.create(pb_out_dir, recursive = TRUE, showWarnings = FALSE)
-```
-
-#----------------------------
-# prepping metadata for edgeR
-#----------------------------
-```{r}
-meta <- pb90_multiomics_subset@meta.data %>%
-  mutate(
-    cell_barcode = rownames(pb90_multiomics_subset@meta.data),
-    record_id = as.character(record_id),
-    group = as.character(group),
-    sex = as.character(sex),
-    study = as.character(study),
-    celltype = as.character(KPMP_celltype_general)
-  )
-
-#keeping only complete metadata for modeling
-meta <- meta %>%
-  filter(
-    !is.na(record_id),
-    !is.na(group),
-    !is.na(age),
-    !is.na(sex),
-    !is.na(study),
-    !is.na(celltype)
-  )
-
-# make sure cell order matches metadata row order
-counts <- GetAssayData(pb90_multiomics_subset, layer = "counts")
-counts <- counts[, meta$cell_barcode, drop = FALSE]
-```
-#----------------------------------------------------------
-# building pseudobulk cell counts
-# one pseudobulk sample = one donor within one cell type
-#---------------------------------------------------------
-```{r}
-meta <- meta %>%
-  mutate(sample_celltype_id = paste(record_id, celltype, sep = "__"))
-
-pb_ids <- unique(meta$sample_celltype_id)
-
-pb_count_list <- vector("list", length(pb_ids))
-pb_meta_list  <- vector("list", length(pb_ids))
-
-for (i in seq_along(pb_ids)) {
-  sid <- pb_ids[i]
-  idx <- which(meta$sample_celltype_id == sid)
-  
-  # skip tiny pseudobulks
-  if (length(idx) < min_cells_per_sample) next
-  
-  sub_counts <- counts[, idx, drop = FALSE]
-  agg_counts <- Matrix::rowSums(sub_counts)
-  
-  meta_sub <- meta[idx, ]
-  
-  pb_count_list[[i]] <- agg_counts
-  pb_meta_list[[i]] <- data.frame(
-    pseudobulk_id = sid,
-    record_id = meta_sub$record_id[1],
-    group = meta_sub$group[1],
-    age = meta_sub$age[1],
-    sex = meta_sub$sex[1],
-    study = meta_sub$study[1],
-    celltype = meta_sub$celltype[1],
-    n_cells = nrow(meta_sub),
-    stringsAsFactors = FALSE
-  )
-}
-
-# remove NULL entries
-keep_idx <- which(!sapply(pb_count_list, is.null))
-pb_count_list <- pb_count_list[keep_idx]
-pb_meta_list  <- pb_meta_list[keep_idx]
-
-# combine into matrix + metadata
-pb_counts <- do.call(cbind, pb_count_list)
-colnames(pb_counts) <- sapply(pb_meta_list, function(x) x$pseudobulk_id)
-pb_meta <- bind_rows(pb_meta_list)
-
-# make sure order matches
-pb_meta <- pb_meta %>% slice(match(colnames(pb_counts), pseudobulk_id))
-stopifnot(identical(colnames(pb_counts), pb_meta$pseudobulk_id))
-```
-
-#------------------------
-#running edgeR/cell type
-#-----------------------
-```{r}
-#setting up pairwise comparisons
-groups <- sort(unique(pb_meta$group))
-group_pairs <- combn(groups, 2, simplify = FALSE)
-
-celltypes <- sort(unique(pb_meta$celltype))
-
-for (cell_name in celltypes) {
-  
-  cat("\n============================\n")
-  cat("Cell type:", cell_name, "\n")
-  cat("============================\n")
-  
-  cell_idx <- which(pb_meta$celltype == cell_name)
-  
-  if (length(cell_idx) == 0) next
-  
-  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
-  meta_ct   <- pb_meta[cell_idx, , drop = FALSE]
-  
-  for (pair in group_pairs) {
-    
-    pair_name <- paste(pair, collapse = "_vs_")
-    cat("\n--- Comparison:", pair_name, "---\n")
-    
-    keep_pair <- meta_ct$group %in% pair
-    counts_sub <- counts_ct[, keep_pair, drop = FALSE]
-    meta_sub   <- meta_ct[keep_pair, , drop = FALSE]
-    
-    meta_sub$group <- factor(meta_sub$group, levels = pair)
-    meta_sub$sex   <- factor(meta_sub$sex)
-    meta_sub$study <- factor(meta_sub$study)
-    
-    # donor counts per group
-    donor_tab <- table(meta_sub$group)
-    print(donor_tab)
-    
-    if (any(donor_tab < min_donors_per_group)) {
-      cat("Skipping", pair_name, "for", cell_name, "- too few donors in at least one group\n")
-      next
-    }
-    
-    #design matrix
-    design <- model.matrix(~ group + age + sex + study, data = meta_sub)
-    
-    # edgeR object
-    y <- DGEList(counts = counts_sub)
-    
-    # filter low-expression genes
-    keep_genes <- filterByExpr(y, design = design)
-    y <- y[keep_genes, , keep.lib.sizes = FALSE]
-    
-    if (nrow(y) == 0) {
-      cat("Skipping", pair_name, "for", cell_name, "- no genes passed filtering\n")
-      next
-    }
-    
-    # normalization
-    y <- calcNormFactors(y)
-    
-    # estimate dispersion
-    y <- estimateDisp(y, design)
-    
-    # fit the model
-    fit <- glmQLFit(y, design, robust = TRUE)
-    
-    coef_name <- grep("^group", colnames(design), value = TRUE)
-    
-    if (length(coef_name) != 1) {
-      cat("Skipping", pair_name, "for", cell_name, "- could not identify unique group coefficient\n")
-      next
-    }
-    
-    qlf <- glmQLFTest(fit, coef = which(colnames(design) == coef_name))
-    tt <- topTags(qlf, n = Inf)$table
-    tt$gene <- rownames(tt)
-    tt$comparison <- pair_name
-    tt$celltype <- cell_name
-    tt$n_donors_group1 <- as.numeric(donor_tab[1])
-    tt$n_donors_group2 <- as.numeric(donor_tab[2])
-    tt$coef_tested <- coef_name
-    
-    #add average CPM
-    logcpm <- cpm(y, log = TRUE)
-    tt$mean_logCPM_check <- rowMeans(logcpm[tt$gene, , drop = FALSE])
-    
-    # save
-    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
-    out_file <- file.path(
-      pb_out_dir,
-      paste0("pseudobulk_edgeR_", pair_name, "_", cell_name_file, ".csv")
-    )
-    
-    write.csv(tt, out_file, row.names = FALSE)
-    cat("Saved:", out_file, "\n")
-  }
-}
-```
 
 
 
