@@ -1954,16 +1954,26 @@ s3_key_processed <- sprintf("%s/%s/%s/%s_nebula_%s_processed.rds",
                             celltype_group_input, config$file_suffix)
 
 # Run nebula
+pb90_attempt_so_counts <- round(GetAssayData(pb90_celltype, layer = "counts"))
+pb90_attempt_meta <- pb90_celltype@meta.data
+pb90_attempt_pred  <- model.matrix(formula_obj, data = pb90_attempt_meta)
+pb90_attempt_data  <- list(count = pb90_attempt_so_counts,
+                            id    = pb90_attempt_meta$record_id,
+                            pred  = pb90_attempt_pred,
+                            offset = Matrix::colSums(pb90_attempt_so_counts))
+
 nebula_res <- tryCatch({
-  run_nebula_parallel(
-    pb90_celltype,
-    n_cores = 15,
-    subject_id_col = "record_id",
-    formula = formula_obj,
-    s3_bucket = s3_bucket,
-    s3_key = s3_key_raw,
-    group = FALSE
-  )
+  nebula_res <- nebula(
+    count      = pb90_attempt_data$count,
+    id         = pb90_attempt_data$id,
+    pred       = pb90_attempt_data$pred,
+    offset     = pb90_attempt_data$offset,
+    ncore      = 15,
+    reml       = 1,
+    model      = "NBLMM")
+  nebula_res <- nebula_compiled$summary[nebula_compiled$convergence >= -10, ]
+  cat(sprintf("Percent converged: %g", round(nrow(nebula_res) / nrow(pb90_attempt_so_counts) * 100, 2)))
+  
 }, error = function(e) {
   cat(sprintf("ERROR running NEBULA: %s\n", e$message))
   cat("Attempting to continue with error handling...\n")
@@ -1976,11 +1986,19 @@ if (is.null(nebula_res)) {
 }
 
 # Process results
-processed <- process_nebula_results(
-  nebula_res$results,
-  pval_col = config$pval_col,
-  logfc_col = config$logfc_col
-)
+processed <- nebula_res %>%
+  dplyr::mutate(fdr = p.adjust(.data[[config$pval_col]], method = "fdr"),
+                Gene = gene) %>%
+  filter(abs(.data[[config$logfc_col]]) < 10)
+
+# Identify positive/negative logFC
+p_sig <- processed[processed[[config$pval_col]] < 0.05, ]
+p_positive <- sum(p_sig[[config$logfc_col]] > 0)
+p_negative <- sum(p_sig[[config$logfc_col]] < 0)
+
+fdr_sig <- processed[processed$fdr < 0.05, ]
+fdr_positive <- sum(fdr_sig[[config$logfc_col]] > 0)
+fdr_negative <- sum(fdr_sig[[config$logfc_col]] < 0)
 
 # =============================================================================
 # CREATE AND SAVE RUN METADATA
@@ -2043,6 +2061,12 @@ run_metadata <- data.frame(
   },
   total_cells = ncol(pb90_celltype),
   subset_condition = full_subset_cond,
+  p_sig = nrow(p_sig),
+  p_pos = p_positive,
+  p_neg = p_negative,
+  fdr_sig = nrow(fdr_sig),
+  fdr_pos = fdr_positive,
+  fdr_neg = fdr_negative,
   s3_results_key = s3_key_processed,
   run_timestamp = as.character(Sys.time()),
   stringsAsFactors = FALSE
@@ -2069,7 +2093,7 @@ gene_info <- tryCatch({
   getBM(
     attributes = c("hgnc_symbol", "description", "gene_biotype"),
     filters = "hgnc_symbol",
-    values = processed$results$Gene,
+    values = processed$Gene,
     mart = mart
   ) %>%
     dplyr::rename(Gene = hgnc_symbol)
@@ -2079,7 +2103,7 @@ gene_info <- tryCatch({
   data.frame(Gene = character(0), description = character(0), gene_biotype = character(0))
 })
 
-annotated_df <- processed$results %>%
+annotated_df <- processed %>%
   left_join(gene_info, by = "Gene")
 
 cat(sprintf("Saving processed results to S3: %s\n", s3_key_processed))
