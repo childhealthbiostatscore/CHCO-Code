@@ -29,8 +29,7 @@ cat(sprintf("=============================================================\n"))
 library(aws.s3)
 library(jsonlite)
 library(biomaRt)
-# library(Seurat)  # not needed — precomputed data is plain dgCMatrix + data.frame
-library(Matrix)   # was previously brought in transitively via Seurat
+library(Matrix)
 library(dplyr)
 library(nebula)
 
@@ -1547,9 +1546,6 @@ id     <- pre$id
 offset <- pre$offset
 rm(pre); gc(verbose = FALSE)
 
-# Initialize biomaRt (used later for gene annotation)
-mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
-
 # =============================================================================
 # PREPARE DATA FOR ANALYSIS
 # =============================================================================
@@ -1915,24 +1911,24 @@ s3_key_processed <- sprintf("%s/%s/%s/%s_nebula_%s_processed.rds",
 # internally (per nebula docs).
 pred <- model.matrix(formula_obj, data = meta)
 
-# Match ncore to SLURM allocation if present; cap at 8 (nebula plateaus
+# Match ncore to SLURM allocation if present; cap at 6 (nebula plateaus
 # around 6-10 cores). Fall back to 6 if not running under SLURM.
 ncore <- {
   n <- suppressWarnings(as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "")))
   if (is.na(n) || n < 1) n <- 6
-  min(n, 8)
+  min(n, 6)
 }
 cat(sprintf("NEBULA ncore = %d\n", ncore))
 
 nebula_res <- tryCatch({
   res <- nebula(
-    count  = count,
+    count  = round(count),
     id     = id,
     pred   = pred,
     offset = offset,
     ncore  = ncore,
-    reml   = 0,
-    model  = "LN"
+    reml   = 1,
+    model  = "NBLMM"
   )
   keep <- res$convergence >= -10
   cat(sprintf("Percent converged: %g\n",
@@ -2053,21 +2049,17 @@ unlink(temp_csv)
 cat("Adding gene annotations...\n")
 
 gene_info <- tryCatch({
-  getBM(
-    attributes = c("hgnc_symbol", "description", "gene_biotype"),
-    filters = "hgnc_symbol",
-    values = processed$Gene,
-    mart = mart
-  ) %>%
-    dplyr::rename(Gene = hgnc_symbol)
+  s3readRDS(object = "data_clean/gene_annotations.rds",
+            bucket = s3_bucket, region = "")
 }, error = function(e) {
-  cat(sprintf("WARNING: biomaRt annotation failed: %s\n", e$message))
-  cat("Saving results without annotations.\n")
-  data.frame(Gene = character(0), description = character(0), gene_biotype = character(0))
+  cat(sprintf("WARNING: could not load cached gene annotations: %s\n",
+              e$message))
+  data.frame(Gene = character(0),
+             description = character(0),
+             gene_biotype = character(0))
 })
 
-annotated_df <- processed %>%
-  left_join(gene_info, by = "Gene")
+annotated_df <- processed %>% dplyr::left_join(gene_info, by = "Gene")
 
 cat(sprintf("Saving processed results to S3: %s\n", s3_key_processed))
 s3saveRDS(annotated_df, object = s3_key_processed, bucket = s3_bucket, region = "")
