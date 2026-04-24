@@ -29,7 +29,8 @@ cat(sprintf("=============================================================\n"))
 library(aws.s3)
 library(jsonlite)
 library(biomaRt)
-library(Seurat)
+# library(Seurat)  # not needed — precomputed data is plain dgCMatrix + data.frame
+library(Matrix)   # was previously brought in transitively via Seurat
 library(dplyr)
 library(nebula)
 
@@ -1522,116 +1523,62 @@ if (!analysis_type %in% names(analysis_config)) {
 config <- analysis_config[[analysis_type]]
 
 # =============================================================================
-# LOAD DATA
+# LOAD DATA (precomputed NEBULA-ready object)
 # =============================================================================
-cat(sprintf("\nLoading cell type-specific data for %s...\n", celltype_group_input))
+# Produced by nebula/scripts/precompute_nebula_data.R. Contains:
+#   count  : dgCMatrix (genes x cells, raw counts, no gene filter)
+#   meta   : data.frame (one row per cell; includes bmi/dxa_(obese|ow_obese)_binary
+#            already derived)
+#   id     : character, record_id per cell
+#   offset : numeric, colSums(count) — nebula logs internally
+pre_key <- paste0("data_clean/nebula_ready/t1d_adiposity_nebula_",
+                  gsub("/", "_", celltype_group_input), ".rds")
+cat(sprintf("\nLoading precomputed NEBULA-ready data: %s\n", pre_key))
+t_load <- Sys.time()
+pre <- s3readRDS(object = pre_key, bucket = s3_bucket, region = "")
+cat(sprintf("  Loaded %d cells x %d genes in %.0fs\n",
+            pre$n_cells, nrow(pre$count),
+            as.numeric(difftime(Sys.time(), t_load, units = "secs"))))
 
-# Try to load pre-saved cell type subset first
-subset_file <- paste0("data_clean/subset/t1d_adiposity_subset_",
-                      gsub("/", "_", celltype_group_input), ".rds")
+# Working objects that get whittled by subsetting below.
+count  <- pre$count
+meta   <- pre$meta
+id     <- pre$id
+offset <- pre$offset
+rm(pre); gc(verbose = FALSE)
 
-pb90_subset_clean <- tryCatch({
-  cat(sprintf("Looking for cell type subset: %s\n", subset_file))
-  obj <- s3readRDS(object = subset_file, bucket = s3_bucket, region = "")
-  cat(sprintf("Loaded cell type-specific subset with %d cells\n", ncol(obj)))
-  obj
-}, error = function(e) {
-  cat(sprintf("Cell type-specific file not found: %s\n", subset_file))
-  cat("Falling back to loading full dataset and subsetting...\n")
-  obj <- s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds",
-                   bucket = s3_bucket, region = "")
-  cat(sprintf("Loaded full dataset with %d cells\n", ncol(obj)))
-  
-  # Add KPMP_celltype_general if needed
-  if (celltype_var == "KPMP_celltype_general" & !"KPMP_celltype_general" %in% colnames(obj@meta.data)) {
-    obj$KPMP_celltype_general <- sapply(obj$KPMP_celltype,
-                                        map_celltype_to_general,
-                                        celltype_groups = celltype_groups)
-  }
-  
-  obj <- subset(obj, !!sym(celltype_var) == celltype_group_input)
-  cat(sprintf("Subset to %s: %d cells\n", celltype_group_input, ncol(obj)))
-  obj
-})
-
-# Ensure KPMP_celltype_general exists
-if (!"KPMP_celltype_general" %in% colnames(pb90_subset_clean@meta.data)) {
-  pb90_subset_clean$KPMP_celltype_general <- sapply(
-    pb90_subset_clean$KPMP_celltype,
-    map_celltype_to_general,
-    celltype_groups = celltype_groups
-  )
-}
-
-# Source helper functions
-source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
-source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
-
-# Initialize biomaRt
+# Initialize biomaRt (used later for gene annotation)
 mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
 
 # =============================================================================
 # PREPARE DATA FOR ANALYSIS
 # =============================================================================
-gc()
+# NOTE: binary obesity variables (bmi_obese_binary, bmi_ow_obese_binary,
+# dxa_obese_binary, dxa_ow_obese_binary) are ALREADY in meta — precomputed by
+# precompute_nebula_data.R. The needs_binary_* flags in analysis_config are
+# retained for documentation only and are not needed here anymore.
 
-# Create derived binary obesity variables if needed
-if (isTRUE(config$needs_binary_bmi)) {
-  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
-    mutate(bmi_obese_binary = case_when(
-      bmi_obesity %in% c("Normal", "Overweight") ~ "Non_Obese",
-      bmi_obesity == "Obese" ~ "Obese",
-      TRUE ~ NA_character_
-    ))
-}
-
-if (isTRUE(config$needs_binary_dxa)) {
-  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
-    mutate(dxa_obese_binary = case_when(
-      dxa_obesity %in% c("Normal", "Overweight") ~ "Non_Obese",
-      dxa_obesity == "Obese" ~ "Obese",
-      TRUE ~ NA_character_
-    ))
-}
-
-# Create binary Normal vs Overweight+Obese variables if needed
-if (isTRUE(config$needs_binary_ow_obese_bmi)) {
-  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
-    mutate(bmi_ow_obese_binary = case_when(
-      bmi_obesity == "Normal" ~ "Normal",
-      bmi_obesity %in% c("Overweight", "Obese") ~ "Overweight_Obese",
-      TRUE ~ NA_character_
-    ))
-}
-
-if (isTRUE(config$needs_binary_ow_obese_dxa)) {
-  pb90_subset_clean@meta.data <- pb90_subset_clean@meta.data %>%
-    mutate(dxa_ow_obese_binary = case_when(
-      dxa_obesity == "Normal" ~ "Normal",
-      dxa_obesity %in% c("Overweight", "Obese") ~ "Overweight_Obese",
-      TRUE ~ NA_character_
-    ))
-}
-
-# Build the full subset expression including celltype filter
-full_subset_cond <- sprintf("%s == '%s' & %s", celltype_var, celltype_group_input, config$subset_cond)
+# Build the full subset expression. The cell-type filter is already applied
+# in the precomputed file, so just use config$subset_cond directly.
+full_subset_cond <- config$subset_cond
 cat(sprintf("\nApplying subset condition: %s\n", full_subset_cond))
 
 # Apply subset
-meta <- pb90_subset_clean@meta.data
 keep_cells <- tryCatch({
   with(meta, expr = eval(parse(text = full_subset_cond)))
 }, error = function(e) {
   cat(sprintf("ERROR in subset condition: %s\n", e$message))
   stop(e)
 })
-
-# Handle NAs in keep_cells
+# Handle NAs
 keep_cells[is.na(keep_cells)] <- FALSE
 
-pb90_celltype <- subset(pb90_subset_clean, cells = rownames(meta)[keep_cells])
+count  <- count[, keep_cells, drop = FALSE]
+meta   <- meta[keep_cells, , drop = FALSE]
+id     <- id[keep_cells]
+offset <- offset[keep_cells]
 
-n_cells_after_subset <- ncol(pb90_celltype)
+n_cells_after_subset <- ncol(count)
 cat(sprintf("Cells after subsetting: %d\n", n_cells_after_subset))
 
 # Check minimum cells
@@ -1643,11 +1590,13 @@ if (n_cells_after_subset < 30) {
 
 # Remove cells with NA in adjust_covariates (for age-adjusted categorical/continuous models)
 if (!is.null(config$adjust_covariates)) {
-  cov_meta <- pb90_celltype@meta.data
-  cov_complete <- complete.cases(cov_meta[, config$adjust_covariates, drop = FALSE])
-  n_before <- ncol(pb90_celltype)
-  pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[cov_complete])
-  n_after <- ncol(pb90_celltype)
+  cov_complete <- complete.cases(meta[, config$adjust_covariates, drop = FALSE])
+  n_before <- ncol(count)
+  count  <- count[, cov_complete, drop = FALSE]
+  meta   <- meta[cov_complete, , drop = FALSE]
+  id     <- id[cov_complete]
+  offset <- offset[cov_complete]
+  n_after <- ncol(count)
   cat(sprintf("Removed %d cells with NA in covariates (%s): %d -> %d cells\n",
               n_before - n_after, paste(config$adjust_covariates, collapse = ", "),
               n_before, n_after))
@@ -1662,15 +1611,15 @@ if (!is.null(config$adjust_covariates)) {
   # Coerce character covariates (e.g. "study", "sex") to factor and check that
   # each has > 1 level -- otherwise NEBULA's design matrix will be singular.
   for (cov in config$adjust_covariates) {
-    if (is.character(pb90_celltype@meta.data[[cov]])) {
-      pb90_celltype@meta.data[[cov]] <- factor(pb90_celltype@meta.data[[cov]])
+    if (is.character(meta[[cov]])) {
+      meta[[cov]] <- factor(meta[[cov]])
     }
-    if (is.factor(pb90_celltype@meta.data[[cov]])) {
-      pb90_celltype@meta.data[[cov]] <- droplevels(pb90_celltype@meta.data[[cov]])
-      n_lev <- nlevels(pb90_celltype@meta.data[[cov]])
+    if (is.factor(meta[[cov]])) {
+      meta[[cov]] <- droplevels(meta[[cov]])
+      n_lev <- nlevels(meta[[cov]])
       cat(sprintf("Covariate '%s' levels after subset: %d (%s)\n",
                   cov, n_lev,
-                  paste(levels(pb90_celltype@meta.data[[cov]]), collapse = ", ")))
+                  paste(levels(meta[[cov]]), collapse = ", ")))
       if (n_lev < 2) {
         cat(sprintf("SKIPPING: Covariate '%s' has <2 levels after subsetting for %s - %s\n",
                     cov, analysis_type, celltype_group_input))
@@ -1683,62 +1632,66 @@ if (!is.null(config$adjust_covariates)) {
 # For continuous analyses, also remove NAs in the continuous variable
 if (config$analysis_mode == "continuous") {
   cont_var <- config$continuous_var
-  cov_meta <- pb90_celltype@meta.data
-  has_value <- !is.na(cov_meta[[cont_var]])
-  
+  has_value <- !is.na(meta[[cont_var]])
+
   # If adjusting for group, also ensure group is not NA
   if (isTRUE(config$adjust_group)) {
-    has_value <- has_value & !is.na(cov_meta[["group"]])
+    has_value <- has_value & !is.na(meta[["group"]])
   }
-  
-  n_before <- ncol(pb90_celltype)
-  pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[has_value])
-  n_after <- ncol(pb90_celltype)
+
+  n_before <- ncol(count)
+  count  <- count[, has_value, drop = FALSE]
+  meta   <- meta[has_value, , drop = FALSE]
+  id     <- id[has_value]
+  offset <- offset[has_value]
+  n_after <- ncol(count)
   cat(sprintf("Removed %d cells with NA in %s%s: %d -> %d cells\n",
               n_before - n_after, cont_var,
               ifelse(isTRUE(config$adjust_group), " or group", ""),
               n_before, n_after))
-  
+
   # Check for sufficient variance in continuous variable
-  unique_vals <- length(unique(pb90_celltype@meta.data[[cont_var]]))
+  unique_vals <- length(unique(meta[[cont_var]]))
   if (unique_vals < 3) {
     cat(sprintf("SKIPPING: Insufficient variance in %s (%d unique values) for %s\n",
                 cont_var, unique_vals, celltype_group_input))
     quit(save = "no", status = 0)
   }
-  
+
   # Scale continuous variable for numerical stability
-  pb90_celltype@meta.data[[cont_var]] <- scale(pb90_celltype@meta.data[[cont_var]])[,1]
+  meta[[cont_var]] <- scale(meta[[cont_var]])[, 1]
   cat(sprintf("Scaled %s (mean-centered, SD=1)\n", cont_var))
 }
 
 # For interaction analyses, remove NAs in continuous variable and group, then scale
 if (config$analysis_mode == "interaction") {
   cont_var <- config$continuous_var
-  cov_meta <- pb90_celltype@meta.data
-  has_value <- !is.na(cov_meta[[cont_var]]) & !is.na(cov_meta[["group"]])
-  
-  n_before <- ncol(pb90_celltype)
-  pb90_celltype <- subset(pb90_celltype, cells = rownames(cov_meta)[has_value])
-  n_after <- ncol(pb90_celltype)
+  has_value <- !is.na(meta[[cont_var]]) & !is.na(meta[["group"]])
+
+  n_before <- ncol(count)
+  count  <- count[, has_value, drop = FALSE]
+  meta   <- meta[has_value, , drop = FALSE]
+  id     <- id[has_value]
+  offset <- offset[has_value]
+  n_after <- ncol(count)
   cat(sprintf("Removed %d cells with NA in %s or group: %d -> %d cells\n",
               n_before - n_after, cont_var, n_before, n_after))
-  
+
   # Check for sufficient variance in continuous variable
-  unique_vals <- length(unique(pb90_celltype@meta.data[[cont_var]]))
+  unique_vals <- length(unique(meta[[cont_var]]))
   if (unique_vals < 3) {
     cat(sprintf("SKIPPING: Insufficient variance in %s (%d unique values) for %s\n",
                 cont_var, unique_vals, celltype_group_input))
     quit(save = "no", status = 0)
   }
-  
+
   # Scale continuous variable for numerical stability
-  pb90_celltype@meta.data[[cont_var]] <- scale(pb90_celltype@meta.data[[cont_var]])[,1]
+  meta[[cont_var]] <- scale(meta[[cont_var]])[, 1]
   cat(sprintf("Scaled %s (mean-centered, SD=1)\n", cont_var))
 }
 
 # Check minimum subjects
-n_unique_subjects <- length(unique(pb90_celltype@meta.data$record_id))
+n_unique_subjects <- length(unique(id))
 if (n_unique_subjects < 3) {
   cat(sprintf("SKIPPING: Too few subjects (%d < 3) for %s - %s\n",
               n_unique_subjects, analysis_type, celltype_group_input))
@@ -1754,11 +1707,11 @@ cat(sprintf("=============================================================\n"))
 cat(sprintf("Analysis: %s\n", analysis_type))
 cat(sprintf("Cell type: %s (%s)\n", celltype_group_input, celltype_var))
 cat(sprintf("Analysis mode: %s\n", config$analysis_mode))
-cat(sprintf("Total cells: %d\n", ncol(pb90_celltype)))
+cat(sprintf("Total cells: %d\n", ncol(count)))
 cat(sprintf("Unique record_ids: %d\n", n_unique_subjects))
 
 # Log group distribution
-subject_meta <- pb90_celltype@meta.data %>%
+subject_meta <- meta %>%
   distinct(record_id, .keep_all = TRUE)
 
 cat(sprintf("\nDisease group distribution (subjects):\n"))
@@ -1788,7 +1741,7 @@ if (config$analysis_mode == "categorical") {
   print(table(subject_meta[[group_var]], useNA = "ifany"))
   
   cat(sprintf("\nGroup variable '%s' distribution (cells):\n", group_var))
-  print(table(pb90_celltype@meta.data[[group_var]], useNA = "ifany"))
+  print(table(meta[[group_var]], useNA = "ifany"))
   
   if (!is.null(config$adjust_covariates)) {
     cat(sprintf("\nAdjusting for covariates: %s\n", paste(config$adjust_covariates, collapse = ", ")))
@@ -1817,11 +1770,11 @@ if (config$analysis_mode == "interaction") {
   cat(sprintf("\nGroup distribution for interaction (subjects):\n"))
   print(table(subject_meta$group, useNA = "ifany"))
   cat(sprintf("\nGroup distribution for interaction (cells):\n"))
-  print(table(pb90_celltype@meta.data$group, useNA = "ifany"))
+  print(table(meta$group, useNA = "ifany"))
 }
 
 # Cells per subject
-cells_per_subject <- pb90_celltype@meta.data %>%
+cells_per_subject <- meta %>%
   group_by(record_id) %>%
   summarise(n_cells = n(), .groups = "drop")
 cat(sprintf("\nCells per subject summary:\n"))
@@ -1834,17 +1787,17 @@ cat(sprintf("=============================================================\n\n")
 # =============================================================================
 if (config$analysis_mode == "categorical") {
   group_var <- config$group_var
-  pb90_celltype@meta.data[[group_var]] <- factor(pb90_celltype@meta.data[[group_var]])
+  meta[[group_var]] <- factor(meta[[group_var]])
   
   if (!is.null(config$ref_level)) {
-    pb90_celltype@meta.data[[group_var]] <- relevel(
-      pb90_celltype@meta.data[[group_var]],
+    meta[[group_var]] <- relevel(
+      meta[[group_var]],
       ref = config$ref_level
     )
   }
   
   # Check minimum group sizes
-  group_counts <- pb90_celltype@meta.data %>%
+  group_counts <- meta %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(!!sym(group_var))
   
@@ -1868,10 +1821,10 @@ if (config$analysis_mode == "categorical") {
 } else if (config$analysis_mode == "interaction") {
   # Interaction model: ~ continuous_var * group
   cont_var <- config$continuous_var
-  pb90_celltype@meta.data[["group"]] <- factor(pb90_celltype@meta.data[["group"]])
+  meta[["group"]] <- factor(meta[["group"]])
   
   # Check minimum group sizes for interaction
-  group_counts <- pb90_celltype@meta.data %>%
+  group_counts <- meta %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(group)
   
@@ -1891,7 +1844,7 @@ if (config$analysis_mode == "categorical") {
   cont_var <- config$continuous_var
   formula_parts <- cont_var
   if (isTRUE(config$adjust_group)) {
-    pb90_celltype@meta.data[["group"]] <- factor(pb90_celltype@meta.data[["group"]])
+    meta[["group"]] <- factor(meta[["group"]])
     formula_parts <- c(formula_parts, "group")
   }
   if (!is.null(config$adjust_covariates)) {
@@ -1907,12 +1860,12 @@ if (config$analysis_mode == "categorical") {
 if (config$analysis_mode == "categorical") {
   group_var_sym <- sym(group_var)
   
-  sample_counts <- pb90_celltype@meta.data %>%
+  sample_counts <- meta %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(!!group_var_sym, name = "n_samples") %>%
     arrange(!!group_var_sym)
   
-  cell_counts <- pb90_celltype@meta.data %>%
+  cell_counts <- meta %>%
     dplyr::count(!!group_var_sym, name = "n_cells") %>%
     arrange(!!group_var_sym)
   
@@ -1920,12 +1873,12 @@ if (config$analysis_mode == "categorical") {
     left_join(cell_counts, by = group_var)
 } else if (config$analysis_mode == "interaction") {
   # For interaction, report counts by group
-  sample_counts <- pb90_celltype@meta.data %>%
+  sample_counts <- meta %>%
     distinct(record_id, .keep_all = TRUE) %>%
     dplyr::count(group, name = "n_samples") %>%
     arrange(group)
   
-  cell_counts <- pb90_celltype@meta.data %>%
+  cell_counts <- meta %>%
     dplyr::count(group, name = "n_cells") %>%
     arrange(group)
   
@@ -1936,7 +1889,7 @@ if (config$analysis_mode == "categorical") {
   counts_summary <- data.frame(
     group = "all",
     n_samples = n_unique_subjects,
-    n_cells = ncol(pb90_celltype)
+    n_cells = ncol(count)
   )
 }
 
@@ -1956,28 +1909,34 @@ s3_key_processed <- sprintf("%s/%s/%s/%s_nebula_%s_processed.rds",
                             s3_base, config$s3_subdir, celltype_group_input,
                             celltype_group_input, config$file_suffix)
 
-# Run nebula
-pb90_attempt_so_counts <- round(GetAssayData(pb90_celltype, layer = "counts"))
-pb90_attempt_meta <- pb90_celltype@meta.data
-pb90_attempt_pred  <- model.matrix(formula_obj, data = pb90_attempt_meta)
-pb90_attempt_data  <- list(count = pb90_attempt_so_counts,
-                            id    = pb90_attempt_meta$record_id,
-                            pred  = pb90_attempt_pred,
-                            offset = Matrix::colSums(pb90_attempt_so_counts))
+# Build design matrix from meta and run NEBULA.
+# count/id/offset come straight from the precomputed object (already whittled
+# by the subsetting above). Nebula takes raw library-size offset and logs it
+# internally (per nebula docs).
+pred <- model.matrix(formula_obj, data = meta)
+
+# Match ncore to SLURM allocation if present; cap at 8 (nebula plateaus
+# around 6-10 cores). Fall back to 6 if not running under SLURM.
+ncore <- {
+  n <- suppressWarnings(as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "")))
+  if (is.na(n) || n < 1) n <- 6
+  min(n, 8)
+}
+cat(sprintf("NEBULA ncore = %d\n", ncore))
 
 nebula_res <- tryCatch({
   res <- nebula(
-    count  = pb90_attempt_data$count,
-    id     = pb90_attempt_data$id,
-    pred   = pb90_attempt_data$pred,
-    offset = pb90_attempt_data$offset,
-    ncore  = 6, # speed plateaus after ~6-10
+    count  = count,
+    id     = id,
+    pred   = pred,
+    offset = offset,
+    ncore  = ncore,
     reml   = 0,
     model  = "LN"
   )
   keep <- res$convergence >= -10
   cat(sprintf("Percent converged: %g\n",
-              round(sum(keep) / nrow(pb90_attempt_so_counts) * 100, 2)))
+              round(sum(keep) / nrow(count) * 100, 2)))
   res$summary[keep, ]
 }, error = function(e) {
   cat(sprintf("ERROR running NEBULA: %s\n", e$message))
@@ -2031,7 +1990,7 @@ if (config$analysis_mode == "categorical") {
     paste(collapse = "; ")
 } else {
   samples_per_group <- paste0("total: ", n_unique_subjects)
-  cells_per_group <- paste0("total: ", ncol(pb90_celltype))
+  cells_per_group <- paste0("total: ", ncol(count))
 }
 
 # Determine the primary variable name for metadata
@@ -2063,7 +2022,7 @@ run_metadata <- data.frame(
   } else {
     n_unique_subjects
   },
-  total_cells = ncol(pb90_celltype),
+  total_cells = ncol(count),
   subset_condition = full_subset_cond,
   p_sig = nrow(p_sig),
   p_pos = p_positive,
