@@ -360,22 +360,22 @@ sens_dat <- label_harmonized(sens_dat, dict)
 ```
 
 ```{r save-data, include = F, eval = F}
-save(analytes,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_analytes_022326.RData"))
-save(dict,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_022326.RData"))
-save(dat,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_022326.RData"))
-save(panther,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_022326.RData"))
-save(sens_dat,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_022326.RData"))
-save(cleanData_comb,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_022326.RData"))
-save(cleanData_panther,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_022326.RData"))
-save(cleanData_sens,
-     file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_022326.RData"))
+# save(analytes,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_analytes_022326.RData"))
+# save(dict,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_dict_022326.RData"))
+# save(dat,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_022326.RData"))
+# save(panther,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_022326.RData"))
+# save(sens_dat,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_022326.RData"))
+# save(cleanData_comb,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_022326.RData"))
+# save(cleanData_panther,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_022326.RData"))
+# save(cleanData_sens,
+#      file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_022326.RData"))
 ```
 
 
@@ -388,6 +388,8 @@ load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_0
 load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_022326.RData"))
 load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_soma_std_022326.RData"))
 load(file = file.path(root_path, "PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_022326.RData"))
+exclude <- read.csv(file.path(root_path, "PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv"))$record_id
+dict <- read.csv(file.path(root_path, "Data Harmonization/data_dictionary_master.csv"))
 ```
 
 ```{r echo = F}
@@ -413,6 +415,39 @@ table_controls <- tableby.control(
 )
 
 ```
+
+* Comment from RN: Since indexing (dividing) by BSA can significantly underestimate absolute GFR in obese individuals, I’m not sure what to make of this information, since the high-risk group is obese and the low-risk group is not.  Also, since we actually measure total kidney volume, and our principal interest is in assessing kidney function adjusted for kidney volume, would there be value in reporting kidney function regressed by (rather than divided by) kidney volume?  BSA is an indirect assessment of kidney volume. Why use that indirect estimate when we have a direct measure? * 
+
+```{r}
+library(emmeans)
+gfr_tkv_fit <- lm(gfr_raw_plasma ~ group_risk + total_kidney_volume_ml, data = panther)
+summary(gfr_tkv_fit)
+gfr_tkv_emmeans <- emmeans(gfr_tkv_fit, ~ group_risk)
+gfr_tkv_emmeans
+pairs(gfr_tkv_emmeans)
+emmeans(gfr_tkv_emmeans, ~ 1)
+erpf_tkv_fit <- lm(erpf_raw_plasma ~ group_risk + total_kidney_volume_ml, data = panther)
+summary(erpf_tkv_fit)
+erpf_tkv_emmeans <- emmeans(erpf_tkv_fit, ~ group_risk)
+erpf_tkv_emmeans
+pairs(erpf_tkv_emmeans)
+emmeans(erpf_tkv_fit, ~ 1)
+
+# Supplmental table 1
+gfr_tkv_fit_supp <- lm(gfr_raw_plasma ~ tanner_stage_comp_panther_cat + total_kidney_volume_ml, data = subset(panther, !is.na(group_risk)) )
+summary(gfr_tkv_fit_supp)
+gfr_tkv_emmeans_supp <- emmeans(gfr_tkv_fit_supp, ~ tanner_stage_comp_panther_cat)
+gfr_tkv_emmeans_supp
+pairs(gfr_tkv_emmeans_supp)
+emmeans(gfr_tkv_emmeans_supp, ~ 1)
+erpf_tkv_fit_supp <- lm(erpf_raw_plasma ~ tanner_stage_comp_panther_cat + total_kidney_volume_ml, data = subset(panther, !is.na(group_risk)) )
+summary(erpf_tkv_fit_supp)
+erpf_tkv_emmeans_supp <- emmeans(erpf_tkv_fit_supp, ~ tanner_stage_comp_panther_cat)
+erpf_tkv_emmeans_supp
+pairs(erpf_tkv_emmeans_supp)
+emmeans(erpf_tkv_fit_supp, ~ 1)
+```
+
 
 # Descriptive tables
 
@@ -543,6 +578,7 @@ panther <- panther %>%
 ```
 
 ### IQR plots
+
 ```{r echo = F, warning = F}
 iqr_plot <- function(data, x_var, y_var, x_var_lab, y_var_lab) {
   # Perform ANOVA test
