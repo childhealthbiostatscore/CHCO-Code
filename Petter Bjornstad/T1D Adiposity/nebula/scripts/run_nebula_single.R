@@ -1404,15 +1404,10 @@ analysis_config <- list(
     pval_col = "p_dexa_trunk_mass", logfc_col = "logFC_dexa_trunk_mass",
     s3_subdir = "continuous/dexa_trunk_mass_all_adj_group_age_sex", file_suffix = "cont_dexa_trunk_mass_all_adj_group_age_sex"
   )
-  # NOTE: no trailing comma above — STEP 3 block below is commented out, so
-  # this is currently the last live entry in analysis_config. If you
-  # uncomment ANY of the STEP 3 entries below, add a comma after this `)`
-  # AND uncomment one-by-one preserving commas between them.
 
   # =========================================================================
   # STEP 3 DIAGNOSTIC: DXA models adjusted for study
   # Commented out per current run plan (not prioritized for this pass).
-  # Re-enable if you want study as a fixed-effect covariate on DXA
   # contrasts (only meaningful for DXA since ATTEMPT has no DXA data).
   # =========================================================================
 
@@ -1971,20 +1966,21 @@ pb90_attempt_data  <- list(count = pb90_attempt_so_counts,
                             offset = Matrix::colSums(pb90_attempt_so_counts))
 
 nebula_res <- tryCatch({
-  nebula_res <- nebula(
-    count      = pb90_attempt_data$count,
-    id         = pb90_attempt_data$id,
-    pred       = pb90_attempt_data$pred,
-    offset     = pb90_attempt_data$offset,
-    ncore      = 15,
-    reml       = 1,
-    model      = "NBLMM")
-  nebula_res <- nebula_compiled$summary[nebula_compiled$convergence >= -10, ]
-  cat(sprintf("Percent converged: %g", round(nrow(nebula_res) / nrow(pb90_attempt_so_counts) * 100, 2)))
-  
+  res <- nebula(
+    count  = pb90_attempt_data$count,
+    id     = pb90_attempt_data$id,
+    pred   = pb90_attempt_data$pred,
+    offset = pb90_attempt_data$offset,
+    ncore  = 6, # speed plateaus after ~6-10
+    reml   = 0,
+    model  = "LN"
+  )
+  keep <- res$convergence >= -10
+  cat(sprintf("Percent converged: %g\n",
+              round(sum(keep) / nrow(pb90_attempt_so_counts) * 100, 2)))
+  res$summary[keep, ]
 }, error = function(e) {
   cat(sprintf("ERROR running NEBULA: %s\n", e$message))
-  cat("Attempting to continue with error handling...\n")
   NULL
 })
 

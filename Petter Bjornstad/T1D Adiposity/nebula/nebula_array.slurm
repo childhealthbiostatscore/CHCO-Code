@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=t1d_adip_nebula
-#SBATCH --array=1-330%20           # 94 analyses x 59 cell types = 5546 jobs, max 20 concurrent
+#SBATCH --array=1001-2000%20           # 94 analyses x 59 cell types = 5546 jobs, max 20 concurrent
 #SBATCH --time=03:00:00             # 3 hours per job (with buffer)
-#SBATCH --mem=200G                  # Memory per job
-#SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)
+#SBATCH --mem=100G                  # Memory per job
+#SBATCH --cpus-per-task=8          # CPUs (nebula uses 15 cores)
 #SBATCH --partition=cpu-g2          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
 #SBATCH --output="/mmfs1/gscratch/togo/yejichoi/project_logs/t1d_adiposity_logs/output/nebula_%A_%a.out"
