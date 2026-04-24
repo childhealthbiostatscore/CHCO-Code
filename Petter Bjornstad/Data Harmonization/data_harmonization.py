@@ -102,22 +102,7 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, sweetheart],
                            join='outer', ignore_index=True)
-    
 
-    if user == "choiyej":
-        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-        keys = "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
-    elif user == "pylell":
-        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-    elif user == "shivaniramesh":
-        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-        keys = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/keys.json/"
-
-    else:
-        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 

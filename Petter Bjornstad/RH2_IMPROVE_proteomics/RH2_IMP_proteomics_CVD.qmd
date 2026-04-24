@@ -15,6 +15,8 @@ format:
     number-sections: true
 ---
 
+# Which SomaScan 7k plasma proteins are associated with vascular function markers, adjusting for age, sex, and kidney function (eGFR)?
+
 ```{r setup, include=FALSE}
 # ── Packages ──────────────────────────────────────────────────────────────────
 library(jsonlite)
@@ -35,6 +37,8 @@ library(cowplot)
 library(ggpubr)
 library(Hmisc)
 library(arsenal)
+library(corrplot)
+library(pander)
 ```
 
 ```{r paths, include=FALSE}
@@ -42,8 +46,8 @@ library(arsenal)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  # root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
   git_path  <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys      <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") {
@@ -76,13 +80,262 @@ harm_dat <- read.csv(
   file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"),
   na = ""
 )
+
+analytes <- read.csv(
+  file.path(root_path, "Data Harmonization/Combined SomaScan/analytes.csv"),
+  na = ""
+)
 ```
 
-# Renal-HEIRitage where we have PWV & proteomics
+# Helpers
 
 ```{r}
-rh2 <- harm_dat %>%
-  filter(study == "RENAL-HEIRitage") %>%
+run_limma_assoc <- function(Y, meta, outcome, covars,
+                            block = NULL, study_tag = "",
+                            analytes_df = analytes) {
+  stopifnot(ncol(Y) == nrow(meta))
+  form <- as.formula(paste("~", outcome, "+",
+                           paste(covars, collapse = " + ")))
+
+  # Drop rows missing any model variable
+  use <- stats::complete.cases(meta[, c(outcome, covars), drop = FALSE])
+  Y    <- Y[, use, drop = FALSE]
+  meta <- meta[use, , drop = FALSE]
+  if (!is.null(block)) block <- block[use]
+
+  design    <- model.matrix(form, data = meta)
+  coef_name <- colnames(design)[2]   # outcome is first non-intercept term
+
+  if (is.null(block)) {
+    fit <- lmFit(Y, design)
+  } else {
+    corfit <- duplicateCorrelation(Y, design, block = block)
+    fit    <- lmFit(Y, design, block = block,
+                    correlation = corfit$consensus)
+  }
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+
+  tt <- topTable(fit, coef = coef_name, number = Inf, sort.by = "none") %>%
+    tibble::rownames_to_column("AptName") %>%
+    dplyr::mutate(FDR     = p.adjust(P.Value, method = "BH"),
+                  outcome = outcome,
+                  study   = study_tag,
+                  n_model = ncol(Y))
+
+  keep_cols <- intersect(
+    c("AptName","EntrezGeneSymbol","Target","TargetFullName","UniProt"),
+    names(analytes_df))
+  tt %>% dplyr::left_join(analytes_df[, keep_cols, drop = FALSE],
+                          by = "AptName")
+}
+
+cor_and_plot_soma <- function(data = df, vars) {
+  # Format matrix
+  d <- data[, c(vars, "acr_u", "map", "gfr_raw_plasma", "gfr_bsa_plasma")]
+  n <- c(
+    analytes$EntrezGeneSymbol[match(vars, analytes$AptName)],
+    "acr_u", "map", "gfr_raw_plasma", "gfr_bsa_plasma"
+  )
+  n[duplicated(n)] <- paste0(n[duplicated(n)], "(2)")
+  names(d) <- n
+  # Correlations
+  M <- corr.test(data.matrix(d), normal = F, method = "spearman")
+  corrplot(round(M$r, 3),
+    p.mat = M$p, method = "circle", type = "lower", insig = "blank",
+    addCoef.col = "white", diag = FALSE
+  )
+  # Print a nice looking table
+  r <- data.frame(round(M$r, 3))
+  emphasize.strong.cells(which(M$p <= 0.05, arr.ind = TRUE))
+  cat("\n")
+  pander(r, caption = "Coefficients")
+  cat("\n")
+}
+
+plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suffix, p_thresh = 0.05,
+                                    positive_text = "Positive with PWV", 
+                                    negative_text = "Negative with PWV",
+                                    formula = "PWV", legend_position = c(0.8, 0.9),
+                                    text_size = 15, caption_size = 8.5,
+                                    top_n = 20,
+                                    output_base_path = NULL,
+                                    geom_text_size = 3,
+                                    arrow_padding = 0.09,
+                                    arrow_text_padding = 0.14,
+                                    legend_text_size = 9,
+                                    caption_padding = 15,
+                                    x_title_padding_t = 32) {
+  set.seed(1)
+  top_pos <- data %>%
+    dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_pos <- nrow(top_pos)
+  
+  top_pos_n <- top_pos %>%
+    slice_head(n=top_n)
+  
+  top_neg <- data %>%
+    dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_neg <- nrow(top_neg)
+  
+  top_neg_n <- top_neg %>%
+    slice_head(n=top_n)
+  
+  data <- data %>%
+    dplyr::mutate(top_color = case_when(data$AptName %in% top_pos$AptName ~ "#f28482",
+                                        data$AptName %in% top_neg$AptName ~ "#457b9d",
+                                        TRUE ~ "#ced4da"),
+                  top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
+                  EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
+                  top_lab  = if_else(data$AptName %in% c(top_pos_n$AptName, top_neg_n$AptName), EntrezGeneSymbol, ""))
+  
+  # Max and min for annotation arrows
+  max_fc <- max(data[[fc]], na.rm = TRUE)
+  min_fc <- min(data[[fc]], na.rm = TRUE)
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(-log10(data[[p_col]]), na.rm = TRUE) * 1.1
+  
+  
+  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
+    geom_label_repel(aes(label = top_lab, color = top_color),
+                    size = geom_text_size, max.overlaps = Inf,
+                    force = 6, segment.alpha = 0.3, segment.size = 0.3,
+                    fontface = "bold",
+                    fill = fill_alpha("white", 0.7),
+                    label.size = 0) +
+    labs(title = paste(title),
+         x = paste(x_axis),
+         y = paste(y_axis),
+         caption = paste0("Formula: log2(protein) ~ ", formula, 
+                          "\nTotal analyzed proteins n: ", nrow(data),
+                          " | Positive n = ", n_pos, " | Negative n = ", n_neg)) +
+    scale_size_continuous(range = c(1, 1.3)) + 
+    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
+    theme_minimal() +
+    guides(color = "none", size = "none")  +
+    annotate("segment", 
+             x=max_fc/8, 
+             xend=(max_fc*7)/8, 
+             y=-y_max * arrow_padding,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(max_fc/8, (max_fc*7)/8)), 
+             y=-y_max * arrow_text_padding, 
+             label=positive_text,
+             size=geom_text_size, color="#343a40") +
+    annotate("segment", 
+             x=min_fc/8, 
+             xend=(min_fc*7)/8, 
+             y=-y_max * arrow_padding,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(min_fc/8, (min_fc*7)/8)), 
+             y=-y_max * arrow_text_padding, 
+             label=negative_text,
+             size=geom_text_size, color="#343a40") +
+    scale_y_continuous(expand=c(0,0)) +
+    coord_cartesian(ylim = c(0, y_max), clip="off") +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = text_size, family = "Arial"),
+          title = element_text(size = legend_text_size, family = "Arial"),
+          legend.position = legend_position,
+          legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
+          legend.direction = "horizontal",
+          legend.spacing.x = unit(0.05, 'cm'),
+          plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+          axis.title.x = element_text(margin = margin(t = x_title_padding_t)),
+          plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = caption_padding)),
+          legend.margin = margin(t = 5, b = 5))
+  ggsave(paste0(output_base_path, file_suffix, ".png"), plot = p, width = 7, height = 5)
+  
+  return(p)
+}
+
+```
+
+# Config and column names
+
+```{r config}
+suppressPackageStartupMessages({
+  library(limma)
+  library(purrr)
+  library(ggplot2)
+  library(tibble)
+  library(tidyr)
+})
+
+cfg <- list(
+  # Study / visit labels
+  rh2_study_label       = "RENAL-HEIRitage",
+  improve_study_label   = "IMPROVE",
+  improve_visit_col     = "visit",
+  improve_visit_pre     = "baseline",
+  improve_visit_3mo     = "3_months_post_surgery",
+  improve_visit_12mo    = "12_months_post_surgery",
+
+  # Covariates (change if needed)
+  age_col               = "age",
+  sex_col               = "sex",
+  egfr_col              = "eGFR_fas_cr",     # CKD-EPI / FAS creatinine eGFR
+  rh2_group_col         = "group",
+  bmi_col               = "bmi",
+  a1c_col               = "hba1c",
+  sbp_col               = "sbp",
+  weight_col            = "weight",
+
+  # CMR 4D flow markers to test
+  cmr_markers = c(
+    "af_pwv",
+    "af_meanwss",
+    "af_high5pctwss"
+  ),
+  
+  # Output paths
+  derived_dir   = file.path(root_path, "RH2_IMPROVE_proteomics/data/derived"),
+  results_dir   = file.path(root_path, "RH2_IMPROVE_proteomics/results"),
+  figures_dir   = file.path(root_path, "RH2_IMPROVE_proteomics/figures"),
+  fdr_primary   = 0.05,
+  fdr_discovery = 0.10
+)
+
+dir.create(cfg$derived_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(cfg$results_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(cfg$figures_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r diagnose-columns}
+expected <- c(cfg$age_col, cfg$sex_col, cfg$egfr_col, cfg$rh2_group_col,
+              cfg$bmi_col, cfg$a1c_col, cfg$sbp_col,
+              cfg$weight_col, cfg$improve_visit_col)
+missing_cols <- setdiff(expected, colnames(harm_dat))
+if (length(missing_cols))
+  message("Columns not found in harm_dat — update cfg: ",
+          paste(missing_cols, collapse = ", "))
+
+cfg$cmr_markers <- intersect(cfg$cmr_markers, colnames(harm_dat))
+message("CMR markers present (", length(cfg$cmr_markers), "): ",
+        paste(cfg$cmr_markers, collapse = ", "))
+
+apt_cols <- grep("^seq\\.[0-9]+\\.[0-9]+$", colnames(harm_dat), value = TRUE)
+message("Aptamer columns: ", length(apt_cols))
+message("Studies present: ", paste(unique(harm_dat$study), collapse = " | "))
+if (cfg$improve_visit_col %in% colnames(harm_dat))
+  message("Visits present: ",
+          paste(unique(harm_dat[[cfg$improve_visit_col]]), collapse = " | "))
+```
+
+# Renal-HEIRitage (RH2) analysis frame
+
+```{r build-rh2}
+rh2_df <- harm_dat %>%
+  filter(study == cfg$rh2_study_label) %>%
   dplyr::summarise(
       across(
         where(negate(is.numeric)),
@@ -95,19 +348,407 @@ rh2 <- harm_dat %>%
       .by = c(record_id)
     )
 
-rh2 %>%
-  dplyr::select(record_id, starts_with("pwv")) %>%
+rh2_df <- rh2_df %>%
   rowwise() %>%
-  dplyr::mutate(pwv_avg = mean(c(pwv_val_test1, pwv_val_test2, pwv_val_test3), na.rm = T))
+  dplyr::mutate(pwv_avg = mean(c(pwv_val_test1, pwv_val_test2, pwv_val_test3),
+                               na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::filter(
+    is.finite(pwv_avg),
+    rowSums(!is.na(dplyr::across(dplyr::all_of(apt_cols)))) > 0
+  ) %>%
+  dplyr::mutate(
+    sex   = factor(.data[[cfg$sex_col]]),
+    group = factor(.data[[cfg$rh2_group_col]])
+  )
+
+if ("Lean Control" %in% levels(rh2_df$group))
+  rh2_df$group <- relevel(rh2_df$group, ref = "Lean Control")
+
+saveRDS(rh2_df, file.path(cfg$derived_dir, "rh2_df.rds"))
+message("RH2 analysis frame: n = ", nrow(rh2_df))
 ```
 
 
-# IMPROVE-T2D where we have 4D flow CMR & proteomics
+# IMPROVE baseline (cross-sectional) frame
+
+```{r build-improve-baseline}
+imp_base_df <- harm_dat %>%
+  filter(study == cfg$improve_study_label,
+         .data[[cfg$improve_visit_col]] == cfg$improve_visit_pre) %>%
+  dplyr::summarise(
+      across(where(negate(is.numeric)),
+             ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+      across(where(is.numeric),
+             ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+      .by = c(record_id)
+    ) %>%
+  dplyr::mutate(sex = factor(.data[[cfg$sex_col]])) %>%
+  dplyr::filter(
+    rowSums(!is.na(dplyr::across(dplyr::all_of(apt_cols)))) > 0,
+    rowSums(!is.na(dplyr::across(dplyr::all_of(cfg$cmr_markers)))) > 0
+  )
+
+saveRDS(imp_base_df, file.path(cfg$derived_dir, "imp_base_df.rds"))
+message("IMPROVE baseline frame: n = ", nrow(imp_base_df))
+# 
+# 
+# imp_base_df_soma <- harm_dat %>%
+#   filter(study == cfg$improve_study_label,
+#          .data[[cfg$improve_visit_col]] == cfg$improve_visit_pre) %>%
+#   dplyr::summarise(
+#       across(where(negate(is.numeric)),
+#              ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+#       across(where(is.numeric),
+#              ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+#       .by = c(record_id)
+#     ) %>%
+#   dplyr::mutate(sex = factor(.data[[cfg$sex_col]])) %>%
+#   dplyr::filter(
+#     rowSums(!is.na(dplyr::across(dplyr::all_of(apt_cols)))) > 0
+#   )
+# imp_base_df_cmr <- harm_dat %>%
+#   filter(study == cfg$improve_study_label,
+#          .data[[cfg$improve_visit_col]] == cfg$improve_visit_pre) %>%
+#   dplyr::summarise(
+#       across(where(negate(is.numeric)),
+#              ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+#       across(where(is.numeric),
+#              ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+#       .by = c(record_id)
+#     ) %>%
+#   dplyr::mutate(sex = factor(.data[[cfg$sex_col]])) %>%
+#   dplyr::filter(
+#     rowSums(!is.na(dplyr::across(dplyr::all_of(cfg$cmr_markers)))) > 0
+#   )
+# 
+# imp_base_df_soma$record_id
+# imp_base_df_cmr$record_id
+```
+
+# IMPROVE longitudinal frames
+
+`imp_long_df` (long) is used by the mixed-model sensitivity (C2). `imp_delta_df` (wide) is used by the Δ-on-Δ primary (C1).
+
+```{r build-improve-longitudinal}
+imp_long_df <- harm_dat %>%
+  filter(study == cfg$improve_study_label,
+         .data[[cfg$improve_visit_col]] %in%
+           c(cfg$improve_visit_pre, cfg$improve_visit_12mo)) %>%
+  dplyr::summarise(
+      across(where(negate(is.numeric)),
+             ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+      across(where(is.numeric),
+             ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+      .by = c(record_id, visit)
+    ) %>%
+  dplyr::mutate(
+    visit = factor(visit,
+                   levels = c(cfg$improve_visit_pre, cfg$improve_visit_12mo)),
+    sex   = factor(.data[[cfg$sex_col]])
+  )
+
+# Keep only participants with proteomics at BOTH visits
+ids_both <- imp_long_df %>%
+  dplyr::filter(rowSums(!is.na(dplyr::across(dplyr::all_of(apt_cols)))) > 0) %>%
+  dplyr::count(record_id) %>%
+  dplyr::filter(n == 2) %>%
+  dplyr::pull(record_id)
+
+imp_long_df <- imp_long_df %>% dplyr::filter(record_id %in% ids_both)
+saveRDS(imp_long_df, file.path(cfg$derived_dir, "imp_long_df.rds"))
+message("IMPROVE long frame: n_subjects = ", length(ids_both),
+        ", n_rows = ", nrow(imp_long_df))
+
+# ── Build wide Δ frame (log2 proteomics so Δ = log2 fold-change) ────────────
+covars_keep <- unique(c(cfg$age_col, cfg$sex_col, cfg$egfr_col, cfg$bmi_col,
+                        cfg$a1c_col, cfg$sbp_col,  cfg$weight_col))
+covars_keep <- intersect(covars_keep, colnames(imp_long_df))
+
+prot_wide <- imp_long_df %>%
+  dplyr::mutate(dplyr::across(dplyr::all_of(apt_cols),
+                              ~ log2(pmax(.x, 1)))) %>%
+  dplyr::select(record_id, visit, dplyr::all_of(apt_cols)) %>%
+  tidyr::pivot_wider(id_cols = record_id, names_from = visit,
+                     values_from = dplyr::all_of(apt_cols),
+                     names_sep = "__")
+
+other_wide <- imp_long_df %>%
+  dplyr::select(record_id, visit,
+                dplyr::all_of(c(cfg$cmr_markers, covars_keep))) %>%
+  tidyr::pivot_wider(id_cols = record_id, names_from = visit,
+                     values_from = dplyr::all_of(c(cfg$cmr_markers, covars_keep)),
+                     names_sep = "__")
+
+imp_delta_df <- dplyr::left_join(prot_wide, other_wide, by = "record_id")
+
+for (a in apt_cols) {
+  n12  <- paste0(a, "__", cfg$improve_visit_12mo)
+  npre <- paste0(a, "__", cfg$improve_visit_pre)
+  if (all(c(n12, npre) %in% names(imp_delta_df)))
+    imp_delta_df[[paste0("d_", a)]] <- imp_delta_df[[n12]] - imp_delta_df[[npre]]
+}
+for (m in cfg$cmr_markers) {
+  n12  <- paste0(m, "__", cfg$improve_visit_12mo)
+  npre <- paste0(m, "__", cfg$improve_visit_pre)
+  if (all(c(n12, npre) %in% names(imp_delta_df)))
+    imp_delta_df[[paste0("d_", m)]] <- imp_delta_df[[n12]] - imp_delta_df[[npre]]
+}
+if (cfg$weight_col %in% covars_keep) {
+  n12  <- paste0(cfg$weight_col, "__", cfg$improve_visit_12mo)
+  npre <- paste0(cfg$weight_col, "__", cfg$improve_visit_pre)
+  if (all(c(n12, npre) %in% names(imp_delta_df)))
+    imp_delta_df$d_weight <- imp_delta_df[[n12]] - imp_delta_df[[npre]]
+}
+
+# Baseline covariates for Δ models
+for (cv in c(cfg$age_col, cfg$sex_col, cfg$egfr_col, cfg$bmi_col)) {
+  npre <- paste0(cv, "__", cfg$improve_visit_pre)
+  if (npre %in% names(imp_delta_df))
+    imp_delta_df[[paste0(cv, "_pre")]] <- imp_delta_df[[npre]]
+}
+imp_delta_df$sex_pre <- factor(imp_delta_df[[paste0(cfg$sex_col, "_pre")]])
+
+saveRDS(imp_delta_df, file.path(cfg$derived_dir, "imp_delta_df.rds"))
+message("IMPROVE Δ frame: n = ", nrow(imp_delta_df))
+```
+
+# Proteomics QC
+
+```{r qc-aptamers}
+apt_meta <- analytes %>% dplyr::filter(AptName %in% apt_cols)
+for (f in c("ColCheck","Type","Organism"))
+  if (!f %in% names(apt_meta)) apt_meta[[f]] <- NA
+
+apt_keep <- apt_meta %>%
+  dplyr::filter(is.na(ColCheck) | ColCheck == "PASS",
+                is.na(Type)     | Type     == "Protein",
+                is.na(Organism) | Organism == "Human") %>%
+  dplyr::pull(AptName)
+
+message("Aptamers before QC: ", length(apt_cols),
+        " | after QC: ", length(apt_keep))
+
+# Y = log2 RFU matrix (rows = aptamers, cols = samples)
+build_Y <- function(df, apt_ids) {
+  m <- t(as.matrix(df[, apt_ids, drop = FALSE]))
+  m[m <= 0 | is.infinite(m)] <- NA
+  m <- log2(m)
+  colnames(m) <- as.character(df$record_id)
+  rownames(m) <- apt_ids
+  m
+}
+
+Y_rh2     <- build_Y(rh2_df,      apt_keep)
+Y_impbase <- build_Y(imp_base_df, apt_keep)
+Y_implong <- build_Y(imp_long_df, apt_keep)
+
+# Sample-level QC (median log2 RFU within 3 SD of cohort median)
+sample_qc <- function(Y) {
+  meds <- apply(Y, 2, median, na.rm = TRUE)
+  abs(meds - median(meds, na.rm = TRUE)) < 3 * sd(meds, na.rm = TRUE)
+}
+keep_rh2     <- sample_qc(Y_rh2)
+keep_impbase <- sample_qc(Y_impbase)
+keep_implong <- sample_qc(Y_implong)
+
+message("RH2 kept: ", sum(keep_rh2), "/", length(keep_rh2),
+        " | IMPROVE base kept: ", sum(keep_impbase), "/", length(keep_impbase),
+        " | IMPROVE long kept: ", sum(keep_implong), "/", length(keep_implong))
+
+Y_rh2       <- Y_rh2[,     keep_rh2,     drop = FALSE]
+Y_impbase   <- Y_impbase[, keep_impbase, drop = FALSE]
+Y_implong   <- Y_implong[, keep_implong, drop = FALSE]
+rh2_df      <- rh2_df[     keep_rh2,     , drop = FALSE]
+imp_base_df <- imp_base_df[keep_impbase, , drop = FALSE]
+imp_long_df <- imp_long_df[keep_implong, , drop = FALSE]
+
+# Δ matrix for C1 (aptamers already log2 from step 5)
+d_apt_cols <- paste0("d_", apt_keep)
+d_apt_cols <- d_apt_cols[d_apt_cols %in% names(imp_delta_df)]
+Y_impdelta <- t(as.matrix(imp_delta_df[, d_apt_cols, drop = FALSE]))
+rownames(Y_impdelta) <- sub("^d_", "", d_apt_cols)
+colnames(Y_impdelta) <- as.character(imp_delta_df$record_id)
+
+saveRDS(Y_rh2,      file.path(cfg$derived_dir, "Y_rh2.rds"))
+saveRDS(Y_impbase,  file.path(cfg$derived_dir, "Y_impbase.rds"))
+saveRDS(Y_implong,  file.path(cfg$derived_dir, "Y_implong.rds"))
+saveRDS(Y_impdelta, file.path(cfg$derived_dir, "Y_impdelta.rds"))
+```
+
+# Transform vascular outcomes
+
+```{r transform-outcomes}
+logz  <- function(x) { x[x <= 0] <- NA; as.numeric(scale(log(x))) }
+zonly <- function(x) as.numeric(scale(x))
+
+rh2_df$pwv_z <- logz(rh2_df$pwv_avg)
+
+transform_cmr <- function(df, markers) {
+  for (m in markers) {
+    if (!m %in% names(df)) next
+    # OSI is a bounded ratio (0–0.5) — z-score on native scale; everything else log-z
+    if (grepl("^osi", m)) df[[paste0(m, "_z")]] <- zonly(df[[m]])
+    else                   df[[paste0(m, "_z")]] <- logz(df[[m]])
+  }
+  df
+}
+imp_base_df <- transform_cmr(imp_base_df, cfg$cmr_markers)
+
+# Δ-marker: z-score raw Δ (do not log; Δ can be negative)
+for (m in cfg$cmr_markers) {
+  dm <- paste0("d_", m)
+  if (dm %in% names(imp_delta_df))
+    imp_delta_df[[paste0(dm, "_z")]] <- zonly(imp_delta_df[[dm]])
+}
+
+# QQ plots for sanity checks
+pdf(file.path(cfg$figures_dir, "qq_outcomes.pdf"), width = 8, height = 6)
+op <- par(mfrow = c(2, 3))
+qqnorm(rh2_df$pwv_z, main = "RH2 log-PWV z"); qqline(rh2_df$pwv_z)
+for (m in head(cfg$cmr_markers, 5)) {
+  zcol <- paste0(m, "_z")
+  if (zcol %in% names(imp_base_df)) {
+    qqnorm(imp_base_df[[zcol]], main = paste("IMPROVE", m, "z"))
+    qqline(imp_base_df[[zcol]])
+  }
+}
+par(op); dev.off()
+```
+
+# Table 1 per analytic cohort
+
+```{r table-one, results='asis'}
+t1_covars <- intersect(
+  c(cfg$age_col, cfg$sex_col, cfg$egfr_col, cfg$bmi_col, cfg$a1c_col, cfg$sbp_col),
+  colnames(harm_dat)
+)
+
+tab_rh2 <- tableby(
+  as.formula(paste(cfg$rh2_group_col, "~",
+                   paste(c(t1_covars, "pwv_avg", "dbp", "map"), collapse = " + "))),
+  data = rh2_df)
+summary(tab_rh2, title = "Table 1 — RH2")
+
+tab_impb <- tableby(
+  as.formula(paste("~",
+                   paste(c(t1_covars, cfg$cmr_markers), collapse = " + "))),
+  data = imp_base_df)
+summary(tab_impb, title = "Table 1 — IMPROVE baseline")
+
+tab_impl <- tableby(
+  as.formula(paste("visit ~",
+                   paste(c(t1_covars, cfg$cmr_markers, cfg$weight_col),
+                         collapse = " + "))),
+  data = imp_long_df)
+summary(tab_impl, title = "Table 1 — IMPROVE pre vs 12 mo")
+```
 
 ```{r}
-
+rh2_df %>%
+  ggplot(aes(x = group, y = pwv_avg, fill = group)) +
+  geom_boxplot(size = 1) +
+  geom_jitter(width = 0.1) + 
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = "PWV (m/s)") +
+  scale_fill_manual(values = c("Lean Control" = "#c9cba3",
+                               "Obese Control" = "#ffe1a8",
+                               "Type 2 Diabetes" = "#e26d5c"))
+ggsave(file.path(cfg$figures_dir, "/rh2_pwv_box.png"), width = 3, height = 5)
 ```
 
 
 
+
+# RH2 PWV on all RH2
+
+```{r analysis-A}
+stopifnot(identical(as.character(rh2_df$record_id), colnames(Y_rh2)))
+
+metaA <- rh2_df %>% dplyr::transmute(
+  pwv_z,
+  age  = .data[[cfg$age_col]],
+  sex,
+  eGFR = .data[[cfg$egfr_col]],
+  group)
+
+resA <- run_limma_assoc(
+  Y         = Y_rh2,
+  meta      = metaA,
+  outcome   = "pwv_z",
+  covars    = c("age","sex","eGFR","group"),
+  study_tag = "RH2_PWV")
+
+saveRDS(resA, file.path(cfg$results_dir, "resA.rds"))
+write.csv(resA, file.path(cfg$results_dir, "resA.csv"), row.names = FALSE)
+
+message("RH2 PWV — aptamers at FDR<0.05: ",
+        sum(resA$FDR < cfg$fdr_primary, na.rm = TRUE))
+head(dplyr::arrange(resA, P.Value), 10)
+```
+
+```{r}
+plot_volcano_proteomics(data = resA,
+                        fc = "logFC", 
+                        p_col = "P.Value",
+                        x_axis = "logFC", 
+                        y_axis = "P-value", 
+                        file_suffix = "rh2_pwv",
+                        formula = "PWV + age + sex + eGFR + group",
+                        output_base_path = paste0(cfg$figures_dir, "/"))
+```
+
+
+# RH2 PWV on T2D/OB in RH2
+
+```{r}
+keep_ids <- rh2_df %>%
+  dplyr::filter(group != "Lean Control") %>%
+  dplyr::pull(record_id) %>%
+  as.character()
+
+rh2_df_sub <- rh2_df %>%
+  dplyr::filter(as.character(record_id) %in% keep_ids) %>%
+  dplyr::mutate(group = droplevels(group),
+                group = relevel(group, ref = "Obese Control"))
+
+Y_rh2_sub <- Y_rh2[, as.character(rh2_df_sub$record_id), drop = FALSE]
+stopifnot(identical(colnames(Y_rh2_sub), as.character(rh2_df_sub$record_id)))
+
+metaB <- rh2_df_sub %>% dplyr::transmute(
+  pwv_z,
+  age  = .data[[cfg$age_col]],
+  sex,
+  eGFR = .data[[cfg$egfr_col]],
+  group)
+
+resB <- run_limma_assoc(
+  Y         = Y_rh2_sub,
+  meta      = metaB,
+  outcome   = "pwv_z",
+  covars    = c("age","sex","eGFR", "group"),
+  study_tag = "RH2_PWV_T2D_OB")
+
+saveRDS(resB, file.path(cfg$results_dir, "resB.rds"))
+write.csv(resB, file.path(cfg$results_dir, "resB.csv"), row.names = FALSE)
+
+message("RH2 PWV — aptamers at FDR<0.05: ",
+        sum(resB$FDR < cfg$fdr_primary, na.rm = TRUE))
+head(dplyr::arrange(resB, P.Value), 10)
+```
+
+```{r}
+plot_volcano_proteomics(data = resB,
+                        fc = "logFC", 
+                        p_col = "P.Value",
+                        x_axis = "logFC", 
+                        y_axis = "P-value", 
+                        file_suffix = "rh2_pwv_t2dob",
+                        formula = "PWV + age + sex + eGFR + group",
+                        output_base_path = paste0(cfg$figures_dir, "/")) 
+```
 

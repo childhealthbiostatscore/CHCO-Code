@@ -65,7 +65,8 @@ def clean_improve():
     # --------------------------------------------------------------------------
 
     dem_cols = ["subject_id", "co_enroll_id", "dob", "diagnosis", 
-                "gender", "race", "ethnicity", "sglt2i", "participation_status", "mr_number"]
+                "gender", "race", "ethnicity", "sglt2i", "participation_status", "mr_number",
+                "vsg_surgery_date"]
     # Export
     demo = pd.DataFrame(proj.export_records(fields=dem_cols,
                                             events=["screening_arm_1"]))

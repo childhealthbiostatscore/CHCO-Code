@@ -12,6 +12,7 @@ library(readxl)
 library(purrr)
 library(aws.s3)
 library(jsonlite)
+library(BiocParallel)
 
 user <- Sys.info()[["user"]]
 
