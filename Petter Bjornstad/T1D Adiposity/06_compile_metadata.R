@@ -232,7 +232,17 @@ analysis_subdirs <- c(
   "interaction/dexa_ag_ratio",
   "interaction/dexa_est_vat",
   "interaction/dexa_trunk_kg",
-  "interaction/dexa_trunk_mass"
+  "interaction/dexa_trunk_mass",
+
+  # =========================================================================
+  # DISCORDANCE DIAGNOSTICS (BMI vs DXA investigation)
+  # =========================================================================
+  # Step 2: BMI with ATTEMPT excluded (ACTIVE)
+  "T1D_normal_vs_ow_obese_bmi_noattempt",
+  "T1D_normal_vs_ow_obese_bmi_noattempt_adj_age",
+  "T1D_normal_vs_ow_obese_bmi_noattempt_adj_age_sex",
+  "T1D_nonobese_vs_obese_bmi_noattempt"
+
 )
 # --- Find and compile all metadata CSVs ---
 cat("Searching for metadata CSVs in S3...\n")
