@@ -1,6 +1,6 @@
 ---
 title: "02_proteomics_analysis"
-author: "Ye Ji Choi"
+author: "Ye Ji Choi & Savanah Leidholt"
 format: html
 ---
 
@@ -13,6 +13,17 @@ library(ggplot2)
 library(ggforce)
 library(enrichR)
 library(stringr)
+library(limma)
+library(EnhancedVolcano)
+library(patchwork)
+library(ggrepel)
+library(vegan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+library(haven)
+library(ggVennDiagram)
+library(caret)
 ```
 
 ```{r}
@@ -42,7 +53,7 @@ if (user == "choiyej") { # local version
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
@@ -70,8 +81,247 @@ t1d_hc_dat_soma <- s3readRDS(object = "data_clean/t1d_hc_clinical_data_soma.csv"
                              region = "")
 ```
 
-# Differential protein expression
+#setting up metadata and protein matrices
+```{r}
+meta <- t1d_hc_dat_soma %>%
+  dplyr:: select (-starts_with("seq"))
+meta$group
+meta$group <- factor(
+  meta$group,
+  levels = c("Lean Control","Type 1 Diabetes"),
+  labels = c("LC","T1D")
+)
+meta$bmi_obesity
+meta$dxa_obesity
+
+
+dat <- t1d_hc_dat_soma %>%
+  dplyr::select(record_id, starts_with("seq"))
+
+dat_urine <- dat %>%
+  dplyr::select(ends_with("urine"), ends_with("urine_cradj"))
+
+dat_plasma <- dat %>%
+  dplyr:: select(-ends_with("urine"), -ends_with("urine_cradj"))
+dat_plasma <- as.data.frame(dat_plasma)
+rownames(dat_plasma) <- dat_plasma$record_id
+dat_plasma$record_id <- NULL
+```
+
+##filter to proteins that are only in the analyte panel (~7000)
+##check if this is correct for the newer somascan prot pannel
+##should filter ~3000 all from ATTEMPT
+##then filter to keep proteins that are in at least 2 studies
+```{r}
+analytes <- read.csv(
+  file.path(root_path, "Data Harmonization", "Combined SomaScan", "analytes.csv")
+)
+
+prot_panel <- unique(trimws(as.character(analytes$AptName)))
+
+##keep only aptamers that are present in the protein matrix
+aptamers_keep <- intersect(prot_panel, colnames(dat_plasma))
+
+##subset protein matrix to those aptamers
+dat_plasma2 <- dat_plasma[, aptamers_keep, drop = FALSE]
+
+dim(dat_plasma2) #should be ~7000
+dim(dat_plasma) #should be ~10000
+length(aptamers_keep)
+length(setdiff(prot_panel, colnames(dat_plasma)))
+
+##log transform protein data
+dat_plasma2 <- as.matrix(dat_plasma2)
+dat_log <- log2(dat_plasma2 + 1)
+dat_log[!is.finite(dat_log)] <- NA_real_
+
+
+```
 
 ```{r}
-t1d_hc_dat_soma
+#not really necessary to do as all protiens pass filter once I remove the extra 3000 from the ATTEMPT Panel
+##filtering step where protein must exist in 60% of samples in a study
+study_idx_all <- split(seq_len(nrow(dat_log)), meta$study)
+present_by_study_all <- sapply(study_idx_all, function(idx) {
+  colMeans(!is.na(dat_log[idx, ])) >= 0.6
+})
+
+present_by_study_all <- as.matrix(present_by_study_all)
+n_studies_present_all <- rowSums(present_by_study_all)
+keep_study_all <- n_studies_present_all >= 2
+
+removed_proteins <- colnames(dat_log)[!keep_study_all]
+kept_proteins    <- colnames(dat_log)[keep_study_all]
+
+cat("All proteomic features before study filter:", ncol(dat_log), "\n")
+cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_proteins), "\n")
+cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_proteins), "\n")
+
+dat_log_filt <- dat_log[, kept_proteins, drop = FALSE] #
 ```
+#imputating the data
+```{r}
+set.seed(1835)
+dat_imp <- dat_log_filt
+meds <- apply(dat_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
+
+for (j in seq_len(ncol(dat_imp))) {
+  if (!is.na(meds[j])) {
+    dat_imp[is.na(dat_imp[, j]), j] <- meds[j]
+  }
+}
+
+keep_cols <- colSums(is.na(dat_imp)) == 0 &
+  apply(dat_imp, 2, var) > 0 &
+  is.finite(apply(dat_imp, 2, var))
+
+dat_imp <- dat_imp[, keep_cols, drop = FALSE]
+```
+
+##--------------------------------
+## Find and Remove Outliers in PCA
+##---------------------------------
+```{r}
+stopifnot(identical(rownames(dat_imp), meta$record_id))
+
+# PCA outlier detection
+pca0 <- prcomp(dat_imp, center = TRUE, scale. = TRUE)
+
+scores <- as.data.frame(pca0$x[, 1:2, drop = FALSE])
+scores$record_id <- rownames(scores)
+
+scores$dist <- sqrt(scores$PC1^2 + scores$PC2^2)
+
+threshold <- mean(scores$dist, na.rm = TRUE) + 
+  3 * sd(scores$dist, na.rm = TRUE)
+
+outliers <- scores$record_id[scores$dist > threshold]
+
+outliers
+
+# remove outliers from matrix
+dat_imp2 <- dat_imp[
+  !rownames(dat_imp) %in% outliers,
+  ,
+  drop = FALSE
+]
+
+# remove outliers from metadata
+meta2 <- meta %>%
+  dplyr::filter(!record_id %in% outliers)
+
+# reorder metadata to match matrix
+meta2 <- meta2[match(rownames(dat_imp2), meta2$record_id), ]
+
+# checks
+cat("Still present in metadata? ", any(outliers %in% meta2$record_id), "\n")
+cat("Still present in matrix? ", any(outliers %in% rownames(dat_imp2)), "\n")
+
+stopifnot(!any(outliers %in% meta2$record_id))
+stopifnot(!any(outliers %in% rownames(dat_imp2)))
+stopifnot(identical(rownames(dat_imp2), meta2$record_id))
+
+```
+
+#---------------
+# Plotting Funciton
+#---------------
+```{r}
+make_pca_plot <- function(mat, meta_df, title_str) {
+  pca  <- prcomp(mat, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1    = pca$x[, 1],
+    PC2    = pca$x[, 2],
+    group = meta_df$group,
+    study  = meta_df$study
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC  = "Cyan4",
+        T1D = "DarkRed"
+      ),
+      name = "Group"
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw()
+}
+```
+##-----------
+## PCAs
+##-----------
+```{r}
+p  <- make_pca_plot(dat_imp2, meta2, "No adjustment")
+
+cov_m1 <- model.matrix(~ age + sex, data = meta2)[, -1, drop = FALSE]
+prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1))
+p1 <- make_pca_plot(prot_m1, meta2, "Age + Sex")
+
+
+cov_m2 <- model.matrix(~ age + sex + study, data = meta2)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2))
+p2 <- make_pca_plot(prot_m2, meta2, "Age + Sex + Study")
+
+(p | p1 | p2)
+```
+```{r}
+make_pca_plot2 <- function(mat, meta_df, title_str) {
+  pca  <- prcomp(mat, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+
+  tibble(
+    PC1    = pca$x[, 1],
+    PC2    = pca$x[, 2],
+    group = meta_df$bmi_obesity,
+    study  = meta_df$study
+  ) %>%
+    ggplot(aes(PC1, PC2, color = group, shape = study)) +
+    geom_point(size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        Overweight  = "Cyan4",
+        Obese = "DarkRed",
+        Normal = "Gold"
+      ),
+      name = "BMI group"
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)")
+    ) +
+    theme_bw()
+}
+```
+##-----------
+## PCAs
+##-----------
+```{r}
+p  <- make_pca_plot2(dat_imp2, meta2, "No adjustment")
+
+cov_m1 <- model.matrix(~ age + sex, data = meta2)[, -1, drop = FALSE]
+prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1))
+p1 <- make_pca_plot2(prot_m1, meta2, "Age + Sex")
+
+
+cov_m2 <- model.matrix(~ age + sex + study, data = meta2)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2))
+p2 <- make_pca_plot2(prot_m2, meta2, "Age + Sex + Study")
+
+(p | p1 | p2)
+```
+#run limma
+```{r}
+
+```
+
