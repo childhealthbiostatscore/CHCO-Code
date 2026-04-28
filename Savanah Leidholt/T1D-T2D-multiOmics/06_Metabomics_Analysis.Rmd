@@ -11,8 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -342,29 +342,27 @@ kept_metabolites    <- colnames(mat_all)[keep_study_all]
 cat("All metabolomic features before study filter:", ncol(mat_all), "\n")
 cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_metabolites), "\n")
 cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_metabolites), "\n")
-```
-```{r}
-#remove the filtered metabolites here before moving on. 
-```
 
+mat_filt <- mat_all[, kept_metabolites, drop = FALSE]
+```
 
 ##--------------------------
 ## log transform & imputation
 ##-------------------
 ```{r}
-mat_all <- as.matrix(mat_metab)
-rownames(mat_all) <- trimws(as.character(rownames(mat_all)))
+mat_filt <- as.matrix(mat_filt)
+rownames(mat_filt) <- trimws(as.character(rownames(mat_filt)))
 
-mat_log_all <- log2(mat_all + 1)
+mat_log_all <- log2(mat_filt + 1)
 
 mat_log_all[!is.finite(mat_log_all)] <- NA_real_
 
-meds_all <- apply(mat_filt_all, 2, function(x) {
+meds_all <- apply(mat_filt, 2, function(x) {
   m <- median(x, na.rm = TRUE)
   if (is.finite(m)) m else NA_real_
 })
 
-mat_imp_all <- mat_filt_all
+mat_imp_all <- mat_filt
 
 for (j in seq_len(ncol(mat_imp_all))) {
   if (!is.na(meds_all[j])) {
@@ -392,14 +390,14 @@ nzv_idx <- nearZeroVar(mat_imp_all)
 length(nzv_idx)   # how many features will be removed
 colnames(mat_imp_all)[nzv_idx]  #view removed features
 
-mat_imp_all <- mat_imp_all[, -nzv_idx, drop = FALSE]
+mat_imp_filt <- mat_imp_all[, -nzv_idx, drop = FALSE]
 ```
 
 ##---------------------------
 ## PCA-based outlier removal
 ##---------------------------
 ```{r}
-pca_all <- prcomp(mat_imp_all, center = TRUE, scale. = TRUE)
+pca_all <- prcomp(mat_imp_filt, center = TRUE, scale. = TRUE)
 pca_dist_all <- sqrt(rowSums(pca_all$x[, 1:5]^2))
 
 cutoff_all <- median(pca_dist_all) + 3 * mad(pca_dist_all, constant = 1)
@@ -420,30 +418,30 @@ outlier_df_all %>%
 keep_ids_all <- outlier_df_all %>%
   dplyr::filter(!pca_outlier) %>%
   dplyr::pull(record_id)
-keep_ids_all
+
 # subset matrix
-mat_imp_all <- mat_imp_all[keep_ids_all, , drop = FALSE]
+mat_imp_filt <- mat_imp_filt[keep_ids_all, , drop = FALSE]
 
 # reorder metadata to match matrix
 meta_all <- meta_all[match(keep_ids_all, meta_all$record_id), , drop = FALSE]
 cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
 cat("number of participants kept", nrow(mat_imp_all), "\n")
 
-stopifnot(identical(meta_all$record_id, rownames(mat_imp_all)))
+stopifnot(identical(meta_all$record_id, rownames(mat_imp_filt)))
 ```
 
 ##-----------------------
 ## PCA: all metabolomics
 ##-----------------------
 ```{r}
-p0_all <- make_pca_plot(mat_imp_all, meta_all, "Metabolomics - No adjustment")
+p0_all <- make_pca_plot(mat_imp_filt, meta_all, "Metabolomics - No adjustment")
 
 cov1_all <- model.matrix(~ age + sex, data = meta_all)[, -1, drop = FALSE]
-mat_adj1_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov1_all))
+mat_adj1_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov1_all))
 p1_all <- make_pca_plot(mat_adj1_all, meta_all, "Metabolomics - Age + Sex")
 
 cov2_all <- model.matrix(~ age + sex + study, data = meta_all)[, -1, drop = FALSE]
-mat_adj2_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov2_all))
+mat_adj2_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov2_all))
 p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Study")
 
 (p0_all | p1_all | p2_all) +
@@ -456,7 +454,7 @@ p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Stud
 ## LIMMA: all metabolomics
 ## ------------------------
 ```{r}
-Y_all <- t(as.matrix(mat_imp_all))
+Y_all <- t(as.matrix(mat_imp_filt))
 
 design_all <- model.matrix(~ 0 + group4 + age + sex + study, data = meta_all)
 colnames(design_all) <- sub("^group4", "", colnames(design_all))
@@ -594,6 +592,8 @@ cat("Subset features kept for PCA/LIMMA:", ncol(mat_imp_mp), "\n")
 cat("number of participants kept", nrow(mat_imp_mp), "\n")
 stopifnot(identical(rownames(mat_imp_mp), meta_mp$record_id))
 ```
+
+
 ```{r}
 #removing near zero variance metabolites
 nzv_idx <- nearZeroVar(mat_imp_mp)
@@ -1225,7 +1225,7 @@ if (any(tab < min_per_class)) {
   cat("Best alpha:", best$alpha, "\n")
   cat("AUC:", auc_val, "\n")
   cat("Nonzero coefficients:", nrow(coef_df), "\n")
-  cat("Selected protein terms:", length(protein_terms), "\n")
+  cat("Selected metabolites:", length(protein_terms), "\n")
   
   list(
     contrast         = cc,
@@ -1249,7 +1249,7 @@ res_T1D_LC <- run_elastic_net(
   cc = "T1D_vs_LC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_imp_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
