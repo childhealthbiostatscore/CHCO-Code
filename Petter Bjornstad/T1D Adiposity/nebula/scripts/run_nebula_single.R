@@ -281,6 +281,53 @@ analysis_config <- list(
   ),
 
   # =========================================================================
+  # CATEGORICAL COMPARISONS (WHtR-defined)
+  # whtr_obesity assumes Normal / Overweight / Obese categories already
+  # set in the clinical CSV (01_clean_dataset.R). Binary helpers
+  # (whtr_obese_binary, whtr_ow_obese_binary) are derived in
+  # precompute_nebula_data.R, so they're always present in pre$meta.
+  # =========================================================================
+
+  # 10. T1D Normal vs T1D Overweight (WHtR)
+  T1D_normal_vs_overweight_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Overweight')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    pval_col = "p_whtr_obesityOverweight", logfc_col = "logFC_whtr_obesityOverweight",
+    s3_subdir = "T1D_normal_vs_overweight_whtr", file_suffix = "t1d_norm_ow_whtr"
+  ),
+
+  # 11. T1D Non-obese vs T1D Obese (WHtR)
+  T1D_nonobese_vs_obese_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_obese_binary", ref_level = "Non_Obese",
+    pval_col = "p_whtr_obese_binaryObese", logfc_col = "logFC_whtr_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_whtr", file_suffix = "t1d_nonob_ob_whtr",
+    needs_binary_whtr = TRUE
+  ),
+
+  # 12. T1D Normal vs T1D Obese (WHtR)
+  T1D_normal_vs_obese_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Obese')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    pval_col = "p_whtr_obesityObese", logfc_col = "logFC_whtr_obesityObese",
+    s3_subdir = "T1D_normal_vs_obese_whtr", file_suffix = "t1d_norm_ob_whtr"
+  ),
+
+  # 12b. T1D Normal vs T1D Overweight+Obese (WHtR)
+  T1D_normal_vs_ow_obese_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_ow_obese_binary", ref_level = "Normal",
+    pval_col = "p_whtr_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_whtr_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_whtr", file_suffix = "t1d_norm_owob_whtr",
+    needs_binary_ow_obese_whtr = TRUE
+  ),
+
+  # =========================================================================
   # HC vs T1D COMPARISONS (BMI-defined)
   # =========================================================================
   
@@ -341,7 +388,65 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_dxa", file_suffix = "hc_t1d_ob_dxa"
   ),
-  
+
+  # =========================================================================
+  # HC vs T1D COMPARISONS (WHtR-defined)
+  # =========================================================================
+
+  HC_vs_T1D_normal_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Normal'))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_normal_whtr", file_suffix = "hc_t1d_norm_whtr"
+  ),
+
+  HC_vs_T1D_overweight_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Overweight'))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_overweight_whtr", file_suffix = "hc_t1d_ow_whtr"
+  ),
+
+  HC_vs_T1D_obese_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Obese'))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_obese_whtr", file_suffix = "hc_t1d_ob_whtr"
+  ),
+
+  # =========================================================================
+  # HC vs T1D Overweight+Obese (combined; per-definition: BMI / DXA / WHtR)
+  # T1D arm restricted to subjects with whichever obesity flag is non-NA AND
+  # in {Overweight, Obese}; HC is unfiltered Lean Control.
+  # =========================================================================
+
+  HC_vs_T1D_ow_obese_bmi = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_bmi", file_suffix = "hc_t1d_owob_bmi"
+  ),
+
+  HC_vs_T1D_ow_obese_dxa = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_dxa", file_suffix = "hc_t1d_owob_dxa"
+  ),
+
+  HC_vs_T1D_ow_obese_whtr = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_whtr", file_suffix = "hc_t1d_owob_whtr"
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE-ADJUSTED (BMI-defined, T1D within-group)
   # =========================================================================
@@ -487,7 +592,112 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_dxa_adj_age", file_suffix = "hc_t1d_ob_dxa_adj_age"
   ),
-  
+
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE-ADJUSTED (WHtR-defined, T1D within-group)
+  # =========================================================================
+
+  T1D_normal_vs_overweight_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Overweight')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_whtr_obesityOverweight", logfc_col = "logFC_whtr_obesityOverweight",
+    s3_subdir = "T1D_normal_vs_overweight_whtr_adj_age", file_suffix = "t1d_norm_ow_whtr_adj_age"
+  ),
+
+  T1D_nonobese_vs_obese_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_obese_binary", ref_level = "Non_Obese",
+    adjust_covariates = c("age"),
+    pval_col = "p_whtr_obese_binaryObese", logfc_col = "logFC_whtr_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_whtr_adj_age", file_suffix = "t1d_nonob_ob_whtr_adj_age",
+    needs_binary_whtr = TRUE
+  ),
+
+  T1D_normal_vs_obese_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Obese')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_whtr_obesityObese", logfc_col = "logFC_whtr_obesityObese",
+    s3_subdir = "T1D_normal_vs_obese_whtr_adj_age", file_suffix = "t1d_norm_ob_whtr_adj_age"
+  ),
+
+  T1D_normal_vs_ow_obese_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age"),
+    pval_col = "p_whtr_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_whtr_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_whtr_adj_age", file_suffix = "t1d_norm_owob_whtr_adj_age",
+    needs_binary_ow_obese_whtr = TRUE
+  ),
+
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE-ADJUSTED (HC vs T1D, WHtR-defined)
+  # =========================================================================
+
+  HC_vs_T1D_normal_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Normal'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_normal_whtr_adj_age", file_suffix = "hc_t1d_norm_whtr_adj_age"
+  ),
+
+  HC_vs_T1D_overweight_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Overweight'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_overweight_whtr_adj_age", file_suffix = "hc_t1d_ow_whtr_adj_age"
+  ),
+
+  HC_vs_T1D_obese_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Obese'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_obese_whtr_adj_age", file_suffix = "hc_t1d_ob_whtr_adj_age"
+  ),
+
+  # =========================================================================
+  # HC vs T1D Overweight+Obese - AGE-ADJUSTED (BMI / DXA / WHtR)
+  # =========================================================================
+
+  HC_vs_T1D_ow_obese_bmi_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_bmi_adj_age", file_suffix = "hc_t1d_owob_bmi_adj_age"
+  ),
+
+  HC_vs_T1D_ow_obese_dxa_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_dxa_adj_age", file_suffix = "hc_t1d_owob_dxa_adj_age"
+  ),
+
+  HC_vs_T1D_ow_obese_whtr_adj_age = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_whtr_adj_age", file_suffix = "hc_t1d_owob_whtr_adj_age"
+  ),
+
   # =========================================================================
   # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (BMI-defined, T1D within-group)
   # =========================================================================
@@ -633,7 +843,112 @@ analysis_config <- list(
     pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
     s3_subdir = "HC_vs_T1D_obese_dxa_adj_age_sex", file_suffix = "hc_t1d_ob_dxa_adj_age_sex"
   ),
-  
+
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (WHtR-defined, T1D within-group)
+  # =========================================================================
+
+  T1D_normal_vs_overweight_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Overweight')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr_obesityOverweight", logfc_col = "logFC_whtr_obesityOverweight",
+    s3_subdir = "T1D_normal_vs_overweight_whtr_adj_age_sex", file_suffix = "t1d_norm_ow_whtr_adj_age_sex"
+  ),
+
+  T1D_nonobese_vs_obese_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_obese_binary", ref_level = "Non_Obese",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr_obese_binaryObese", logfc_col = "logFC_whtr_obese_binaryObese",
+    s3_subdir = "T1D_nonobese_vs_obese_whtr_adj_age_sex", file_suffix = "t1d_nonob_ob_whtr_adj_age_sex",
+    needs_binary_whtr = TRUE
+  ),
+
+  T1D_normal_vs_obese_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Normal', 'Obese')",
+    group_var = "whtr_obesity", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr_obesityObese", logfc_col = "logFC_whtr_obesityObese",
+    s3_subdir = "T1D_normal_vs_obese_whtr_adj_age_sex", file_suffix = "t1d_norm_ob_whtr_adj_age_sex"
+  ),
+
+  T1D_normal_vs_ow_obese_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr_obesity)",
+    group_var = "whtr_ow_obese_binary", ref_level = "Normal",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr_ow_obese_binaryOverweight_Obese",
+    logfc_col = "logFC_whtr_ow_obese_binaryOverweight_Obese",
+    s3_subdir = "T1D_normal_vs_ow_obese_whtr_adj_age_sex", file_suffix = "t1d_norm_owob_whtr_adj_age_sex",
+    needs_binary_ow_obese_whtr = TRUE
+  ),
+
+  # =========================================================================
+  # CATEGORICAL COMPARISONS - AGE+SEX ADJUSTED (HC vs T1D, WHtR-defined)
+  # =========================================================================
+
+  HC_vs_T1D_normal_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Normal'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_normal_whtr_adj_age_sex", file_suffix = "hc_t1d_norm_whtr_adj_age_sex"
+  ),
+
+  HC_vs_T1D_overweight_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Overweight'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_overweight_whtr_adj_age_sex", file_suffix = "hc_t1d_ow_whtr_adj_age_sex"
+  ),
+
+  HC_vs_T1D_obese_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity == 'Obese'))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_obese_whtr_adj_age_sex", file_suffix = "hc_t1d_ob_whtr_adj_age_sex"
+  ),
+
+  # =========================================================================
+  # HC vs T1D Overweight+Obese - AGE+SEX ADJUSTED (BMI / DXA / WHtR)
+  # =========================================================================
+
+  HC_vs_T1D_ow_obese_bmi_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(bmi_obesity) & bmi_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_bmi_adj_age_sex", file_suffix = "hc_t1d_owob_bmi_adj_age_sex"
+  ),
+
+  HC_vs_T1D_ow_obese_dxa_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(dxa_obesity) & dxa_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_dxa_adj_age_sex", file_suffix = "hc_t1d_owob_dxa_adj_age_sex"
+  ),
+
+  HC_vs_T1D_ow_obese_whtr_adj_age_sex = list(
+    analysis_mode = "categorical",
+    subset_cond = "(group == 'Lean Control' | (group == 'Type 1 Diabetes' & !is.na(whtr_obesity) & whtr_obesity %in% c('Overweight', 'Obese')))",
+    group_var = "group", ref_level = "Lean Control",
+    adjust_covariates = c("age", "sex"),
+    pval_col = "p_groupType 1 Diabetes", logfc_col = "logFC_groupType 1 Diabetes",
+    s3_subdir = "HC_vs_T1D_ow_obese_whtr_adj_age_sex", file_suffix = "hc_t1d_owob_whtr_adj_age_sex"
+  ),
+
   # =========================================================================
   # CONTINUOUS ASSOCIATIONS - T1D ONLY (unadjusted)
   # =========================================================================
@@ -644,6 +959,13 @@ analysis_config <- list(
     continuous_var = "bmi", adjust_group = FALSE,
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_t1d", file_suffix = "cont_bmi_t1d"
+  ),
+  cont_whtr_t1d = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE,
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_t1d", file_suffix = "cont_whtr_t1d"
   ),
   cont_dexa_body_fat_t1d = list(
     analysis_mode = "continuous",
@@ -720,6 +1042,13 @@ analysis_config <- list(
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all", file_suffix = "cont_bmi_all"
   ),
+  cont_whtr_all = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE,
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all", file_suffix = "cont_whtr_all"
+  ),
   cont_dexa_body_fat_all = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(dexa_body_fat)",
@@ -794,6 +1123,13 @@ analysis_config <- list(
     continuous_var = "bmi", adjust_group = TRUE,
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all_adj_group", file_suffix = "cont_bmi_all_adj"
+  ),
+  cont_whtr_all_adj = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = TRUE,
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all_adj_group", file_suffix = "cont_whtr_all_adj"
   ),
   cont_dexa_body_fat_all_adj = list(
     analysis_mode = "continuous",
@@ -870,6 +1206,13 @@ analysis_config <- list(
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_t1d_adj_age", file_suffix = "cont_bmi_t1d_adj_age"
   ),
+  cont_whtr_t1d_adj_age = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE, adjust_covariates = c("age"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_t1d_adj_age", file_suffix = "cont_whtr_t1d_adj_age"
+  ),
   cont_dexa_body_fat_t1d_adj_age = list(
     analysis_mode = "continuous",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_body_fat)",
@@ -945,6 +1288,13 @@ analysis_config <- list(
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all_adj_age", file_suffix = "cont_bmi_all_adj_age"
   ),
+  cont_whtr_all_adj_age = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE, adjust_covariates = c("age"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all_adj_age", file_suffix = "cont_whtr_all_adj_age"
+  ),
   cont_dexa_body_fat_all_adj_age = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(dexa_body_fat)",
@@ -1019,6 +1369,13 @@ analysis_config <- list(
     continuous_var = "bmi", adjust_group = TRUE, adjust_covariates = c("age"),
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all_adj_group_age", file_suffix = "cont_bmi_all_adj_group_age"
+  ),
+  cont_whtr_all_adj_group_age = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = TRUE, adjust_covariates = c("age"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all_adj_group_age", file_suffix = "cont_whtr_all_adj_group_age"
   ),
   cont_dexa_body_fat_all_adj_group_age = list(
     analysis_mode = "continuous",
@@ -1191,6 +1548,13 @@ analysis_config <- list(
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_t1d_adj_age_sex", file_suffix = "cont_bmi_t1d_adj_age_sex"
   ),
+  cont_whtr_t1d_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "group == 'Type 1 Diabetes' & !is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_t1d_adj_age_sex", file_suffix = "cont_whtr_t1d_adj_age_sex"
+  ),
   cont_dexa_body_fat_t1d_adj_age_sex = list(
     analysis_mode = "continuous",
     subset_cond = "group == 'Type 1 Diabetes' & !is.na(dexa_body_fat)",
@@ -1266,6 +1630,13 @@ analysis_config <- list(
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all_adj_age_sex", file_suffix = "cont_bmi_all_adj_age_sex"
   ),
+  cont_whtr_all_adj_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = FALSE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all_adj_age_sex", file_suffix = "cont_whtr_all_adj_age_sex"
+  ),
   cont_dexa_body_fat_all_adj_age_sex = list(
     analysis_mode = "continuous",
     subset_cond = "!is.na(dexa_body_fat)",
@@ -1340,6 +1711,13 @@ analysis_config <- list(
     continuous_var = "bmi", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
     pval_col = "p_bmi", logfc_col = "logFC_bmi",
     s3_subdir = "continuous/bmi_all_adj_group_age_sex", file_suffix = "cont_bmi_all_adj_group_age_sex"
+  ),
+  cont_whtr_all_adj_group_age_sex = list(
+    analysis_mode = "continuous",
+    subset_cond = "!is.na(whtr)",
+    continuous_var = "whtr", adjust_group = TRUE, adjust_covariates = c("age", "sex"),
+    pval_col = "p_whtr", logfc_col = "logFC_whtr",
+    s3_subdir = "continuous/whtr_all_adj_group_age_sex", file_suffix = "cont_whtr_all_adj_group_age_sex"
   ),
   cont_dexa_body_fat_all_adj_group_age_sex = list(
     analysis_mode = "continuous",

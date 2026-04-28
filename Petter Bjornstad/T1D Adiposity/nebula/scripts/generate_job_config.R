@@ -39,14 +39,28 @@ analysis_types <- c(
   "T1D_normal_vs_ow_obese_dxa",
 
   # =========================================================================
+  # CATEGORICAL (unadjusted) - within-T1D (WHtR)
+  # =========================================================================
+  "T1D_normal_vs_overweight_whtr",
+  "T1D_nonobese_vs_obese_whtr",
+  "T1D_normal_vs_obese_whtr",
+  "T1D_normal_vs_ow_obese_whtr",
+
+  # =========================================================================
   # CATEGORICAL (unadjusted) - HC vs T1D
   # =========================================================================
   "HC_vs_T1D_normal_bmi",
   "HC_vs_T1D_overweight_bmi",
   "HC_vs_T1D_obese_bmi",
+  "HC_vs_T1D_ow_obese_bmi",
   "HC_vs_T1D_normal_dxa",
   "HC_vs_T1D_overweight_dxa",
   "HC_vs_T1D_obese_dxa",
+  "HC_vs_T1D_ow_obese_dxa",
+  "HC_vs_T1D_normal_whtr",
+  "HC_vs_T1D_overweight_whtr",
+  "HC_vs_T1D_obese_whtr",
+  "HC_vs_T1D_ow_obese_whtr",
 
   # =========================================================================
   # CATEGORICAL - age-adjusted (within-T1D and HC vs T1D, BMI + DXA)
@@ -59,12 +73,22 @@ analysis_types <- c(
   "T1D_nonobese_vs_obese_dxa_adj_age",
   "T1D_normal_vs_obese_dxa_adj_age",
   "T1D_normal_vs_ow_obese_dxa_adj_age",
+  "T1D_normal_vs_overweight_whtr_adj_age",
+  "T1D_nonobese_vs_obese_whtr_adj_age",
+  "T1D_normal_vs_obese_whtr_adj_age",
+  "T1D_normal_vs_ow_obese_whtr_adj_age",
   "HC_vs_T1D_normal_bmi_adj_age",
   "HC_vs_T1D_overweight_bmi_adj_age",
   "HC_vs_T1D_obese_bmi_adj_age",
+  "HC_vs_T1D_ow_obese_bmi_adj_age",
   "HC_vs_T1D_normal_dxa_adj_age",
   "HC_vs_T1D_overweight_dxa_adj_age",
   "HC_vs_T1D_obese_dxa_adj_age",
+  "HC_vs_T1D_ow_obese_dxa_adj_age",
+  "HC_vs_T1D_normal_whtr_adj_age",
+  "HC_vs_T1D_overweight_whtr_adj_age",
+  "HC_vs_T1D_obese_whtr_adj_age",
+  "HC_vs_T1D_ow_obese_whtr_adj_age",
 
   # =========================================================================
   # CATEGORICAL - age+sex-adjusted (merged from _adj_age_sex config)
@@ -77,12 +101,22 @@ analysis_types <- c(
   "T1D_nonobese_vs_obese_dxa_adj_age_sex",
   "T1D_normal_vs_obese_dxa_adj_age_sex",
   "T1D_normal_vs_ow_obese_dxa_adj_age_sex",
+  "T1D_normal_vs_overweight_whtr_adj_age_sex",
+  "T1D_nonobese_vs_obese_whtr_adj_age_sex",
+  "T1D_normal_vs_obese_whtr_adj_age_sex",
+  "T1D_normal_vs_ow_obese_whtr_adj_age_sex",
   "HC_vs_T1D_normal_bmi_adj_age_sex",
   "HC_vs_T1D_overweight_bmi_adj_age_sex",
   "HC_vs_T1D_obese_bmi_adj_age_sex",
+  "HC_vs_T1D_ow_obese_bmi_adj_age_sex",
   "HC_vs_T1D_normal_dxa_adj_age_sex",
   "HC_vs_T1D_overweight_dxa_adj_age_sex",
   "HC_vs_T1D_obese_dxa_adj_age_sex",
+  "HC_vs_T1D_ow_obese_dxa_adj_age_sex",
+  "HC_vs_T1D_normal_whtr_adj_age_sex",
+  "HC_vs_T1D_overweight_whtr_adj_age_sex",
+  "HC_vs_T1D_obese_whtr_adj_age_sex",
+  "HC_vs_T1D_ow_obese_whtr_adj_age_sex",
 
   # =========================================================================
   # STEP 2 DIAGNOSTIC - BMI with ATTEMPT excluded (merged from _discordance)
@@ -119,6 +153,7 @@ analysis_types <- c(
   # CONTINUOUS - T1D only (unadjusted)
   # =========================================================================
   "cont_bmi_t1d",
+  "cont_whtr_t1d",
   "cont_dexa_body_fat_t1d",
   "cont_dexa_bone_mineral_density_t1d",
   "cont_dexa_fat_kg_t1d",
@@ -133,6 +168,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, unadjusted
   # =========================================================================
   "cont_bmi_all",
+  "cont_whtr_all",
   "cont_dexa_body_fat_all",
   "cont_dexa_bone_mineral_density_all",
   "cont_dexa_fat_kg_all",
@@ -147,6 +183,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, adjusted for group
   # =========================================================================
   "cont_bmi_all_adj",
+  "cont_whtr_all_adj",
   "cont_dexa_body_fat_all_adj",
   "cont_dexa_bone_mineral_density_all_adj",
   "cont_dexa_fat_kg_all_adj",
@@ -161,6 +198,7 @@ analysis_types <- c(
   # CONTINUOUS - T1D only, adjusted for age
   # =========================================================================
   "cont_bmi_t1d_adj_age",
+  "cont_whtr_t1d_adj_age",
   "cont_dexa_body_fat_t1d_adj_age",
   "cont_dexa_bone_mineral_density_t1d_adj_age",
   "cont_dexa_fat_kg_t1d_adj_age",
@@ -175,6 +213,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, adjusted for age
   # =========================================================================
   "cont_bmi_all_adj_age",
+  "cont_whtr_all_adj_age",
   "cont_dexa_body_fat_all_adj_age",
   "cont_dexa_bone_mineral_density_all_adj_age",
   "cont_dexa_fat_kg_all_adj_age",
@@ -189,6 +228,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, adjusted for group + age
   # =========================================================================
   "cont_bmi_all_adj_group_age",
+  "cont_whtr_all_adj_group_age",
   "cont_dexa_body_fat_all_adj_group_age",
   "cont_dexa_bone_mineral_density_all_adj_group_age",
   "cont_dexa_fat_kg_all_adj_group_age",
@@ -203,6 +243,7 @@ analysis_types <- c(
   # CONTINUOUS - T1D only, adjusted for age + sex (merged from _adj_age_sex)
   # =========================================================================
   "cont_bmi_t1d_adj_age_sex",
+  "cont_whtr_t1d_adj_age_sex",
   "cont_dexa_body_fat_t1d_adj_age_sex",
   "cont_dexa_bone_mineral_density_t1d_adj_age_sex",
   "cont_dexa_fat_kg_t1d_adj_age_sex",
@@ -217,6 +258,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, adjusted for age + sex (merged from _adj_age_sex)
   # =========================================================================
   "cont_bmi_all_adj_age_sex",
+  "cont_whtr_all_adj_age_sex",
   "cont_dexa_body_fat_all_adj_age_sex",
   "cont_dexa_bone_mineral_density_all_adj_age_sex",
   "cont_dexa_fat_kg_all_adj_age_sex",
@@ -231,6 +273,7 @@ analysis_types <- c(
   # CONTINUOUS - All subjects, adjusted for group + age + sex (merged)
   # =========================================================================
   "cont_bmi_all_adj_group_age_sex",
+  "cont_whtr_all_adj_group_age_sex",
   "cont_dexa_body_fat_all_adj_group_age_sex",
   "cont_dexa_bone_mineral_density_all_adj_group_age_sex",
   "cont_dexa_fat_kg_all_adj_group_age_sex",
