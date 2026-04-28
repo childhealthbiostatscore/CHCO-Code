@@ -20,6 +20,7 @@ library(tidyverse)
 library(stringr)
 library(purrr)
 library(Hmisc)
+library(ggh4x)
 
 # --- S3 setup ---
 user <- Sys.info()[["user"]]
@@ -717,39 +718,63 @@ make_gsea_lollipop <- function(df, logfc_col, pval_col, cell_name,
 # DEG BUTTERFLY PLOT FUNCTION
 # =============================================================================
 # sig_type: "pval" counts genes with raw p < 0.05; "fdr" counts genes with FDR < 0.05
-plot_deg_butterfly <- function(sig_df_summary, analysis_type_filter, ct_names, output_file,
-                               sig_type = "pval") {
-  count_cols <- if (sig_type == "fdr") c("Positive_fdr", "Negative_fdr") else c("Positive", "Negative")
+plot_de_counts <- function(df,
+                           adiposity_grp_type,
+                           sig_type,
+                           analysis_labs,
+                           continuous_var = NULL,
+                           celltype_variable_type = "KPMP_celltype_general",
+                           ncol_facet = 4) {
   
-  sig_df_clean <- sig_df_summary %>%
-    filter(analysis_type == analysis_type_filter) %>%
+  count_cols <- if (sig_type == "fdr") c("fdr_pos", "fdr_neg")
+  else                   c("p_pos",   "p_neg")
+  sig_label  <- if (sig_type == "fdr") "FDR < 0.05" else "p < 0.05"
+  
+  d <- df %>%
+    filter(celltype_variable == celltype_variable_type,
+           is.na(adjust_covariates),
+           analysis_mode    != "interaction",
+           analysis_type    %in% names(analysis_labs))
+  
+  # Belt-and-suspenders for continuous rows: enforce the chosen variable
+  if (!is.null(continuous_var)) {
+    d <- d %>%
+      filter(analysis_mode != "continuous" |
+               group_variable == continuous_var)
+  }
+  
+  d %>%
     dplyr::rename(Pos = !!count_cols[1], Neg = !!count_cols[2]) %>%
     dplyr::mutate(Total = Pos + Neg) %>%
     arrange(desc(Total)) %>%
-    pivot_longer(cols = c(Pos, Neg), names_to = "Direction", values_to = "Count") %>%
+    tidyr::pivot_longer(c(Pos, Neg),
+                        names_to = "Direction", values_to = "Count") %>%
     dplyr::mutate(
-      Direction = ifelse(Direction == "Neg", "Negative", "Positive"),
-      Count = ifelse(Direction == "Negative", -Count, Count),
-      celltype = factor(celltype, levels = rev(unique(celltype)))
-    )
-  
-  sig_label <- ifelse(sig_type == "fdr", "FDR < 0.05", "p < 0.05")
-  
-  p <- sig_df_clean %>%
-    filter(celltype %in% ct_names) %>%
+      Direction     = ifelse(Direction == "Neg", "Negative", "Positive"),
+      Count         = ifelse(Direction == "Negative", -Count, Count),
+      celltype      = factor(celltype, levels = rev(unique(celltype))),
+      analysis_type = factor(analysis_type, levels = names(analysis_labs))
+    ) %>%
     ggplot(aes(x = Count, y = celltype, fill = Direction)) +
     geom_col(width = 0.7) +
     geom_vline(xintercept = 0, color = "white", linewidth = 0.6) +
     geom_text(aes(label = celltype, x = 0), size = 4) +
+    facet_wrap(~ analysis_type, ncol = ncol_facet,
+               labeller = labeller(analysis_type = analysis_labs)) +
     scale_x_continuous(labels = abs, expand = expansion(mult = c(0.01, 0.01))) +
-    scale_fill_manual(values = c("Negative" = "#c0d6df", "Positive" = "#f4978e")) +
-    labs(x = paste0("Number of DE genes (", sig_label, ")"), y = NULL, fill = NULL,
-         title = analysis_type_filter) +
-    theme(legend.position = "top", panel.background = element_blank(), text = element_text(size = 15),
+    scale_fill_manual(values = c("Negative" = "#c0d6df",
+                                 "Positive" = "#f4978e")) +
+    labs(x = paste0("Number of DE genes (", sig_label, ")"),
+         y = NULL, fill = NULL,
+         title = paste0(adiposity_grp_type, " (", sig_label, ")")) +
+    theme(legend.position = "top",
+          panel.background = element_blank(),
+          text = element_text(size = 15),
           axis.text.y = element_blank(), axis.ticks.y = element_blank(),
-          plot.title = element_text(hjust = 0.5, face = "bold"))
-  ggsave(output_file, plot = p, width = 7, height = 7, bg = "transparent")
-  p
+          plot.title = element_text(hjust = 0.5, face = "bold"),
+          strip.text  = element_text(color = "black", face = "bold"),
+          strip.background = element_rect(color = "transparent",
+                                          fill  = "transparent"))
 }
 
 # =============================================================================
@@ -870,290 +895,78 @@ if (nrow(meta_compiled_filtered) == 0) {
 
 map(vars_to_plot, ~ make_meta_plot(meta_compiled_filtered, .x, file_ext = "_filtered"))
 
+meta_compiled_filtered <- 
+  meta_compiled_filtered %>%
+  filter(analysis_mode != "interaction") %>%
+  filter(is.na(adjust_covariates) & !adjust_group) %>%
+  filter(analysis_type != "T1D_normal_vs_ow_obese_bmi_noattempt")
+
 # =============================================================================
 # PHASE 1: BUTTERFLY SCAN — run first to survey DEG counts across cell types
 # =============================================================================
-cat("\n=== Phase 1: Scanning DEG counts for butterfly plots ===\n")
-deg_summary_list <- list()
+bmi_labs <- c(
+  "cont_bmi_all"                 = "All: BMI (continuous)",
+  "cont_bmi_t1d"                 = "T1D: BMI (continuous)",
+  "T1D_normal_vs_ow_obese_bmi"   = "T1D: Obese vs. Normal",
+  "T1D_normal_vs_overweight_bmi" = "T1D: Overweight vs. Normal",
+  "HC_vs_T1D_normal_bmi"         = "Normal: T1D vs. HC",
+  "HC_vs_T1D_overweight_bmi"     = "Overweight: T1D vs. HC",
+  "HC_vs_T1D_obese_bmi"          = "Obese: T1D vs. HC"
+)
 
-for (i in seq_len(nrow(meta_compiled_filtered))) {
-  row <- meta_compiled_filtered[i, ]
-  analysis_type <- row$analysis_type
-  celltype <- row$celltype
-  s3_key <- row$s3_results_key
-  pval_col <- row$pval_column
-  logfc_col <- row$logfc_column
-  
-  cat(sprintf("  [%d/%d] Scanning %s - %s\n", i, nrow(meta_compiled_filtered), analysis_type, celltype))
-  
-  df <- tryCatch(
-    s3readRDS(object = s3_key, bucket = bucket, region = ""),
-    error = function(e) {
-      message(paste("    Error reading results:", e$message))
-      NULL
-    }
-  )
-  if (is.null(df)) next
-  
-  # Determine FDR column
-  fdr_candidates <- grep("p_.*_fdr$|padj|q_value|^fdr$", names(df), value = TRUE)
-  fdr_col <- if (length(fdr_candidates) > 0) fdr_candidates[1] else NULL
-  
-  # Count DEGs at p < 0.05
-  sig_pval <- df %>%
-    dplyr::filter(!is.na(.data[[pval_col]]) & !is.na(.data[[logfc_col]]) & .data[[pval_col]] < 0.05)
-  
-  pos_pval <- sum(sig_pval[[logfc_col]] > 0, na.rm = TRUE)
-  neg_pval <- sum(sig_pval[[logfc_col]] < 0, na.rm = TRUE)
-  
-  # Count DEGs at FDR < 0.05
-  pos_fdr <- 0
-  neg_fdr <- 0
-  if (!is.null(fdr_col) && fdr_col %in% names(df)) {
-    sig_fdr <- df %>%
-      dplyr::filter(!is.na(.data[[fdr_col]]) & !is.na(.data[[logfc_col]]) & .data[[fdr_col]] < 0.05)
-    pos_fdr <- sum(sig_fdr[[logfc_col]] > 0, na.rm = TRUE)
-    neg_fdr <- sum(sig_fdr[[logfc_col]] < 0, na.rm = TRUE)
-  }
-  
-  # Determine resolution group from celltype_variable column in metadata
-  ct_var <- row$celltype_variable
-  resolution <- dplyr::case_when(
-    ct_var == "KPMP_celltype"          ~ "high_res",
-    ct_var == "KPMP_celltype_general"  ~ "low_res",
-    ct_var == "KPMP_celltype_general2" ~ "low_res2",
-    TRUE                               ~ "other"
-  )
-  
-  deg_summary_list[[length(deg_summary_list) + 1]] <- data.frame(
-    analysis_type = analysis_type,
-    celltype = celltype,
-    celltype_variable = ct_var,
-    resolution = resolution,
-    n_samples_per_group = row$n_samples_per_group,
-    n_cells_per_group = row$n_cells_per_group,
-    Positive = pos_pval, Negative = neg_pval,
-    Positive_fdr = pos_fdr, Negative_fdr = neg_fdr,
-    stringsAsFactors = FALSE
-  )
-}
+# Pick one DXA continuous variable as the headline for the "continuous" panels
+# (body_fat is the most direct adiposity readout; swap to dexa_est_vat etc. if you prefer)
+dxa_labs <- c(
+  "cont_dexa_body_fat_all"       = "All: DXA body fat % (continuous)",
+  "cont_dexa_body_fat_t1d"       = "T1D: DXA body fat % (continuous)",
+  "T1D_normal_vs_ow_obese_dxa"   = "T1D: Obese vs. Normal",
+  "T1D_normal_vs_overweight_dxa" = "T1D: Overweight vs. Normal",
+  "HC_vs_T1D_normal_dxa"         = "Normal: T1D vs. HC",
+  "HC_vs_T1D_overweight_dxa"     = "Overweight: T1D vs. HC",
+  "HC_vs_T1D_obese_dxa"          = "Obese: T1D vs. HC"
+)
 
-# Generate butterfly plots (pval and FDR) for each analysis type × resolution
-if (length(deg_summary_list) > 0) {
-  deg_summary_df <- bind_rows(deg_summary_list)
-  
-  # Create subdirectories for each resolution
-  for (res in unique(deg_summary_df$resolution)) {
-    dir.create(file.path(results_dir, "Results/Figures/Butterfly", res),
-               recursive = TRUE, showWarnings = FALSE)
-  }
-  
-  # Save summary CSV for inspection
-  write.csv(deg_summary_df,
-            file.path(results_dir, "Results/Figures/Butterfly/deg_summary.csv"),
-            row.names = FALSE)
-  cat(sprintf("  DEG summary saved: deg_summary.csv (%d rows)\n", nrow(deg_summary_df)))
-  
-  # Get unique analysis_type × resolution combinations
-  combos <- deg_summary_df %>%
-    dplyr::distinct(analysis_type, resolution)
-  
-  cat(sprintf("\n  Generating butterfly plots for %d analysis × resolution combinations...\n",
-              nrow(combos)))
-  
-  for (j in seq_len(nrow(combos))) {
-    at  <- combos$analysis_type[j]
-    res <- combos$resolution[j]
-    at_norm <- tolower(gsub("[/ ]+", "_", at))
-    
-    # Subset to this analysis_type + resolution
-    sub_df <- deg_summary_df %>%
-      dplyr::filter(analysis_type == at, resolution == res)
-    ct_names <- unique(sub_df$celltype)
-    
-    # p-value butterfly — only if any cell type has significant DEGs
-    has_pval_sig <- any((sub_df$Positive + sub_df$Negative) > 0)
-    if (has_pval_sig) {
-      tryCatch({
-        plot_deg_butterfly(sub_df,
-                           analysis_type_filter = at,
-                           ct_names = ct_names,
-                           output_file = file.path(results_dir, "Results/Figures/Butterfly", res,
-                                                   paste0(at_norm, "_butterfly_pval.png")),
-                           sig_type = "pval")
-        cat(sprintf("    %s [%s] (pval)\n", at, res))
-      }, error = function(e) {
-        message(sprintf("    Error: %s [%s] (pval): %s", at, res, e$message))
-      })
-    } else {
-      cat(sprintf("    %s [%s] (pval) — skipped, no significant DEGs\n", at, res))
-    }
-    
-    # FDR butterfly — only if any cell type has FDR-significant DEGs
-    has_fdr_sig <- any((sub_df$Positive_fdr + sub_df$Negative_fdr) > 0)
-    if (has_fdr_sig) {
-      tryCatch({
-        plot_deg_butterfly(sub_df,
-                           analysis_type_filter = at,
-                           ct_names = ct_names,
-                           output_file = file.path(results_dir, "Results/Figures/Butterfly", res,
-                                                   paste0(at_norm, "_butterfly_fdr.png")),
-                           sig_type = "fdr")
-        cat(sprintf("    %s [%s] (fdr)\n", at, res))
-      }, error = function(e) {
-        message(sprintf("    Error: %s [%s] (fdr): %s", at, res, e$message))
-      })
-    } else {
-      cat(sprintf("    %s [%s] (fdr) — skipped, no FDR-significant DEGs\n", at, res))
-    }
-  }
-}
+combos <- tidyr::crossing(
+  adi = c("BMI", "DXA"),
+  sig = c("p", "fdr"),
+  ct  = c("KPMP_celltype_general", "KPMP_celltype")
+)
+labs_by_adi <- list(BMI = bmi_labs, DXA = dxa_labs)
+cont_var_by_adi <- list(BMI = "bmi", DXA = "dexa_body_fat")
 
-cat("\n=== Phase 1 complete. Review butterfly plots to decide which analyses to focus on. ===\n")
+plots <- purrr::pmap(combos, function(adi, sig, ct) {
+  plot_de_counts(meta_compiled_filtered,
+                 adiposity_grp_type     = adi,
+                 sig_type               = sig,
+                 analysis_labs          = labs_by_adi[[adi]],
+                 continuous_var         = cont_var_by_adi[[adi]],
+                 celltype_variable_type = ct)
+}) %>%
+  rlang::set_names(paste(combos$adi, combos$sig,
+                         ifelse(combos$ct == "KPMP_celltype_general",
+                                "general", "subtype"),
+                         sep = "_"))
+plots
 
-# Look at the directional balance between DXA and BMI measures
-# =============================================================================
-# Helper: aggregate DEG counts across cell types for each analysis_type
-# =============================================================================
-agg <- deg_summary_df %>%
-  group_by(analysis_type) %>%
-  summarise(
-    total_pos = sum(Positive, na.rm = TRUE),
-    total_neg = sum(Negative, na.rm = TRUE),
-    total_pos_fdr = sum(Positive_fdr, na.rm = TRUE),
-    total_neg_fdr = sum(Negative_fdr, na.rm = TRUE),
-    n_celltypes = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    total_pval = total_pos + total_neg,
-    total_fdr = total_pos_fdr + total_neg_fdr,
-    pct_positive = ifelse(total_pval > 0, total_pos / total_pval * 100, NA_real_)
-  )
-
-# =============================================================================
-# Parse analysis_type into structured columns
-# =============================================================================
-# Categorical within-T1D: T1D_{comparison}_{defn}[_adj_age][_adj_age_sex]
-# Categorical HC vs T1D:  HC_vs_T1D_{adiposity}_{defn}[_adj_age][_adj_age_sex]
-# Continuous:             cont_{var}_{scope}[_adj_*]
-
-parse_categorical <- function(df) {
-  # Within-T1D patterns
-  within_t1d <- df %>%
-    filter(grepl("^T1D_", analysis_type)) %>%
-    mutate(
-      comparison_type = "Within T1D",
-      tier = case_when(
-        grepl("_adj_age_sex$", analysis_type) ~ "Age+Sex Adjusted",
-        grepl("_adj_age$", analysis_type) ~ "Age Adjusted",
-        TRUE ~ "Unadjusted"
-      ),
-      # Strip tier suffix to get base comparison + definition
-      base = analysis_type %>%
-        str_remove("_adj_age_sex$") %>%
-        str_remove("_adj_age$"),
-      definition = case_when(
-        grepl("_bmi$", base) ~ "BMI",
-        grepl("_dxa$", base) ~ "DXA",
-        TRUE ~ NA_character_
-      ),
-      comparison = base %>%
-        str_remove("^T1D_") %>%
-        str_remove("_(bmi|dxa)$") %>%
-        str_replace_all("_", " ") %>%
-        str_to_title()
-    ) %>%
-    select(-base)
-  
-  # HC vs T1D patterns
-  hc_vs <- df %>%
-    filter(grepl("^HC_vs_T1D_", analysis_type)) %>%
-    mutate(
-      comparison_type = "HC vs T1D",
-      tier = case_when(
-        grepl("_adj_age_sex$", analysis_type) ~ "Age+Sex Adjusted",
-        grepl("_adj_age$", analysis_type) ~ "Age Adjusted",
-        TRUE ~ "Unadjusted"
-      ),
-      base = analysis_type %>%
-        str_remove("_adj_age_sex$") %>%
-        str_remove("_adj_age$"),
-      definition = case_when(
-        grepl("_bmi$", base) ~ "BMI",
-        grepl("_dxa$", base) ~ "DXA",
-        TRUE ~ NA_character_
-      ),
-      comparison = base %>%
-        str_remove("^HC_vs_T1D_") %>%
-        str_remove("_(bmi|dxa)$") %>%
-        str_to_title()
-    ) %>%
-    select(-base)
-  
-  bind_rows(within_t1d, hc_vs) %>%
-    filter(!is.na(definition))
-}
-
-cat_df <- parse_categorical(agg)
-
-# Order tiers
-cat_df$tier <- factor(cat_df$tier,
-                      levels = c("Unadjusted", "Age Adjusted", "Age+Sex Adjusted"))
-
-# =============================================================================
-# FIGURE 1: Within-T1D — Direction balance (% positive) BMI vs DXA
-# =============================================================================
-
-within_df <- cat_df %>%
-  filter(comparison_type == "Within T1D") %>%
-  mutate(
-    comparison = factor(comparison,
-                        levels = c("Normal Vs Overweight", "Nonobese Vs Obese", "Normal Vs Obese", "Normal Vs Ow Obese"))
-  )
-
-# Build label with DEG count
-within_df <- within_df %>%
-  mutate(
-    def_label = paste0(definition, "\n(", format(total_pval, big.mark = ","), " DEGs)")
-  )
-
-p1 <- ggplot(within_df, aes(x = definition, y = pct_positive, fill = definition)) +
-  geom_col(width = 0.6, color = "white", linewidth = 0.5) +
-  geom_hline(yintercept = 50, linetype = "dashed", color = "gray50", linewidth = 0.5) +
-  geom_text(aes(label = sprintf("%.1f%%", pct_positive)),
-            vjust = -0.5, size = 3.2, fontface = "bold") +
-  geom_text(aes(label = paste0("(", format(total_pval, big.mark = ","), ")")),
-            vjust = -2, size = 2.5, color = "gray40") +
-  facet_grid(tier ~ comparison, switch = "y") +
-  scale_fill_manual(values = c("BMI" = "#4C72B0", "DXA" = "#DD8452")) +
-  scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25)) +
-  labs(
-    title = "Within-T1D Categorical: BMI vs DXA Direction Balance",
-    subtitle = "% of p<0.05 DEGs that are upregulated (positive logFC)",
-    x = NULL, y = "% Positive DEGs", fill = "Definition"
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    strip.text = element_text(face = "bold", size = 10),
-    strip.background = element_rect(fill = "gray95"),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor = element_blank(),
-    legend.position = "none",
-    plot.title = element_text(face = "bold", size = 13),
-    plot.subtitle = element_text(size = 10, color = "gray30")
-  )
-
-ggsave(file.path(results_dir, "Results/Figures/Butterfly/categorical_direction_balance.png"),
-       p1, width = 10, height = 8, dpi = 300)
-
-cat("=== Phase 2: Generating per-celltype figures (volcano, GSEA, lollipop) ===\n\n")
+purrr::iwalk(plots, function(p, nm) {
+  is_subtype <- grepl("_subtype$", nm)
+  subdir     <- if (is_subtype) "high_res" else "low_res"
+  ggsave(file.path(root_path,
+                   sprintf("T1D Adiposity/Results/Figures/Butterfly/%s/de_counts_%s.png",
+                           subdir, nm)),
+         p,
+         width  = 12,
+         height = if (is_subtype) 16 else 8,
+         dpi    = 300)
+})
 
 # =============================================================================
 # PHASE 2: MAIN LOOP — Generate per-celltype figures
 # =============================================================================
-for (i in seq_len(nrow(meta_compiled_filtered))) {
-  row <- meta_compiled_filtered[i, ]
+meta_compiled_general <- meta_compiled_filtered %>%
+  filter(celltype_variable == "KPMP_celltype_general")
+for (i in seq_len(nrow(meta_compiled_general))) {
+  row <- meta_compiled_general[i, ]
   analysis_type <- row$analysis_type
   celltype <- row$celltype
   s3_key <- row$s3_results_key
@@ -1161,7 +974,7 @@ for (i in seq_len(nrow(meta_compiled_filtered))) {
   logfc_col <- row$logfc_column
   
   cell_norm <- tolower(gsub("/", "_", celltype))
-  cat(sprintf("[%d/%d] %s - %s\n", i, nrow(meta_compiled_filtered), analysis_type, celltype))
+  cat(sprintf("[%d/%d] %s - %s\n", i, nrow(meta_compiled_general), analysis_type, celltype))
   
   # Read processed results from S3
   df <- tryCatch(
@@ -1228,7 +1041,7 @@ for (i in seq_len(nrow(meta_compiled_filtered))) {
     if (!is.null(vp_fdr)) {
       ggsave(file.path(results_dir, "Results/Figures/Volcano Plots/fdr",
                        paste0(analysis_type, "_", cell_norm, "_fdr.png")),
-             plot = vp_fdr, width = 7, height = 5, dpi = 300, bg = "transparent")
+             plot = vp_fdr, width = 10, height = 10, dpi = 300, bg = "transparent")
     }
   }
   
