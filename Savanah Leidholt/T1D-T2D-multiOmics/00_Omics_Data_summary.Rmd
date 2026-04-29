@@ -10,42 +10,85 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-#Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
-if (computer == "mac studio") {
-  user <- Sys.info()[["user"]]
-  if (user == "sleidholt") {
-    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+#directores
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
-  }
-} else {
-  user <- Sys.info()[["user"]]
-  if (user == "savanahleidholt") {
-    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-  } 
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
 }
 ```
 
 ```{r}
-
 library(dplyr)
-library(tidyr)
+library(tidyverse)
+library(arsenal)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(Hmisc)
+library(readxl)
+library(purrr)
+library(aws.s3)
+library(jsonlite)
+library(kableExtra)
+
 
 # Load your saved objects
-omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+omics_objects <- readRDS(file.path(root_path, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects_clean.rds"))
 
 list2env(omics_objects, envir = .GlobalEnv)
 ```
 
 ```{r}
+## Create an S3 client
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
 
+
+pb90_multiomics_subset <- s3readRDS(
+          object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
+          bucket = "scrna",
+          region = "")
+```
+
+```{r}
 # HELPER: count non-NA samples in a matrix for a given metadata
-
-
 count_samples_with_data <- function(meta_df, mat_df) {
   # A sample "has data" if it has at least one non-NA value in the omics matrix
   has_data <- rowSums(!is.na(mat_df)) > 0
@@ -55,388 +98,262 @@ count_samples_with_data <- function(meta_df, mat_df) {
 }
 ```
 
+# -----------------------------
+# IDs with each data type
+# -----------------------------
 ```{r}
-
-# PER-OMICS SAMPLE COUNTS: Study x Group
-
-
-make_count_table <- function(meta_df, mat_df, omics_label) {
-  count_samples_with_data(meta_df, mat_df) %>%
-    count(study, group) %>%
-    pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
-    arrange(study) %>%
-    mutate(Omics = omics_label, .before = 1)
-}
-
-tbl_metabolites <- make_count_table(meta_metab, metabolites,  "Metabolomics")
-tbl_lipids      <- make_count_table(meta_lips,  lipids,        "Lipidomics")
-tbl_proteins    <- make_count_table(meta_prot,  prot_plasma,   "Proteomics (Plasma)")
-
-cat("\n===== METABOLOMICS: Samples per Study x Group =====\n")
-print(tbl_metabolites)
-
-cat("\n===== LIPIDOMICS: Samples per Study x Group =====\n")
-print(tbl_lipids)
-
-cat("\n===== PROTEOMICS (Plasma): Samples per Study x Group =====\n")
-print(tbl_proteins)
-```
-
-
-```{r}
-# SAMPLES WITH ALL THREE OMICS TYPES: by Group
-
-# Identify record_ids that have data in all three
 ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
-ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
-ids_prot   <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_prot  <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_scrna <- pb90_multiomics_subset %>%
+  dplyr::pull(record_id) %>%
+  unique()
 
-ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
-
-cat("\n===== SAMPLES WITH ALL THREE OMICS TYPES =====\n")
-cat("Total samples with metabolomics + lipidomics + proteomics:", length(ids_all_three), "\n\n")
-
-# Pull metadata for these shared samples (use meta_prot as it has all studies)
-# Combine metadata sources to get group info for all IDs
-str(meta_metab)
-str(meta_lips)
-str(meta_prot)
-meta_metab <- meta_metab %>%
-  mutate(across(c(record_id, mrn), as.character))
-
-meta_lips <- meta_lips %>%
-  mutate(across(c(record_id, mrn), as.character))
-
-meta_prot <- meta_prot %>%
-  mutate(across(c(record_id, mrn), as.character))
-
-meta_combined <- bind_rows(meta_metab, meta_lips, meta_prot) %>%
-  distinct(record_id, .keep_all = TRUE)
-
-all_three_meta <- meta_combined %>%
-  filter(record_id %in% ids_all_three)
-
-tbl_all_three <- all_three_meta %>%
-  count(group) %>%
-  rename(Group = group, `N (all 3 omics)` = n)
-
-print(tbl_all_three)
-
-# Also break out by study x group
-tbl_all_three_study <- all_three_meta %>%
-  count(study, group) %>%
-  pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
-  arrange(study)
-
-cat("\n--- All Three Omics by Study x Group ---\n")
-print(tbl_all_three_study)
-
-```
-
-
-```{r}
-
-# PROTEOMICS: Ethnicity breakdown by Group
-
-
-cat("\n===== PROTEOMICS: Ethnicity by Group =====\n")
-
-tbl_ethnicity <- meta_prot %>%
-  filter(rowSums(!is.na(prot_plasma)) > 0) %>%  # only samples with actual proteomic data
-  count(group, race_ethnicity_condensed) %>%
-  pivot_wider(
-    names_from  = race_ethnicity_condensed,
-    values_from = n,
-    values_fill = 0
-  ) %>%
-  arrange(group)
-
-print(tbl_ethnicity)
-
-# Also as proportions within each group (useful for demographics table)
-cat("\n--- Ethnicity Proportions Within Each Group (%) ---\n")
-
-tbl_ethnicity_pct <- meta_prot %>%
-  filter(rowSums(!is.na(prot_plasma)) > 0) %>%
-  count(group, race_ethnicity_condensed) %>%
-  group_by(group) %>%
-  mutate(pct = round(100 * n / sum(n), 1)) %>%
-  ungroup() %>%
-  mutate(display = paste0(n, " (", pct, "%)")) %>%
-  select(group, race_ethnicity_condensed, display) %>%
-  pivot_wider(
-    names_from  = race_ethnicity_condensed,
-    values_from = display,
-    values_fill = "0 (0%)"
-  ) %>%
-  arrange(group)
-
-print(tbl_ethnicity_pct)
-```
-
-# =============================================================================
-# SENSITIVITY ANALYSIS:
-# Restrict proteomics workflow to participants with all 3 omics types
-# (metabolomics + lipidomics + proteomics)
-# This leaves the original analysis untouched
-# =============================================================================
-```{r}
-# --------------------------------------------------
-# Identify participants with all three omics types
-# --------------------------------------------------
-
-# A sample "has data" if it has at least one non-missing value in that matrix
-ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
-ids_lipids <- rownames(lipids)[rowSums(!is.na(lipids)) > 0]
-ids_prot <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
-
+# clean IDs
 ids_metab <- trimws(as.character(ids_metab))
-ids_lipids <- trimws(as.character(ids_lipids))
-ids_prot <- trimws(as.character(ids_prot))
+ids_prot  <- trimws(as.character(ids_prot))
+ids_scrna <- trimws(as.character(ids_scrna))
+ids_scrna
+```
 
-ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
+```{r}
+# ============================================================
+# Build clean metadata for each data type
+# ============================================================
 
-cat("Total participants with all 3 omics:", length(ids_all_three), "\n")
-
-# --------------------------------------------------
-# Restrict the proteomics analysis-ready dataset
-# --------------------------------------------------
-
-# Start from analysis-ready objects from original workflow
-meta_all3 <- meta_common %>%
+meta_metab_clean <- meta_metab %>%
   mutate(record_id = trimws(as.character(record_id))) %>%
-  filter(record_id %in% ids_all_three)
+  filter(record_id %in% ids_metab) %>%
+  mutate(data_source = "Metabolomics")
 
-prot_all3 <- prot_plasma_common[meta_all3$record_id, , drop = FALSE]
+meta_prot_clean <- meta_prot %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_prot) %>%
+  mutate(data_source = "Proteomics")
 
-stopifnot(identical(rownames(prot_all3), meta_all3$record_id))
+meta_scrna_clean <- pb90_multiomics_subset %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_scrna) %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(data_source = "scRNA-seq")
 
-cat("Original proteomics analysis N:", nrow(meta_common), "\n")
-cat("Proteomics analysis N with all 3 omics:", nrow(meta_all3), "\n")
-cat("Excluded because not all 3 omics:",
-    nrow(meta_common) - nrow(meta_all3), "\n")
+# ============================================================
+# Participant-level metadata with flags
+# ============================================================
 
-cat("Group counts in all-3-omics subset:\n")
-print(table(meta_all3$group4, useNA = "ifany"))
+meta_all <- bind_rows(
+  meta_prot_clean,
+  meta_metab_clean,
+  meta_scrna_clean
+) %>%
+  arrange(record_id, data_source) %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(
+    has_metabolomics = record_id %in% ids_metab,
+    has_proteomics   = record_id %in% ids_prot,
+    has_scrna        = record_id %in% ids_scrna,
+    has_all_three    = has_metabolomics & has_proteomics & has_scrna
+  ) %>%
+  mutate(
+    age          = as.numeric(age),
+    bmi          = as.numeric(bmi),
+    hba1c        = as.numeric(hba1c),
+    acr_u        = as.numeric(acr_u),
+    eGFR_U25     = as.numeric(eGFR_CKiD_U25_avg),
+    eGFR_fas_cr  = as.numeric(eGFR_fas_cr),
+    sex          = as.factor(sex),
+    group        = as.factor(group),
+    study        = as.factor(study)
+  )
+```
 
-cat("Study counts in all-3-omics subset:\n")
-print(table(meta_all3$study, useNA = "ifany"))
+```{r}
+meta_all <- meta_all %>%
+  mutate(
+    obese = bmi >= 30
+  )
+```
 
-# --------------------------------------------------
-# PCA using all-3-omics subset
-# --------------------------------------------------
+```{r}
+table(meta_all$group, meta_all$obese, useNA = "ifany")
+```
+```{r}
+meta_all2 <- meta_all %>%
+  filter(!(group == "Type 1 Diabetes" & obese))
+```
 
-meta_pca_all3 <- meta_all3
-prot_pca_all3 <- prot_all3[meta_pca_all3$record_id, , drop = FALSE]
-stopifnot(identical(rownames(prot_pca_all3), meta_pca_all3$record_id))
+```{r}
+meta_metab_sub <- meta_all2 %>% filter(has_metabolomics)
+meta_prot_sub  <- meta_all2 %>% filter(has_proteomics)
+meta_scrna_sub <- meta_all2 %>% filter(has_scrna)
+meta_all3_sub  <- meta_all2 %>% filter(has_all_three)
+```
 
-prot_pca_all3 <- as.matrix(prot_pca_all3)
 
-# ---- log2 transform + median impute ----
-prot_log_all3 <- log2(prot_pca_all3 + 1)
-prot_log_all3[!is.finite(prot_log_all3)] <- NA_real_
+```{r}
+# ============================================================
+# Helper functions for summary formatting
+# ============================================================
 
-prot_imp_all3 <- prot_log_all3
-meds_all3 <- apply(prot_imp_all3, 2, function(x) {
-  m <- median(x, na.rm = TRUE)
-  if (is.finite(m)) m else NA_real_
-})
-
-for (j in seq_len(ncol(prot_imp_all3))) {
-  if (!is.na(meds_all3[j])) prot_imp_all3[is.na(prot_imp_all3[, j]), j] <- meds_all3[j]
+mean_sd <- function(x, digits = 1) {
+  if (all(is.na(x))) return("")
+  sprintf(
+    paste0("%.", digits, "f ± %.", digits, "f"),
+    mean(x, na.rm = TRUE),
+    sd(x, na.rm = TRUE)
+  )
 }
 
-keep_cols_all3 <- colSums(is.na(prot_imp_all3)) == 0 &
-  apply(prot_imp_all3, 2, var) > 0 &
-  is.finite(apply(prot_imp_all3, 2, var))
-
-prot_imp_all3 <- prot_imp_all3[, keep_cols_all3, drop = FALSE]
-
-cat("Proteins kept for all-3-omics PCA:", ncol(prot_imp_all3), "\n")
-
-# ---- PCA panels ----
-p_all3 <- make_pca_plot(prot_imp_all3, meta_pca_all3, "No adjustment (all 3 omics subset)")
-
-cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3)[, -1, drop = FALSE]
-prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3), covariates = cov_m1_all3))
-p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3, "Age + Sex (all 3 omics subset)")
-
-keep_m2_all3 <- !is.na(meta_pca_all3$bmi)
-meta_m2p_all3 <- meta_pca_all3[keep_m2_all3, ]
-prot_m2p_all3 <- prot_imp_all3[keep_m2_all3, , drop = FALSE]
-cov_m2_all3 <- model.matrix(~ age + sex + bmi, data = meta_m2p_all3)[, -1, drop = FALSE]
-prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
-p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + BMI (all 3 omics subset)")
-
-keep_m3_all3 <- !is.na(meta_pca_all3$bmi) & !is.na(meta_pca_all3$hba1c)
-meta_m3p_all3 <- meta_pca_all3[keep_m3_all3, ]
-prot_m3p_all3 <- prot_imp_all3[keep_m3_all3, , drop = FALSE]
-cov_m3_all3 <- model.matrix(~ age + sex + bmi + hba1c, data = meta_m3p_all3)[, -1, drop = FALSE]
-prot_m3_adj_all3 <- t(removeBatchEffect(t(prot_m3p_all3), covariates = cov_m3_all3))
-p3_all3 <- make_pca_plot(prot_m3_adj_all3, meta_m3p_all3, "Age + Sex + BMI + HbA1c (all 3 omics subset)")
-
-keep_m4_all3 <- !is.na(meta_pca_all3$bmi) & !is.na(meta_pca_all3$hba1c) & !is.na(meta_pca_all3$log_uacr)
-meta_m4p_all3 <- meta_pca_all3[keep_m4_all3, ]
-prot_m4p_all3 <- prot_imp_all3[keep_m4_all3, , drop = FALSE]
-cov_m4_all3 <- model.matrix(~ age + sex + bmi + hba1c + log_uacr, data = meta_m4p_all3)[, -1, drop = FALSE]
-prot_m4_adj_all3 <- t(removeBatchEffect(t(prot_m4p_all3), covariates = cov_m4_all3))
-p4_all3 <- make_pca_plot(prot_m4_adj_all3, meta_m4p_all3, "Age + Sex + BMI + HbA1c + log(uACR) (all 3 omics subset)")
-
-# Render all-3-omics PCA panel
-(p_all3 | p1_all3 | p2_all3) /
-  (p3_all3 | p4_all3 | plot_spacer()) +
-  plot_annotation(
-    title = "PCA: Proteomics Sensitivity Analysis in Participants with All 3 Omics Types",
-    subtitle = "Color = group | Shape = study | Restricted to shared metabolomics + lipidomics + proteomics participants",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
-    )
+median_iqr <- function(x, digits = 1) {
+  if (all(is.na(x))) return("")
+  q <- quantile(x, probs = c(0.25, 0.75), na.rm = TRUE)
+  sprintf(
+    paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"),
+    median(x, na.rm = TRUE),
+    q[1],
+    q[2]
   )
+}
 
-# --------------------------------------------------
-# limma using all-3-omics subset
-# --------------------------------------------------
+n_pct <- function(x, level) {
+  n <- sum(x == level, na.rm = TRUE)
+  denom <- sum(!is.na(x))
+  if (denom == 0) return("")
+  paste0(n, " (", round(100 * n / denom, 1), "%)")
+}
+```
 
-Y_all_all3 <- t(log2(as.matrix(prot_all3) + 1))
+```{r}
+# ============================================================
+# Summary table by study
+# ============================================================
 
-# -------------------
-# Model 1: age + sex
-# -------------------
-meta_m1_all3 <- meta_all3
-Y_m1_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+make_summary_by_study <- function(data) {
+  
+  data %>%
+    group_by(study) %>%
+    summarise(
+      N = n(),
+      Age = mean_sd(age),
+      Female = n_pct(sex, "Female"),
+      BMI = mean_sd(bmi),
+      HbA1c = mean_sd(hba1c),
+      `uACR, median` = median_iqr(acr_u),
+      eGFR_fas_cr = mean_sd(eGFR_fas_cr),
+      eGFR_U25 = mean_sd(eGFR_U25),
+      .groups = "drop"
+    )
+}
+```
 
-design_m1_all3 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_all3)
-colnames(design_m1_all3) <- sub("^group4", "", colnames(design_m1_all3))
-colnames(design_m1_all3) <- make.names(colnames(design_m1_all3))
+```{r}
+# ============================================================
+# Categorical breakdown table by study
+# ============================================================
 
-contr_m1_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
-  T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m1_all3
+make_categorical_by_study <- function(data, var) {
+  
+  data %>%
+    filter(!is.na(.data[[var]])) %>%
+    count(study, .data[[var]], name = "n") %>%
+    group_by(study) %>%
+    mutate(
+      pct = round(100 * n / sum(n), 1),
+      value = paste0(n, " (", pct, "%)")
+    ) %>%
+    ungroup() %>%
+    select(study, !!sym(var), value) %>%
+    pivot_wider(
+      names_from = !!sym(var),
+      values_from = value,
+      values_fill = "0 (0%)"
+    )
+}
+```
+
+```{r}
+# ============================================================
+# Render function with kableExtra
+# ============================================================
+
+render_kable <- function(tbl, caption) {
+  
+  tbl %>%
+    kbl(
+      caption = caption,
+      align = "c",
+      booktabs = TRUE
+    ) %>%
+    kable_styling(
+      full_width = FALSE,
+      bootstrap_options = c("striped", "hover", "condensed")
+    ) %>%
+    row_spec(0, bold = TRUE)
+}
+```
+
+```{r}
+# ============================================================
+# Overall summary by study
+# ============================================================
+
+tbl_overall <- make_summary_by_study(meta_all)
+
+render_kable(
+  tbl_overall,
+  caption = "Overall Participant Characteristics by Study"
+)
+```
+
+```{r}
+# ============================================================
+# Data-type-specific summary tables
+# ============================================================
+
+render_kable(
+  make_summary_by_group(meta_prot_sub),
+  caption = "Proteomics Participant Characteristics by Group"
 )
 
-res_m1_all3 <- run_limma_contrasts(Y_m1_all3, design_m1_all3, contr_m1_all3)
-fit_m1_all3 <- res_m1_all3$fit
-out_m1_all3 <- res_m1_all3$out
-
-sig_m1_all3 <- tibble(
-  contrast = colnames(contr_m1_all3),
-  n_FDR05 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
-  n_FDR01 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
-) %>% mutate(model = "age_sex_all3", n_samples = nrow(meta_m1_all3))
-
-# -------------------------
-# Model 2: age + sex + BMI
-# -------------------------
-meta_m2_all3 <- meta_all3 %>% filter(!is.na(bmi))
-Y_m2_all3 <- Y_all_all3[, meta_m2_all3$record_id, drop = FALSE]
-
-design_m2_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi, data = meta_m2_all3)
-colnames(design_m2_all3) <- sub("^group4", "", colnames(design_m2_all3))
-colnames(design_m2_all3) <- make.names(colnames(design_m2_all3))
-
-contr_m2_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
-  T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m2_all3
+render_kable(
+  make_summary_by_group(meta_metab_sub),
+  caption = "Metabolomics Participant Characteristics by Group"
 )
 
-res_m2_all3 <- run_limma_contrasts(Y_m2_all3, design_m2_all3, contr_m2_all3)
-fit_m2_all3 <- res_m2_all3$fit
-out_m2_all3 <- res_m2_all3$out
-sig_m2_all3 <- summarise_sig(out_m2_all3, "age_sex_bmi_all3", nrow(meta_m2_all3))
-
-# ---------------------------------
-# Model 3: age + sex + BMI + HbA1c
-# ---------------------------------
-meta_m3_all3 <- meta_all3 %>% filter(!is.na(bmi), !is.na(hba1c))
-Y_m3_all3 <- Y_all_all3[, meta_m3_all3$record_id, drop = FALSE]
-
-design_m3_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi + hba1c, data = meta_m3_all3)
-colnames(design_m3_all3) <- sub("^group4", "", colnames(design_m3_all3))
-colnames(design_m3_all3) <- make.names(colnames(design_m3_all3))
-
-contr_m3_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
-  T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m3_all3
+render_kable(
+  make_summary_by_group(meta_scrna_sub),
+  caption = "Single-cell RNA-seq Participant Characteristics by Group"
 )
 
-res_m3_all3 <- run_limma_contrasts(Y_m3_all3, design_m3_all3, contr_m3_all3)
-fit_m3_all3 <- res_m3_all3$fit
-out_m3_all3 <- res_m3_all3$out
-sig_m3_all3 <- summarise_sig(out_m3_all3, "age_sex_bmi_hba1c_all3", nrow(meta_m3_all3))
-
-# ----------------------------------------------
-# Model 4: age + sex + BMI + HbA1c + log(uACR)
-# ----------------------------------------------
-meta_m4_all3 <- meta_all3 %>% filter(!is.na(bmi), !is.na(hba1c), !is.na(log_uacr))
-Y_m4_all3 <- Y_all_all3[, meta_m4_all3$record_id, drop = FALSE]
-
-design_m4_all3 <- model.matrix(~ 0 + group4 + age + sex + bmi + hba1c + log_uacr, data = meta_m4_all3)
-colnames(design_m4_all3) <- sub("^group4", "", colnames(design_m4_all3))
-colnames(design_m4_all3) <- make.names(colnames(design_m4_all3))
-
-contr_m4_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
-  T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m4_all3
+render_kable(
+  make_summary_by_group(meta_all3_sub),
+  caption = "Participants with Metabolomics + Proteomics + scRNA-seq by Group"
 )
 
-res_m4_all3 <- run_limma_contrasts(Y_m4_all3, design_m4_all3, contr_m4_all3)
-fit_m4_all3 <- res_m4_all3$fit
-out_m4_all3 <- res_m4_all3$out
-sig_m4_all3 <- summarise_sig(out_m4_all3, "age_sex_bmi_hba1c_uacr_all3", nrow(meta_m4_all3))
+```
 
-# --------------------------------------------------
-# Summarize all-3-omics results
-# --------------------------------------------------
+```{r}
+# ============================================================
+# Optional: data-type-specific group distributions
+# ============================================================
 
-summary_all_all3 <- bind_rows(
-  sig_m1_all3,
-  sig_m2_all3,
-  sig_m3_all3,
-  sig_m4_all3
-) %>%
-  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
-  arrange(contrast, model)
+render_kable(
+  make_categorical_by_study(meta_metab_sub, "group"),
+  caption = "Metabolomics Group Distribution by Study"
+)
 
-print(summary_all_all3)
+render_kable(
+  make_categorical_by_study(meta_prot_sub, "group"),
+  caption = "Proteomics Group Distribution by Study"
+)
 
-summary_wide_all3 <- summary_all_all3 %>%
-  select(model, contrast, n_FDR05) %>%
-  pivot_wider(names_from = model, values_from = n_FDR05)
+render_kable(
+  make_categorical_by_study(meta_scrna_sub, "group"),
+  caption = "Single-cell RNA-seq Group Distribution by Study"
+)
 
-print(summary_wide_all3)
-
-# --------------------------------------------------
-# Compare original vs all-3-omics subset
-# --------------------------------------------------
-
-summary_compare_all3 <- bind_rows(
-  summary_all %>% mutate(dataset = "original"),
-  summary_all_all3 %>% mutate(dataset = "all_3_omics_subset")
-) %>%
-  arrange(contrast, dataset, model)
-
-print(summary_compare_all3)
-
+render_kable(
+  make_categorical_by_study(meta_all3_sub, "group"),
+  caption = "All Three Data Types Group Distribution by Study"
+)
 ```
 
