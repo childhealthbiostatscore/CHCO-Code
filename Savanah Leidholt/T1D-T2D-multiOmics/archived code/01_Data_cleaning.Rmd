@@ -16,48 +16,63 @@ library(purrr)
 library(dplyr)
 library(haven)
 library(SeuratObject)
+library(jsonlite)
 ```
 
-#double check metabolite data
-#make pretty summary tables with descriptive statistics
-
-
-#---------------------------------------------------
-# inputting all directories and storage locations
-#---------------------------------------------------
 ```{r}
-#Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
-if (computer == "mac studio") {
-  user <- Sys.info()[["user"]]
-  if (user == "sleidholt") {
-    dir.dat <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+#directores
+user <- Sys.info()[["user"]]
+
+#directores
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
-  }
-} else {
-  user <- Sys.info()[["user"]]
-  if (user == "savanahleidholt") {
-    dir.dat <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-  } 
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
 }
 ```
 
 ```{r}
-harm <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
-dict <- readRDS(file.path(dir.dat, "Data Harmonization", "Data Clean", "data_dictionary_master.rds"))
-harm_soma <- read.csv(file.path(dir.dat, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv"))
-load(file.path(dir.dat, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther
+harm <- read.csv(file.path(root_path, "Data Harmonization", "Data Clean", "harmonized_dataset.csv"))
+dict <- readRDS(file.path(root_path, "Data Harmonization", "Data Clean", "data_dictionary_master.rds"))
+harm_soma <- read.csv(file.path(root_path, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv"))
+load(file.path(root_path, "PANTHER", "Data_Cleaned","panther_data_022326.Rdata")) #will load as panther
 ```
 
 #--------------------------
 #reading in attempt
 #--------------------------
 ```{r}
-attempt <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "attempt_dat.rds"))
+attempt <- readRDS(file.path(root_path, "Savanah Leidholt", "T1D-T2D", "Data", "attempt_dat.rds"))
 
 #trasnforming data to match the harmonized data
 attempt_acr <- attempt %>%
@@ -150,8 +165,7 @@ id_cols <- as.character(c(
 
 #clinical numeric data I want to keep stored in a list
 clin_cols <- c(
-  "age","bmi","eGFR_fas_cr","hba1c",
-  "acr_u"
+  "age","bmi","eGFR_fas_cr","hba1c","eGFR_CKiD_U25_avg", "dexa_lean_mass", "dexa_fat_mass", "erpf_bsa_plasma", "acr_u"
 )
 
 
@@ -212,8 +226,8 @@ harm_metab <- harm_metab %>%
   )
 
 #subsetting data into data matrix and variable matrix
-meta_metab <- harm_metab %>% select(1:20) 
-metabolites <- harm_metab %>% select(-(1:20))
+meta_metab <- harm_metab %>% select(1:23) 
+metabolites <- harm_metab %>% select(-(1:23))
 
 # ---- set rownames consistently for meta ----
 meta_metab <- as.data.frame(meta_metab)
@@ -290,11 +304,11 @@ harm_lipids <- harm_lipids %>%
 
 ```{r}
 #-----subsetting lipids dataframe--------
-meta_lips <- harm_lipids %>% select(1:20) %>% as.data.frame()
+meta_lips <- harm_lipids %>% select(1:23) %>% as.data.frame()
 rownames(meta_lips) <- meta_lips$record_id
 
 #------adding rownames ------------------
-lipids <- harm_lipids %>% select(-(1:20)) %>% as.data.frame()
+lipids <- harm_lipids %>% select(-(1:23)) %>% as.data.frame()
 rownames(lipids) <- meta_lips$record_id
 
 
@@ -383,11 +397,10 @@ harm_proteins[1:3, head(seq_cols, 3)]
 
 ```{r}
 # ---- split metadata vs analytes ----
-
-meta_prot <- harm_proteins %>% select(1:20) %>% as.data.frame()
+meta_prot <- harm_proteins %>% select(1:23) %>% as.data.frame()
 rownames(meta_prot) <- meta_prot$record_id
 
-combined <- harm_proteins %>% select(-(1:20)) %>% as.data.frame()
+combined <- harm_proteins %>% select(-(1:23)) %>% as.data.frame()
 rownames(combined) <- meta_prot$record_id
 
 # urine proteins end in "...urine" OR "...urine_cradj"
@@ -411,7 +424,7 @@ non_numeric3 <- names(prot_plasma)[!vapply(prot_plasma, is.numeric, logical(1))]
 length(non_numeric3)
 head(non_numeric3, 50) 
 
-# ---- sanity checks ----
+
 stopifnot(all(grepl("(urine|urine_cradj)$", colnames(prot_urine))))
 stopifnot(!any(grepl("(urine|urine_cradj)$", colnames(prot_plasma))))
 
@@ -434,7 +447,7 @@ n_table
 
 ```{r}
 #save for later
-out_path <- file.path(dir.dat, "Savanah Leidholt", "T1D-T2D","Data","omics_split_objects3.rds")
+out_path <- file.path(root_path, "Savanah Leidholt", "T1D-T2D","Data","omics_split_objects3.rds")
 
 saveRDS(
   list(
@@ -621,6 +634,6 @@ omics_all <- cbind(meta_all, X_all)
 dim(omics_all)
 saveRDS(
   omics_all,
-  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_all.rds")
+  file.path(root_path, "Savanah Leidholt", "T1D-T2D", "Data", "omics_all.rds")
 )
 ```

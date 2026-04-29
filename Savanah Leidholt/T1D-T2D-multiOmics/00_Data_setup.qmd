@@ -1,0 +1,397 @@
+---
+title: "01_Data_Setup"
+author: "Savanah Leidholt"
+date: "today"
+date-format: long
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-float: true
+    code-fold: true
+    self-contained: true
+    fig-cap-location: top
+    page-layout: full
+    theme:
+      light: flatly
+      dark: darkly
+editor: source
+---
+
+# Harmonized Omics Cleanup
+```{r}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(jsonlite)
+
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- "/mmfs1/gscratch/togo/leidholt/"
+  git_path  <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys      <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt")
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+  root_path <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt")
+  git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+
+# -----------------------------
+# Read data
+# -----------------------------
+```{r}
+harm <- read.csv(
+  file.path(root_path, "Data Harmonization", "Data Clean", "harmonized_dataset.csv")
+)
+
+dict <- readRDS(
+  file.path(root_path, "Data Harmonization", "Data Clean", "data_dictionary_master.rds")
+)
+
+harm_soma <- read.csv(
+  file.path(root_path, "Data Harmonization", "Data Clean", "Soma_harmonized_dataset.csv")
+)
+
+load(
+  file.path(root_path, "PANTHER", "Data_Cleaned", "panther_data_022326.Rdata")
+)
+
+attempt <- readRDS(
+  file.path(root_path, "Savanah Leidholt", "T1D-T2D", "Data", "attempt_dat.rds")
+)
+```
+# -----------------------------
+# Supplemental ATTEMPT + PANTHER data
+# -----------------------------
+```{r}
+attempt_acr <- attempt %>%
+  filter(visit == 0) %>%
+  mutate(
+    visit = "baseline",
+    acr_u_attempt = emu_urine_acr_mean * 8.84
+  ) %>%
+  select(subject_id, visit, acr_u_attempt)
+
+panther_hba1c <- panther %>%
+  transmute(
+    record_id = gsub("_", "-", as.character(record_id)),
+    visit = trimws(as.character(visit)),
+    hba1c_panther = as.numeric(hba1c)
+  )
+
+harm <- harm %>%
+  mutate(
+    record_id = as.character(record_id),
+    visit = trimws(as.character(visit))
+  )
+
+attempt_acr <- attempt_acr %>%
+  mutate(
+    subject_id = as.character(subject_id),
+    visit = trimws(as.character(visit))
+  )
+
+harm <- harm %>%
+  left_join(
+    attempt_acr,
+    by = c("record_id" = "subject_id", "visit" = "visit")
+  ) %>%
+  mutate(
+    acr_u = if_else(study == "ATTEMPT" & is.na(acr_u), acr_u_attempt, acr_u)
+  ) %>%
+  select(-acr_u_attempt) %>%
+  left_join(
+    panther_hba1c,
+    by = c("record_id", "visit")
+  ) %>%
+  mutate(
+    hba1c = if_else(study == "PANTHER", coalesce(hba1c, hba1c_panther), hba1c)
+  ) %>%
+  select(-hba1c_panther)
+```
+# -----------------------------
+# setting up studies & data types
+# -----------------------------
+```{r}
+studies_keep <- c(
+  "ATTEMPT",
+  "RENAL-HEIR",
+  "RENAL-HEIRitage",
+  "PANTHER",
+  "CROCODILE",
+  "IMPROVE"
+)
+
+metab_vars <- dict %>%
+  filter(grepl("^metabolomics", form_name)) %>%
+  pull(variable_name)
+
+lipid_vars <- dict %>%
+  filter(grepl("lipidomics", form_name)) %>%
+  pull(variable_name)
+
+metab_present <- intersect(metab_vars, colnames(harm))
+lipid_present <- intersect(lipid_vars, colnames(harm))
+
+#metadata cleanup function
+collapse_record_visit <- function(dat) {
+  dat %>%
+    summarise(
+      across(
+        where(is.numeric),
+        ~ if (all(is.na(.x))) NA_real_ else mean(.x, na.rm = TRUE)
+      ),
+      across(
+        where(~ !is.numeric(.x)),
+        ~ {
+          vals <- unique(na.omit(.x))
+          if (length(vals) == 0) NA_character_
+          else if (length(vals) == 1) as.character(vals)
+          else NA_character_
+        }
+      ),
+      .by = c(record_id, visit)
+    )
+}
+
+add_race_ethnicity <- function(dat) {
+  dat %>%
+    mutate(
+      race_ethnicity_condensed = case_when(
+        ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+        race == "White" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+        race == "Black or African American" & ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+        TRUE ~ "Not Hispanic or Latino Other"
+      )
+    )
+}
+
+#deduplicating function by mrn
+deduplicate_by_mrn <- function(dat) {
+  na_mrn <- dat %>%
+    filter(is.na(mrn))
+
+  unique_mrn <- dat %>%
+    filter(!is.na(mrn)) %>%
+    distinct(mrn, .keep_all = TRUE)
+
+  bind_rows(na_mrn, unique_mrn)
+}
+
+#funciton to add in group type back to attempt
+fix_attempt_group <- function(dat) {
+  dat %>%
+    mutate(
+      group = case_when(
+        study == "ATTEMPT" & is.na(group) ~ "Type 1 Diabetes",
+        study == "ATTEMPT" & group == "" ~ "Type 1 Diabetes",
+        TRUE ~ group
+      )
+    )
+}
+
+split_meta_matrix <- function(dat, feature_cols, id_col = "record_id") {
+  meta <- dat %>%
+    select(-any_of(feature_cols)) %>%
+    as.data.frame()
+
+  mat <- dat %>%
+    select(any_of(feature_cols)) %>%
+    as.data.frame()
+
+  rownames(meta) <- meta[[id_col]]
+  rownames(mat)  <- meta[[id_col]]
+
+  list(meta = meta, mat = mat)
+}
+
+check_numeric_matrix <- function(mat, label) {
+  non_numeric <- names(mat)[!vapply(mat, is.numeric, logical(1))]
+
+  message(label, ": ", ncol(mat), " features")
+  message(label, ": ", length(non_numeric), " non-numeric features")
+
+  if (length(non_numeric) > 0) {
+    print(head(non_numeric, 50))
+  }
+
+  invisible(non_numeric)
+}
+
+```
+
+# =============
+# Metabolomics
+# =============
+```{r}
+harm_metab <- harm %>%
+  arrange(record_id) %>%
+  filter(
+    visit == "baseline",
+    study %in% studies_keep
+  ) %>%
+  collapse_record_visit() %>%
+  add_race_ethnicity() %>%
+  fix_attempt_group() %>%
+  deduplicate_by_mrn() %>%
+  relocate(any_of(metab_present), .after = last_col())
+
+metab_split <- split_meta_matrix(harm_metab, metab_present)
+
+meta_metab  <- metab_split$meta
+metabolites <- metab_split$mat
+
+metabolites <- metabolites %>%
+  mutate(across(everything(), ~ suppressWarnings(as.numeric(.x)))) %>%
+  as.data.frame()
+
+rownames(metabolites) <- rownames(meta_metab)
+
+check_numeric_matrix(metabolites, "Metabolomics")
+
+
+```
+
+# ==============
+# Lipidomics
+# ==============
+```{r}
+harm_lipids <- harm %>%
+  arrange(record_id) %>%
+  filter(
+    visit == "baseline",
+    study %in% studies_keep
+  ) %>%
+  collapse_record_visit() %>%
+  add_race_ethnicity() %>%
+  fix_attempt_group() %>%
+  deduplicate_by_mrn() %>%
+  relocate(any_of(lipid_present), .after = last_col())
+
+lipid_split <- split_meta_matrix(harm_lipids, lipid_present)
+
+meta_lips <- lipid_split$meta
+lipids    <- lipid_split$mat
+
+lipids <- lipids %>%
+  mutate(across(everything(), ~ suppressWarnings(as.numeric(.x)))) %>%
+  as.data.frame()
+
+rownames(lipids) <- rownames(meta_lips)
+
+check_numeric_matrix(lipids, "Lipidomics")
+
+
+```
+
+# ==============
+# Proteomics
+# ==============
+```{r}
+seq_cols <- grep("^seq", names(harm_soma), value = TRUE)
+
+harm_proteins <- harm_soma %>%
+  arrange(record_id) %>%
+  filter(
+    visit == "baseline",
+    study %in% studies_keep
+  ) %>%
+  collapse_record_visit() %>%
+  add_race_ethnicity() %>%
+  fix_attempt_group() %>%
+  deduplicate_by_mrn() %>%
+  relocate(any_of(seq_cols), .after = last_col())
+
+prot_split <- split_meta_matrix(harm_proteins, seq_cols)
+
+meta_prot <- prot_split$meta
+prot_all  <- prot_split$mat
+
+prot_all <- prot_all %>%
+  mutate(across(everything(), ~ suppressWarnings(as.numeric(.x)))) %>%
+  as.data.frame()
+
+rownames(prot_all) <- rownames(meta_prot)
+
+prot_urine <- prot_all %>%
+  select(matches("(urine|urine_cradj)$"))
+
+prot_plasma <- prot_all %>%
+  select(-matches("(urine|urine_cradj)$"))
+
+rownames(prot_urine)  <- rownames(meta_prot)
+rownames(prot_plasma) <- rownames(meta_prot)
+
+check_numeric_matrix(prot_plasma, "Plasma proteomics")
+check_numeric_matrix(prot_urine, "Urine proteomics")
+
+stopifnot(
+  identical(rownames(meta_metab), rownames(metabolites)),
+  identical(rownames(meta_lips), rownames(lipids)),
+  identical(rownames(meta_prot), rownames(prot_plasma)),
+  identical(rownames(meta_prot), rownames(prot_urine))
+)
+
+```
+
+# ==========================
+# Simple count summaries
+# ==========================
+```{r}
+n_metab <- meta_metab %>%
+  mutate(has_data = rowSums(!is.na(metabolites)) > 0) %>%
+  filter(has_data) %>%
+  count(study, group)
+
+n_lipids <- meta_lips %>%
+  mutate(has_data = rowSums(!is.na(lipids)) > 0) %>%
+  filter(has_data) %>%
+  count(study, group)
+
+n_prot <- meta_prot %>%
+  mutate(has_data = rowSums(!is.na(prot_plasma)) > 0) %>%
+  filter(has_data) %>%
+  count(study, group)
+
+
+#saving objects
+out_path <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "T1D-T2D",
+  "Data",
+  "omics_split_objects_clean.rds"
+)
+
+saveRDS(
+  list(
+    meta_metab = meta_metab,
+    metabolites = metabolites,
+
+    meta_lips = meta_lips,
+    lipids = lipids,
+
+    meta_prot = meta_prot,
+    prot_plasma = prot_plasma,
+    prot_urine = prot_urine,
+
+    n_metab = n_metab,
+    n_lipids = n_lipids,
+    n_prot = n_prot
+  ),
+  file = out_path
+)
+
+out_path
+```

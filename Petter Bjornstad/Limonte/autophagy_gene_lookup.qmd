@@ -20,7 +20,8 @@ library(table1)
 library(nlme)
 library(reshape2)
 library(nebula)
-
+library(ggrepel)
+library(ggtext)
 ```
 
 ```{r}
@@ -501,193 +502,281 @@ theme(
 ```
 
 ```{r}
-# nebula for gene level analysis:
-#following pipeline on Notion
-
-#8.2.1 Prepare Data for Analysis
-
-#### (1): Diabetes vs. Healthy Controls; PT cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
-seurat_object_hvg<-pb90_ptcells
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
-
-# Create a list of genes from the row names of the counts matrix
+##### NEBULA FOR GENE LEVEL ANALYSIS #####
 genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
 
-# Make sure the exposure/independent/x variable (group variable) is a factor
-seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
+#### Diabetes vs. Healthy Controls####
 
-source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
+### ALL CELLS ###
 
-# Create the volcano plot using ggplot
-diabetes_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "Diabetes vs. Healthy Controls",  # Main title
-    subtitle = "PT Cells Only",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-# Display the volcano plot
-diabetes_ptcell_volcano_plot
-
-#### (2): SGLT2i vs. no; PT cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
-pb90_ptcells_t2d<-subset(pb90_ptcells,pb90_ptcells$group=="Type 2 Diabetes")
-seurat_object_hvg<-pb90_ptcells_t2d
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
-
-# Create a list of genes from the row names of the counts matrix
-genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
-
-# Make sure the exposure/independent/x variable (group variable) is a factor
-seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
-
-source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
-
-# Create the volcano plot using ggplot
-sglt2i_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "SGLT2i vs. No SGLT2i",  # Main title
-    subtitle = "PT Cells Only",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-# Display the volcano plot
-sglt2i_ptcell_volcano_plot
-
-#### (3): Diabetes vs. Healthy Controls; all cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
 seurat_object_hvg<-pb90_allcells
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
-
-# Create a list of genes from the row names of the counts matrix
-genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
-
-# Make sure the exposure/independent/x variable (group variable) is a factor
 seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
 
 source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
+write.csv(full_results,file.path(root_path, "Limonte/nebula_tables/nebula_all_diabetes.csv"),row.names=F)
+jpeg(file.path(root_path, "Limonte/plots/nebula_all_diabetes_FDRadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_adjusted
+dev.off()
+jpeg(file.path(root_path, "Limonte/plots/nebula_all_diabetes_unadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_unadjusted
+dev.off()
 
-# Create the volcano plot using ggplot
-diabetes_allcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "Diabetes vs. Healthy Controls",  # Main title
-    subtitle = "All cells",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+### PT CELLS ###
 
-# Display the volcano plot
-diabetes_allcell_volcano_plot
-
-#### (2): SGLT2i vs. no; all cells ####
-# Load counts data from the object and round to nearest integer
-# use counts_hvg to match pipeline
-pb90_allcells_t2d<-subset(pb90_allcells,pb90_allcells$group=="Type 2 Diabetes")
-seurat_object_hvg<-pb90_allcells_t2d
-counts_hvg <- round(GetAssayData(seurat_object_hvg, layer = "counts"))
-
-# Create a list of genes from the row names of the counts matrix
-genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
-
-# Make sure the exposure/independent/x variable (group variable) is a factor
-seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
+seurat_object_hvg<-pb90_ptcells
+seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$group=="Lean Control",0,1))
 
 source("nebula_pipeline_onecall.R")
-# ---- Volcano Plot ----
-
-# Create the volcano plot using ggplot
-sglt2i_ptcell_volcano_plot <- ggplot(full_results, aes(x = logFC_group1, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Add points with transparency
-  scale_color_identity() +  # Use color directly from 'color' column
-  theme_minimal() +  # Apply minimalistic theme
-  labs(
-    title = "SGLT2i vs. No SGLT2i",  # Main title
-    subtitle = "All cells",  # Subtitle
-    x = "logFC",  # X-axis label
-    y = "-log10(P-Value)",  # Y-axis label
-    color = "LogFC Direction",
-    caption = paste0(
-      "FDR < 0.05, Genes = ", Genes, 
-      ", Nuclei = ", Nuclei, 
-      ", Non-Convergence Rate: ", Nonconvergence_Rate, 
-      ", Genes Filtered out for Low Expression: ", low_exp
-    )  # Plot caption
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +  # Set x-axis limits
-  # Add gene labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-# Display the volcano plot
-sglt2i_ptcell_volcano_plot
-
+write.csv(full_results,file.path(root_path, "Limonte/nebula_tables/nebula_pt_diabetes.csv"),row.names=F)
+jpeg(file.path(root_path, "Limonte/plots/nebula_pt_diabetes_FDRadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_adjusted
+dev.off()
+jpeg(file.path(root_path, "Limonte/plots/nebula_pt_diabetes_unadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_unadjusted
+dev.off()
 
 ```
 
+```{r}
+##### NEBULA FOR GENE LEVEL ANALYSIS #####
+genes_list <- c(overall_autophagy_genes,autophagy_induction_genes,lysosomal_biogenesis_genes,tfeb_genes)
+
+#### SGLT2i vs. no SGLT2i####
+
+### ALL CELLS ###
+pb90_allcells_t2d<-subset(pb90_allcells,pb90_allcells$group=="Type 2 Diabetes")
+seurat_object_hvg<-pb90_allcells_t2d
+seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
+
+source("nebula_pipeline_onecall.R")
+write.csv(full_results,file.path(root_path, "Limonte/nebula_tables/nebula_all_sgl2ti.csv"),row.names=F)
+jpeg(file.path(root_path, "Limonte/plots/nebula_all_sgl2ti_FDRadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_adjusted
+dev.off()
+jpeg(file.path(root_path, "Limonte/plots/nebula_all_sgl2ti_unadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_unadjusted
+dev.off()
+
+### PT CELLS ###
+pb90_ptcells_t2d<-subset(pb90_ptcells,pb90_ptcells$group=="Type 2 Diabetes")
+seurat_object_hvg<-pb90_ptcells_t2d
+seurat_object_hvg$group <- as.factor(ifelse(seurat_object_hvg$sglt2i_ever=="No",0,1))
+
+source("nebula_pipeline_onecall.R")
+write.csv(full_results,file.path(root_path, "Limonte/nebula_tables/nebula_pt_sgl2ti.csv"),row.names=F)
+jpeg(file.path(root_path, "Limonte/plots/nebula_pt_sgl2ti_FDRadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_adjusted
+dev.off()
+jpeg(file.path(root_path, "Limonte/plots/nebula_pt_sgl2ti_unadjusted.jpeg"),units="in",width=8,height=8,res=100)
+volcano_plot_unadjusted
+dev.off()
+
+```
+```{r}
+### UMAP code from Ye Ji:
+# Helper functions
+prepare_umap_geneset_metadata <- function(
+    seurat_obj,
+    geneset_scores,
+    celltype_col = "KPMP_celltype_general",
+    umap_reduction = "umap.harmony",
+    color_palette = "Set3",
+    custom_colors = NULL
+) {
+  
+  # Determine cell type levels
+  celltypes <- unique(seurat_obj@meta.data[[celltype_col]])
+  n_celltypes <- length(celltypes)
+  
+  # Build color mapping
+  if (!is.null(custom_colors)) {
+    celltype_colors <- custom_colors
+  } else {
+    umap_colors <- colorRampPalette(brewer.pal(min(brewer.pal.info[color_palette, "maxcolors"], n_celltypes), color_palette))(n_celltypes)
+    celltype_colors <- setNames(umap_colors, celltypes)
+  }
+  
+  # Get UMAP embeddings
+  umap_embed_cols <- colnames(seurat_obj@reductions[[umap_reduction]]@cell.embeddings)
+  
+  # Build metadata with UMAP embeddings and specified geneset scores
+  metadata <- seurat_obj@meta.data %>%
+    cbind(seurat_obj@reductions[[umap_reduction]]@cell.embeddings) %>%
+    select(all_of(c(celltype_col, geneset_scores)), all_of(umap_embed_cols))
+  
+  # Rename UMAP columns for consistency
+  colnames(metadata)[colnames(metadata) %in% umap_embed_cols] <- c("UMAP_1", "UMAP_2")
+  
+  # Compute cell type centers
+  centers <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(x = median(UMAP_1),
+              y = median(UMAP_2), .groups = "drop") %>%
+    dplyr::rename(!!celltype_col := 1) # Ensure consistent naming
+  
+  list(
+    metadata = metadata,
+    centers = centers,
+    celltype_colors = celltype_colors
+  )
+}
+
+plot_geneset_umap <- function(
+    geneset_score,     # single column name from metadata
+    metadata,          # from prepare_umap_geneset_metadata
+    centers,           # centers dataframe
+    celltype_colors,   # named color vector
+    celltype_col = "KPMP_celltype_general",
+    score_threshold = NULL,  # optional threshold to highlight high-scoring cells
+    save_to_s3 = FALSE,
+    s3_prefix = "",
+    s3_suffix = "",
+    s3_bucket = "scrna",
+    plot_height = 8,
+    plot_width = 8
+) {
+  
+  # Calculate score stats per cell type
+  score_stats <- metadata %>%
+    group_by(.data[[celltype_col]]) %>%
+    summarise(
+      mean_score = round(mean(.data[[geneset_score]], na.rm = TRUE), 3),
+      median_score = round(median(.data[[geneset_score]], na.rm = TRUE), 3),
+      n_cells = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(mean_score))
+  
+  # Build caption with top cell types by mean score
+  caption_text <- score_stats %>%
+    mutate(
+      color = celltype_colors[.data[[celltype_col]]],
+      label = paste0("<span style='color:", color, "'>&#9679; </span>**", 
+                    .data[[celltype_col]], "**: ", mean_score),
+      group = ceiling(row_number() / 6)  # Group every 6 cell types
+    ) %>%
+    group_by(group) %>%
+    summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
+    pull(line) %>%
+    paste(collapse = "<br><br>") %>%
+    paste0("**Mean ", gsub("_", " ", 
+                           gsub("_signature1", "", geneset_score)), " by cell type:**<br><br>", .)
+  
+  # Create the plot with custom diverging color scale
+  p <- metadata %>%
+    ggplot(aes(x = UMAP_1, y = UMAP_2, color = .data[[geneset_score]])) +
+    geom_point(alpha = 0.6, size = 0.3) +
+    scale_color_gradient2(
+      low = "#89c2d9",     # Blue for negative/low values
+      mid = "white",       # White at 0
+      high = "#ee7674",    # Red for positive/high values
+      midpoint = 0,
+      name = "Score"
+    ) +
+    geom_text_repel(
+      data = centers,
+      aes(x = x, y = y, label = .data[[celltype_col]]),
+      inherit.aes = FALSE,
+      size = 3.5,
+      fontface = "bold",
+      color = "black",
+      bg.color = "white",
+      bg.r = 0.1,
+      max.overlaps = Inf
+    ) +
+    theme_void() +
+    theme(
+      text = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      plot.caption = element_markdown(size = 10, hjust = 0),
+      legend.position = "right"
+    ) +
+    labs(title = toupper(gsub("_", " ", 
+                           gsub("_signature1", "", geneset_score))), caption = caption_text)
+  
+  if (save_to_s3) {
+    s3write_using_region(
+      p,
+      FUN = ggsave,
+      object = paste0(s3_prefix, geneset_score, "_GeneSetScorePlot", s3_suffix, ".png"),
+      bucket = s3_bucket,
+      region = "",
+      height = plot_height,
+      width = plot_width
+    )
+  }
+  
+  return(p)
+}
+
+# all cells:
+plot_df <- prepare_umap_geneset_metadata(
+  seurat_obj = pb90_allcells,
+  celltype_col = "KPMP_celltype_general",
+  geneset_scores = features)
+
+umap_list <- list()
+for (f in features) {
+  p <- plot_geneset_umap(
+    geneset_score = f,
+    metadata = plot_df$metadata,
+    centers = plot_df$centers,
+    celltype_colors = plot_df$celltype_colors,
+    celltype_col = "KPMP_celltype_general",
+    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
+    s3_suffix = "",
+    save_to_s3 = F
+  )
+  umap_list[[f]] <- p
+}
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_overallautophagy.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[1]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_autophagyinduction.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[2]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_lysosomalbiogenesis.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[3]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_allcells_tfeb.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[4]]
+dev.off()
+
+plot_df <- prepare_umap_geneset_metadata(
+  seurat_obj = pb90_ptcells,
+  celltype_col = "KPMP_celltype",
+  geneset_scores = features)
+
+umap_list <- list()
+for (f in features) {
+  p <- plot_geneset_umap(
+    geneset_score = f,
+    metadata = plot_df$metadata,
+    centers = plot_df$centers,
+    celltype_colors = plot_df$celltype_colors,
+    celltype_col = "KPMP_celltype",
+    s3_prefix = "Projects/Christine Limonte Autophagy/Figures/",
+    s3_suffix = "",
+    save_to_s3 = F
+  )
+  umap_list[[f]] <- p
+}
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_overallautophagy.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[1]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_autophagyinduction.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[2]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_lysosomalbiogenesis.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[3]]
+dev.off()
+
+jpeg(file.path(root_path, "Limonte/plots/umap_ptcells_tfeb.jpeg"),units="in",width=8,height=8,res=100)
+umap_list[[4]]
+dev.off()
+```
