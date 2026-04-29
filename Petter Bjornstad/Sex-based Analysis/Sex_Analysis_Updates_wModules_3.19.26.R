@@ -25,6 +25,7 @@ library(viridis)
 library(MatchIt)        # install.packages("MatchIt")
 library(cobalt)         # install.packages("cobalt") — balance diagnostics
 
+set.seed(123)
 # ── Output directories ────────────────────────────────────────────────────────
 dir_base   <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/"
 dir_module <- file.path(dir_base, "Module_Analysis/")
@@ -33,7 +34,7 @@ for (d in c(dir_module, dir_sev))
   dir.create(d, showWarnings = FALSE, recursive = TRUE)
 
 # ── Severity variables used throughout ───────────────────────────────────────
-SEVERITY_VARS <- c("hba1c", "egfr", "bmi")
+SEVERITY_VARS <- c("hba1c", "eGFR_CKD_epi", "bmi")
 
 ################################################################################
 # DATA LOADING
@@ -62,13 +63,15 @@ harmonized_data <- read.csv(
 clin <- harmonized_data %>%
   dplyr::select(-dob) %>%
   arrange(date_of_screen) %>%
-  summarise(
+  reframe(
     across(where(negate(is.numeric)), ~ last(na.omit(.x))),
     across(where(is.numeric),         ~ mean(na.omit(.x), na.rm = TRUE)),
     .by = c(record_id, visit)
   ) %>%
   filter(visit == "baseline") %>%
-  dplyr::select(record_id, sex, group, age, bmi, hba1c, egfr)
+  dplyr::select(record_id, sex, group, age, bmi, hba1c,
+                eGFR_CKD_epi, acr_u,
+                any_of(c("gfr_raw_plasma", "gfr_bsa_plasma", "sbp", "dbp")))
 
 cat("Clinical data loaded:", nrow(clin), "participants\n")
 cat("Severity completeness:\n")
@@ -1294,4 +1297,697 @@ cat("  A. What pathways define NMF_F3 in TAL? (check *_GSEA_GO.csv)\n")
 cat("  B. Is aPT_sig sex difference amplified in T2D? (check *interaction_model*.csv)\n")
 cat("  C. Does pseudotime correlate with injured/adaptive modules? (check *pseudotime_cor*.csv)\n")
 cat("  D. Which NMF factors track with HbA1c/eGFR? (check *_SUMMARY.csv)\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# Sex Differences Deep-Dive Analysis
+# Focus 1: aPT_sig Morpha module in TAL  (higher in males, p=0.038)
+# Focus 2: NMF_F3 in TAL                (higher in females, p=0.0059)
+#
+# Builds on outputs from the existing sex_diff_analysis pipeline:
+#   - NMF_top50genes_TAL.csv  (top NMF gene loadings)
+#   - Morpha_scores_TAL.csv   (per-cell morpha scores)
+# And directly from so_kpmp_sc for cell-level differential analysis.
+# =============================================================================
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(Seurat)
+  library(ggpubr)
+  library(patchwork)
+  library(pheatmap)
+  library(clusterProfiler)
+  library(org.Hs.eg.db)
+  library(enrichplot)
+  library(ggrepel)
+  library(viridis)
+  library(broom)
+  library(car)
+  library(corrplot)
+  library(RColorBrewer)
+})
+
+# =============================================================================
+# PATHS — confirmed from previous sessions
+# =============================================================================
+
+seurat_rdata   <- "C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData"
+dir_module     <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Module_Analysis/"
+harmonized_csv <- paste0("C:/Users/netio/OneDrive - UW/Laura Pyle's files - ",
+                         "Biostatistics Core Shared Drive/Data Harmonization/",
+                         "Data Clean/harmonized_dataset.csv")
+nebula_pt_csv  <- paste0("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/",
+                         "T2D_Only/Full_NEBULA_PT_cells__T2D_pooledoffset.csv")
+
+out_dir <- file.path(dir_module, "sex_diff_deep_dive")
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+save_plot <- function(p, fname, w = 8, h = 6) {
+  ggsave(file.path(out_dir, fname), p, width = w, height = h, dpi = 150)
+  message("  saved: ", fname)
+}
+
+# ORA helper — returns enrichResult or NULL
+run_ora <- function(genes, bg_genes = NULL, ont = "BP") {
+  ids <- bitr(genes, fromType = "SYMBOL", toType = "ENTREZID",
+              OrgDb = org.Hs.eg.db, drop = TRUE)$ENTREZID
+  if (length(ids) < 5) { message("  Too few mappable genes for ORA"); return(NULL) }
+  
+  bg_ids <- NULL
+  if (!is.null(bg_genes))
+    bg_ids <- bitr(bg_genes, fromType = "SYMBOL", toType = "ENTREZID",
+                   OrgDb = org.Hs.eg.db, drop = TRUE)$ENTREZID
+  
+  enrichGO(gene          = ids,
+           universe      = bg_ids,
+           OrgDb         = org.Hs.eg.db,
+           ont           = ont,
+           pAdjustMethod = "BH",
+           pvalueCutoff  = 0.05,
+           qvalueCutoff  = 0.20,
+           readable      = TRUE)
+}
+
+# KEGG ORA helper
+run_kegg <- function(genes) {
+  ids <- bitr(genes, fromType = "SYMBOL", toType = "ENTREZID",
+              OrgDb = org.Hs.eg.db, drop = TRUE)$ENTREZID
+  if (length(ids) < 5) return(NULL)
+  enrichKEGG(gene          = ids,
+             organism      = "hsa",
+             pAdjustMethod = "BH",
+             pvalueCutoff  = 0.05,
+             qvalueCutoff  = 0.20)
+}
+
+# =============================================================================
+# 1. LOAD DATA
+# =============================================================================
+
+message("\n=== 1. Loading data ===")
+
+# ── Seurat object
+if (!exists("so_kpmp_sc")) {
+  message("  Loading so_kpmp_sc from RData...")
+  load(seurat_rdata)     # loads so_kpmp_sc
+} else {
+  message("  so_kpmp_sc already in environment")
+}
+
+# ── Clinical metadata (hba1c, bmi — egfr has 0 non-NA values in harmonized)
+clin <- read_csv(harmonized_csv, show_col_types = FALSE) %>%
+  reframe(
+    across(where(negate(is.numeric)), ~ last(na.omit(.x))),
+    across(where(is.numeric),         ~ mean(na.omit(.x), na.rm = TRUE)),
+    .by = c(record_id, visit)
+  ) %>%
+  filter(visit == "baseline") %>%
+  dplyr::select(record_id, sex, group, age, bmi, hba1c,
+                eGFR_CKD_epi, acr_u,
+                any_of(c("gfr_raw_plasma", "gfr_bsa_plasma", "sbp", "dbp"))) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+# ── Morpha scores for TAL
+morpha_tal_file <- file.path(dir_module, "Morpha_scores_TAL.csv")
+stopifnot(file.exists(morpha_tal_file))
+morpha_tal <- read_csv(morpha_tal_file, show_col_types = FALSE)
+# Expected columns: cell_id, morpha_aPT_sig, morpha_PT_healthy, ..., sex, group, record_id
+message("  Morpha TAL rows: ", nrow(morpha_tal), " | cols: ", paste(names(morpha_tal), collapse = ", "))
+
+# ── NMF top genes for TAL
+nmf_tal_file <- file.path(dir_module, "NMF_top50genes_TAL.csv")
+stopifnot(file.exists(nmf_tal_file))
+nmf_top_tal <- read_csv(nmf_tal_file, show_col_types = FALSE)
+# Expected columns: factor, gene, loading
+message("  NMF TAL top-gene file loaded. Factors: ", paste(unique(nmf_top_tal$factor), collapse = ", "))
+
+# ── NMF factor scores (from Seurat metadata — aggregated per participant)
+tal_cells <- so_kpmp_sc@meta.data %>%
+  as_tibble(rownames = "cell_id") %>%
+  filter(grepl("TAL", celltype2, ignore.case = TRUE)) %>%
+  mutate(sex   = factor(sex,   levels = c("Female", "Male")),
+         group = factor(group, levels = c("Lean_Control", "Type_2_Diabetes")))
+
+nmf_cols_tal <- grep("^NMF_F", names(tal_cells), value = TRUE)
+message("  TAL NMF columns found: ", paste(nmf_cols_tal, collapse = ", "))
+
+# Sample-level NMF means for TAL
+nmf_sample_tal <- tal_cells %>%
+  group_by(record_id, sex, group) %>%
+  summarise(across(all_of(nmf_cols_tal), ~ mean(.x, na.rm = TRUE),
+                   .names = "{.col}"), .groups = "drop")
+
+# =============================================================================
+# 2. FOCUS 1: aPT_sig MODULE IN TAL — GENE-LEVEL DRIVERS
+# =============================================================================
+
+message("\n=== 2. aPT_sig TAL — gene-level driver analysis ===")
+
+# ── 2A. Identify which genes belong to the aPT_sig module
+# The morpha module gene list should be stored alongside the scores;
+# try common naming conventions
+apt_gene_file <- file.path(dir_module, "Morpha_aPT_sig_genes.csv")
+apt_genes_module <- if (file.exists(apt_gene_file)) {
+  read_csv(apt_gene_file, show_col_types = FALSE) %>% pull(1)
+} else {
+  # Fallback: use aPT_sig column genes from the Morpha object if saved,
+  # or load from the Seurat assay if it exists as a gene set
+  message("  aPT_sig gene list CSV not found — checking Seurat misc slot")
+  tryCatch(
+    so_kpmp_sc@misc$morpha_gene_sets$aPT_sig,
+    error = function(e) {
+      message("  Not in misc slot — please supply Morpha_aPT_sig_genes.csv")
+      NULL
+    }
+  )
+}
+
+if (!is.null(apt_genes_module) && length(apt_genes_module) > 0) {
+  message("  aPT_sig module gene count: ", length(apt_genes_module))
+  
+  # ── 2B. Pathway enrichment on the aPT_sig gene set (context: what is this module?)
+  message("  Running GO + KEGG on aPT_sig gene set...")
+  
+  bg_genes <- rownames(so_kpmp_sc)  # use all detected genes as background
+  
+  go_apt_bp <- run_ora(apt_genes_module, bg_genes, ont = "BP")
+  go_apt_cc <- run_ora(apt_genes_module, bg_genes, ont = "CC")
+  kegg_apt  <- run_kegg(apt_genes_module)
+  
+  if (!is.null(go_apt_bp) && nrow(go_apt_bp) > 0) {
+    p <- dotplot(go_apt_bp, showCategory = 20) +
+      ggtitle("aPT_sig Gene Set — GO:BP Enrichment") +
+      theme(axis.text.y = element_text(size = 8))
+    save_plot(p, "aPT_sig_GO_BP.pdf", w = 10, h = 8)
+    
+    write_csv(as.data.frame(go_apt_bp),
+              file.path(out_dir, "aPT_sig_GO_BP.csv"))
+  }
+  
+  if (!is.null(kegg_apt) && nrow(kegg_apt) > 0) {
+    p <- dotplot(kegg_apt, showCategory = 15) +
+      ggtitle("aPT_sig Gene Set — KEGG Enrichment")
+    save_plot(p, "aPT_sig_KEGG.pdf", w = 10, h = 7)
+    write_csv(as.data.frame(kegg_apt),
+              file.path(out_dir, "aPT_sig_KEGG.csv"))
+  }
+  
+  # ── 2C. Within TAL cells: pseudo-bulk DE between M vs F for aPT_sig genes
+  message("  Pseudo-bulk DE (Male vs Female) within TAL for aPT_sig genes...")
+  
+  # Subset TAL + genes in aPT_sig module
+  tal_seurat <- subset(so_kpmp_sc, cells = tal_cells$cell_id)
+  apt_genes_present <- intersect(apt_genes_module, rownames(tal_seurat))
+  message("    aPT_sig genes present in TAL: ", length(apt_genes_present), "/",
+          length(apt_genes_module))
+  
+  # Pseudo-bulk: sum counts per sample
+  pb_mat <- AggregateExpression(
+    tal_seurat,
+    assays    = "RNA",
+    slot      = "counts",
+    group.by  = "record_id",
+    return.seurat = FALSE
+  )$RNA
+  pb_mat <- pb_mat[apt_genes_present, , drop = FALSE]
+  
+  # Match sample metadata
+  pb_meta <- tal_cells %>%
+    distinct(record_id, sex, group) %>%
+    filter(record_id %in% colnames(pb_mat)) %>%
+    arrange(match(record_id, colnames(pb_mat)))
+  pb_mat <- pb_mat[, pb_meta$record_id]
+  
+  # T2D only (where the sex difference was observed)
+  t2d_idx  <- pb_meta$group == "Type_2_Diabetes"
+  pb_t2d   <- pb_mat[, t2d_idx]
+  meta_t2d <- pb_meta[t2d_idx, ]
+  
+  # limma-voom differential expression
+  if (requireNamespace("limma", quietly = TRUE) &&
+      requireNamespace("edgeR", quietly = TRUE)) {
+    library(limma); library(edgeR)
+    dge <- DGEList(counts = pb_t2d, group = meta_t2d$sex)
+    dge <- calcNormFactors(dge)
+    design <- model.matrix(~ sex, data = meta_t2d)
+    v   <- voom(dge, design, plot = FALSE)
+    fit <- lmFit(v, design)
+    fit <- eBayes(fit)
+    de_apt <- topTable(fit, coef = "sexMale", n = Inf, sort.by = "P") %>%
+      rownames_to_column("gene") %>%
+      as_tibble()
+    write_csv(de_apt, file.path(out_dir, "aPT_sig_TAL_DE_MvF_T2D.csv"))
+    
+    # Volcano: genes driving the male-higher aPT_sig score
+    de_apt <- de_apt %>%
+      mutate(sig = adj.P.Val < 0.05,
+             label = ifelse(sig | abs(logFC) > 1, gene, ""))
+    p_vol <- ggplot(de_apt, aes(logFC, -log10(P.Value),
+                                color = sig, label = label)) +
+      geom_point(alpha = 0.7, size = 1.8) +
+      geom_text_repel(size = 2.5, max.overlaps = 20) +
+      scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "#D62728"),
+                         labels = c("ns", "FDR<0.05")) +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+      labs(title = "aPT_sig genes in TAL: Male vs Female (T2D only)",
+           subtitle = "Positive logFC = higher in males",
+           x = "logFC (Male - Female)", y = "-log10(p)", color = NULL) +
+      theme_bw(base_size = 11)
+    save_plot(p_vol, "aPT_sig_TAL_volcano_MvF.pdf", w = 8, h = 6)
+    
+    # Heatmap of top DE genes
+    top_apt_de <- de_apt %>% filter(adj.P.Val < 0.1) %>% arrange(P.Value)
+    if (nrow(top_apt_de) >= 3) {
+      mat_heat <- cpm(dge, log = TRUE)[top_apt_de$gene[1:min(40, nrow(top_apt_de))], ]
+      ann_col  <- data.frame(Sex = meta_t2d$sex, row.names = colnames(mat_heat))
+      pheatmap(mat_heat,
+               annotation_col  = ann_col,
+               scale           = "row",
+               cluster_cols    = TRUE,
+               show_colnames   = FALSE,
+               color           = colorRampPalette(rev(brewer.pal(9, "RdBu")))(100),
+               main            = "Top DE genes in aPT_sig module\n(TAL cells, T2D only)",
+               filename        = file.path(out_dir, "aPT_sig_TAL_heatmap_topDE.pdf"),
+               width = 8, height = 7)
+    }
+    
+    # Enrichment of male-higher genes within aPT_sig module
+    male_up_apt <- de_apt %>% filter(logFC > 0, adj.P.Val < 0.2) %>% pull(gene)
+    if (length(male_up_apt) >= 5) {
+      go_male_up <- run_ora(male_up_apt, apt_genes_present, ont = "BP")
+      if (!is.null(go_male_up) && nrow(go_male_up) > 0) {
+        p <- dotplot(go_male_up, showCategory = 15) +
+          ggtitle("Male-enriched aPT_sig genes in TAL — GO:BP")
+        save_plot(p, "aPT_sig_TAL_male_enriched_GO.pdf", w = 10, h = 7)
+        write_csv(as.data.frame(go_male_up),
+                  file.path(out_dir, "aPT_sig_TAL_male_GO.csv"))
+      }
+    }
+  } else {
+    message("  limma/edgeR not available — skipping pseudo-bulk DE")
+  }
+  
+} else {
+  message("  aPT_sig gene list unavailable — skipping section 2B–C")
+  message("  Supply 'Morpha_aPT_sig_genes.csv' in dir_module to enable")
+}
+
+# ── 2D. aPT_sig score: sex × T2D interaction + clinical correlation
+message("  aPT_sig score: interaction model + clinical correlations...")
+
+if ("morpha_aPT_sig" %in% names(morpha_tal)) {
+  
+  # Cell-level data — aggregate to sample means
+  apt_sample <- morpha_tal %>%
+    group_by(record_id, sex, group) %>%
+    summarise(aPT_sig = mean(morpha_aPT_sig, na.rm = TRUE), .groups = "drop") %>%
+    mutate(sex   = factor(sex,   levels = c("Female", "Male")),
+           group = factor(group, levels = c("Lean_Control", "Type_2_Diabetes")))
+  
+  # Interaction model
+  fit_int <- lm(aPT_sig ~ sex * group, data = apt_sample)
+  sink(file.path(out_dir, "aPT_sig_TAL_lm_interaction.txt"))
+  cat("=== aPT_sig TAL ~ sex * T2D ===\n")
+  print(summary(fit_int))
+  cat("\nType II ANOVA:\n")
+  print(Anova(fit_int, type = "II"))
+  sink()
+  
+  # 2×2 violin
+  p_2x2 <- ggplot(apt_sample, aes(sex, aPT_sig, fill = sex)) +
+    geom_violin(trim = TRUE, alpha = 0.7) +
+    geom_jitter(width = 0.12, size = 1.5, alpha = 0.7) +
+    geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+    stat_compare_means(method = "wilcox.test", label = "p.format",
+                       label.x = 1.4, size = 3.5) +
+    facet_wrap(~ group, labeller = as_labeller(c(
+      "Lean_Control"    = "Lean Control",
+      "Type_2_Diabetes" = "Type 2 Diabetes"
+    ))) +
+    scale_fill_manual(values = c("Female" = "#E377C2", "Male" = "#1F77B4")) +
+    labs(title   = "aPT_sig module score in TAL cells",
+         subtitle = "Sex difference by disease group",
+         x = NULL, y = "aPT_sig score") +
+    theme_bw(base_size = 11) + theme(legend.position = "none")
+  save_plot(p_2x2, "aPT_sig_TAL_sex_x_group.pdf", w = 8, h = 5)
+  
+  # Clinical correlations for aPT_sig
+  apt_clin <- apt_sample %>%
+    left_join(clin, by = "record_id") %>%
+    filter(group == "Type_2_Diabetes")
+  
+  clin_vars <- intersect(c("hba1c", "bmi", "age", "acr", "upcr",
+                           "systolic_bp", "diastolic_bp"), names(apt_clin))
+  message("    Clinical vars available for correlation: ", paste(clin_vars, collapse = ", "))
+  
+  corr_apt <- map_dfr(clin_vars, function(cv) {
+    d <- apt_clin %>% filter(!is.na(.data[[cv]]))
+    if (nrow(d) < 5) return(NULL)
+    ct <- cor.test(d$aPT_sig, d[[cv]], method = "spearman", exact = FALSE)
+    tibble(clinical_var = cv, rho = ct$estimate, p = ct$p.value,
+           n = nrow(d))
+  }) %>% mutate(fdr = p.adjust(p, method = "BH"))
+  print(corr_apt)
+  write_csv(corr_apt, file.path(out_dir, "aPT_sig_TAL_clinical_corr.csv"))
+  
+  # Scatter plots for significant correlations
+  sig_clin_apt <- corr_apt %>% filter(p < 0.05) %>% pull(clinical_var)
+  if (length(sig_clin_apt) > 0) {
+    plots_apt <- map(sig_clin_apt, function(cv) {
+      ggplot(apt_clin, aes(.data[[cv]], aPT_sig, color = sex)) +
+        geom_point(alpha = 0.8, size = 2) +
+        geom_smooth(method = "lm", se = TRUE, linetype = "dashed", linewidth = 0.8) +
+        scale_color_manual(values = c("Female" = "#E377C2", "Male" = "#1F77B4")) +
+        labs(title   = paste("aPT_sig TAL vs.", cv, "(T2D)"),
+             subtitle = paste0("ρ=", round(corr_apt$rho[corr_apt$clinical_var == cv], 2),
+                               ", p=", signif(corr_apt$p[corr_apt$clinical_var == cv], 2)),
+             x = cv, y = "aPT_sig score") +
+        theme_bw(base_size = 11)
+    })
+    p_clin_apt <- wrap_plots(plots_apt, ncol = 2)
+    save_plot(p_clin_apt, "aPT_sig_TAL_clinical_scatter.pdf",
+              w = 5 * min(2, length(sig_clin_apt)), h = 4 * ceiling(length(sig_clin_apt) / 2))
+  }
+  
+  # ── NEBULA scRNA-seq cross-reference: do the top male-biased genes in aPT_sig
+  #    also show male-biased expression in NEBULA PT analysis?
+  if (file.exists(nebula_pt_csv) && exists("de_apt")) {
+    message("  Cross-referencing with NEBULA PT sex differences...")
+    nebula_pt <- read_csv(nebula_pt_csv, show_col_types = FALSE) %>%
+      rename(gene_symbol  = summary.gene,
+             logFC_nebula = summary.logFC_sexMale,
+             p_nebula     = summary.p_sexMale) %>%
+      mutate(fdr_nebula = p.adjust(p_nebula, method = "BH"))
+    
+    cross <- de_apt %>%
+      rename(gene_symbol = gene) %>%
+      left_join(nebula_pt %>% select(gene_symbol, logFC_nebula, p_nebula, fdr_nebula),
+                by = "gene_symbol") %>%
+      mutate(
+        sig_TAL_DE = adj.P.Val < 0.2,
+        sig_NEBULA = fdr_nebula < 0.05,
+        consistent = sign(logFC) == sign(logFC_nebula),
+        label = ifelse((sig_TAL_DE | sig_NEBULA) & consistent, gene_symbol, "")
+      )
+    
+    p_cross <- ggplot(cross, aes(logFC_nebula, logFC,
+                                 color = consistent & sig_TAL_DE,
+                                 label = label)) +
+      geom_point(alpha = 0.7, size = 1.8) +
+      geom_text_repel(size = 2.2, max.overlaps = 25) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+      scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "#D62728"),
+                         labels = c("Inconsistent / ns", "Consistent & significant")) +
+      labs(title    = "aPT_sig module genes: TAL pseudo-bulk vs. NEBULA PT",
+           subtitle = "Positive = higher in males. Colored = consistent male-bias",
+           x = "logFC in NEBULA PT (sexMale)", y = "logFC in TAL pseudo-bulk (Male−Female)",
+           color = NULL) +
+      theme_bw(base_size = 11)
+    save_plot(p_cross, "aPT_sig_TAL_vs_NEBULA_PT.pdf", w = 8, h = 6)
+    
+    write_csv(cross, file.path(out_dir, "aPT_sig_cross_TAL_NEBULA.csv"))
+    message("  Consistent male-biased genes: ",
+            sum(cross$consistent & cross$sig_TAL_DE, na.rm = TRUE))
+  }
+}
+
+# =============================================================================
+# 3. FOCUS 2: NMF_F3 IN TAL — CHARACTERIZE THE FEMALE-ENRICHED PROGRAM
+# =============================================================================
+
+message("\n=== 3. NMF_F3 TAL — female-enriched program characterization ===")
+
+f3_genes_raw <- nmf_top_tal %>%
+  filter(grepl("F3|factor.*3|NMF_F3", factor, ignore.case = TRUE)) %>%
+  arrange(desc(loading))
+message("  F3 top genes rows: ", nrow(f3_genes_raw))
+write_csv(f3_genes_raw, file.path(out_dir, "NMF_F3_TAL_top_genes.csv"))
+
+f3_genes <- f3_genes_raw %>% pull(gene)
+bg_genes  <- rownames(so_kpmp_sc)
+
+# ── 3A. GO pathway enrichment (BP, MF, CC)
+message("  Running GO enrichment for NMF_F3...")
+go_f3_bp <- run_ora(f3_genes, bg_genes, ont = "BP")
+go_f3_mf <- run_ora(f3_genes, bg_genes, ont = "MF")
+kegg_f3  <- run_kegg(f3_genes)
+
+for (res_obj in list(list(go_f3_bp, "NMF_F3_TAL_GO_BP", "NMF_F3 TAL — GO: Biological Process"),
+                     list(go_f3_mf, "NMF_F3_TAL_GO_MF", "NMF_F3 TAL — GO: Molecular Function"),
+                     list(kegg_f3,  "NMF_F3_TAL_KEGG",  "NMF_F3 TAL — KEGG Pathways"))) {
+  obj   <- res_obj[[1]]
+  fname <- res_obj[[2]]
+  title <- res_obj[[3]]
+  if (!is.null(obj) && nrow(obj) > 0) {
+    p <- dotplot(obj, showCategory = 20) +
+      ggtitle(title) +
+      theme(axis.text.y = element_text(size = 8))
+    save_plot(p, paste0(fname, ".pdf"), w = 11, h = 8)
+    write_csv(as.data.frame(obj), file.path(out_dir, paste0(fname, ".csv")))
+  }
+}
+
+# Cnetplot for top BP terms
+if (!is.null(go_f3_bp) && nrow(go_f3_bp) > 0) {
+  tryCatch({
+    p_cnet <- cnetplot(go_f3_bp, showCategory = 8,
+                       foldChange = setNames(f3_genes_raw$loading, f3_genes_raw$gene),
+                       circular = FALSE, colorEdge = TRUE) +
+      ggtitle("NMF_F3 TAL — Gene-Pathway Network (top 8 BP terms)")
+    save_plot(p_cnet, "NMF_F3_TAL_cnetplot.pdf", w = 12, h = 10)
+  }, error = function(e) message("  cnetplot skipped: ", e$message))
+}
+
+# ── 3B. Loading bar plot — top 30 genes in F3
+p_load <- f3_genes_raw %>%
+  slice_max(loading, n = 30) %>%
+  mutate(gene = fct_reorder(gene, loading)) %>%
+  ggplot(aes(loading, gene)) +
+  geom_col(fill = "#2CA02C", alpha = 0.8) +
+  labs(title    = "NMF_F3 TAL — Top 30 gene loadings",
+       subtitle = "Female-enriched program (p=0.0059)",
+       x = "NMF loading", y = NULL) +
+  theme_bw(base_size = 11)
+save_plot(p_load, "NMF_F3_TAL_top30_loadings.pdf", w = 7, h = 7)
+
+# ── 3C. Heatmap of F3 top genes across samples
+if ("NMF_F3" %in% nmf_cols_tal) {
+  
+  # Expression heatmap of top 30 F3 genes in TAL cells (pseudobulk)
+  tal_seurat_obj <- subset(so_kpmp_sc, cells = tal_cells$cell_id)
+  pb_f3 <- AggregateExpression(
+    tal_seurat_obj,
+    assays = "RNA", slot = "counts",
+    group.by = "record_id",
+    return.seurat = FALSE
+  )$RNA
+  
+  f3_genes_present <- intersect(f3_genes[1:30], rownames(pb_f3))
+  pb_f3_sub <- pb_f3[f3_genes_present, ]
+  
+  # Sample annotation
+  ann_f3 <- tal_cells %>%
+    distinct(record_id, sex, group) %>%
+    filter(record_id %in% colnames(pb_f3_sub)) %>%
+    left_join(nmf_sample_tal %>% select(record_id, NMF_F3), by = "record_id") %>%
+    column_to_rownames("record_id") %>%
+    mutate(NMF_F3_score = NMF_F3) %>%
+    select(Sex = sex, Group = group, NMF_F3_score)
+  
+  ann_colors <- list(
+    Sex   = c(Female = "#E377C2", Male = "#1F77B4"),
+    Group = c(Lean_Control = "#2CA02C", Type_2_Diabetes = "#D62728")
+  )
+  
+  pb_f3_ord <- pb_f3_sub[, rownames(ann_f3)]
+  pheatmap(
+    log1p(pb_f3_ord),
+    annotation_col  = ann_f3,
+    annotation_colors = ann_colors,
+    scale           = "row",
+    cluster_cols    = TRUE,
+    show_colnames   = FALSE,
+    color           = colorRampPalette(rev(brewer.pal(9, "RdBu")))(100),
+    main            = "NMF_F3 Top Genes in TAL (pseudobulk)",
+    filename        = file.path(out_dir, "NMF_F3_TAL_heatmap.pdf"),
+    width = 10, height = 8
+  )
+  message("  F3 heatmap saved")
+}
+
+# ── 3D. Clinical correlations for NMF_F3 (sample-level means)
+message("  NMF_F3 clinical correlations...")
+
+if ("NMF_F3" %in% names(nmf_sample_tal)) {
+  
+  f3_clin <- nmf_sample_tal %>%
+    select(record_id, sex, group, NMF_F3) %>%
+    left_join(clin, by = "record_id")
+  
+  # All samples + T2D only
+  for (grp_label in c("All", "T2D_only")) {
+    d_sub <- if (grp_label == "T2D_only")
+      filter(f3_clin, group == "Type_2_Diabetes") else f3_clin
+    
+    clin_vars <- intersect(c("hba1c", "bmi", "age", "acr", "upcr",
+                             "systolic_bp", "diastolic_bp"), names(d_sub))
+    
+    corr_f3 <- map_dfr(clin_vars, function(cv) {
+      d <- d_sub %>% filter(!is.na(.data[[cv]]))
+      if (nrow(d) < 5) return(NULL)
+      ct <- cor.test(d$NMF_F3, d[[cv]], method = "spearman", exact = FALSE)
+      tibble(clinical_var = cv, rho = ct$estimate, p = ct$p.value, n = nrow(d))
+    }) %>% mutate(fdr = p.adjust(p, method = "BH"),
+                  subset = grp_label)
+    print(corr_f3)
+    write_csv(corr_f3,
+              file.path(out_dir, paste0("NMF_F3_TAL_clinical_corr_", grp_label, ".csv")))
+    
+    # Bar plot of correlations
+    if (nrow(corr_f3) > 0) {
+      p_rho <- corr_f3 %>%
+        mutate(clinical_var = fct_reorder(clinical_var, rho),
+               sig = p < 0.05) %>%
+        ggplot(aes(rho, clinical_var, fill = rho, alpha = sig)) +
+        geom_col() +
+        scale_fill_gradient2(low = "#1F77B4", high = "#D62728", mid = "white",
+                             midpoint = 0, name = "ρ") +
+        scale_alpha_manual(values = c("FALSE" = 0.4, "TRUE" = 1),
+                           guide = "none") +
+        geom_vline(xintercept = 0, linewidth = 0.5) +
+        labs(title    = paste("NMF_F3 TAL — Clinical Correlations (Spearman)"),
+             subtitle = paste0(grp_label, "  |  filled = p<0.05"),
+             x = "ρ", y = NULL) +
+        theme_bw(base_size = 11)
+      save_plot(p_rho, paste0("NMF_F3_TAL_clinical_rho_", grp_label, ".pdf"), w = 6, h = 4)
+    }
+    
+    # Scatter for significant terms
+    sig_clin_f3 <- corr_f3 %>% filter(p < 0.05) %>% pull(clinical_var)
+    if (length(sig_clin_f3) > 0) {
+      plots_f3 <- map(sig_clin_f3, function(cv) {
+        ggplot(d_sub, aes(.data[[cv]], NMF_F3, color = sex)) +
+          geom_point(alpha = 0.8, size = 2) +
+          geom_smooth(method = "lm", se = TRUE, linetype = "dashed", linewidth = 0.8) +
+          scale_color_manual(values = c("Female" = "#E377C2", "Male" = "#1F77B4")) +
+          labs(title   = paste("NMF_F3 TAL vs.", cv),
+               subtitle = paste0("ρ=", round(corr_f3$rho[corr_f3$clinical_var == cv], 2),
+                                 ", p=", signif(corr_f3$p[corr_f3$clinical_var == cv], 2)),
+               x = cv, y = "NMF_F3 score") +
+          theme_bw(base_size = 11)
+      })
+      p_f3_clin <- wrap_plots(plots_f3, ncol = 2)
+      save_plot(p_f3_clin, paste0("NMF_F3_TAL_clinical_scatter_", grp_label, ".pdf"),
+                w = 5 * min(2, length(sig_clin_f3)),
+                h = 4 * ceiling(length(sig_clin_f3) / 2))
+    }
+  }
+  
+  # ── 3E. NMF_F3: sex × group violin
+  p_f3_viol <- ggplot(f3_clin, aes(sex, NMF_F3, fill = sex)) +
+    geom_violin(trim = TRUE, alpha = 0.7) +
+    geom_jitter(width = 0.12, size = 1.5, alpha = 0.7) +
+    geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+    stat_compare_means(method = "wilcox.test", label = "p.format",
+                       label.x = 1.4, size = 3.5) +
+    facet_wrap(~ group, labeller = as_labeller(c(
+      "Lean_Control"    = "Lean Control",
+      "Type_2_Diabetes" = "Type 2 Diabetes"
+    ))) +
+    scale_fill_manual(values = c("Female" = "#E377C2", "Male" = "#1F77B4")) +
+    labs(title    = "NMF_F3 score in TAL cells",
+         subtitle = "Female-enriched program (overall p=0.0059)",
+         x = NULL, y = "NMF_F3 score") +
+    theme_bw(base_size = 11) + theme(legend.position = "none")
+  save_plot(p_f3_viol, "NMF_F3_TAL_sex_x_group.pdf", w = 8, h = 5)
+  
+  # ── 3F. Is NMF_F3 inversely correlated with aPT_sig? (they have opposite sex effects)
+  if ("morpha_aPT_sig" %in% names(morpha_tal)) {
+    apt_f3_compare <- morpha_tal %>%
+      group_by(record_id, sex, group) %>%
+      summarise(aPT_sig = mean(morpha_aPT_sig, na.rm = TRUE), .groups = "drop") %>%
+      left_join(nmf_sample_tal %>% select(record_id, NMF_F3), by = "record_id")
+    
+    ct_compare <- cor.test(apt_f3_compare$aPT_sig, apt_f3_compare$NMF_F3,
+                           method = "spearman", exact = FALSE)
+    message("  aPT_sig vs NMF_F3 correlation: ρ=",
+            round(ct_compare$estimate, 3), " p=", signif(ct_compare$p.value, 3))
+    
+    p_compare <- ggplot(apt_f3_compare, aes(NMF_F3, aPT_sig, color = sex, shape = group)) +
+      geom_point(size = 2.5, alpha = 0.8) +
+      geom_smooth(aes(group = 1), method = "lm", color = "grey40",
+                  se = TRUE, linetype = "dashed") +
+      scale_color_manual(values = c("Female" = "#E377C2", "Male" = "#1F77B4")) +
+      scale_shape_manual(values = c("Lean_Control" = 16, "Type_2_Diabetes" = 17)) +
+      annotate("text", x = Inf, y = Inf, hjust = 1.1, vjust = 1.5,
+               label = paste0("ρ=", round(ct_compare$estimate, 2),
+                              ", p=", signif(ct_compare$p.value, 3)),
+               size = 3.5, color = "grey30") +
+      labs(title    = "aPT_sig (male↑) vs. NMF_F3 (female↑) in TAL",
+           subtitle = "Opposing sex-dimorphic programs",
+           x = "NMF_F3 score (female-enriched)",
+           y = "aPT_sig score (male-enriched)",
+           color = "Sex", shape = "Group") +
+      theme_bw(base_size = 11)
+    save_plot(p_compare, "aPT_sig_vs_NMF_F3_TAL.pdf", w = 7, h = 5)
+  }
+}
+
+# =============================================================================
+# 4. SUMMARY TABLE
+# =============================================================================
+
+message("\n=== 4. Saving output summary ===")
+
+summary_files <- list.files(out_dir, full.names = FALSE)
+writeLines(
+  c("Sex Differences Deep-Dive — Output Files",
+    paste0("Generated: ", Sys.time()), "",
+    "FOCUS 1: aPT_sig module in TAL (higher in males, p=0.038)",
+    "  aPT_sig_GO_BP.csv/pdf             — Pathway enrichment of gene set",
+    "  aPT_sig_KEGG.csv/pdf              — KEGG enrichment of gene set",
+    "  aPT_sig_TAL_DE_MvF_T2D.csv        — Pseudo-bulk DE (Male vs Female, T2D only)",
+    "  aPT_sig_TAL_volcano_MvF.pdf       — Volcano of within-module DE",
+    "  aPT_sig_TAL_heatmap_topDE.pdf     — Heatmap of top DE genes",
+    "  aPT_sig_TAL_male_enriched_GO.csv  — GO of male-higher aPT_sig genes",
+    "  aPT_sig_TAL_lm_interaction.txt    — Sex × T2D interaction model",
+    "  aPT_sig_TAL_sex_x_group.pdf       — 2×2 violin plot",
+    "  aPT_sig_TAL_clinical_corr.csv     — Spearman vs clinical variables",
+    "  aPT_sig_TAL_vs_NEBULA_PT.pdf      — Cross-reference with NEBULA PT sex DE",
+    "",
+    "FOCUS 2: NMF_F3 in TAL (higher in females, p=0.0059)",
+    "  NMF_F3_TAL_top_genes.csv          — F3 gene loadings",
+    "  NMF_F3_TAL_top30_loadings.pdf     — Bar chart of top loadings",
+    "  NMF_F3_TAL_GO_BP/MF.csv/pdf       — GO enrichment",
+    "  NMF_F3_TAL_KEGG.csv/pdf           — KEGG enrichment",
+    "  NMF_F3_TAL_cnetplot.pdf           — Gene-pathway network",
+    "  NMF_F3_TAL_heatmap.pdf            — Pseudobulk expression heatmap",
+    "  NMF_F3_TAL_sex_x_group.pdf        — Violin by sex × group",
+    "  NMF_F3_TAL_clinical_corr_*.csv    — Clinical correlations (All + T2D-only)",
+    "  NMF_F3_TAL_clinical_rho_*.pdf     — Correlation bar charts",
+    "  NMF_F3_TAL_clinical_scatter_*.pdf — Scatter plots",
+    "  aPT_sig_vs_NMF_F3_TAL.pdf         — Inverse relationship plot"
+  ),
+  file.path(out_dir, "README.txt")
+)
+
+message("\n=== Done. All outputs in: ", out_dir, " ===")
+
+
 
