@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=t1d_adip_nebula_1
-#SBATCH --array=5260-5261%2           # up to run 5402
+#SBATCH --job-name=t1d_adip_nebula_whtr_owob
+#SBATCH --array=1-1443%500           # up to run 1443
 #SBATCH --time=00:30:00             # 3 hours per job (with buffer)
 #SBATCH --mem=64G                  # Memory per job
 #SBATCH --cpus-per-task=4          # CPUs (nebula uses 15 cores)
@@ -22,7 +22,7 @@ BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/T1D Adiposity
 cd "${BASE_DIR}"
 
 # Get the job parameters from config file
-CONFIG_FILE="${BASE_DIR}/config/job_config.txt"
+CONFIG_FILE="${BASE_DIR}/config/job_config_new_runs.txt"
 JOB_PARAMS=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${CONFIG_FILE}")
 
 # Parse run name, cell type, and cell type variable (tab-delimited)
