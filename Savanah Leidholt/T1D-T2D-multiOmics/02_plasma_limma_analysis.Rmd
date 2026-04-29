@@ -81,11 +81,12 @@ if (computer == "mac studio") {
 #-----------------------------------------------------------------------------
 #Clean and setup data
 # a) all proteomic data DPE analysis
-# b) sensitivty analysis (rm attempt)
-# c) DPE analysis with samples that contain both proteomic and metabolomic data
+# b) sensitivty analysis where I remove participants who have T1D and are obese
+# c) sensitivty analysis (rm attempt)
+# d) DPE analysis with samples that contain both proteomic and metabolomic data
 #------------------------------------------------------------------------------
 ```{r}
-obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+obj <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects_clean.rds"))
 
 meta   <- obj$meta_prot
 prot_plasma <- obj$prot_plasma
@@ -260,7 +261,7 @@ length(nzv_idx)   #comes out as zero
 ```
 
 ```{r}
-set.seed(18)
+set.seed(1835)
 prot_imp <- prot_log
 meds <- apply(prot_imp, 2, function(x) {
   m <- median(x, na.rm = TRUE)
@@ -496,6 +497,252 @@ summary_wide <- summary_all %>%
   pivot_wider(names_from = model, values_from = n_FDR05)
 
 print(summary_wide)
+```
+# ============================================================
+# Sensitivity analysis:
+# Remove T1D participants who are obese
+# ============================================================
+```{r}
+#obesity status--check if this is ok. patients range in age from 13-25 so I may need to do percentiles for youth
+meta2 <- meta_common2 %>%
+  mutate(
+    bmi = suppressWarnings(as.numeric(bmi)),
+    obese = !is.na(bmi) & bmi >= 30,
+    remove_t1d_obese = group4 == "T1D" & obese
+  )
+
+# Check how many are removed
+table(meta2$group4, meta2$obese, useNA = "ifany")
+
+removed_t1d_obese <- meta2 %>%
+  filter(remove_t1d_obese) %>%
+  select(record_id, group4, age, sex, study6, bmi)
+
+removed_t1d_obese
+
+cat("Number of obese T1D participants removed:",
+    nrow(removed_t1d_obese), "\n")
+```
+
+```{r}
+#Remove obese T1D samples
+meta3 <- meta2 %>%
+  filter(!remove_t1d_obese) %>%
+  droplevels()
+
+prot_imp_sens <- prot_imp2[
+  meta3$record_id,
+  ,
+  drop = FALSE
+]
+
+# Confirm alignment
+stopifnot(identical(rownames(prot_imp_sens), meta3$record_id))
+
+cat("Primary analysis N:", nrow(meta_common2), "\n")
+cat("Sensitivity analysis N:", nrow(meta3), "\n")
+
+
+
+#group counts
+tab <- meta3 %>%
+  count(group4, study6) %>%
+  arrange(group4, study6)
+
+tab
+
+table(meta3$group4)
+```
+
+# -----------------------------
+# PCA after removing obese T1D
+# -----------------------------
+```{r}
+# -----------------------------
+# PCA plots for sensitivity analysis
+# matching primary PCA workflow
+# -----------------------------
+
+p_sens0 <- make_pca_plot(prot_imp_sens,meta3,"Sensitivity: No adjustment")
+
+cov_sens_m1 <- model.matrix(~ age + sex,data = meta3)[, -1, drop = FALSE]
+prot_sens_m1 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m1))
+p_sens1 <- make_pca_plot(prot_sens_m1,meta3,"Sensitivity: Age + Sex")
+
+cov_sens_m2 <- model.matrix( ~ age + sex + study6,data = meta3)[, -1, drop = FALSE]
+prot_sens_m2 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m2))
+p_sens2 <- make_pca_plot(prot_sens_m2,meta3,"Sensitivity: Age + Sex + Study")
+
+pca_sens_combined <- p_sens0 | p_sens1 | p_sens2
+pca_sens_combined
+
+ggsave(
+  filename = file.path(dir.dat, "Savanah Leidholt","T1D-T2D","Results","pca_plots_sensitivity_no_obese_T1D.pdf"),
+  plot = pca_sens_combined,
+  width = 16,
+  height = 14
+)
+```
+
+# -----------------------------
+#limma sensitivity data
+# -----------------------------
+```{r}
+meta3$sex    <- factor(meta3$sex)
+meta3$group4 <- factor(
+  meta3$group4,
+  levels = c("LC", "OC", "T1D", "T2D")
+)
+
+Y_sens <- t(prot_imp_sens)
+
+
+
+#Model 1 sensitivity:age + sex
+design_sens_m1 <- model.matrix(
+  ~ 0 + group4 + age + sex,
+  data = meta3
+)
+
+colnames(design_sens_m1) <- sub("^group4", "", colnames(design_sens_m1))
+colnames(design_sens_m1) <- make.names(colnames(design_sens_m1))
+
+contr_sens_m1 <- makeContrasts(
+  T1D_vs_LC   = T1D - LC,
+  T2D_vs_LC   = T2D - LC,
+  T1D_vs_T2D  = T1D - T2D,
+  OC_vs_LC    = OC  - LC,
+  T1D_vs_OC   = T1D - OC,
+  T2D_vs_OC   = T2D - OC,
+  levels = design_sens_m1
+)
+
+res_sens_m1 <- run_limma_contrasts(
+  Y = Y_sens,
+  design = design_sens_m1,
+  contr = contr_sens_m1
+)
+
+out_sens_m1 <- res_sens_m1$out
+fit_sens_m1 <- res_sens_m1$fit
+
+sig_sens_m1 <- summarise_sig(
+  out_sens_m1,
+  model_label = "sensitivity_age_sex_no_obese_T1D",
+  n_samp = nrow(meta3)
+)
+
+sig_sens_m1
+
+
+
+# Model 2 sensitivity: age + sex + study
+meta_sens_m2 <- meta3 %>%
+  filter(!is.na(study6)) %>%
+  droplevels()
+
+Y_sens_m2 <- Y_sens[, meta_sens_m2$record_id, drop = FALSE]
+
+design_sens_m2 <- model.matrix(
+  ~ 0 + group4 + age + sex + study6,
+  data = meta_sens_m2
+)
+
+colnames(design_sens_m2) <- sub("^group4", "", colnames(design_sens_m2))
+colnames(design_sens_m2) <- make.names(colnames(design_sens_m2))
+
+contr_sens_m2 <- makeContrasts(
+  T1D_vs_LC   = T1D - LC,
+  T2D_vs_LC   = T2D - LC,
+  T1D_vs_T2D  = T1D - T2D,
+  OC_vs_LC    = OC  - LC,
+  T1D_vs_OC   = T1D - OC,
+  T2D_vs_OC   = T2D - OC,
+  levels = design_sens_m2
+)
+
+res_sens_m2 <- run_limma_contrasts(
+  Y = Y_sens_m2,
+  design = design_sens_m2,
+  contr = contr_sens_m2
+)
+
+out_sens_m2 <- res_sens_m2$out
+fit_sens_m2 <- res_sens_m2$fit
+
+sig_sens_m2 <- summarise_sig(
+  out_sens_m2,
+  model_label = "sensitivity_age_sex_study_no_obese_T1D",
+  n_samp = nrow(meta_sens_m2)
+)
+
+sig_sens_m2
+
+
+
+#Combine primary + sensitivity summaries
+summary_sensitivity <- bind_rows(
+  sig_m1 %>%
+    mutate(model = "primary_age_sex"),
+  
+  sig_m2 %>%
+    mutate(model = "primary_age_sex_study"),
+  
+  sig_sens_m1,
+  sig_sens_m2
+) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  arrange(contrast, model)
+
+summary_sensitivity
+
+summary_sensitivity_wide <- summary_sensitivity %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(
+    names_from = model,
+    values_from = n_FDR05
+  )
+
+summary_sensitivity_wide
+```
+```{r}
+get_sig_features <- function(out_list, fdr_cutoff = 0.05) {
+  lapply(out_list, function(tt) {
+    tt %>%
+      filter(adj.P.Val < fdr_cutoff) %>%
+      pull(feature_id) %>%
+      unique()
+  })
+}
+
+primary_m2_sig <- get_sig_features(out_m2, fdr_cutoff = 0.05)
+sens_m2_sig    <- get_sig_features(out_sens_m2, fdr_cutoff = 0.05)
+
+overlap_m2 <- tibble(
+  contrast = intersect(names(primary_m2_sig), names(sens_m2_sig))
+) %>%
+  rowwise() %>%
+  mutate(
+    n_primary_m2 = length(primary_m2_sig[[contrast]]),
+    n_sens_m2    = length(sens_m2_sig[[contrast]]),
+    n_overlap    = length(intersect(
+      primary_m2_sig[[contrast]],
+      sens_m2_sig[[contrast]]
+    )),
+    percent_primary_retained = if_else(
+      n_primary_m2 > 0,
+      100 * n_overlap / n_primary_m2,
+      NA_real_
+    ),
+    percent_sens_overlap = if_else(
+      n_sens_m2 > 0,
+      100 * n_overlap / n_sens_m2,
+      NA_real_
+    )
+  ) %>%
+  ungroup()
+
+overlap_m2
 ```
 
 #--------------------------------------------------------
