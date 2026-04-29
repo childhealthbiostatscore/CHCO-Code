@@ -824,8 +824,9 @@ cat("Computing per-run QC metrics (min subjects/group, min avg cells/subject)...
 meta_compiled <- meta_compiled %>%
   dplyr::rowwise() %>%
   dplyr::mutate(
-    adiposity_grp = case_when(grepl("bmi", analysis_type) ~ "BMI",
-                              grepl("dxa", analysis_type) ~ "DXA"),
+    adiposity_grp = case_when(grepl("whtr", analysis_type) ~ "WHtR",
+                              grepl("bmi",  analysis_type) ~ "BMI",
+                              grepl("dxa",  analysis_type) ~ "DXA"),
     min_subjects_per_group = {
       counts <- parse_group_counts(n_samples_per_group)
       min(counts)
@@ -907,11 +908,12 @@ meta_compiled_filtered <-
 bmi_labs <- c(
   "cont_bmi_all"                 = "All: BMI (continuous)",
   "cont_bmi_t1d"                 = "T1D: BMI (continuous)",
-  "T1D_normal_vs_ow_obese_bmi"   = "T1D: Obese vs. Normal",
+  "T1D_normal_vs_ow_obese_bmi"   = "T1D: OW+Obese vs. Normal",
   "T1D_normal_vs_overweight_bmi" = "T1D: Overweight vs. Normal",
   "HC_vs_T1D_normal_bmi"         = "Normal: T1D vs. HC",
   "HC_vs_T1D_overweight_bmi"     = "Overweight: T1D vs. HC",
-  "HC_vs_T1D_obese_bmi"          = "Obese: T1D vs. HC"
+  "HC_vs_T1D_obese_bmi"          = "Obese: T1D vs. HC",
+  "HC_vs_T1D_ow_obese_bmi"       = "OW+Obese: T1D vs. HC"
 )
 
 # Pick one DXA continuous variable as the headline for the "continuous" panels
@@ -919,20 +921,33 @@ bmi_labs <- c(
 dxa_labs <- c(
   "cont_dexa_body_fat_all"       = "All: DXA body fat % (continuous)",
   "cont_dexa_body_fat_t1d"       = "T1D: DXA body fat % (continuous)",
-  "T1D_normal_vs_ow_obese_dxa"   = "T1D: Obese vs. Normal",
+  "T1D_normal_vs_ow_obese_dxa"   = "T1D: OW+Obese vs. Normal",
   "T1D_normal_vs_overweight_dxa" = "T1D: Overweight vs. Normal",
   "HC_vs_T1D_normal_dxa"         = "Normal: T1D vs. HC",
   "HC_vs_T1D_overweight_dxa"     = "Overweight: T1D vs. HC",
-  "HC_vs_T1D_obese_dxa"          = "Obese: T1D vs. HC"
+  "HC_vs_T1D_obese_dxa"          = "Obese: T1D vs. HC",
+  "HC_vs_T1D_ow_obese_dxa"       = "OW+Obese: T1D vs. HC"
+)
+
+# WHtR labels mirror BMI / DXA structure
+whtr_labs <- c(
+  "cont_whtr_all"                 = "All: WHtR (continuous)",
+  "cont_whtr_t1d"                 = "T1D: WHtR (continuous)",
+  "T1D_normal_vs_ow_obese_whtr"   = "T1D: OW+Obese vs. Normal",
+  "T1D_normal_vs_overweight_whtr" = "T1D: Overweight vs. Normal",
+  "HC_vs_T1D_normal_whtr"         = "Normal: T1D vs. HC",
+  "HC_vs_T1D_overweight_whtr"     = "Overweight: T1D vs. HC",
+  "HC_vs_T1D_obese_whtr"          = "Obese: T1D vs. HC",
+  "HC_vs_T1D_ow_obese_whtr"       = "OW+Obese: T1D vs. HC"
 )
 
 combos <- tidyr::crossing(
-  adi = c("BMI", "DXA"),
+  adi = c("BMI", "DXA", "WHtR"),
   sig = c("p", "fdr"),
   ct  = c("KPMP_celltype_general", "KPMP_celltype")
 )
-labs_by_adi <- list(BMI = bmi_labs, DXA = dxa_labs)
-cont_var_by_adi <- list(BMI = "bmi", DXA = "dexa_body_fat")
+labs_by_adi     <- list(BMI = bmi_labs, DXA = dxa_labs, WHtR = whtr_labs)
+cont_var_by_adi <- list(BMI = "bmi",    DXA = "dexa_body_fat", WHtR = "whtr")
 
 plots <- purrr::pmap(combos, function(adi, sig, ct) {
   plot_de_counts(meta_compiled_filtered,
@@ -1078,7 +1093,7 @@ cat("\n=== Figure generation summary ===\n")
 cat(sprintf("  Total in metadata (after filtering): %d\n", nrow(meta_compiled_filtered)))
 cat(sprintf("  Successfully processed: %d\n", n_success))
 cat(sprintf("  Failed to read from S3: %d\n", n_error))
-cat(sprintf("  Unique analysis types: %d / 94\n", n_distinct(meta_compiled_filtered$analysis_type)))
+cat(sprintf("  Unique analysis types: %d\n", n_distinct(meta_compiled_filtered$analysis_type)))
 cat(sprintf("  Unique cell types: %d\n", n_distinct(meta_compiled_filtered$celltype)))
 cat(sprintf("  Butterfly plots: %d (pval) + %d (fdr)\n",
             if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0,
