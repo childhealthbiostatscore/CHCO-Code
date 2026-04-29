@@ -454,3 +454,255 @@ cat("\n=== Pipeline complete ===\n",
     "plots/: QC, volcano, pathway, forest plots\n")
 
 
+
+
+
+
+
+
+##############################################################################
+# SECTION 10: PATHO PLEX COMPARISON
+##############################################################################
+
+library(ggnewscale)
+
+# ── Paths to PathoPlex supplementary tables ───────────────────────────────────
+base_patho <- "C:/Users/netio/Downloads/41586_2025_9225_MOESM3_ESM/2023-11-20558D-s3/"
+s3_path    <- file.path(base_patho, "R3_Table_S3.xlsx")
+s5_path    <- file.path(base_patho, "R3_Table_S5.xlsx")
+
+# ── Load and clean S3 antibody panel ─────────────────────────────────────────
+s3_raw <- read_excel(s3_path, skip = 1)
+colnames(s3_raw) <- c("protein_label", "target")
+s3 <- s3_raw %>%
+  filter(!is.na(protein_label), protein_label != "Protein") %>%
+  mutate(
+    gene_symbol = case_when(
+      str_detect(protein_label, "\\(") ~
+        str_extract(protein_label, "(?<=\\()([^)]+)(?=\\))"),
+      TRUE ~ protein_label
+    ),
+    gene_symbol = str_trim(str_to_upper(gene_symbol))
+  )
+
+# ── Alias map: protein labels → gene symbols ──────────────────────────────────
+alias_map <- c(
+  "Β-CATENIN"                = "CTNNB1",
+  "C-FOS"                    = "FOS",
+  "CALPAIN SMALL SUBUNIT  1" = "CAPNS1",
+  "CALPASTATIN"              = "CAST",
+  "CALRETICULIN"             = "CALR",
+  "CD3"                      = "CD247",
+  "CD41"                     = "ITGA2B",
+  "CD42B"                    = "GP1BA",
+  "CLAUDIN-1"                = "CLDN1",
+  "COLLAGEN IV"              = "COL4A1",
+  "COLLAGEN TYPE III"        = "COL3A1",
+  "COLLAGEN V"               = "COL5A1",
+  "CYCLIN B1"                = "CCNB1",
+  "CYTOKERATIN 19"           = "KRT19",
+  "CYTOKERATIN 8"            = "KRT8",
+  "FIBRONECTIN"              = "FN1",
+  "GLUCOCORTICOID RECEPTOR"  = "NR3C1",
+  "GLYCOPHORIN A"            = "GYPA",
+  "GRP78"                    = "HSPA5",
+  "IBA1"                     = "AIF1",
+  "IL-1RA"                   = "IL1RN",
+  "INTEGRIN-Β1"              = "ITGB1",
+  "KIM-1"                    = "HAVCR1",
+  "LC3B"                     = "MAP1LC3B",
+  "NEPHRIN"                  = "NPHS1",
+  "P-C-JUN"                  = "JUN",
+  "P-EZRIN"                  = "EZR",
+  "P-RIBOSOMAL PROTEIN S6"   = "RPS6",
+  "P-STAT3"                  = "STAT3",
+  "P62/SQSTM1"               = "SQSTM1",
+  "PDI"                      = "P4HB",
+  "PHOSPHO-HISTONE H3"       = "H3-3A",
+  "PHOSPHO-ERK1/2"           = "MAPK3",
+  "PROTEASOME 20S LMP7"      = "PSMB9",
+  "RAB7"                     = "RAB7A",
+  "SR-B1"                    = "SCARB1",
+  "TALIN1"                   = "TLN1",
+  "UBIQUITYL-HISTONE H2B"    = "H2BC11",
+  "VIMENTIN"                 = "VIM"
+)
+
+s3 <- s3 %>%
+  mutate(
+    gene_symbol_mapped = coalesce(alias_map[gene_symbol], gene_symbol),
+    gene_symbol_mapped = na_if(gene_symbol_mapped, "NA")
+  )
+
+# ── Load S5 scRNA-seq results ─────────────────────────────────────────────────
+s5_raw <- read_excel(s5_path, skip = 1)
+colnames(s5_raw)[1:9] <- c("drop", "cell_type", "group", "comparison_group",
+                           "gene_symbol", "mean_group", "mean_comparison",
+                           "p_value", "log2fc")
+s5 <- s5_raw %>%
+  filter(!is.na(gene_symbol), gene_symbol != "Gene symbol") %>%
+  select(-drop) %>%
+  mutate(across(c(p_value, log2fc, mean_group, mean_comparison), as.numeric),
+         gene_symbol = str_trim(str_to_upper(gene_symbol)))
+
+s5_hits <- s5 %>%
+  filter(gene_symbol %in% na.omit(s3$gene_symbol_mapped))
+
+# ── Overlap: S3 vs proteomics (using limma results) ───────────────────────────
+prot_genes <- rownames(prot_imp)
+
+overlap <- s3 %>%
+  mutate(
+    in_proteomics = gene_symbol_mapped %in% prot_genes,
+    in_phospho    = gene_symbol_mapped %in% rownames(phos_imp)
+  )
+
+cat("\n── PathoPlex S3 Overlap ─────────────────────────────────────────────────\n")
+cat(sprintf("In proteomics:        %d / %d (%.1f%%)\n",
+            sum(overlap$in_proteomics, na.rm=TRUE), nrow(s3),
+            100*mean(overlap$in_proteomics, na.rm=TRUE)))
+cat(sprintf("In phosphoproteomics: %d / %d (%.1f%%)\n",
+            sum(overlap$in_phospho, na.rm=TRUE), nrow(s3),
+            100*mean(overlap$in_phospho, na.rm=TRUE)))
+
+# ── Merge limma FC with PathoPlex proteins ────────────────────────────────────
+# Use res_prot (limma, age+sex adjusted) instead of simple mean FC
+patho_limma <- overlap %>%
+  filter(in_proteomics) %>%
+  inner_join(
+    res_prot %>% select(feature_id, logFC, P.Value, adj.P.Val),
+    by = c("gene_symbol_mapped" = "feature_id")
+  )
+
+cat("\nPathoPlex proteins in proteomics with limma results:\n")
+print(patho_limma %>%
+        select(protein_label, gene_symbol_mapped, logFC, P.Value, adj.P.Val) %>%
+        arrange(P.Value), n = Inf)
+
+# ── Reversal analysis ─────────────────────────────────────────────────────────
+s5_dkd_avg <- s5_hits %>%
+  filter(p_value < 0.05, group == "DKD") %>%
+  group_by(gene_symbol) %>%
+  summarise(log2fc_dkd_scrna = mean(log2fc, na.rm = TRUE), .groups = "drop")
+
+reversal <- patho_limma %>%
+  inner_join(s5_dkd_avg, by = c("gene_symbol_mapped" = "gene_symbol")) %>%
+  mutate(
+    reversal_score  = logFC * log2fc_dkd_scrna,
+    reversed        = reversal_score < 0,
+    direction_label = case_when(
+      reversed & log2fc_dkd_scrna > 0 ~ "Up in DKD → Down with SGLT2i",
+      reversed & log2fc_dkd_scrna < 0 ~ "Down in DKD → Up with SGLT2i",
+      !reversed & log2fc_dkd_scrna > 0 ~ "Up in DKD → Up with SGLT2i",
+      !reversed & log2fc_dkd_scrna < 0 ~ "Down in DKD → Down with SGLT2i"
+    )
+  )
+
+cat("\n── Reversal Summary ─────────────────────────────────────────────────────\n")
+print(reversal %>% count(direction_label, reversed) %>% arrange(desc(n)))
+cat(sprintf("\n%d / %d proteins (%.1f%%) show reversal of DKD direction with SGLT2i\n",
+            sum(reversal$reversed), nrow(reversal),
+            100 * mean(reversal$reversed)))
+
+cat("\nTop reversed proteins (strongest reversal score):\n")
+print(reversal %>% filter(reversed) %>%
+        arrange(reversal_score) %>%
+        select(protein_label, gene_symbol_mapped, log2fc_dkd_scrna,
+               logFC, P.Value, reversal_score, direction_label), n = Inf)
+
+# ── Dotplot: all overlapping proteins, z-scored, using limma FC ───────────────
+s5_sglt2i_avg <- s5_hits %>%
+  filter(p_value < 0.05, group == "SGLT2i") %>%
+  group_by(gene_symbol) %>%
+  summarise(log2fc_scrna = mean(log2fc, na.rm = TRUE), .groups = "drop")
+
+# Z-score within modality
+prot_scaled <- patho_limma %>%
+  select(GENE = gene_symbol_mapped, protein_label, logFC) %>%
+  mutate(log2fc_prot_z = as.numeric(scale(logFC)))
+
+scrna_scaled <- bind_rows(
+  s5_sglt2i_avg %>% mutate(comparison = "SGLT2i vs Control"),
+  s5_dkd_avg    %>% rename(log2fc_scrna = log2fc_dkd_scrna) %>%
+    mutate(comparison = "DKD vs Control")
+) %>%
+  group_by(comparison) %>%
+  mutate(log2fc_scrna_z = as.numeric(scale(log2fc_scrna))) %>%
+  ungroup()
+
+combined <- prot_scaled %>%
+  left_join(scrna_scaled, by = c("GENE" = "gene_symbol")) %>%
+  mutate(
+    comparison   = replace_na(comparison, "Proteomics only"),
+    has_scrna    = !is.na(log2fc_scrna_z),
+    concordant_label = case_when(
+      !has_scrna ~ NA_character_,
+      sign(log2fc_prot_z) == sign(log2fc_scrna_z) ~ "Concordant",
+      TRUE ~ "Discordant"
+    )
+  ) %>%
+  mutate(GENE = factor(GENE, levels = prot_scaled %>%
+                         arrange(log2fc_prot_z) %>% pull(GENE)))
+
+pt_all <- bind_rows(
+  combined %>% select(GENE, comparison, log2fc_prot_z) %>%
+    mutate(modality = "Proteomics (Rinschen)", log2fc_z = log2fc_prot_z) %>%
+    distinct(),
+  combined %>% filter(has_scrna) %>%
+    select(GENE, comparison, log2fc_scrna_z) %>%
+    mutate(modality = "scRNA-seq (S5)", log2fc_z = log2fc_scrna_z)
+)
+
+seg_all <- combined %>%
+  filter(has_scrna) %>%
+  select(GENE, comparison, concordant_label, log2fc_prot_z, log2fc_scrna_z)
+
+p_patho_final <- ggplot() +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey60") +
+  geom_segment(data = seg_all,
+               aes(x = log2fc_scrna_z, xend = log2fc_prot_z,
+                   y = GENE, yend = GENE, color = concordant_label),
+               linewidth = 0.8, alpha = 0.6) +
+  scale_color_manual(name = "Direction",
+                     values = c("Concordant" = "#00A087", "Discordant" = "#E64B35"),
+                     na.value = NA) +
+  new_scale_color() +
+  geom_point(data = pt_all,
+             aes(x = log2fc_z, y = GENE, color = modality, shape = modality),
+             size = 2.5, alpha = 0.9, position = position_dodge(width = 0.5)) +
+  scale_color_manual(name = "Modality",
+                     values = c("Proteomics (Rinschen)" = "#F39B7F",
+                                "scRNA-seq (S5)"        = "#3C5488")) +
+  scale_shape_manual(name = "Modality",
+                     values = c("Proteomics (Rinschen)" = 17, "scRNA-seq (S5)" = 16)) +
+  facet_wrap(~ comparison, nrow = 1) +
+  labs(title    = "PathoPlex Proteins: Rinschen Proteomics vs S5 scRNA-seq",
+       subtitle = "Limma log2FC (age+sex adjusted), z-scored within modality",
+       x = "Scaled log2FC (z-score)", y = NULL) +
+  theme_bw(base_size = 11) +
+  theme(legend.position = "bottom", legend.box = "horizontal",
+        strip.text = element_text(face = "bold"),
+        axis.text.y = element_text(size = 8)) +
+  guides(color = guide_legend(order = 1, nrow = 1),
+         shape = guide_legend(order = 2, nrow = 1))
+
+print(p_patho_final)
+ggsave(file.path(base_dir, "plots/patho_dotplot_limma.pdf"),
+       p_patho_final, width = 14, height = 10)
+
+# ── Save reversal results ─────────────────────────────────────────────────────
+write.xlsx(list(
+  Overlap    = overlap %>% select(protein_label, gene_symbol_mapped,
+                                  target, in_proteomics, in_phospho),
+  Limma_FC   = patho_limma %>% select(protein_label, gene_symbol_mapped,
+                                      target, logFC, P.Value, adj.P.Val),
+  Reversal   = reversal %>% select(protein_label, gene_symbol_mapped,
+                                   log2fc_dkd_scrna, logFC, P.Value,
+                                   reversal_score, reversed, direction_label)
+), file.path(base_dir, "results/PathoPlex_comparison.xlsx"), overwrite = TRUE)
+
+cat("\nSection 10 complete — saved plots/patho_dotplot_limma.pdf\n")
+cat("and results/PathoPlex_comparison.xlsx\n")
+
+
+
