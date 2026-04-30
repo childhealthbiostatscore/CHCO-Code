@@ -85,28 +85,60 @@ t1d_hc_dat_soma <- s3readRDS(object = "data_clean/t1d_hc_clinical_data_soma.csv"
 ```{r}
 meta <- t1d_hc_dat_soma %>%
   dplyr:: select (-starts_with("seq"))
-meta$group
+#meta$group
 meta$group <- factor(
   meta$group,
   levels = c("Lean Control","Type 1 Diabetes"),
   labels = c("LC","T1D")
 )
-meta$bmi_obesity
-meta$dxa_obesity
 
+meta <- meta %>%
+  dplyr::mutate(
+    study = dplyr::recode(study,
+      "CROCODILE"   = "CRC",
+      "PANDA"       = "PAN",
+      "RENAL-HEIR"  = "RH",
+      "CASPER" = "CAS",
+      "ATTEMPT" = "ATT"
+    )
+  )
+
+meta$record_id <- as.character(meta$record_id)
+#meta$bmi_obesity
+#meta$dxa_obesity
+# keep only participants with BOTH BMI and DXA obesity
+meta2 <- meta %>%
+  dplyr::filter(
+    !is.na(bmi_obesity) #,
+    #!is.na(dxa_obesity)
+  )
 
 dat <- t1d_hc_dat_soma %>%
   dplyr::select(record_id, starts_with("seq"))
 
-dat_urine <- dat %>%
-  dplyr::select(ends_with("urine"), ends_with("urine_cradj"))
+
+#dat_urine <- dat %>%
+#  dplyr::select(ends_with("urine"), ends_with("urine_cradj"))
 
 dat_plasma <- dat %>%
   dplyr:: select(-ends_with("urine"), -ends_with("urine_cradj"))
 dat_plasma <- as.data.frame(dat_plasma)
 rownames(dat_plasma) <- dat_plasma$record_id
 dat_plasma$record_id <- NULL
+
+#filtering final matrices to have the same record_ids
+ids_keep <- meta2$record_id
+
+# plasma
+dat_plasma2 <- dat_plasma[ids_keep, , drop = FALSE]
+meta2 <- meta2 %>%
+  dplyr::filter(record_id %in% rownames(dat_plasma2))
+meta2 <- meta2[match(rownames(dat_plasma2), meta2$record_id), ]
+
+stopifnot(identical(rownames(dat_plasma2), meta2$record_id))
+
 ```
+
 
 ##filter to proteins that are only in the analyte panel (~7000)
 ##check if this is correct for the newer somascan prot pannel
@@ -117,36 +149,58 @@ analytes <- read.csv(
   file.path(root_path, "Data Harmonization", "Combined SomaScan", "analytes.csv")
 )
 
-prot_panel <- unique(trimws(as.character(analytes$AptName)))
+stopifnot("AptName" %in% colnames(analytes))
 
-##keep only aptamers that are present in the protein matrix
-aptamers_keep <- intersect(prot_panel, colnames(dat_plasma))
+prot_panel <- analytes$AptName %>%
+  as.character() %>%
+  trimws() %>%
+  unique()
 
-##subset protein matrix to those aptamers
-dat_plasma2 <- dat_plasma[, aptamers_keep, drop = FALSE]
+prot_panel <- prot_panel[!is.na(prot_panel) & prot_panel != ""]
 
-dim(dat_plasma2) #should be ~7000
-dim(dat_plasma) #should be ~10000
-length(aptamers_keep)
-length(setdiff(prot_panel, colnames(dat_plasma)))
+aptamers_keep <- intersect(prot_panel, colnames(dat_plasma2))
 
-##log transform protein data
-dat_plasma2 <- as.matrix(dat_plasma2)
-dat_log <- log2(dat_plasma2 + 1)
+if (length(aptamers_keep) == 0) {
+  stop("No analytes from analytes.csv matched columns in dat_plasma2.")
+}
+
+dat_plasma3 <- dat_plasma2[, aptamers_keep, drop = FALSE]
+
+cat("Plasma features before analyte filter:", ncol(dat_plasma2), "\n")
+cat("Proteins in analyte panel:", length(prot_panel), "\n")
+cat("Matched proteins kept:", length(aptamers_keep), "\n")
+cat("Panel proteins missing from plasma matrix:", length(setdiff(prot_panel, colnames(dat_plasma2))), "\n")
+
+# force numeric safely
+dat_plasma3 <- as.data.frame(dat_plasma3)
+
+dat_plasma3[] <- lapply(dat_plasma3, function(x) {
+  suppressWarnings(as.numeric(as.character(x)))
+})
+
+dat_plasma3 <- as.matrix(dat_plasma3)
+
+# log2 transform
+dat_log <- log2(dat_plasma3 + 1)
 dat_log[!is.finite(dat_log)] <- NA_real_
 
-
+stopifnot(identical(rownames(dat_log), meta2$record_id))
 ```
+
 
 ```{r}
 #not really necessary to do as all protiens pass filter once I remove the extra 3000 from the ATTEMPT Panel
 ##filtering step where protein must exist in 60% of samples in a study
-study_idx_all <- split(seq_len(nrow(dat_log)), meta$study)
+stopifnot(identical(rownames(dat_log), meta2$record_id))
+meta2$study <- factor(meta2$study)
+
+study_idx_all <- split(seq_len(nrow(dat_log)), meta2$study)
 present_by_study_all <- sapply(study_idx_all, function(idx) {
-  colMeans(!is.na(dat_log[idx, ])) >= 0.6
+  colMeans(!is.na(dat_log[idx, , drop = FALSE])) >= 0.6
 })
 
 present_by_study_all <- as.matrix(present_by_study_all)
+
 n_studies_present_all <- rowSums(present_by_study_all)
 keep_study_all <- n_studies_present_all >= 2
 
@@ -157,8 +211,15 @@ cat("All proteomic features before study filter:", ncol(dat_log), "\n")
 cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_proteins), "\n")
 cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_proteins), "\n")
 
-dat_log_filt <- dat_log[, kept_proteins, drop = FALSE] #
+if (length(kept_proteins) == 0) {
+  stop("No proteins passed the study presence filter.")
+}
+
+dat_log_filt <- dat_log[, kept_proteins, drop = FALSE]
+
+stopifnot(identical(rownames(dat_log_filt), meta2$record_id))
 ```
+
 #imputating the data
 ```{r}
 set.seed(1835)
@@ -185,7 +246,7 @@ dat_imp <- dat_imp[, keep_cols, drop = FALSE]
 ## Find and Remove Outliers in PCA
 ##---------------------------------
 ```{r}
-stopifnot(identical(rownames(dat_imp), meta$record_id))
+stopifnot(identical(rownames(dat_imp), meta2$record_id))
 
 # PCA outlier detection
 pca0 <- prcomp(dat_imp, center = TRUE, scale. = TRUE)
@@ -204,25 +265,22 @@ outliers
 
 # remove outliers from matrix
 dat_imp2 <- dat_imp[
-  !rownames(dat_imp) %in% outliers,
-  ,
-  drop = FALSE
-]
+  !rownames(dat_imp) %in% outliers,, drop = FALSE]
 
 # remove outliers from metadata
-meta2 <- meta %>%
+meta3 <- meta2 %>%
   dplyr::filter(!record_id %in% outliers)
 
 # reorder metadata to match matrix
-meta2 <- meta2[match(rownames(dat_imp2), meta2$record_id), ]
+meta3 <- meta3[match(rownames(dat_imp2), meta3$record_id), ]
 
 # checks
-cat("Still present in metadata? ", any(outliers %in% meta2$record_id), "\n")
+cat("Still present in metadata? ", any(outliers %in% meta3$record_id), "\n")
 cat("Still present in matrix? ", any(outliers %in% rownames(dat_imp2)), "\n")
 
-stopifnot(!any(outliers %in% meta2$record_id))
+stopifnot(!any(outliers %in% meta3$record_id))
 stopifnot(!any(outliers %in% rownames(dat_imp2)))
-stopifnot(identical(rownames(dat_imp2), meta2$record_id))
+stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 
 ```
 
@@ -261,16 +319,17 @@ make_pca_plot <- function(mat, meta_df, title_str) {
 ## PCAs
 ##-----------
 ```{r}
-p  <- make_pca_plot(dat_imp2, meta2, "No adjustment")
+design <- model.matrix(~ group, data = meta3)
+p  <- make_pca_plot(dat_imp2, meta3, "No adjustment")
 
-cov_m1 <- model.matrix(~ age + sex, data = meta2)[, -1, drop = FALSE]
-prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1))
-p1 <- make_pca_plot(prot_m1, meta2, "Age + Sex")
+cov_m1 <- model.matrix(~ age + sex, data = meta3)[, -1, drop = FALSE]
+prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1, design = design))
+p1 <- make_pca_plot(prot_m1, meta3, "Age + Sex")
 
 
-cov_m2 <- model.matrix(~ age + sex + study, data = meta2)[, -1, drop = FALSE]
-prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2))
-p2 <- make_pca_plot(prot_m2, meta2, "Age + Sex + Study")
+cov_m2 <- model.matrix(~ age + sex + study, data = meta3)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2, design = design))
+p2 <- make_pca_plot(prot_m2, meta3, "Age + Sex + Study")
 
 (p | p1 | p2)
 ```
@@ -282,10 +341,10 @@ make_pca_plot2 <- function(mat, meta_df, title_str) {
   tibble(
     PC1    = pca$x[, 1],
     PC2    = pca$x[, 2],
-    group = meta_df$bmi_obesity,
+    bmi_obesity = meta_df$bmi_obesity,
     study  = meta_df$study
   ) %>%
-    ggplot(aes(PC1, PC2, color = group, shape = study)) +
+    ggplot(aes(PC1, PC2, color = bmi_obesity, shape = study)) +
     geom_point(size = 3, alpha = 0.85) +
     scale_color_manual(
       values = c(
@@ -307,21 +366,195 @@ make_pca_plot2 <- function(mat, meta_df, title_str) {
 ## PCAs
 ##-----------
 ```{r}
-p  <- make_pca_plot2(dat_imp2, meta2, "No adjustment")
+design <- model.matrix(~ bmi_obesity, data = meta3)
 
-cov_m1 <- model.matrix(~ age + sex, data = meta2)[, -1, drop = FALSE]
-prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1))
-p1 <- make_pca_plot2(prot_m1, meta2, "Age + Sex")
+p  <- make_pca_plot2(dat_imp2, meta3, "No adjustment")
+
+cov_m1 <- model.matrix(~ age + sex, data = meta3)[, -1, drop = FALSE]
+prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1, design = design))
+p1 <- make_pca_plot2(prot_m1, meta3, "Age + Sex")
 
 
-cov_m2 <- model.matrix(~ age + sex + study, data = meta2)[, -1, drop = FALSE]
-prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2))
-p2 <- make_pca_plot2(prot_m2, meta2, "Age + Sex + Study")
+cov_m2 <- model.matrix(~ age + sex + study, data = meta3)[, -1, drop = FALSE]
+prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2, design = design))
+p2 <- make_pca_plot2(prot_m2, meta3, "Age + Sex + Study")
 
 (p | p1 | p2)
 ```
-#run limma
 ```{r}
+table(meta3$group, meta3$bmi_obesity)
+```
+```{r}
+#setting up limma matrices
+# make sure matrix and metadata match
+stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 
+#neet to transform for limma
+mat1 <- t(dat_imp2)
+
+# set "normal" as reference group
+meta3$bmi_obesity <- factor(
+  meta3$bmi_obesity,
+  levels = c("Normal", "Overweight", "Obese")
+)
+
+meta3$study <- factor(meta3$study)
+```
+
+
+#---------------------------------------------
+#run limma between disease status T1D vs LC
+#---------------------------------------------
+```{r}
+design_m1 <- model.matrix(~ group + age + sex + study, data = meta3) #add/remove study
+
+colnames(design_m1)
+
+# fit model
+disease_m1 <- lmFit(mat1, design_m1)
+disease_m1 <- eBayes(disease_m1)
+
+# extract T1D vs LC
+res_disease_m1 <- topTable(
+  disease_m1,
+  coef = "groupT1D",
+  number = Inf,
+  adjust.method = "BH"
+) %>%
+  rownames_to_column("protein_id") %>%
+  mutate(
+    model = "Disease status: T1D vs LC + age + sex + study",
+    contrast = "T1D vs LC",
+    direction = case_when(
+      adj.P.Val < 0.05 & logFC > 0 ~ "Higher in T1D",
+      adj.P.Val < 0.05 & logFC < 0 ~ "Lower in T1D",
+      TRUE ~ "Not significant"
+    )
+  )
+
+table(res_disease_m1$direction)
+```
+#---------------------------------------------
+#run limma for adiposity across disease status
+#---------------------------------------------
+```{r}
+# Model 1: BMI obesity + age + sex
+design_m1 <- model.matrix(~ 0 + bmi_obesity + age + sex + study, data = meta3) #add/remove study
+colnames(design_m1)
+
+contrast_matrix <- makeContrasts(
+  Overweight_vs_Normal = bmi_obesityOverweight - bmi_obesityNormal,
+  Obese_vs_Normal = bmi_obesityObese - bmi_obesityNormal,
+  Obese_vs_Overweight = bmi_obesityObese - bmi_obesityOverweight,
+  levels = design_m1
+)
+
+
+m <- lmFit(mat1, design_m1)
+m1 <- contrasts.fit(m, contrast_matrix)
+m1 <- eBayes(m1)
+
+results_list <- lapply(colnames(contrast_matrix), function(cn) {
+  topTable(m1, coef = cn, number = Inf, adjust.method = "BH") %>%
+    rownames_to_column("protein_id") %>%
+    mutate(
+      contrast = cn,
+      direction = case_when(
+        adj.P.Val < 0.05 & logFC > 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][1]),
+        adj.P.Val < 0.05 & logFC < 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][2]),
+        TRUE ~ "Not significant"
+      )
+    )
+})
+
+results_bmi_all <- bind_rows(results_list)
+results_sig <- results_bmi_all %>%
+  dplyr::filter(
+    adj.P.Val < 0.05
+  )
+results_sig
+```
+
+#------------------------------------
+#limma with only T1D Adiposity Groups
+#------------------------------------
+```{r}
+#subsetting to only T1D group
+meta_t1d <- meta3 %>%
+  dplyr::filter(group == "T1D") %>%
+  dplyr::filter(!is.na(bmi_obesity), !is.na(age), !is.na(sex), !is.na(study))
+
+dat_t1d <- dat_imp2[meta_t1d$record_id, , drop = FALSE]
+
+# reorder metadata to match matrix
+meta_t1d <- meta_t1d[match(rownames(dat_t1d), meta_t1d$record_id), ]
+
+stopifnot(identical(rownames(dat_t1d), meta_t1d$record_id))
+```
+
+```{r}
+#resetting groups as factors
+meta_t1d$bmi_obesity <- factor(
+  meta_t1d$bmi_obesity,
+  levels = c("Normal", "Overweight", "Obese")
+)
+
+meta_t1d$sex   <- factor(meta_t1d$sex)
+meta_t1d$study <- factor(meta_t1d$study)
+
+table(meta_t1d$bmi_obesity)
+table(meta_t1d$study)
+```
+```{r}
+mat_t1d <- t(dat_t1d)
+
+design_t1d <- model.matrix(~ 0 + bmi_obesity + age + sex + study,data = meta_t1d
+)
+
+# optional, but protects against invalid names
+colnames(design_t1d) <- make.names(colnames(design_t1d))
+
+colnames(design_t1d)
+
+contrast_t1d <- makeContrasts(
+  Overweight_vs_Normal =
+    bmi_obesityOverweight - bmi_obesityNormal,
+  Obese_vs_Normal =
+    bmi_obesityObese - bmi_obesityNormal,
+  Obese_vs_Overweight =
+    bmi_obesityObese - bmi_obesityOverweight,
+  levels = design_t1d
+)
+```
+```{r}
+fit_t1d <- lmFit(mat_t1d, design_t1d)
+
+fit_t1d2 <- contrasts.fit(fit_t1d, contrast_t1d)
+fit_t1d2 <- eBayes(fit_t1d2)
+```
+
+```{r}
+results_t1d_bmi_all <- lapply(colnames(contrast_t1d), function(cn) {
+  topTable(
+    fit_t1d2,
+    coef = cn,
+    number = Inf,
+    adjust.method = "BH"
+  ) %>%
+    rownames_to_column("protein_id") %>%
+    mutate(
+      contrast = cn,
+      direction = case_when(
+        adj.P.Val < 0.05 & logFC > 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][1]),
+        adj.P.Val < 0.05 & logFC < 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][2]),
+        TRUE ~ "Not significant"
+      )
+    )
+}) %>%
+  bind_rows()
+
+res_t1d_bmi_sig <- results_t1d_bmi_all %>%
+  dplyr::filter(adj.P.Val <= 0.05)
+res_t1d_bmi_sig
 ```
 
