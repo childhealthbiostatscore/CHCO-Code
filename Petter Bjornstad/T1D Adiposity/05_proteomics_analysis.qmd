@@ -24,6 +24,7 @@ library(purrr)
 library(haven)
 library(ggVennDiagram)
 library(caret)
+library(kableExtra)
 ```
 
 ```{r}
@@ -51,7 +52,7 @@ if (user == "choiyej") { # local version
     keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "savanahleidholt") {
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/T1D Adiposity/Results/Compiled Results/Proteomics Results")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
     keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "pylell") {
@@ -283,6 +284,39 @@ stopifnot(!any(outliers %in% rownames(dat_imp2)))
 stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 
 ```
+#Data tables
+```{r}
+table_study_bmi <- meta3 %>%
+  count(study, bmi_obesity) %>%
+  pivot_wider(
+    names_from = bmi_obesity,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(Total = rowSums(across(where(is.numeric))))
+
+table_study_bmi %>%
+  kable(
+    caption = "Participants by study and BMI adiposity group"
+  ) %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r}
+study_group_bmi_table <- meta3 %>%
+  dplyr::count(study, group, bmi_obesity, name = "n") %>%
+  tidyr::unite("group_bmi", group, bmi_obesity, sep = "_") %>%
+  tidyr::pivot_wider(
+    names_from = group_bmi,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  dplyr::mutate(
+    Total = rowSums(dplyr::across(where(is.numeric)))
+  )
+
+study_group_bmi_table
+```
 
 #---------------
 # Plotting Funciton
@@ -315,9 +349,9 @@ make_pca_plot <- function(mat, meta_df, title_str) {
     theme_bw()
 }
 ```
-##-----------
-## PCAs
-##-----------
+##-----------------------
+## PCAs by disease status
+##-----------------------
 ```{r}
 design <- model.matrix(~ group, data = meta3)
 p  <- make_pca_plot(dat_imp2, meta3, "No adjustment")
@@ -348,9 +382,9 @@ make_pca_plot2 <- function(mat, meta_df, title_str) {
     geom_point(size = 3, alpha = 0.85) +
     scale_color_manual(
       values = c(
-        Overweight  = "Cyan4",
-        Obese = "DarkRed",
-        Normal = "Gold"
+        Overweight  = "cyan4",
+        Obese = "plum4",
+        Normal = "orange3"
       ),
       name = "BMI group"
     ) +
@@ -362,9 +396,9 @@ make_pca_plot2 <- function(mat, meta_df, title_str) {
     theme_bw()
 }
 ```
-##-----------
-## PCAs
-##-----------
+##------------------
+## PCAs by bmi group
+##------------------
 ```{r}
 design <- model.matrix(~ bmi_obesity, data = meta3)
 
@@ -381,9 +415,7 @@ p2 <- make_pca_plot2(prot_m2, meta3, "Age + Sex + Study")
 
 (p | p1 | p2)
 ```
-```{r}
-table(meta3$group, meta3$bmi_obesity)
-```
+
 ```{r}
 #setting up limma matrices
 # make sure matrix and metadata match
@@ -470,7 +502,8 @@ results_list <- lapply(colnames(contrast_matrix), function(cn) {
 results_bmi_all <- bind_rows(results_list)
 results_sig <- results_bmi_all %>%
   dplyr::filter(
-    adj.P.Val < 0.05
+    adj.P.Val < 0.05,
+    abs(logFC) > 0
   )
 results_sig
 ```
@@ -554,7 +587,75 @@ results_t1d_bmi_all <- lapply(colnames(contrast_t1d), function(cn) {
   bind_rows()
 
 res_t1d_bmi_sig <- results_t1d_bmi_all %>%
-  dplyr::filter(adj.P.Val <= 0.05)
+  dplyr::filter(adj.P.Val <= 0.05, abs(logFC) >= 0) 
 res_t1d_bmi_sig
+```
+```{r}
+sig_cutoff <- 0.05
+lfc_cutoff <- 0   # change to 0.5 if you want stricter filtering
+
+combined_sig_terms <- dplyr::bind_rows(
+  
+  res_disease_m1 %>%
+    dplyr::mutate(
+      analysis = "Disease status",
+      model = "T1D vs LC + age + sex + study"
+    ),
+  
+  results_bmi_all %>%
+    dplyr::mutate(
+      analysis = "BMI adiposity - all participants",
+      model = "BMI group + age + sex + study"
+    ),
+  
+  results_t1d_bmi_all %>%
+    dplyr::mutate(
+      analysis = "BMI adiposity - T1D only",
+      model = "BMI group within T1D + age + sex + study"
+    )
+) %>%
+  dplyr::filter(
+    adj.P.Val < sig_cutoff,
+    abs(logFC) > lfc_cutoff
+  ) %>%
+  dplyr::mutate(
+    direction_simple = dplyr::case_when(
+      logFC > 0 ~ "Positive logFC",
+      logFC < 0 ~ "Negative logFC",
+      TRUE ~ "No change"
+    )
+  ) %>%
+  dplyr::select(
+    analysis,
+    model,
+    contrast,
+    protein_id,
+    logFC,
+    AveExpr,
+    t,
+    P.Value,
+    adj.P.Val,
+    B,
+    direction,
+    direction_simple
+  ) %>%
+  dplyr::arrange(analysis, contrast, adj.P.Val)
+
+combined_sig_terms_n <- combined_sig_terms %>%
+  dplyr::count(analysis, contrast, direction, name = "n_sig")
+combined_sig_terms_n
+
+
+write.csv(
+  combined_sig_terms,
+  file = file.path(dir.results, "limma_results.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  combined_sig_terms_n,
+  file = file.path(dir.results, "sig_DEP_counts.csv"),
+  row.names = FALSE
+)
 ```
 
