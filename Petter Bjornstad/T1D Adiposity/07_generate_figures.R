@@ -12,8 +12,8 @@
 library(aws.s3)
 library(jsonlite)
 library(dplyr)
-library(ggplot2)
 library(ggrepel)
+library(ggplot2)
 library(fgsea)
 library(msigdbr)
 library(tidyverse)
@@ -1039,10 +1039,10 @@ for (i in seq_len(nrow(meta_compiled_general))) {
   }
   
   # --- Volcano plot (FDR) — skip if no FDR-significant DEGs ---
-  fdr_row <- deg_summary_df %>%
+  fdr_row <- meta_compiled_filtered %>%
     dplyr::filter(analysis_type == !!analysis_type, celltype == !!celltype) %>%
     dplyr::slice(1)
-  has_fdr_sig <- nrow(fdr_row) > 0 && (fdr_row$Positive_fdr + fdr_row$Negative_fdr) > 0
+  has_fdr_sig <- nrow(fdr_row) > 0 && (fdr_row$fdr_pos + fdr_row$fdr_neg) > 0
   
   if (has_fdr_sig) {
     vp_fdr <- make_volcano(df, p_col = pval_col, fc = logfc_col,
@@ -1099,3 +1099,5 @@ cat(sprintf("  Butterfly plots: %d (pval) + %d (fdr)\n",
             if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0,
             if (exists("deg_summary_df")) n_distinct(deg_summary_df$analysis_type) else 0))
 cat("\nFigure generation complete!\n")
+
+

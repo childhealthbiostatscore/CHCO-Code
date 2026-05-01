@@ -45,9 +45,9 @@ Sys.setenv(
 )
 
 pb90_attempt_subset <- s3readRDS(
-          object = "data_clean/t1d_hc_scrna_w_clinical.rds", 
-          bucket = "t1d.adiposity",
-          region = "")
+  object = "data_clean/t1d_hc_scrna_w_clinical.rds", 
+  bucket = "t1d.adiposity",
+  region = "")
 
 my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
 # Read Seurat object and run UMAP, obtain cell numbers, etc
@@ -94,7 +94,7 @@ put_object(
 
 # UMAP by source
 umap_p_source <- ggplot(pb90_attempt_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = source)) +
+                        aes(x = umapharmony_1, y = umapharmony_2, color = source)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("attempt" = "#c1121f", 
                                 "pb90" = "#62b6cb")) +
@@ -229,7 +229,7 @@ ggplot(cell_counts_bmi_ob, aes(x = reorder(KPMP_celltype_general, n), y = n, fil
   coord_flip() +
   labs(x = NULL, 
        y = "Count",
-       fill = "Group\nby BMI %ile") +
+       fill = "Group\nby BMI") +
   theme(text = element_text(size = 15),
         panel.grid = element_blank()) +
   theme_transparent +
@@ -247,3 +247,74 @@ put_object(
   region = ""
 )
 
+# PT subtypes in obesity groups
+cell_counts_bmi_ob_pt <- pb90_attempt_subset_meta %>%
+  filter(group == "Type 1 Diabetes" & !is.na(bmi_obesity)) %>%
+  group_by(bmi_obesity) %>%
+  filter(KPMP_celltype_general == "PT") %>%
+  dplyr::count(KPMP_celltype) %>%
+  arrange(desc(n))
+
+ggplot(cell_counts_bmi_ob_pt, aes(x = bmi_obesity, y = n, fill = KPMP_celltype)) +
+  geom_col(position = "fill") +
+  labs(x = NULL, 
+       y = "Proportion",
+       fill = "Group\nby BMI") +
+  scale_fill_manual(values = c("aPT" = "#e76f51",
+                               "PT-S1/S2" = "#e9c46a",
+                               "PT-S3" = "#264653")) +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  theme_transparent  +
+  scale_y_continuous(labels = scales::percent) 
+
+# Save to a temporary connection
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp, width = 10, height = 8, dpi = 300)
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "results/figures/t1d_bmi_ob_pt_cell_count_bar.png",
+  bucket = "t1d.adiposity",
+  region = ""
+)
+
+# EC subtypes in obesity groups
+cell_counts_bmi_ob_ec <- pb90_attempt_subset_meta %>%
+  filter(group == "Type 1 Diabetes" & !is.na(bmi_obesity)) %>%
+  group_by(bmi_obesity) %>%
+  filter(KPMP_celltype_general == "EC") %>%
+  dplyr::count(KPMP_celltype) %>%
+  arrange(desc(n))
+
+ggplot(cell_counts_bmi_ob_ec, aes(x = bmi_obesity, y = n, fill = KPMP_celltype)) +
+  geom_col(position = "fill") +
+  labs(x = NULL, 
+       y = "Proportion",
+       fill = "Group\nby BMI") +
+  scale_fill_manual(values = c("EC-GC" = "#264653",
+                               "EC-PTC" = "#287271",
+                               "EC-AVR" = "#2a9d8f",
+                               "EC-AEA" = "#8ab17d",
+                               "EC-GC" = "#e9c46a",
+                               "EC/VSMC" = "#ee8959",
+                               "EC-LYM" = "#e76f51")) +
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  theme_transparent  +
+  scale_y_continuous(labels = scales::percent) 
+
+# Save to a temporary connection
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp, width = 10, height = 8, dpi = 300)
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "results/figures/t1d_bmi_ob_ec_cell_count_bar.png",
+  bucket = "t1d.adiposity",
+  region = ""
+)
