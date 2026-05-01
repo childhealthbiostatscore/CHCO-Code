@@ -44,7 +44,7 @@ if (user == "choiyej") { # local version
   stop("Unknown user: please specify root path for this user.")
 }
 
-knitr::opts_knit$set(root.dir = home_dir)
+knitr::opts_knit$set(root.dir = root_path)
 ```
 
 ```{r, include=FALSE}
@@ -327,5 +327,37 @@ saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metab
 Need to remember that the interpretation of the hazard ratios is as follows: for a one SD increase in the log of seqXXX, the risk is multiplied by....
 
 ```{r echo=FALSE, include=TRUE}
+# kaplan meier plot for ASN abstract: 
+library(survminer)
+base$yearsMAC<-base$DAYSTOMAC/365.25
+base$yearsMIC<-base$DAYSTOMIC/365.25
+fit_mac <- survfit(Surv(yearsMAC, MAC) ~ 1, data = base)
+fit_mic <- survfit(Surv(yearsMIC, MIC) ~ 1, data = base)
 
+# Plot the data
+fit <- list(Macroalbuminuria = fit_mac, Microalbuminuria = fit_mic)
+ggsurvplot(fit, data = base, combine = TRUE, # Combine curves
+           risk.table = TRUE,                  # Add risk table
+           conf.int = TRUE,                    # Add confidence interval
+           conf.int.style = "step",            # CI style, use "step" or "ribbon"
+           censor = FALSE,                     # Remove censor points
+           tables.theme = theme_cleantable(),  # Clean risk table
+           palette = "jco")
+
+#by median ceramide level:
+base$C24d18<-ifelse(base$C24d18_1_24_0.in.uM<=median(base$C24d18_1_24_0.in.uM,na.rm=T),"<17.4",">17.4")
+fit_mic_c24 <- survfit(Surv(yearsMIC, MIC) ~ C24d18, data = base)
+jpeg("/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics Linear and Cox models/c24_micro_km.jpeg",units="in",height=6,width=8,res=300)
+ggsurvplot(fit_mic_c24, data = base,
+           risk.table = TRUE,                  # Add risk table
+           conf.int = F,                    # Add confidence interval
+           conf.int.style = "step",            # CI style, use "step" or "ribbon"
+           censor = FALSE,                     # Remove censor points
+           tables.theme = theme_cleantable(),  # Clean risk table
+           xlab="Years in study",
+           ylab="Microalbuminuria-free probability",
+           legend.title="C24d18 level at baseline",
+           legend.labs=c("below median (17.4)","above median (17.4)"),
+           palette = "npg")
+dev.off()
 ```

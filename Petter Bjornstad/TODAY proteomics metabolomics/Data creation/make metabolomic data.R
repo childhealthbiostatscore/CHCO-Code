@@ -87,6 +87,21 @@ niddk_plasma_ceramides_2026<-niddk_plasma_ceramides_2026[- grep("HC_", niddk_pla
 lead_plasma_ceramides_2026 <- openxlsx::read.xlsx("./Metabolomic data/TODAY_LEAD_Plasma_Ceramides_Final.xlsx", sheet = "TODAY_LEAD_Plasma_Ceramides",
                                          startRow = 2,colNames = TRUE)
 
+# read in MTA samples (May 2026):
+niddk_mta_2026 <- openxlsx::read.xlsx("./Metabolomic data/20260429_TODAY_NIDDK and Healthy urine adenine to MTA.xlsx", sheet = "TODAY_NIDDK Urines",
+                                                   startRow = 2,colNames = TRUE)
+niddk_mta_2026<-subset(niddk_mta_2026,!niddk_mta_2026$Filename%in%c("Note","F","M","MTA"))
+#remove healthy controls:
+niddk_mta_2026<-niddk_mta_2026[- grep("F", niddk_mta_2026$Filename),]
+niddk_mta_2026<-niddk_mta_2026[- grep("M", niddk_mta_2026$Filename),]
+
+lead_mta_2026 <- openxlsx::read.xlsx("./Metabolomic data/20260429_TODAY_LEAD and Healthy urine adenine to MTA.xlsx", sheet = "TODAY_LEAD_Urines",
+                                      startRow = 2,colNames = TRUE)
+lead_mta_2026<-subset(lead_mta_2026,!lead_mta_2026$Filename%in%c("Note","F","M","MTA"))
+#remove healthy controls:
+lead_mta_2026<-lead_mta_2026[- grep("F", lead_mta_2026$Filename),]
+lead_mta_2026<-lead_mta_2026[- grep("M", lead_mta_2026$Filename),]
+
 ######################
 # link IDs and merge #
 ######################
@@ -115,6 +130,14 @@ lead_urine <- merge(lead_urine,ids_lead,by="Sample.Name",all.x=T, all.y = F)
 lead_urine$current_label <- NA
 # combine NIH and LEAD
 urine <- rbind(nih_urine,lead_urine)
+
+# added on 5/1: merge in MTA data with urine:
+niddk_mta_2026$current_label <-niddk_mta_2026$Filename
+niddk_mta_2026 <- merge(niddk_mta_2026,ids_niddk,by="current_label",all.x = T, all.y = F)
+lead_mta_2026$releaseid<-lead_mta_2026$Filename
+
+mta<-rbind(niddk_mta_2026[,c("releaseid","Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")],
+                lead_mta_2026[,c("releaseid","Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")])
 
 # merge to plasma
 # first NIH
@@ -164,9 +187,6 @@ plasma_all<-merge(plasma,plasma_ceramides,by=c("releaseid","Date.Drawn"),all=T)
 # Save
 save(urine,file = "./Metabolomic data/urine.Rdata")
 save(plasma_all,file = "./Metabolomic data/plasma_all.Rdata")
+save(mta,file = "./Metabolomic data/mta.Rdata")
 
-# save(plasma,file = "./Metabolomic data/plasma.Rdata")
-# save(plasma_ceramides,file = "./Metabolomic data/plasma_ceramides.Rdata")
-
-# write.csv(plasma, file = "./Metabolomic data/today_plasma_metabolomics.csv", row.names = F, na = "")
 
