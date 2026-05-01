@@ -81,6 +81,7 @@ Sys.setenv(
 #no dxa on attempt
 #also do waist to hip = wthr, wthr_obesity
 #hba1c with age
+#check mrns to see if there are people are co-enrolled
 
 ```{r}
 t1d_hc_dat_soma <- s3readRDS(object = "data_clean/t1d_hc_clinical_data_soma.csv", 
@@ -530,7 +531,7 @@ make_volcano <- function(results_df,
                          contrast_name,
                          title_prefix = NULL,
                          p_cutoff = 0.05,
-                         fc_cutoff = 0.1,
+                         fc_cutoff = 0.5,
                          label_n = 15) {
   
   df <- results_df %>%
@@ -559,29 +560,41 @@ make_volcano <- function(results_df,
     dplyr::slice_head(n = label_n)
   
   ggplot(df, aes(x = logFC, y = neg_log10_adj_p)) +
+    
     geom_point(aes(color = sig_group), alpha = 0.75, size = 2) +
+    
     geom_vline(xintercept = c(-fc_cutoff, fc_cutoff), linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "solid", alpha = 0.5) +
+    
     geom_hline(yintercept = -log10(p_cutoff), linetype = "dashed") +
+    
     ggrepel::geom_text_repel(
       data = top_labels,
       aes(label = protein_id),
       size = 3.5,
       max.overlaps = Inf
     ) +
+    
     scale_color_manual(
       values = c(
-        "Up" = "red3",
-        "Down" = "blue3",
+        "Up" = "darkred",
+        "Down" = "cyan4",
         "Not significant" = "grey70"
       ),
       labels = legend_labs
     ) +
+    
+    coord_cartesian(xlim = c(-2, 3)) +   # ← THIS IS THE KEY LINE
+    
+    scale_x_continuous(breaks = seq(-2, 3, by = 1)) +
+    
     labs(
       title = paste0(title_prefix, "\n", contrast_name),
       x = "log2 Fold Change",
       y = "-log10 adjusted P-value",
       color = NULL
     ) +
+    
     theme_bw() +
     theme(
       panel.grid = element_blank(),
@@ -676,12 +689,12 @@ plots_m3 <- make_volcano_list(
   label_n = 5
 )
 
-top_row <- plots_m0[[1]] + plots_m0[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m0[[3]] + plots_m0[[4]] + plots_m0[[5]]
+top_row <- plots_m3[[1]] + plots_m3[[2]] 
+bottom_row <- plots_m3[[3]] + plots_m3[[4]] 
 
-panel_m0_5 <- top_row / bottom_row
+panel_m3_5 <- top_row / bottom_row
 
-panel_m0_5
+panel_m3_5
 ```
 #-----------------
 #pathway anlaysis
@@ -761,7 +774,9 @@ run_fgsea_model <- function(res_df,
                             pathway_type,
                             protein_gene_map,
                             min_size = 10,
-                            max_size = 500) {
+                            max_size = 500,
+                            eps = 0,
+                            nPermSimple = 1000) {
   
   res_annot <- res_df %>%
     dplyr::left_join(protein_gene_map, by = "protein_id") %>%
@@ -807,7 +822,32 @@ run_fgsea_model <- function(res_df,
 
 
 ```{r}
-fgsea_kegg_m0 <- run_fgsea_model(res_df = res_m0,model_name = "M0: group_bmi only", pathways = go_bp_list,pathway_type = "KEGG", protein_gene_map = protein_gene_map)
+#kegg results
+fgsea_kegg_m0 <- run_fgsea_model(res_df = res_m0, model_name = "M0: group_bmi only", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
+fgsea_kegg_m0 <- fgsea_kegg_m0 %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(model, contrast, pathway_type, padj)
+
+fgsea_kegg_m1 <- run_fgsea_model(res_df = res_m1, model_name = "M1: group_bmi age + sex", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
+fgsea_kegg_m1 <- fgsea_kegg_m1 %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(model, contrast, pathway_type, padj)
+
+fgsea_kegg_m2 <- run_fgsea_model(res_df = res_m2, model_name = "M2: group_bmi age + sex + study", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
+fgsea_kegg_m2 <- fgsea_kegg_m2 %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(model, contrast, pathway_type, padj)
+
+fgsea_kegg_m3 <- run_fgsea_model(res_df = res_m3, model_name = "M3: group_bmi age*hba1c + sex +study", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
+fgsea_kegg_m3 <- fgsea_kegg_m3 %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(model, contrast, pathway_type, padj)
+
+#GO:BP
+
+#GO:MF
+
+#GO:CC
 ```
 
 ```{r}
@@ -830,43 +870,86 @@ plot_fgsea_top20 <- function(fgsea_df,
   }
   
   df_top <- df %>%
-    filter(!is.na(padj)) %>%
+    filter(!is.na(padj), !is.na(NES)) %>%
     arrange(padj) %>%
     slice_head(n = top_n) %>%
     mutate(
       pathway_clean = pathway %>%
-        stringr::str_replace_all("_", " ") %>%
-        stringr::str_replace("^GO ", "") %>%
-        stringr::str_to_sentence(),
-      sig = padj < padj_cutoff,
-      pathway_clean = forcats::fct_reorder(pathway_clean, NES)
+        str_replace_all("_", " ") %>%
+        str_replace("^GO ", "") %>%
+        str_to_sentence(),
+      
+      pathway_clean = forcats::fct_reorder(pathway_clean, NES),
+      
+      direction = ifelse(NES > 0, "Up", "Down"),
+      
+      # transform FDR so smaller = bigger
+      fdr_size = -log10(padj)
     )
   
-  ggplot(df_top, aes(x = NES, y = pathway_clean)) +
-    geom_point(aes(size = size, color = padj)) +
-    geom_vline(xintercept = 0, linetype = "dashed") +
-    scale_color_gradient(
-      low = "darkred",
-      high = "lightblue",
-      name = "FDR"
+  ggplot(df_top, aes(y = pathway_clean)) +
+    
+    # lollipop line
+    geom_segment(
+      aes(x = 0, xend = NES, yend = pathway_clean),
+      color = "grey70",
+      linewidth = 0.6
     ) +
+    
+    # points
+    geom_point(
+      aes(x = NES, size = fdr_size, color = direction)
+    ) +
+    
+    # labels near zero
+    geom_text(
+      aes(x = 0, label = pathway_clean),
+      hjust = ifelse(df_top$NES > 0, 1.1, -0.1),
+      size = 3
+    ) +
+    
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    
+    scale_color_manual(
+      values = c(
+        "Up" = "darkred",
+        "Down" = "cyan4"
+      ),
+      name = "Direction"
+    ) +
+    
+    scale_size_continuous(
+      name = "-log10(FDR)"
+    ) +
+    
+    scale_x_continuous(
+      limits = c(-4, 4),
+      breaks = seq(-4, 4, by = 2)
+    ) +
+    
     labs(
       title = paste(model_name, contrast_name, pathway_type_name, sep = "\n"),
       x = "Normalized enrichment score",
-      y = NULL,
-      size = "Pathway size"
+      y = NULL
     ) +
-    theme_bw() +
+    
+    theme_minimal() +
     theme(
       panel.grid = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black"),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
       plot.title = element_text(face = "bold", size = 12),
-      axis.text.y = element_text(size = 8)
+      legend.position = "right"
     )
 }
 ```
 
 ```{r}
-fgsea_kegg_plots <- fgsea_kegg_m0 %>%
+#| fig-width: 20
+#| fig-height: 16
+fgsea_kegg_plots_m0 <- fgsea_kegg_m0 %>%
   distinct(model, contrast, pathway_type) %>%
   mutate(
     plot = purrr::pmap(
@@ -881,17 +964,105 @@ fgsea_kegg_plots <- fgsea_kegg_m0 %>%
     )
   )
 
-fgsea_kegg_plots$plot[[1]]
-fgsea_kegg_plots$plot[[2]]
-fgsea_kegg_plots$plot[[3]]
-fgsea_kegg_plots$plot[[4]]
-fgsea_kegg_plots$plot[[5]]
+#fgsea_kegg_plots_m0$plot[[1]]
+#fgsea_kegg_plots_m0$plot[[2]]
+#fgsea_kegg_plots_m0$plot[[3]]
+#fgsea_kegg_plots_m0$plot[[4]]
+#fgsea_kegg_plots_m0$plot[[5]]
 
-patchwork::wrap_plots(fgsea_kegg_plots$plot, ncol = 2)
+plots_m0 <- fgsea_kegg_plots_m0
+top_row <- plots_m0$plot[[1]] + plots_m0$plot[[2]] + patchwork::plot_spacer()
+bottom_row <- plots_m0$plot[[3]] + plots_m0$plot[[4]] + plots_m0$plot[[5]]
+
+panel_kegg_m0 <- top_row / bottom_row
+
+panel_kegg_m0
+
+
 ```
 
+```{r}
+#| fig-width: 18
+#| fig-height: 16
+fgsea_kegg_plots_m1 <- fgsea_kegg_m1 %>%
+  distinct(model, contrast, pathway_type) %>%
+  mutate(
+    plot = purrr::pmap(
+      list(model, contrast, pathway_type),
+      ~ plot_fgsea_top20(
+        fgsea_df = fgsea_kegg_m1,
+        model_name = ..1,
+        contrast_name = ..2,
+        pathway_type_name = ..3,
+        top_n = 20
+      )
+    )
+  )
 
+plots_m1 <- fgsea_kegg_plots_m1
+top_row <- plots_m1$plot[[1]] + plots_m1$plot[[2]] + patchwork::plot_spacer()
+bottom_row <- plots_m1$plot[[3]] + plots_m1$plot[[4]] + plots_m1$plot[[5]]
 
+panel_kegg_m1 <- top_row / bottom_row
+
+panel_kegg_m1
+
+```
+```{r}
+#| fig-width: 18
+#| fig-height: 16
+fgsea_kegg_plots_m2 <- fgsea_kegg_m2 %>%
+  distinct(model, contrast, pathway_type) %>%
+  mutate(
+    plot = purrr::pmap(
+      list(model, contrast, pathway_type),
+      ~ plot_fgsea_top20(
+        fgsea_df = fgsea_kegg_m2,
+        model_name = ..1,
+        contrast_name = ..2,
+        pathway_type_name = ..3,
+        top_n = 20
+      )
+    )
+  )
+
+plots_m2 <- fgsea_kegg_plots_m2
+top_row <- plots_m2$plot[[1]] + plots_m2$plot[[2]] + patchwork::plot_spacer()
+bottom_row <- plots_m2$plot[[3]] + plots_m2$plot[[4]] + plots_m2$plot[[5]]
+
+panel_kegg_m2 <- top_row / bottom_row
+
+panel_kegg_m2
+
+```
+
+```{r}
+#| fig-width: 20
+#| fig-height: 16
+fgsea_kegg_plots_m3 <- fgsea_kegg_m3 %>%
+  distinct(model, contrast, pathway_type) %>%
+  mutate(
+    plot = purrr::pmap(
+      list(model, contrast, pathway_type),
+      ~ plot_fgsea_top20(
+        fgsea_df = fgsea_kegg_m3,
+        model_name = ..1,
+        contrast_name = ..2,
+        pathway_type_name = ..3,
+        top_n = 20
+      )
+    )
+  )
+
+plots_m3 <- fgsea_kegg_plots_m3
+top_row <- plots_m3$plot[[1]] + plots_m3$plot[[2]] 
+bottom_row <- plots_m3$plot[[3]] + plots_m3$plot[[4]] + plots_m3$plot[[5]]
+
+panel_kegg_m3 <- top_row / bottom_row
+
+panel_kegg_m3
+
+```
 
 
 #=========================================
