@@ -39,6 +39,7 @@ library(doParallel)
 library(Matrix)
 library(edgeR)
 library(stringr)
+library(patchwork)
 ```
 
 ```{r}
@@ -119,39 +120,39 @@ pb90_multiomics_subset_meta <- s3readRDS(
 
 centers <- pb90_multiomics_subset_meta %>%
   group_by(KPMP_celltype) %>%
-  summarise(x = median(umapharmony_1),
-            y = median(umapharmony_2), .groups = "drop")
+  summarise(
+    x = median(umapharmony_1),
+    y = median(umapharmony_2),
+    .groups = "drop"
+  )
 
 umap_p <- ggplot(pb90_multiomics_subset_meta,
                  aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype)) +
   geom_point(alpha = 0.2, shape = 16) +
-  geom_text_repel(data = centers,
-                  aes(x = x, y = y, label = KPMP_celltype),
-                  inherit.aes = FALSE,
-                  size = 4, fontface = "bold", color = "black") +
+  geom_text_repel(
+    data = centers,
+    aes(x = x, y = y, label = KPMP_celltype),
+    inherit.aes = FALSE,
+    size = 5,                 # slightly larger for readability
+    fontface = "bold",
+    color = "black"
+  ) +
   scale_color_manual(values = my_colors) +
   theme_minimal() + 
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        axis.title.x = element_text(hjust = 0),   # move x label to left
-        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  theme(
+    panel.grid = element_blank(),
+    
+    # axis titles + tick labels (match previous plots)
+    axis.title.x = element_text(size = 16, hjust = 0),
+    axis.title.y = element_text(size = 16, hjust = 0),
+    axis.text = element_text(size = 14),
+    
+    # no legend
+    legend.position = "none"
+  ) +
   labs(x = "UMAP1", y = "UMAP2")
 
 umap_p
-```
-
-```{r}
-# Save to a temporary connection
-#tmp <- tempfile(fileext = ".png")
-#ggsave(tmp, plot = umap_p, width = 10, height = 8, dpi = 300)
-
-# Upload directly
-#put_object(
- # file = tmp,
-#  object = "results/figures/t1d_hc_umap_kpmpcelltype.png",
-#  bucket = "scrna",
-#  region = ""
-#)
 ```
 
 ```{r}
@@ -169,8 +170,13 @@ umap_p_study<- ggplot(pb90_multiomics_subset_meta,
                                 )) +
   theme_minimal() + 
   theme(panel.grid = element_blank(),
-        axis.title.x = element_text(hjust = 0),   # move x label to left
-        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+        axis.title.x = element_text(size = 16, hjust = 0),   
+        axis.title.y = element_text(size = 16, hjust = 0), 
+        axis.text = element_text(size = 14),
+
+ # legend
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)) + 
   labs(x = "UMAP1", y = "UMAP2",
        color = "study") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
@@ -178,25 +184,13 @@ umap_p_study<- ggplot(pb90_multiomics_subset_meta,
 umap_p_study
 ```
 
-```{r}
-# Save to a temporary connection
-#tmp <- tempfile(fileext = ".png")
-#ggsave(tmp, plot = umap_p_source, width = 10, height = 8, dpi = 300)
 
-# Upload directly
-#put_object(
-#  file = tmp,
-#  object = "results/figures/t1d_hc_umap_source.png",
-#  bucket = "t1d.adiposity",
-#  region = ""
-#)
-```
 
 ```{r}
 table((pb90_multiomics_subset_meta%>%
   distinct(record_id, visit, .keep_all = T))$group)
 # UMAP by source
-umap_p_study<- ggplot(pb90_multiomics_subset_meta,
+umap_p_group<- ggplot(pb90_multiomics_subset_meta,
                  aes(x = umapharmony_1, y = umapharmony_2, color = group)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("Obese Control" = "darkcyan",
@@ -206,14 +200,43 @@ umap_p_study<- ggplot(pb90_multiomics_subset_meta,
                                 )) +
   theme_minimal() + 
   theme(panel.grid = element_blank(),
-        axis.title.x = element_text(hjust = 0),   # move x label to left
-        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+        axis.title.x = element_text(size = 16, hjust = 0),   
+        axis.title.y = element_text(size = 16, hjust = 0),
+        axis.title = element_text(size = 14),
+
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14))+
   labs(x = "UMAP1", y = "UMAP2",
        color = "group") +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
 
-umap_p_study
+umap_p_group
 ```
+```{r}
+umap_cells_study <- umap_p + umap_p_study 
+umap_cells_group <- umap_p + umap_p_group
+
+ggsave("Umap_cells_study.png",
+       plot = umap_cells_study,
+       path = file.path(dir.results, "T1D-T2D", "Results"),
+       width = 20,
+       height =16,
+       dpi = 300
+       )
+
+ggsave("Umap_cells_group.png",
+       plot = umap_cells_group,
+       path = file.path(dir.results, "T1D-T2D", "Results"),
+       width = 20,
+       height =16,
+       dpi = 300
+       )
+
+```
+
+
+
+
 ## b. Descriptive Statistics
 ```{r}
 #Load Metadata cleaned
@@ -253,37 +276,50 @@ cell_counts <- pb90_multiomics_subset_meta %>%
   dplyr::count(KPMP_celltype_general) %>%
   arrange(desc(n))
 
-cell_count_bar <- ggplot(cell_counts, aes(x = reorder(KPMP_celltype_general, n), y = n)) +
-  geom_bar(stat = "identity", fill = "#97a97c") +
-  # counts inside the bar
-  geom_text(aes(label = n), 
-            hjust = 1.1, color = "white", size = 4) +
-  # cell type outside the bar
-  geom_text(aes(label = KPMP_celltype_general), 
+max_n <- max(cell_counts$n, na.rm = TRUE)
+
+label_pos <- -max_n * 0.05   # where cell names sit
+xmin_lim  <- -max_n * 0.35   # left plot boundary
+xmax_lim  <-  max_n * 1.15   # right plot boundary
+
+cell_count_bar <- ggplot(cell_counts, 
+                         aes(x = reorder(KPMP_celltype_general, n), y = n)) +
+  geom_col(fill = "#97a97c") +
+  
+  # counts on right side of bars
+  geom_text(aes(y = n, label = n),
             hjust = -0.1, size = 4) +
-  coord_flip() +
-  labs(x = NULL, 
-       y = "Count") +
-  theme(text = element_text(size = 15),
-        legend.position = "none",
-        panel.grid = element_blank()) +
-  theme_transparent() +
-  scale_y_continuous(expand = expansion(add = 5000)) 
+  
+  # cell names in real plot space on the left
+  geom_text(aes(y = label_pos, label = KPMP_celltype_general),
+            hjust = 1, size = 4) +
+  
+  coord_flip(clip = "off") +
+  
+  scale_y_continuous(
+    limits = c(xmin_lim, xmax_lim),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  
+  labs(x = NULL, y = "Count") +
+  
+  theme(
+    text = element_text(size = 15),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = margin(10, 30, 10, 30)
+  ) +
+  theme_transparent()
 
 cell_count_bar
-```
-```{r}
-# Save to a temporary connection
-#tmp <- tempfile(fileext = ".png")
-#ggsave(tmp, plot = cell_count_bar, width = 10, height = 8, dpi = 300)
 
-# Upload directly
-#put_object(
-#  file = tmp,
-#  object = "results/figures/t1d_hc_kpmp_cell_count_bar.png",
-#  bucket = "t1d.adiposity",
-#  region = ""
-#)
+#ggsave("cell_counts.pdf",
+ #      plot = cell_count_bar,
+  #     path = file.path(dir.results, "T1D-T2D", "Results"),
+   #    width = 10,
+    #   height = 6)
 ```
 
 ```{r}
@@ -294,27 +330,56 @@ table((pb90_multiomics_subset_meta%>%
 cell_counts_group <- pb90_multiomics_subset_meta %>%
   group_by(group) %>%
   dplyr::count(KPMP_celltype_general) %>%
-  arrange(desc(n)) %>%
-  dplyr::mutate(group = case_when(group == "Lean Control" ~ "LC",
-                                  group == "Obese Control" ~ "OC",
-                                  group == "Type 1 Diabetes" ~ "T1D",
-                                  group == "Type 2 Diabetes" ~ "T2D"))
+  arrange(desc(n))
 
-ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill = group)) +
+cell_group_bar <- ggplot(cell_counts_group, aes(x = reorder(KPMP_celltype_general, n), y = n, fill = group)) +
   geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("T1D" = "orange2",
-                               "LC" = "plum4",
-                               "OC" = "darkcyan",
-                               "T2D"= "black")) +
+  scale_fill_manual(values = c("Lean Control" = "plum4",
+                               "Obese Control" = "darkcyan",
+                               "Type 1 Diabetes" = "orange2",
+                               "Type 2 Diabetes"= "black")) +
   coord_flip() +
   labs(x = NULL, 
        y = "Count",
        fill = "Group") +
-  theme(text = element_text(size = 15),
-        panel.grid = element_blank()) +
   theme_transparent() +
-  scale_y_continuous(expand = expansion(add = 5000)) 
+  theme(
+    text = element_text(size = 15),
+    panel.grid = element_blank(),
+    plot.margin = margin(1, 0.5, 1, 0.5),
+    
+    legend.position = c(0.7, 0.5),
+    legend.justification = c(0, 0.5),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 0, 0, 0)
+  ) +
+  
+  scale_y_continuous(
+    limits = c(xmin_lim, xmax_lim),
+    expand = expansion(mult = c(0, 0))
+  ) 
+
+cell_group_bar
+#ggsave("cell_gounts_group.pdf",
+ #      plot = cell_group_bar,
+  #     path = file.path(dir.results, "T1D-T2D", "Results"),
+   #    width = 10,
+    #   height = 6)
 ```
+
+```{r}
+cells <- cell_count_bar + cell_group_bar 
+cells
+ggsave("cell_counts.pdf",
+       plot = cells,
+       path = file.path(dir.results, "T1D-T2D", "Results"),
+       width = 16,
+       height = 10,
+       dpi = 600)
+
+```
+
+
 ```{r}
 # Barplot sample proportion by celltype 
 ggplot(pb90_multiomics_subset@meta.data) +
@@ -874,102 +939,3 @@ for (pair in group_pairs) {
 }
 ```
 
-
-
-
-
-
-
-#----------------------
-#archived code
-----------------------
-```{r}
-groups      <- unique(pb90_multiomics_subset_meta$group)
-group_pairs <- combn(groups, 2, simplify = FALSE)
-
-celltypes_list <- unique(pb90_multiomics_subset_meta$KPMP_celltype_general)
-
-for (pair in group_pairs) {
-  pair_name <- paste(pair, collapse = "_vs_")
-  cat("\n\n============================")
-  cat("\nComparison:", pair_name)
-  cat("\n============================\n")
-  
-  # Subset to this pair of groups
-  seurat_pair <- subset(pb90_multiomics_subset,
-                        group %in% pair)
-  seurat_pair$group <- droplevels(factor(seurat_pair$group, levels = pair))  # pair[1] = reference
-  
-  for (cell_name in celltypes_list) {
-    cat("\n=== Processing:", cell_name, "===\n")
-    
-    seurat_sub <- subset(seurat_pair, KPMP_celltype_general == cell_name)
-    DefaultAssay(seurat_sub) <- "RNA"
-
-    
-    cat("Genes:", nrow(seurat_sub), "| Cells:", ncol(seurat_sub), "\n")
-    
-    seurat_sub <- FindVariableFeatures(seurat_sub,
-                                       selection.method = "vst",
-                                       nfeatures = 500)
-    
-    hvgs       <- VariableFeatures(seurat_sub)
-    genes_list <- hvgs
-    meta_full  <- seurat_sub@meta.data
-    cat("HVGs:", length(hvgs), "\n")
-    
-    counts_hvg <- round(GetAssayData(seurat_sub, layer = "counts")[hvgs, , drop = FALSE])
-    
-    #setting up parallel processing
-    cl <- makeCluster(4)
-    registerDoParallel(cl)
-    start_time <- Sys.time()
-    
-    nebula_results_list <- foreach(g = genes_list,
-                                   .packages = c("nebula", "Matrix")) %dopar% {
-      tryCatch({
-        count_gene <- counts_hvg[g, , drop = FALSE]
-        pred_gene  <- model.matrix(~ group + age + sex + study, data = meta_full)
-        library    <- meta_full$pooled_offset
-        
-        data_g_gene <- group_cell(count  = count_gene,
-                                  id     = meta_full$record_id,
-                                  pred   = pred_gene,
-                                  offset = library)
-        
-        if (is.null(data_g_gene)) {
-          data_g_gene <- list(count  = count_gene,
-                              id     = meta_full$record_id,
-                              pred   = pred_gene,
-                              offset = library)
-        }
-        
-        result <- nebula(count      = data_g_gene$count,
-                         id         = data_g_gene$id,
-                         pred       = data_g_gene$pred,
-                         ncore      = 1,
-                         reml       = TRUE,
-                         model      = "NBLMM",
-                         output_re  = TRUE,
-                         covariance = TRUE,
-                         offset     = data_g_gene$offset)
-        
-        list(gene = g, result = result)
-        
-      }, error = function(e) {
-        cat("Error on gene", g, ":", conditionMessage(e), "\n")
-        NULL
-      })
-    }
-    
-    stopCluster(cl)
-    cat("Time elapsed:", round(difftime(Sys.time(), start_time, units = "mins"), 2), "mins\n")
-    
-    out_path <- file.path(dir.results, "T1D-T2D", "Results",
-                          paste0("nebula_", pair_name, "_",
-                                 gsub(" ", "_", cell_name), ".rds"))
-    saveRDS(nebula_results_list, file = out_path)
-    cat("Saved:", out_path, "\n")
-  }
-}
-```
