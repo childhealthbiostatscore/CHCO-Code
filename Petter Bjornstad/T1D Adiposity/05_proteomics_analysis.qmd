@@ -26,6 +26,7 @@ library(ggVennDiagram)
 library(caret)
 library(kableExtra)
 library(msigdbr)
+library(fgsea)
 ```
 
 ```{r}
@@ -687,6 +688,129 @@ panel_m0_5
 #-----------------
 ```{r}
 
+msig_kegg <- msigdbr(
+  species = "Homo sapiens",
+  category = "C2",
+  subcategory = "CP:REACTOME"
+)
+
+kegg_list <- msig_kegg %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+
+# GO Biological Process
+msig_go_bp <- msigdbr(
+  species = "Homo sapiens",
+  category = "C5",
+  subcategory = "GO:BP"
+)
+
+go_bp_list <- msig_go_bp %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+
+# GO Molecular Function
+msig_go_mf <- msigdbr(
+  species = "Homo sapiens",
+  category = "C5",
+  subcategory = "GO:MF"
+)
+
+go_mf_list <- msig_go_mf %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+
+# GO Cellular Component
+msig_go_cc <- msigdbr(
+  species = "Homo sapiens",
+  category = "C5",
+  subcategory = "GO:CC"
+)
+
+go_cc_list <- msig_go_cc %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+```
+
+```{r}
+protein_gene_map <- analytes %>%
+  dplyr::mutate(
+    protein_id = trimws(as.character(AptName)),
+    gene_symbol = trimws(as.character(EntrezGeneSymbol))  # change if needed
+  ) %>%
+  dplyr::select(protein_id, gene_symbol) %>%
+  dplyr::filter(
+    !is.na(protein_id),
+    protein_id != "",
+    !is.na(gene_symbol),
+    gene_symbol != ""
+  ) %>%
+  dplyr::distinct()
+
+results_limma_annot <- results_all_models %>%
+  dplyr::left_join(protein_gene_map, by = "protein_id")
+
+#mapping success rate
+results_limma_annot %>%
+  summarise(
+    n_total = n(),
+    n_mapped = sum(!is.na(gene_symbol)),
+    pct_mapped = round(100 * mean(!is.na(gene_symbol)), 1)
+  )
+```
+```{r}
+run_fgsea_model <- function(res_df,
+                            model_name,
+                            pathways,
+                            pathway_type,
+                            protein_gene_map,
+                            min_size = 10,
+                            max_size = 500) {
+  
+  res_annot <- res_df %>%
+    dplyr::left_join(protein_gene_map, by = "protein_id") %>%
+    dplyr::filter(
+      !is.na(gene_symbol),
+      gene_symbol != "",
+      !is.na(t)
+    )
+  
+  fgsea_out <- res_annot %>%
+    dplyr::group_by(contrast) %>%
+    dplyr::group_split() %>%
+    purrr::map_dfr(function(df) {
+      
+      contrast_name <- unique(df$contrast)
+      
+      ranks <- df %>%
+        dplyr::group_by(gene_symbol) %>%
+        dplyr::slice_max(order_by = abs(t), n = 1, with_ties = FALSE) %>%
+        dplyr::ungroup() %>%
+        dplyr::arrange(desc(t))
+      
+      ranks_vec <- ranks$t
+      names(ranks_vec) <- ranks$gene_symbol
+      
+      fgsea::fgsea(
+        pathways = pathways,
+        stats = ranks_vec,
+        minSize = min_size,
+        maxSize = max_size
+      ) %>%
+        tibble::as_tibble() %>%
+        dplyr::mutate(
+          model = model_name,
+          contrast = contrast_name,
+          pathway_type = pathway_type
+        )
+    })
+  
+  fgsea_out
+}
+```
+
+
+```{r}
+fgsea_kegg_m0 <- run_fgsea_model(res_df = res_m0,model_name = "M0: group_bmi only", pathways = go_bp_list,pathway_type = "KEGG",protein_gene_map = protein_gene_map)
+```
+
+```{r}
 ```
 
 
@@ -694,13 +818,10 @@ panel_m0_5
 
 
 
-
-
-
-
-
+#=========================================
 #archived code
 #setting up metadata and protein matrices
+#=========================================
 ```{r}
 meta <- t1d_hc_dat_soma %>%
   dplyr:: select (-starts_with("seq"))
