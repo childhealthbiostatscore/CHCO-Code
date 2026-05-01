@@ -670,12 +670,23 @@ fig1c <- wrap_elements(full = fig1c_heatmap$gtable) +
                                 margin = margin(0, 4, 0, 0)))
 
 ########################################################################
-# PANEL D — Urine Omics
+# PANEL D — Urine Omics (aspect-ratio locked)
 ########################################################################
 
-fig1d <- load_image_panel(
-  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg",
-  "D")
+urine_img <- jpeg::readJPEG(
+  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg")
+
+img_h_d <- dim(urine_img)[1]
+img_w_d <- dim(urine_img)[2]
+
+fig1d <- ggplot() +
+  annotation_raster(urine_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  xlim(0, 1) + ylim(0, 1) +
+  coord_fixed(ratio = img_h_d / img_w_d) +   # <-- locks aspect ratio
+  theme_void() +
+  labs(tag = "D") +
+  theme(plot.tag    = element_text(size = 14, face = "bold"),
+        plot.margin = margin(5, 5, 5, 5))
 
 ########################################################################
 # PANELS E–H — Paired plots
@@ -722,9 +733,14 @@ fig1h <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2f",
 pet_map_img <- readPNG(
   "C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
 
+# Preserve native aspect ratio so the image is never stretched
+img_h <- dim(pet_map_img)[1]   # rows = height in pixels
+img_w <- dim(pet_map_img)[2]   # cols = width  in pixels
+
 fig1i <- ggplot() +
   annotation_raster(pet_map_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
   xlim(0, 1) + ylim(0, 1) +
+  coord_fixed(ratio = img_h / img_w) +   # <-- this is the key fix
   theme_void() +
   labs(tag = "I") +
   theme(plot.tag    = element_text(size = 14, face = "bold"),
@@ -1750,12 +1766,23 @@ fig1c <- wrap_elements(full = fig1c_heatmap$gtable) +
                                 margin = margin(0, 4, 0, 0)))
 
 ########################################################################
-# PANEL D — Urine Omics
+# PANEL D — Urine Omics (aspect-ratio locked)
 ########################################################################
 
-fig1d <- load_image_panel(
-  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg",
-  "D")
+urine_img <- jpeg::readJPEG(
+  "C:/Users/netio/Documents/UofW/Rockies/publication_figures/Urine_Metabolism_Figure.jpg")
+
+img_h_d <- dim(urine_img)[1]
+img_w_d <- dim(urine_img)[2]
+
+fig1d <- ggplot() +
+  annotation_raster(urine_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  xlim(0, 1) + ylim(0, 1) +
+  coord_fixed(ratio = img_h_d / img_w_d) +   # <-- locks aspect ratio
+  theme_void() +
+  labs(tag = "D") +
+  theme(plot.tag    = element_text(size = 14, face = "bold"),
+        plot.margin = margin(5, 5, 5, 5))
 
 ########################################################################
 # PANELS E–H — Paired plots
@@ -1802,9 +1829,14 @@ fig1h <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2f",
 pet_map_img <- readPNG(
   "C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
 
+# Preserve native aspect ratio so the image is never stretched
+img_h <- dim(pet_map_img)[1]   # rows = height in pixels
+img_w <- dim(pet_map_img)[2]   # cols = width  in pixels
+
 fig1i <- ggplot() +
   annotation_raster(pet_map_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
   xlim(0, 1) + ylim(0, 1) +
+  coord_fixed(ratio = img_h / img_w) +   # <-- this is the key fix
   theme_void() +
   labs(tag = "I") +
   theme(plot.tag    = element_text(size = 14, face = "bold"),
@@ -1845,7 +1877,7 @@ dd_rho <- matrix(
      0.31,  0.64,  0.42,  0.52),  # k2/F Medulla (hba1c p=0.177, gluc p=0.065 — ns)
   nrow = 4, ncol = 4, byrow = TRUE,
   dimnames = list(
-    c("k\u2082 Cortex", "k\u2082 Medulla", "k\u2082/F Cortex", "k\u2082/F Medulla"),
+    c("k2 Cortex", "k2 Medulla", "k2/F Cortex", "k2/F Medulla"),
     c("\u0394 HbA1c", "\u0394 HOMA-IR", "\u0394 Glucose", "\u0394 Sodium Load")
   )
 )
