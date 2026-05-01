@@ -807,12 +807,88 @@ run_fgsea_model <- function(res_df,
 
 
 ```{r}
-fgsea_kegg_m0 <- run_fgsea_model(res_df = res_m0,model_name = "M0: group_bmi only", pathways = go_bp_list,pathway_type = "KEGG",protein_gene_map = protein_gene_map)
+fgsea_kegg_m0 <- run_fgsea_model(res_df = res_m0,model_name = "M0: group_bmi only", pathways = go_bp_list,pathway_type = "KEGG", protein_gene_map = protein_gene_map)
 ```
 
 ```{r}
+plot_fgsea_top20 <- function(fgsea_df,
+                             model_name,
+                             contrast_name,
+                             pathway_type_name = NULL,
+                             top_n = 20,
+                             padj_cutoff = 0.05) {
+  
+  df <- fgsea_df %>%
+    filter(
+      model == model_name,
+      contrast == contrast_name
+    )
+  
+  if (!is.null(pathway_type_name)) {
+    df <- df %>%
+      filter(pathway_type == pathway_type_name)
+  }
+  
+  df_top <- df %>%
+    filter(!is.na(padj)) %>%
+    arrange(padj) %>%
+    slice_head(n = top_n) %>%
+    mutate(
+      pathway_clean = pathway %>%
+        stringr::str_replace_all("_", " ") %>%
+        stringr::str_replace("^GO ", "") %>%
+        stringr::str_to_sentence(),
+      sig = padj < padj_cutoff,
+      pathway_clean = forcats::fct_reorder(pathway_clean, NES)
+    )
+  
+  ggplot(df_top, aes(x = NES, y = pathway_clean)) +
+    geom_point(aes(size = size, color = padj)) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    scale_color_gradient(
+      low = "darkred",
+      high = "lightblue",
+      name = "FDR"
+    ) +
+    labs(
+      title = paste(model_name, contrast_name, pathway_type_name, sep = "\n"),
+      x = "Normalized enrichment score",
+      y = NULL,
+      size = "Pathway size"
+    ) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", size = 12),
+      axis.text.y = element_text(size = 8)
+    )
+}
 ```
 
+```{r}
+fgsea_kegg_plots <- fgsea_kegg_m0 %>%
+  distinct(model, contrast, pathway_type) %>%
+  mutate(
+    plot = purrr::pmap(
+      list(model, contrast, pathway_type),
+      ~ plot_fgsea_top20(
+        fgsea_df = fgsea_kegg_m0,
+        model_name = ..1,
+        contrast_name = ..2,
+        pathway_type_name = ..3,
+        top_n = 20
+      )
+    )
+  )
+
+fgsea_kegg_plots$plot[[1]]
+fgsea_kegg_plots$plot[[2]]
+fgsea_kegg_plots$plot[[3]]
+fgsea_kegg_plots$plot[[4]]
+fgsea_kegg_plots$plot[[5]]
+
+patchwork::wrap_plots(fgsea_kegg_plots$plot, ncol = 2)
+```
 
 
 
