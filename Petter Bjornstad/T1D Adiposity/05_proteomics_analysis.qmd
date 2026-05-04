@@ -1365,104 +1365,6 @@ partial_gene <- all_partial_results %>%
 ```
 
 
-```{r}
-plot_ranked_cor <- function(data, contrast_name, outcome_name, top_n = 15, show_key = FALSE) {
-
-  df <- data %>%
-    filter(contrast == contrast_name, outcome == outcome_name) %>%
-    filter(is.finite(rho)) %>%
-    arrange(desc(abs(rho))) %>%
-    slice_head(n = top_n) %>%
-    mutate(
-      direction = ifelse(rho > 0, "Positive", "Negative"),
-      signif_label = case_when(
-        !is.na(FDR) & FDR <= 0.001 ~ "***",
-        !is.na(FDR) & FDR <= 0.01  ~ "**",
-        !is.na(FDR) & FDR <= 0.05  ~ "*",
-        TRUE ~ ""
-      ),
-      ylab = reorder(label, rho)
-    )
-
-  if (nrow(df) == 0) {
-    return(ggplot() + theme_void() + labs(title = paste(contrast_name, outcome_name, "(no data)")))
-  }
-
-  xpad <- 0.12
-  xmin <- min(df$rho, na.rm = TRUE) - xpad
-  xmax <- max(df$rho, na.rm = TRUE) + xpad
-
-  p <- ggplot(df, aes(x = rho, y = ylab, fill = direction)) +
-    geom_col() +
-    geom_text(
-      aes(label = signif_label),
-      hjust = ifelse(df$rho > 0, -0.2, 1.2),
-      size = 4
-    ) +
-    theme_bw() +
-    scale_fill_manual(values = c("Positive" = "firebrick", "Negative" = "steelblue")) +
-    labs(
-      title = paste0(contrast_name, " (", outcome_name, ")"),
-      x = "Partial Spearman rho (age + sex + study adjusted)",
-      y = NULL,
-      fill = "Direction"
-    ) +
-    xlim(xmin, xmax)
-
-  if (show_key) {
-    # (Optional) if you ever want it inside a single plot:
-    p <- p +
-      coord_cartesian(clip = "off") +
-      theme(plot.margin = margin(5.5, 45, 5.5, 5.5)) +
-      annotate(
-        "text",
-        x = Inf, y = -Inf,
-        label = "FDR:  * ≤ 0.05   ** ≤ 0.01   *** ≤ 0.001",
-        hjust = 1.05, vjust = -1.2, size = 3.2
-      )
-  }
-
-  p
-}
-```
-
-```{r}
-fdr_key_plot <- ggplot() +
-  annotate("label",
-           x = 1, y = 1,
-           label = "FDR key\n*  ≤ 0.05\n** ≤ 0.01\n*** ≤ 0.001",
-           hjust = 1, vjust = 1, size = 3.2) +
-  xlim(0, 1) + ylim(0, 1) +
-  theme_void()
-```
-
-```{r}
-#plotting funciton for outcomes of interest
-plot_partial_panel <- function(contrast_name, top_n = 15) {
-  P1 <- plot_ranked_cor(partial_gene, contrast_name, "HbA1c", top_n = top_n, show_key = FALSE)
-  P2 <- plot_ranked_cor(partial_gene, contrast_name, "uACR",  top_n = top_n, show_key = FALSE)
-  P3 <- plot_ranked_cor(partial_gene, contrast_name, "BMI",   top_n = top_n, show_key = FALSE)
-  P4 <- plot_ranked_cor(partial_gene, contrast_name,"eGFR", top_n = top_n, show_key = FALSE)
- # p5 <- plot_ranked_cor(partial_gene, contrast_name = "wthr", top_n = top_n, show_key = FALSE)
-
-  (P1 | P2)/ (P3 | P4) +
-    plot_annotation(title = paste0("Partial correlations (age + sex adjusted): ", contrast_name)) +
-    inset_element(fdr_key_plot, left = 0.72, bottom = 0.02, right = 0.98, top = 0.28)
-}
-```
-
-
-
-```{r}
-#taking the difference of a difference which is confusing
-plot_partial_panel("T1D_Normal_vs_LC_Normal", top_n = 15)
-#plot_partial_panel("T1D_OverObese_vs_LC_OverObese", top_n = 15)
-plot_partial_panel("T1D_Normal_vs_T1D_Overweight", top_n = 15)
-plot_partial_panel("T1D_Normal_vs_T1D_Obese", top_n = 15)
-plot_partial_panel("T1D_Overweight_vs_T1D_Obese", top_n = 15)
-
-```
-
 #clinical associates depicted with volcanos plots
 ```{r}
 volcano_cor_df <- partial_gene %>%
@@ -1623,13 +1525,16 @@ panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[2]]) /
 
 panel_cor_p1
 
-ggsave("panel_cor_p1.png",
-       plot = panel_cor_p1,
-       file = file.path(dir.results),
-       height = 10,
-       width = 12,
-       dpi = 300)
+ggsave(
+  filename = "panel_cor_p1.png",
+  plot = panel_cor_p1,
+  path = dir.results,
+  height = 10,
+  width = 12,
+  dpi = 300
+)
 ```
+
 ```{r}
 plots_cor_p2 <- make_volcano_cor_list(
   df = partial_gene,
@@ -1643,7 +1548,17 @@ panel_cor_p2 <- (plots_cor_p2[[1]] | plots_cor_p2[[2]]) /
              (plots_cor_p2[[3]] | plots_cor_p2[[4]])
 
 panel_cor_p2
+
+ggsave(
+  filename = "panel_cor_p2.png",
+  plot = panel_cor_p2,
+  path = dir.results,
+  height = 10,
+  width = 12,
+  dpi = 300
+)
 ```
+
 ```{r}
 plots_cor_p3 <- make_volcano_cor_list(
   df = partial_gene,
@@ -1657,7 +1572,17 @@ panel_cor_p3 <- (plots_cor_p3[[1]] | plots_cor_p3[[2]]) /
              (plots_cor_p3[[3]] | plots_cor_p3[[4]])
 
 panel_cor_p3
+
+ggsave(
+  filename = "panel_cor_p3.png",
+  plot = panel_cor_p3,
+  path = dir.results,
+  height = 10,
+  width = 12,
+  dpi = 300
+)
 ```
+
 ```{r}
 plots_cor_p4 <- make_volcano_cor_list(
   df = partial_gene,
@@ -1671,7 +1596,17 @@ panel_cor_p4 <- (plots_cor_p4[[1]] | plots_cor_p4[[2]]) /
              (plots_cor_p4[[3]] | plots_cor_p4[[4]])
 
 panel_cor_p4
+
+ggsave(
+  filename = "panel_cor_p4.png",
+  plot = panel_cor_p4,
+  path = dir.results,
+  height = 10,
+  width = 12,
+  dpi = 300
+)
 ```
+
 ```{r}
 plots_cor_p5 <- make_volcano_cor_list(
   df = partial_gene,
@@ -1685,6 +1620,15 @@ panel_cor_p5 <- (plots_cor_p5[[1]] | plots_cor_p5[[2]]) /
              (plots_cor_p5[[3]] | plots_cor_p5[[4]])
 
 panel_cor_p5
+
+ggsave(
+  filename = "panel_cor_p5.png",
+  plot = panel_cor_p5,
+  path = dir.results,
+  height = 10,
+  width = 12,
+  dpi = 300
+)
 ```
 
 
