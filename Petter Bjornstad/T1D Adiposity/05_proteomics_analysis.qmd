@@ -421,20 +421,15 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
   print(colnames(design))
   
   contrast_matrix <- makeContrasts(
-    
     T1DNormal_vs_LCNormal =
       group_bmiT1D_Normal - group_bmiLC_Normal,
-    
     T1DOverObese_vs_LCOverObese =
       ((group_bmiT1D_Overweight + group_bmiT1D_Obese) / 2) -
       group_bmiLC_Overweight_Obese,
-    
     T1DNormal_vs_T1DOverweight =
       group_bmiT1D_Normal - group_bmiT1D_Overweight,
-    
     T1DNormal_vs_T1DObese =
       group_bmiT1D_Normal - group_bmiT1D_Obese,
-    
     T1DObese_vs_T1DOverweight =
       group_bmiT1D_Obese - group_bmiT1D_Overweight,
     
@@ -445,10 +440,12 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
   fit2 <- contrasts.fit(fit, contrast_matrix)
   fit2 <- eBayes(fit2)
   
+  
   results <- lapply(colnames(contrast_matrix), function(cn) {
     topTable(
       fit2,
       coef = cn,
+      out = out,
       number = Inf,
       adjust.method = "BH"
     ) %>%
@@ -1130,6 +1127,356 @@ ggsave("GSEA_kegg_m3.png",
        dpi = 300
        )
 ```
+
+#----------------------------------------
+#ElasticNet/LASSO Regression
+#----------------------------------------
+```{r}
+run_elastic_net <- function(
+  cc,
+  out_list,
+  meta_df,
+  X_mat,
+  protein2symbol,
+  top_n = 100,
+  covars = c("age", "sex", "study"),
+  alpha_grid = seq(0.1, 1, by = 0.1),
+  nfolds = 10,
+  seed = 1,
+  min_per_class = 5,
+  maxit = 1e6
+) {
+  
+  cat("\n============================\n")
+  cat("Running contrast:", cc, "\n")
+  
+  if (!cc %in% names(out_list)) {
+    stop("Contrast not found in out_list: ", cc)
+  }
+  
+  if (!grepl("_vs_", cc)) {
+    stop("Contrast name must contain '_vs_'")
+  }
+  
+  parts <- strsplit(cc, "_vs_")[[1]]
+  if (length(parts) != 2) {
+    stop("Contrast could not be split into two groups")
+  }
+  
+  g_pos <- parts[1]
+  g_neg <- parts[2]
+  
+ idx <- which(meta_df$group4 %in% c(g_pos, g_neg))
+meta_sub <- meta_df[idx, , drop = FALSE]
+meta_sub$record_id <- as.character(meta_sub$record_id)
+
+meta_sub$group4 <- droplevels(meta_sub$group4)
+
+y <- ifelse(meta_sub$group4 == g_pos, 1, 0)
+y <- as.numeric(y)
+
+tab <- table(meta_sub$group4)
+if (any(tab < min_per_class)) {
+  stop(
+    "Too few samples in at least one class for contrast: ",
+    cc,
+    " | counts = ",
+    paste(names(tab), tab, collapse = ", ")
+  )
+}
+  
+  t <- out_list[[cc]]
+  if (is.null(t)) {
+    stop("Contrast table is NULL for: ", cc)
+  }
+  t <- as.data.frame(t)
+  
+  cat("Columns in contrast table:\n")
+  print(names(t))
+  
+  if (!"feature_id" %in% names(t)) {
+    fid <- rownames(t)
+    if (is.null(fid)) stop("No feature_id column or rownames found")
+    t$feature_id <- fid
+  }
+  
+  if (!all(c("adj.P.Val", "P.Value") %in% names(t))) {
+    stop("Contrast table is missing adj.P.Val and/or P.Value")
+  }
+  
+  cat("Rows in limma table:", nrow(t), "\n")
+  cat("Overlap with protein matrix:", sum(t$feature_id %in% colnames(X_mat)), "\n")
+  
+  top_feats <- t %>%
+  dplyr::filter(!is.na(adj.P.Val)) %>%
+  dplyr::left_join(protein2symbol, by = "feature_id") %>%
+  dplyr::mutate(
+    gene_symbol = dplyr::if_else(
+      is.na(gene_symbol) | gene_symbol == "",
+      feature_id,
+      gene_symbol
+    )
+  ) %>%
+  dplyr::filter(feature_id %in% colnames(X_mat)) %>%
+  dplyr::arrange(adj.P.Val, P.Value) %>%
+  dplyr::group_by(gene_symbol) %>%
+  dplyr::slice_head(n = 1) %>%   # keeps best aptamer per gene
+  dplyr::ungroup() %>%
+  dplyr::slice_head(n = top_n) %>%
+  dplyr::pull(feature_id)
+  
+  cat("Top overlapping features:", length(top_feats), "\n")
+  cat("First few top features:\n")
+  print(head(top_feats, 10))
+  
+  if (length(top_feats) < 5) {
+    stop("Fewer than 5 overlapping top features for contrast: ", cc)
+  }
+  
+  meta_sub <- meta_sub %>%
+    dplyr::mutate(
+      sex = factor(sex),
+      study6 = factor(study6)
+    )
+  
+  covars_present <- covars[covars %in% colnames(meta_sub)]
+  cat("Covariates used:", paste(covars_present, collapse = ", "), "\n")
+  
+  if (length(covars_present) > 0) {
+    form_cov <- as.formula(paste("~", paste(covars_present, collapse = " + ")))
+    Z <- model.matrix(form_cov, data = meta_sub)
+  } else {
+    Z <- matrix(1, nrow = nrow(meta_sub), ncol = 1)
+    colnames(Z) <- "(Intercept)"
+  }
+  
+  Xp <- X_mat[meta_sub$record_id, top_feats, drop = FALSE]
+  
+  X <- cbind(Z, Xp)
+  X <- as.matrix(X)
+  storage.mode(X) <- "double"
+  
+  pf <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
+  
+  sds <- apply(X, 2, sd)
+  keep <- which(is.finite(sds) & sds > 0)
+  
+  X <- X[, keep, drop = FALSE]
+  pf <- pf[keep]
+  
+  cat("Final design matrix dim:", dim(X), "\n")
+  
+  nfolds_use <- min(nfolds, sum(y == 0), sum(y == 1))
+  cat("nfolds used:", nfolds_use, "\n")
+  
+  if (nfolds_use < 2) {
+    stop("Not enough samples per class for CV")
+  }
+  
+  set.seed(seed)
+  
+  fit_list <- lapply(alpha_grid, function(a) {
+    cv <- tryCatch(
+      cv.glmnet(
+        x = X,
+        y = y,
+        family = "binomial",
+        alpha = a,
+        nfolds = nfolds_use,
+        type.measure = "deviance",
+        penalty.factor = pf,
+        standardize = TRUE,
+        maxit = maxit
+      ),
+      error = function(e) {
+        message("glmnet failed at alpha = ", a, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    
+    if (is.null(cv)) return(NULL)
+    list(alpha = a, cvfit = cv)
+  })
+  
+  fit_list <- Filter(Negate(is.null), fit_list)
+  
+  if (length(fit_list) == 0) {
+    stop("All glmnet fits failed")
+  }
+  
+  best_idx <- which.min(sapply(fit_list, function(z) min(z$cvfit$cvm)))
+  best <- fit_list[[best_idx]]
+  
+  coef_mat <- as.matrix(coef(best$cvfit, s = "lambda.1se"))
+  coef_df <- tibble::tibble(
+    term = rownames(coef_mat),
+    beta = as.numeric(coef_mat)
+  ) %>%
+    dplyr::filter(beta != 0)
+  
+  protein_terms <- intersect(colnames(Xp), coef_df$term)
+  
+  p_hat <- as.numeric(
+    predict(best$cvfit, newx = X, s = "lambda.1se", type = "response")
+  )
+  
+  auc_val <- as.numeric(
+    pROC::auc(pROC::roc(y, p_hat, quiet = TRUE))
+  )
+  
+  cat("Best alpha:", best$alpha, "\n")
+  cat("AUC:", auc_val, "\n")
+  cat("Nonzero coefficients:", nrow(coef_df), "\n")
+  cat("Selected protein terms:", length(protein_terms), "\n")
+  
+  list(
+    contrast         = cc,
+    positive         = g_pos,
+    negative         = g_neg,
+    best_alpha       = best$alpha,
+    lambda_1se       = best$cvfit$lambda.1se,
+    lambda_min       = best$cvfit$lambda.min,
+    auc_train        = auc_val,
+    n_input_proteins = length(top_feats),
+    coef_df          = coef_df,
+    protein_terms    = protein_terms,
+    cvfit            = best$cvfit,
+    top_feats        = top_feats
+  )
+}
+```
+
+```{r}
+run_elastic_net_bootstrap <- function(
+  cc,
+  out_list,
+  meta_df,
+  X_mat,
+  protein2symbol,
+  top_n = 100,
+  covars = c("age", "sex"),
+  alpha_grid = seq(0.1, 1, by = 0.1),
+  n_boot = 100,
+  seed = 1835,
+  min_per_class = 5, 
+  verbose = F) {
+  set.seed(seed)
+  
+  boot_res <- vector("list", n_boot)
+  
+  for (b in seq_len(n_boot)) {
+    
+    cat("Bootstrap", b, "of", n_boot, "for", cc, "\n")
+    
+    parts <- strsplit(cc, "_vs_")[[1]]
+    g_pos <- parts[1]
+    g_neg <- parts[2]
+    
+    idx0 <- which(meta_df$group4 %in% c(g_pos, g_neg))
+    meta_sub0 <- meta_df[idx0, , drop = FALSE]
+    
+    # stratified bootstrap: sample within each group
+    idx_boot <- unlist(lapply(split(seq_len(nrow(meta_sub0)), meta_sub0$group4), function(ii) {
+      sample(ii, size = length(ii), replace = TRUE)
+    }))
+    
+    meta_boot <- meta_sub0[idx_boot, , drop = FALSE]
+    meta_boot$record_id_boot <- paste0(meta_boot$record_id, "_boot", seq_len(nrow(meta_boot)))
+    
+    X_boot <- X_mat[meta_boot$record_id, , drop = FALSE]
+    rownames(X_boot) <- meta_boot$record_id_boot
+    
+    meta_boot$record_id <- meta_boot$record_id_boot
+    
+    fit_b <- tryCatch(
+      run_elastic_net(
+        cc = cc,
+        out_list = out_list,
+        meta_df = meta_boot,
+        X_mat = X_boot,
+        protein2symbol = protein2symbol,
+        top_n = top_n,
+        covars = covars,
+        alpha_grid = alpha_grid,
+        seed = seed + b,
+        min_per_class = min_per_class
+      ),
+      error = function(e) {
+        message("Bootstrap failed at b = ", b, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    
+    boot_res[[b]] <- fit_b
+  }
+  
+  boot_res <- Filter(Negate(is.null), boot_res)
+  
+ selected_tbl <- lapply(seq_along(boot_res), function(i) {
+  tibble(
+    boot = i,
+    contrast = cc,
+    best_alpha = boot_res[[i]]$best_alpha,
+    auc_train = boot_res[[i]]$auc_train,
+    feature_id = unique(boot_res[[i]]$protein_terms)
+  )
+}) %>%
+  bind_rows() %>%
+  distinct(contrast, boot, feature_id, .keep_all = TRUE)
+  
+  stability_tbl <- selected_tbl %>%
+  distinct(contrast, boot, feature_id) %>%
+  count(contrast, feature_id, name = "n_selected") %>%
+  mutate(
+    n_boot_success = length(boot_res),
+    selection_frequency = n_selected / n_boot_success
+  ) %>%
+  left_join(protein2symbol, by = "feature_id") %>%
+  arrange(desc(selection_frequency))
+  
+  stability_tbl <- stability_tbl %>%
+  mutate(selection_percent = 100 * selection_frequency)
+  
+  model_summary <- tibble(
+    contrast = cc,
+    n_boot_requested = n_boot,
+    n_boot_success = length(boot_res),
+    mean_auc = mean(sapply(boot_res, function(x) x$auc_train), na.rm = TRUE),
+    median_auc = median(sapply(boot_res, function(x) x$auc_train), na.rm = TRUE),
+    mean_alpha = mean(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE),
+    median_alpha = median(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE)
+  )
+  
+  list(
+    contrast = cc,
+    boot_res = boot_res,
+    selected_tbl = selected_tbl,
+    stability_tbl = stability_tbl,
+    model_summary = model_summary
+  )
+}
+```
+
+#----------------------
+#boostrapping T1D vs LC
+#----------------------
+```{r}
+boot_1 <- run_elastic_net_bootstrap(
+  cc = "T1D_Normal_vs_LC_Normal",
+  out_list = out1,
+  meta_df = meta1,
+  X_mat = prot_resid,
+  protein2symbol = protein2symbol,
+  top_n = 100,
+  covars = c("age", "sex"),
+  n_boot = 100,
+  seed = 1835,
+  verbose = FALSE
+)
+```
+
+
+
 #------------------------------------------
 #Correlations with kidney clinical markers
 #-----------------------------------------
@@ -1144,14 +1491,15 @@ corr_df <- bind_cols(meta3, sig_prots) %>%
     HbA1c = as.numeric(HbA1c), #only do this if I haven't included hba1c in the model 
     uACR  = as.numeric(uACR),
     eGFR = as.numeric(eGFR_CKiD_U25_avg),
-   # ERPF = as.numeric(erpf_bsa_plasma), don't have this in attempt
+   #ERPF = as.numeric(erpf_bsa_plasma), don't have this in attempt
     mm_si = as.numeric(mm_si),
     mm_ir = as.numeric(mm_ir),
     mm_di = as.numeric(mm_di),
     wthr = as.numeric(whtr),
     age   = as.numeric(age),
     sex   = as.factor(sex),
-    BMI   = as.numeric(bmi)
+    BMI   = as.numeric(bmi),
+   r2_avail=as.numeric(avg_c_r2),
   ) %>% filter(!is.na(HbA1c) & !is.na(uACR) & !is.na(eGFR)) 
 
 ```
@@ -1173,22 +1521,18 @@ get_groups_from_contrast <- function(contrast_name) {
       group1 = "T1D_Normal",
       group2 = "LC_Normal"
     ),
-    
     T1D_OverObese_vs_LC_OverObese = list(
       group1 = c("T1D_Overweight", "T1D_Obese"),
       group2 = "LC_Overweight_Obese"
     ),
-    
     T1D_Normal_vs_T1D_Overweight = list(
       group1 = "T1D_Normal",
       group2 = "T1D_Overweight"
     ),
-    
     T1D_Normal_vs_T1D_Obese = list(
       group1 = "T1D_Normal",
       group2 = "T1D_Obese"
     ),
-    
     T1D_Obese_vs_T1D_Overweight = list(
       group1 = "T1D_Obese",
       group2 = "T1D_Overweight"
@@ -1485,9 +1829,6 @@ make_volcano_cor<- function(df,
     
   } else {
     
-    # -------------------------------
-    # Add annotation if NONE found
-    # -------------------------------
     p <- p +
       annotate(
         "text",
@@ -1630,18 +1971,6 @@ ggsave(
   dpi = 300
 )
 ```
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
