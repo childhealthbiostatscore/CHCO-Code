@@ -1134,26 +1134,6 @@ ggsave("GSEA_kegg_m3.png",
 #Correlations with kidney clinical markers
 #-----------------------------------------
 ```{r}
-#contrast_matrix <- makeContrasts(
-    T1DNormal_vs_LCNormal =
-      group_bmiT1D_Normal - group_bmiLC_Normal,
-    
-    T1DOverObese_vs_LCOverObese =
-      ((group_bmiT1D_Overweight + group_bmiT1D_Obese) / 2) -
-      group_bmiLC_Overweight_Obese,
-    
-    T1DNormal_vs_T1DOverweight =
-      group_bmiT1D_Normal - group_bmiT1D_Overweight,
-    
-    T1DNormal_vs_T1DObese =
-      group_bmiT1D_Normal - group_bmiT1D_Obese,
-    
-    T1DObese_vs_T1DOverweight =
-      group_bmiT1D_Obese - group_bmiT1D_Overweight,
-    
-    levels = design
-  )
-
 prot_ids <- sig_all_models_fc$protein_id
 keep_prots <- intersect(colnames(prot_age_sex_study), prot_ids)
 sig_prots <- prot_age_sex_study[, keep_prots, drop = FALSE]
@@ -1177,13 +1157,50 @@ corr_df <- bind_cols(meta3, sig_prots) %>%
 ```
 
 ```{r}
-contrast_list <- c("T1D_Normal_vs_LC_Normal","T1D_OverObese_vs_LC_OverObese","T1D_Normal_vs_T1D_Overweight","T1D_Normal_vs_T1D_Obese","T1D_Overweight_vs_T1D_Obese")
+contrast_list <- c(
+  "T1D_Normal_vs_LC_Normal",
+  "T1D_OverObese_vs_LC_OverObese",
+  "T1D_Normal_vs_T1D_Overweight",
+  "T1D_Normal_vs_T1D_Obese",
+  "T1D_Obese_vs_T1D_Overweight"
+)
 
 get_groups_from_contrast <- function(contrast_name) {
-  strsplit(contrast_name, "_vs_")[[1]]
+  
+  contrast_groups <- list(
+    
+    T1D_Normal_vs_LC_Normal = list(
+      group1 = "T1D_Normal",
+      group2 = "LC_Normal"
+    ),
+    
+    T1D_OverObese_vs_LC_OverObese = list(
+      group1 = c("T1D_Overweight", "T1D_Obese"),
+      group2 = "LC_Overweight_Obese"
+    ),
+    
+    T1D_Normal_vs_T1D_Overweight = list(
+      group1 = "T1D_Normal",
+      group2 = "T1D_Overweight"
+    ),
+    
+    T1D_Normal_vs_T1D_Obese = list(
+      group1 = "T1D_Normal",
+      group2 = "T1D_Obese"
+    ),
+    
+    T1D_Obese_vs_T1D_Overweight = list(
+      group1 = "T1D_Obese",
+      group2 = "T1D_Overweight"
+    )
+  )
+  
+  if (!contrast_name %in% names(contrast_groups)) {
+    stop("Contrast not found: ", contrast_name)
+  }
+  
+  contrast_groups[[contrast_name]]
 }
-
-corr_df$group_bmi
 ```
 
 ```{r}
@@ -1204,7 +1221,7 @@ run_contrast_correlation <- function(contrast_name, corr_df, keep_prots, min_n =
   groups <- get_groups_from_contrast(contrast_name)
 
   df_sub <- corr_df %>%
-    filter(group_bmi %in% groups)
+    filter(group_bmi %in% c(groups$group1, groups$group2))
   
   prots <- intersect(keep_prots, colnames(df_sub))
 
@@ -1267,9 +1284,10 @@ run_contrast_partial <- function(contrast_name,
                                  covars   = partial_covars,
                                  min_n    = 15) {
   
-  groups <- get_groups_from_contrast(contrast_name)     
-  
-  df_sub <- corr_df %>% filter(group_bmi %in% groups)
+  groups <- get_groups_from_contrast(contrast_name)
+
+  df_sub <- corr_df %>%
+    filter(group_bmi %in% c(groups$group1, groups$group2))
   
   prots <- intersect(keep_prots, colnames(df_sub))
   
@@ -1445,11 +1463,229 @@ plot_partial_panel("T1D_Overweight_vs_T1D_Obese", top_n = 15)
 
 ```
 
+#clinical associates depicted with volcanos plots
+```{r}
+volcano_cor_df <- partial_gene %>%
+  mutate(
+    neg_log10_p = -log10(FDR),
+    sig_group = case_when(
+      FDR < 0.05 & rho > 0  ~ "Positive",
+      FDR < 0.05 & rho < 0  ~ "Negative",
+      TRUE ~ "Not significant"
+    )
+  )
+```
 
 
+```{r}
+make_volcano_cor<- function(df,
+                              contrast_name,
+                              outcome_name,
+                              title_prefix = "Partial correlations",
+                              p_cutoff = 0.05,
+                              fdr_cutoff = 0.05,
+                              rho_cutoff = 0,
+                              label_n = 10) {
+  
+  plot_df <- df %>%
+    dplyr::filter(
+      contrast == contrast_name,
+      outcome == outcome_name
+    ) %>%
+    dplyr::filter(
+      is.finite(rho),
+      is.finite(p_value),
+      is.finite(FDR)
+    ) %>%
+    dplyr::mutate(
+      neg_log10_p = -log10(p_value),
+      p_sig_group = dplyr::case_when(
+        p_value < p_cutoff & rho > rho_cutoff  ~ "Positive p < 0.05",
+        p_value < p_cutoff & rho < -rho_cutoff ~ "Negative p < 0.05",
+        TRUE ~ "Not significant"
+      ),
+      fdr_sig = FDR < fdr_cutoff,
+      fdr_group = dplyr::case_when(
+        fdr_sig & rho > 0 ~ "Positive FDR < 0.05",
+        fdr_sig & rho < 0 ~ "Negative FDR < 0.05",
+        TRUE ~ NA_character_
+      )
+    )
+  
+ 
+  n_fdr <- sum(plot_df$fdr_sig, na.rm = TRUE)
+  
+ 
+  top_labels <- plot_df %>%
+    dplyr::filter(fdr_sig) %>%
+    dplyr::arrange(FDR) %>%
+    dplyr::slice_head(n = label_n)
+  
+  p <- ggplot(plot_df, aes(x = rho, y = neg_log10_p)) +
+    
+    geom_point(
+      aes(color = p_sig_group),
+      alpha = 0.45,
+      size = 2
+    ) +
+    
+    geom_vline(xintercept = 0, linetype = "solid", alpha = 0.5) +
+    geom_hline(yintercept = -log10(p_cutoff), linetype = "dashed") +
+    
+    scale_color_manual(
+      values = c(
+        "Positive p < 0.05" = "pink3",
+        "Negative p < 0.05" = "cyan2",
+        "Not significant" = "grey85"
+      )
+    ) +
+    
+    labs(
+      title = paste0(title_prefix, "\n", contrast_name, " - ", outcome_name),
+      x = "Spearman rho",
+      y = "-log10(raw p-value)",
+      color = "Raw p-value"
+    ) +
+    
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
+  
+  if (n_fdr > 0) {
+    
+    p <- p +
+      geom_point(
+        data = plot_df %>% dplyr::filter(fdr_sig),
+        aes(fill = fdr_group),
+        shape = 21,
+        color = "black",
+        stroke = 0.9,
+        size = 2.8
+      ) +
+      
+      ggrepel::geom_text_repel(
+        data = top_labels,
+        aes(label = label),
+        size = 3.5,
+        fontface = "bold",
+        max.overlaps = Inf
+      ) +
+      
+      scale_fill_manual(
+        values = c(
+          "Positive FDR < 0.05" = "darkred",
+          "Negative FDR < 0.05" = "cyan4"
+        ),
+        name = "FDR significant"
+      )
+    
+  } else {
+    
+    # -------------------------------
+    # Add annotation if NONE found
+    # -------------------------------
+    p <- p +
+      annotate(
+        "text",
+        x = 0,
+        y = max(plot_df$neg_log10_p, na.rm = TRUE) * 0.9,
+        label = "No FDR-significant associations",
+        size = 4,
+        fontface = "italic",
+        color = "grey40"
+      )
+  }
+  
+  return(p)
+}
+```
+
+```{r}
+ partial_gene %>%
+  distinct(contrast) %>%
+  pull(contrast)
+```
+
+```{r}
+outcomes <- c("HbA1c", "uACR", "BMI", "eGFR")
+
+plots_cor_p1 <- make_volcano_cor_list(
+  df = partial_gene,
+  contrast_name = "T1D_Normal_vs_LC_Normal",
+  outcomes = outcomes,
+  label_n = 10
+)
+
+panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[2]]) /
+             (plots_cor_p1[[3]] | plots_cor_p1[[4]])
+
+panel_cor_p1
+
+ggsave("panel_cor_p1.png",
+       plot = panel_cor_p1,
+       file = file.path(dir.results),
+       height = 10,
+       width = 12,
+       dpi = 300)
+```
+```{r}
+plots_cor_p2 <- make_volcano_cor_list(
+  df = partial_gene,
+  contrast_name = "T1D_OverObese_vs_LC_OverObese",
+  outcomes = outcomes,
+  label_n = 10
+)
 
 
+panel_cor_p2 <- (plots_cor_p2[[1]] | plots_cor_p2[[2]]) /
+             (plots_cor_p2[[3]] | plots_cor_p2[[4]])
 
+panel_cor_p2
+```
+```{r}
+plots_cor_p3 <- make_volcano_cor_list(
+  df = partial_gene,
+  contrast_name = "T1D_Normal_vs_T1D_Overweight",
+  outcomes = outcomes,
+  label_n = 10
+)
+
+
+panel_cor_p3 <- (plots_cor_p3[[1]] | plots_cor_p3[[2]]) /
+             (plots_cor_p3[[3]] | plots_cor_p3[[4]])
+
+panel_cor_p3
+```
+```{r}
+plots_cor_p4 <- make_volcano_cor_list(
+  df = partial_gene,
+  contrast_name = "T1D_Normal_vs_T1D_Obese",
+  outcomes = outcomes,
+  label_n = 10
+)
+
+
+panel_cor_p4 <- (plots_cor_p4[[1]] | plots_cor_p4[[2]]) /
+             (plots_cor_p4[[3]] | plots_cor_p4[[4]])
+
+panel_cor_p4
+```
+```{r}
+plots_cor_p5 <- make_volcano_cor_list(
+  df = partial_gene,
+  contrast_name = "T1D_Obese_vs_T1D_Overweight",
+  outcomes = outcomes,
+  label_n = 10
+)
+
+
+panel_cor_p5 <- (plots_cor_p5[[1]] | plots_cor_p5[[2]]) /
+             (plots_cor_p5[[3]] | plots_cor_p5[[4]])
+
+panel_cor_p5
+```
 
 
 
