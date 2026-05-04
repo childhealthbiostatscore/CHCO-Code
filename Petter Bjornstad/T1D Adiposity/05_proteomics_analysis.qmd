@@ -409,6 +409,10 @@ pca_group_bmi_all <- (p0 | p1) / (p2 | p3)
 pca_group_bmi_all
 ```
 
+
+#--------------
+#running limma
+#--------------
 ```{r}
 mat1 <- t(dat_imp2)
 
@@ -424,7 +428,7 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
     T1DNormal_vs_LCNormal =
       group_bmiT1D_Normal - group_bmiLC_Normal,
     T1DOverObese_vs_LCOverObese =
-      ((group_bmiT1D_Overweight + group_bmiT1D_Obese) / 2) -
+      ((group_bmiT1D_Overweight + group_bmiT1D_Obese)/2) - #should I be averaging this group? 
       group_bmiLC_Overweight_Obese,
     T1DNormal_vs_T1DOverweight =
       group_bmiT1D_Normal - group_bmiT1D_Overweight,
@@ -445,7 +449,6 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
     topTable(
       fit2,
       coef = cn,
-      out = out,
       number = Inf,
       adjust.method = "BH"
     ) %>%
@@ -505,6 +508,7 @@ res_m3 <- run_group_bmi_limma(
   model_label = "M3: group_bmi + age * HbA1c + sex + study"
 )
 ```
+
 ```{r}
 results_all_models <- bind_rows(
   res_m0,
@@ -513,6 +517,53 @@ results_all_models <- bind_rows(
   res_m3
 )
 
+res_m0 <- res_m0 %>%
+  mutate(
+    contrast = case_when(
+      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
+      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
+      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
+      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
+      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
+      TRUE ~ contrast
+    )
+  )
+
+res_m1 <- res_m1 %>%
+  mutate(
+    contrast = case_when(
+      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
+      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
+      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
+      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
+      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
+      TRUE ~ contrast
+    )
+  )
+
+res_m2 <- res_m2 %>%
+  mutate(
+    contrast = case_when(
+      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
+      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
+      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
+      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
+      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
+      TRUE ~ contrast
+    )
+  )
+
+res_m3 <- res_m3 %>%
+  mutate(
+    contrast = case_when(
+      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
+      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
+      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
+      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
+      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
+      TRUE ~ contrast
+    )
+  )
 sig_all_models <- results_all_models %>% filter(adj.P.Val < 0.05)
 sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) > 0.5)
 
@@ -735,7 +786,6 @@ ggsave("M3_pca_plots.png",
 #pathway anlaysis
 #-----------------
 ```{r}
-
 msig_kegg <- msigdbr(
   species = "Homo sapiens",
   category = "C2",
@@ -1112,7 +1162,7 @@ fgsea_kegg_plots_m3 <- fgsea_kegg_m3 %>%
 
 plots_m3 <- fgsea_kegg_plots_m3
 plots_m3
-top_row <- plots_m3$plot[[1]] + plots_m3$plot[[5]] + patchwork::plot_spacer()
+top_row <- plots_m3$plot[[1]] + patchwork::plot_spacer() + patchwork::plot_spacer()
 bottom_row <- plots_m3$plot[[3]] + plots_m3$plot[[2]] + plots_m3$plot[[4]] 
 
 panel_kegg_m3 <- top_row / bottom_row
@@ -1128,163 +1178,219 @@ ggsave("GSEA_kegg_m3.png",
        )
 ```
 
+```{r}
+map_tbl <- analytes %>%
+  dplyr::transmute(
+    protein_id = as.character(AptName),
+    gene_symbol = as.character(EntrezGeneSymbol)
+  ) %>%
+  dplyr::mutate(
+    gene_symbol = dplyr::if_else(
+      is.na(gene_symbol) | gene_symbol == "",
+      protein_id,
+      gene_symbol
+    )
+  ) %>%
+  dplyr::distinct()
+```
+
 #----------------------------------------
 #ElasticNet/LASSO Regression
 #----------------------------------------
 ```{r}
 run_elastic_net <- function(
-  cc,
-  out_list,
+  contrast_name,
+  limma_df,
   meta_df,
   X_mat,
-  protein2symbol,
+  protein2symbol = NULL,
+  group_var = "group_bmi",
   top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
   covars = c("age", "sex", "study"),
   alpha_grid = seq(0.1, 1, by = 0.1),
   nfolds = 10,
-  seed = 1,
+  seed = 1835,
   min_per_class = 5,
   maxit = 1e6
 ) {
-  
+
   cat("\n============================\n")
-  cat("Running contrast:", cc, "\n")
-  
-  if (!cc %in% names(out_list)) {
-    stop("Contrast not found in out_list: ", cc)
-  }
-  
-  if (!grepl("_vs_", cc)) {
-    stop("Contrast name must contain '_vs_'")
-  }
-  
-  parts <- strsplit(cc, "_vs_")[[1]]
-  if (length(parts) != 2) {
-    stop("Contrast could not be split into two groups")
-  }
-  
-  g_pos <- parts[1]
-  g_neg <- parts[2]
-  
- idx <- which(meta_df$group4 %in% c(g_pos, g_neg))
-meta_sub <- meta_df[idx, , drop = FALSE]
-meta_sub$record_id <- as.character(meta_sub$record_id)
+  cat("Running contrast:", contrast_name, "\n")
 
-meta_sub$group4 <- droplevels(meta_sub$group4)
-
-y <- ifelse(meta_sub$group4 == g_pos, 1, 0)
-y <- as.numeric(y)
-
-tab <- table(meta_sub$group4)
-if (any(tab < min_per_class)) {
-  stop(
-    "Too few samples in at least one class for contrast: ",
-    cc,
-    " | counts = ",
-    paste(names(tab), tab, collapse = ", ")
+  contrast_groups <- list(
+    T1D_Normal_vs_LC_Normal = list(
+      positive = "T1D_Normal",
+      negative = "LC_Normal"
+    ),
+    T1D_OverObese_vs_LC_OverObese = list(
+      positive = c("T1D_Overweight", "T1D_Obese"),
+      negative = "LC_Overweight_Obese"
+    ),
+    T1D_Normal_vs_T1D_Overweight = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Overweight"
+    ),
+    T1D_Normal_vs_T1D_Obese = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Obese"
+    ),
+    T1D_Obese_vs_T1D_Overweight = list(
+      positive = "T1D_Obese",
+      negative = "T1D_Overweight"
+    )
   )
-}
-  
-  t <- out_list[[cc]]
-  if (is.null(t)) {
-    stop("Contrast table is NULL for: ", cc)
+
+  if (!contrast_name %in% names(contrast_groups)) {
+    stop("Contrast not found in contrast_groups: ", contrast_name)
   }
-  t <- as.data.frame(t)
-  
-  cat("Columns in contrast table:\n")
-  print(names(t))
-  
-  if (!"feature_id" %in% names(t)) {
-    fid <- rownames(t)
-    if (is.null(fid)) stop("No feature_id column or rownames found")
-    t$feature_id <- fid
-  }
-  
-  if (!all(c("adj.P.Val", "P.Value") %in% names(t))) {
-    stop("Contrast table is missing adj.P.Val and/or P.Value")
-  }
-  
-  cat("Rows in limma table:", nrow(t), "\n")
-  cat("Overlap with protein matrix:", sum(t$feature_id %in% colnames(X_mat)), "\n")
-  
-  top_feats <- t %>%
-  dplyr::filter(!is.na(adj.P.Val)) %>%
-  dplyr::left_join(protein2symbol, by = "feature_id") %>%
-  dplyr::mutate(
-    gene_symbol = dplyr::if_else(
-      is.na(gene_symbol) | gene_symbol == "",
-      feature_id,
-      gene_symbol
-    )
-  ) %>%
-  dplyr::filter(feature_id %in% colnames(X_mat)) %>%
-  dplyr::arrange(adj.P.Val, P.Value) %>%
-  dplyr::group_by(gene_symbol) %>%
-  dplyr::slice_head(n = 1) %>%   # keeps best aptamer per gene
-  dplyr::ungroup() %>%
-  dplyr::slice_head(n = top_n) %>%
-  dplyr::pull(feature_id)
-  
-  cat("Top overlapping features:", length(top_feats), "\n")
-  cat("First few top features:\n")
-  print(head(top_feats, 10))
-  
-  if (length(top_feats) < 5) {
-    stop("Fewer than 5 overlapping top features for contrast: ", cc)
-  }
-  
-  meta_sub <- meta_sub %>%
+
+  g_pos <- contrast_groups[[contrast_name]]$positive
+  g_neg <- contrast_groups[[contrast_name]]$negative
+
+  meta_sub <- meta_df %>%
+    dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg)) %>%
     dplyr::mutate(
+      record_id = as.character(record_id),
+      y = ifelse(.data[[group_var]] %in% g_pos, 1, 0),
       sex = factor(sex),
-      study6 = factor(study6)
+      study = factor(study)
     )
-  
+
+  if (nrow(meta_sub) == 0) {
+    stop("No samples found for contrast: ", contrast_name)
+  }
+
+  tab <- table(meta_sub$y)
+  print(tab)
+
+  if (any(tab < min_per_class)) {
+    stop(
+      "Too few samples in at least one class for contrast: ",
+      contrast_name,
+      " | counts = ",
+      paste(names(tab), tab, collapse = ", ")
+    )
+  }
+
+  ids <- intersect(meta_sub$record_id, rownames(X_mat))
+
+  meta_sub <- meta_sub %>%
+    dplyr::filter(record_id %in% ids)
+
+  meta_sub <- meta_sub[match(ids, meta_sub$record_id), , drop = FALSE]
+  X_mat_sub <- X_mat[ids, , drop = FALSE]
+
+  stopifnot(identical(rownames(X_mat_sub), meta_sub$record_id))
+
+  limma_sub <- limma_df %>%
+    dplyr::filter(contrast == contrast_name)
+
+  if (nrow(limma_sub) == 0) {
+    stop("No limma rows found for contrast: ", contrast_name)
+  }
+
+  if (sig_only) {
+    limma_sub <- limma_sub %>%
+      dplyr::filter(
+        adj.P.Val < p_cutoff,
+        abs(logFC) > fc_cutoff
+      )
+  }
+
+  if (nrow(limma_sub) == 0) {
+    stop("No significant limma DEPs found for contrast: ", contrast_name)
+  }
+
+  if (!is.null(protein2symbol)) {
+    limma_sub <- limma_sub %>%
+      dplyr::left_join(protein2symbol, by = "protein_id") %>%
+      dplyr::mutate(
+        gene_symbol = dplyr::if_else(
+          is.na(gene_symbol) | gene_symbol == "",
+          protein_id,
+          gene_symbol
+        )
+      ) %>%
+      dplyr::filter(protein_id %in% colnames(X_mat_sub)) %>%
+      dplyr::arrange(dplyr::desc(abs(t)), adj.P.Val, P.Value) %>%
+      dplyr::group_by(gene_symbol) %>%
+      dplyr::slice_head(n = 1) %>%
+      dplyr::ungroup()
+  } else {
+    limma_sub <- limma_sub %>%
+      dplyr::filter(protein_id %in% colnames(X_mat_sub)) %>%
+      dplyr::arrange(dplyr::desc(abs(t)), adj.P.Val, P.Value) %>%
+      dplyr::mutate(gene_symbol = protein_id)
+  }
+
+  top_feats_tbl <- limma_sub %>%
+    dplyr::arrange(dplyr::desc(abs(t)), adj.P.Val, P.Value) %>%
+    dplyr::slice_head(n = top_n)
+
+  top_feats <- top_feats_tbl$protein_id
+
+  cat("Input limma DEPs after redundancy filtering:", nrow(limma_sub), "\n")
+  cat("Top proteins used in elastic net:", length(top_feats), "\n")
+
+  if (length(top_feats) < 5) {
+    stop("Fewer than 5 overlapping proteins for contrast: ", contrast_name)
+  }
+
   covars_present <- covars[covars %in% colnames(meta_sub)]
+
   cat("Covariates used:", paste(covars_present, collapse = ", "), "\n")
-  
+
   if (length(covars_present) > 0) {
-    form_cov <- as.formula(paste("~", paste(covars_present, collapse = " + ")))
-    Z <- model.matrix(form_cov, data = meta_sub)
+    Z <- model.matrix(
+      as.formula(paste("~", paste(covars_present, collapse = " + "))),
+      data = meta_sub
+    )
   } else {
     Z <- matrix(1, nrow = nrow(meta_sub), ncol = 1)
     colnames(Z) <- "(Intercept)"
   }
-  
-  Xp <- X_mat[meta_sub$record_id, top_feats, drop = FALSE]
-  
+
+  Xp <- X_mat_sub[, top_feats, drop = FALSE]
+
   X <- cbind(Z, Xp)
   X <- as.matrix(X)
   storage.mode(X) <- "double"
-  
-  pf <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
-  
+
+  y <- as.numeric(meta_sub$y)
+
+  penalty_factor <- c(rep(0, ncol(Z)), rep(1, ncol(Xp)))
+
   sds <- apply(X, 2, sd)
-  keep <- which(is.finite(sds) & sds > 0)
-  
+  keep <- is.finite(sds) & sds > 0
+
   X <- X[, keep, drop = FALSE]
-  pf <- pf[keep]
-  
-  cat("Final design matrix dim:", dim(X), "\n")
-  
+  penalty_factor <- penalty_factor[keep]
+
+  cat("Final elastic net matrix:", nrow(X), "samples x", ncol(X), "features\n")
+
   nfolds_use <- min(nfolds, sum(y == 0), sum(y == 1))
+
   cat("nfolds used:", nfolds_use, "\n")
-  
+
   if (nfolds_use < 2) {
-    stop("Not enough samples per class for CV")
+    stop("Not enough samples per class for cross-validation.")
   }
-  
+
   set.seed(seed)
-  
+
   fit_list <- lapply(alpha_grid, function(a) {
     cv <- tryCatch(
-      cv.glmnet(
+      glmnet::cv.glmnet(
         x = X,
         y = y,
         family = "binomial",
         alpha = a,
         nfolds = nfolds_use,
         type.measure = "deviance",
-        penalty.factor = pf,
+        penalty.factor = penalty_factor,
         standardize = TRUE,
         maxit = maxit
       ),
@@ -1293,109 +1399,136 @@ if (any(tab < min_per_class)) {
         NULL
       }
     )
-    
+
     if (is.null(cv)) return(NULL)
+
     list(alpha = a, cvfit = cv)
   })
-  
+
   fit_list <- Filter(Negate(is.null), fit_list)
-  
+
   if (length(fit_list) == 0) {
-    stop("All glmnet fits failed")
+    stop("All glmnet fits failed.")
   }
-  
+
   best_idx <- which.min(sapply(fit_list, function(z) min(z$cvfit$cvm)))
   best <- fit_list[[best_idx]]
-  
+
   coef_mat <- as.matrix(coef(best$cvfit, s = "lambda.1se"))
+
   coef_df <- tibble::tibble(
-    term = rownames(coef_mat),
+    protein_id = rownames(coef_mat),
     beta = as.numeric(coef_mat)
   ) %>%
     dplyr::filter(beta != 0)
-  
-  protein_terms <- intersect(colnames(Xp), coef_df$term)
-  
+
+  selected_proteins <- intersect(top_feats, coef_df$protein_id)
+
+  coef_df_annot <- coef_df %>%
+    dplyr::left_join(
+      top_feats_tbl %>%
+        dplyr::select(protein_id, gene_symbol, logFC, t, P.Value, adj.P.Val),
+      by = "protein_id"
+    )
+
+  selected_proteins_annot <- top_feats_tbl %>%
+    dplyr::filter(protein_id %in% selected_proteins) %>%
+    dplyr::select(protein_id, gene_symbol, logFC, t, P.Value, adj.P.Val)
+
   p_hat <- as.numeric(
     predict(best$cvfit, newx = X, s = "lambda.1se", type = "response")
   )
-  
+
   auc_val <- as.numeric(
     pROC::auc(pROC::roc(y, p_hat, quiet = TRUE))
   )
-  
+
   cat("Best alpha:", best$alpha, "\n")
-  cat("AUC:", auc_val, "\n")
-  cat("Nonzero coefficients:", nrow(coef_df), "\n")
-  cat("Selected protein terms:", length(protein_terms), "\n")
-  
+  cat("Training AUC:", auc_val, "\n")
+  cat("Selected proteins:", length(selected_proteins), "\n")
+
   list(
-    contrast         = cc,
-    positive         = g_pos,
-    negative         = g_neg,
-    best_alpha       = best$alpha,
-    lambda_1se       = best$cvfit$lambda.1se,
-    lambda_min       = best$cvfit$lambda.min,
-    auc_train        = auc_val,
+    contrast = contrast_name,
+    positive_group = g_pos,
+    negative_group = g_neg,
+    best_alpha = best$alpha,
+    lambda_1se = best$cvfit$lambda.1se,
+    lambda_min = best$cvfit$lambda.min,
+    auc_train = auc_val,
     n_input_proteins = length(top_feats),
-    coef_df          = coef_df,
-    protein_terms    = protein_terms,
-    cvfit            = best$cvfit,
-    top_feats        = top_feats
+    top_feats = top_feats,
+    top_feats_tbl = top_feats_tbl,
+    selected_proteins = selected_proteins,
+    selected_proteins_annot = selected_proteins_annot,
+    coef_df = coef_df,
+    coef_df_annot = coef_df_annot,
+    cvfit = best$cvfit
   )
 }
 ```
 
+#----------------------------------------
+# Bootstrap elastic net stability selection
+#----------------------------------------
 ```{r}
 run_elastic_net_bootstrap <- function(
-  cc,
-  out_list,
+  contrast_name,
+  limma_df,
   meta_df,
   X_mat,
-  protein2symbol,
+  protein2symbol = NULL,
+  group_var = "group_bmi",
   top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
   covars = c("age", "sex"),
   alpha_grid = seq(0.1, 1, by = 0.1),
   n_boot = 100,
   seed = 1835,
-  min_per_class = 5, 
-  verbose = F) {
+  min_per_class = 5
+) {
+
   set.seed(seed)
-  
+
   boot_res <- vector("list", n_boot)
-  
+
   for (b in seq_len(n_boot)) {
-    
-    cat("Bootstrap", b, "of", n_boot, "for", cc, "\n")
-    
-    parts <- strsplit(cc, "_vs_")[[1]]
+
+    cat("\nBootstrap", b, "of", n_boot, "for", contrast_name, "\n")
+
+    parts <- strsplit(contrast_name, "_vs_")[[1]]
     g_pos <- parts[1]
     g_neg <- parts[2]
-    
-    idx0 <- which(meta_df$group4 %in% c(g_pos, g_neg))
-    meta_sub0 <- meta_df[idx0, , drop = FALSE]
-    
-    # stratified bootstrap: sample within each group
-    idx_boot <- unlist(lapply(split(seq_len(nrow(meta_sub0)), meta_sub0$group4), function(ii) {
-      sample(ii, size = length(ii), replace = TRUE)
-    }))
-    
-    meta_boot <- meta_sub0[idx_boot, , drop = FALSE]
-    meta_boot$record_id_boot <- paste0(meta_boot$record_id, "_boot", seq_len(nrow(meta_boot)))
-    
-    X_boot <- X_mat[meta_boot$record_id, , drop = FALSE]
-    rownames(X_boot) <- meta_boot$record_id_boot
-    
-    meta_boot$record_id <- meta_boot$record_id_boot
-    
+
+    meta_sub0 <- meta_df %>%
+      dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg))
+
+    boot_idx <- unlist(
+      lapply(split(seq_len(nrow(meta_sub0)), meta_sub0[[group_var]]), function(ii) {
+        sample(ii, size = length(ii), replace = TRUE)
+      })
+    )
+
+    meta_boot <- meta_sub0[boot_idx, , drop = FALSE]
+    meta_boot$record_id_original <- meta_boot$record_id
+    meta_boot$record_id <- paste0(meta_boot$record_id_original, "_boot", seq_len(nrow(meta_boot)))
+
+    X_boot <- X_mat[meta_boot$record_id_original, , drop = FALSE]
+    rownames(X_boot) <- meta_boot$record_id
+
     fit_b <- tryCatch(
       run_elastic_net(
-        cc = cc,
-        out_list = out_list,
+        contrast_name = contrast_name,
+        limma_df = limma_df,
         meta_df = meta_boot,
         X_mat = X_boot,
         protein2symbol = protein2symbol,
+        group_var = group_var,
         top_n = top_n,
+        sig_only = sig_only,
+        p_cutoff = p_cutoff,
+        fc_cutoff = fc_cutoff,
         covars = covars,
         alpha_grid = alpha_grid,
         seed = seed + b,
@@ -1406,39 +1539,46 @@ run_elastic_net_bootstrap <- function(
         NULL
       }
     )
-    
+
     boot_res[[b]] <- fit_b
   }
-  
+
   boot_res <- Filter(Negate(is.null), boot_res)
-  
- selected_tbl <- lapply(seq_along(boot_res), function(i) {
-  tibble(
-    boot = i,
-    contrast = cc,
-    best_alpha = boot_res[[i]]$best_alpha,
-    auc_train = boot_res[[i]]$auc_train,
-    feature_id = unique(boot_res[[i]]$protein_terms)
-  )
-}) %>%
-  bind_rows() %>%
-  distinct(contrast, boot, feature_id, .keep_all = TRUE)
-  
+
+  if (length(boot_res) == 0) {
+    stop("All bootstrap elastic net runs failed.")
+  }
+
+  selected_tbl <- purrr::map_dfr(seq_along(boot_res), function(i) {
+    tibble::tibble(
+      boot = i,
+      contrast = contrast_name,
+      best_alpha = boot_res[[i]]$best_alpha,
+      auc_train = boot_res[[i]]$auc_train,
+      protein_id = unique(boot_res[[i]]$selected_proteins)
+    )
+  }) %>%
+    dplyr::filter(!is.na(protein_id), protein_id != "")
+
   stability_tbl <- selected_tbl %>%
-  distinct(contrast, boot, feature_id) %>%
-  count(contrast, feature_id, name = "n_selected") %>%
-  mutate(
-    n_boot_success = length(boot_res),
-    selection_frequency = n_selected / n_boot_success
-  ) %>%
-  left_join(protein2symbol, by = "feature_id") %>%
-  arrange(desc(selection_frequency))
-  
+    dplyr::distinct(contrast, boot, protein_id) %>%
+    dplyr::count(contrast, protein_id, name = "n_selected") %>%
+    dplyr::mutate(
+      n_boot_success = length(boot_res),
+      selection_frequency = n_selected / n_boot_success,
+      selection_percent = 100 * selection_frequency
+    )
+
+  if (!is.null(protein2symbol)) {
+    stability_tbl <- stability_tbl %>%
+      dplyr::left_join(protein2symbol, by = "protein_id")
+  }
+
   stability_tbl <- stability_tbl %>%
-  mutate(selection_percent = 100 * selection_frequency)
-  
-  model_summary <- tibble(
-    contrast = cc,
+    dplyr::arrange(dplyr::desc(selection_frequency))
+
+  model_summary <- tibble::tibble(
+    contrast = contrast_name,
     n_boot_requested = n_boot,
     n_boot_success = length(boot_res),
     mean_auc = mean(sapply(boot_res, function(x) x$auc_train), na.rm = TRUE),
@@ -1446,9 +1586,9 @@ run_elastic_net_bootstrap <- function(
     mean_alpha = mean(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE),
     median_alpha = median(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE)
   )
-  
+
   list(
-    contrast = cc,
+    contrast = contrast_name,
     boot_res = boot_res,
     selected_tbl = selected_tbl,
     stability_tbl = stability_tbl,
@@ -1461,31 +1601,127 @@ run_elastic_net_bootstrap <- function(
 #boostrapping T1D vs LC
 #----------------------
 ```{r}
-boot_1 <- run_elastic_net_bootstrap(
-  cc = "T1D_Normal_vs_LC_Normal",
-  out_list = out1,
-  meta_df = meta1,
-  X_mat = prot_resid,
-  protein2symbol = protein2symbol,
+net1 <- run_elastic_net(
+  contrast_name = "T1D_Normal_vs_LC_Normal",
+  limma_df = res_m2,
+  meta_df = meta3,
+  X_mat = prot_age_sex_study,
+  protein2symbol = map_tbl,
   top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
   covars = c("age", "sex"),
-  n_boot = 100,
-  seed = 1835,
-  verbose = FALSE
+  seed = 1835
 )
+net1
+
 ```
 
+```{r}
+net2 <- run_elastic_net(
+  contrast_name = "T1D_OverObese_vs_LC_OverObese",
+  limma_df = res_m2,
+  meta_df = meta3,
+  X_mat = prot_age_sex_study,
+  protein2symbol = map_tbl,
+  top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
+  covars = c("age", "sex"),
+  seed = 1835
+)
 
+net2
+```
 
+```{r}
+net3 <- cat("T1D_Normal_vs_T1D_Overweight too few proteins")
+net3
+```
+```{r}
+net4 <- run_elastic_net(
+  contrast_name = "T1D_Normal_vs_T1D_Obese",
+  limma_df = res_m2,
+  meta_df = meta3,
+  X_mat = prot_age_sex_study,
+  protein2symbol = map_tbl,
+  top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
+  covars = c("age", "sex"),
+  seed = 1835
+)
+
+net4
+```
+```{r}
+net5 <- cat("T1D_overweight vs obese too few proteins")
+```
+```{r}
+enet_prots <- list(
+  T1D_Normal_vs_LC_Normal = net1$selected_proteins,
+  T1D_OverObese_vs_LC_OverObese = net2$selected_proteins,
+  T1D_Normal_vs_T1D_Obese = net4$selected_proteins
+)
+
+enet_prots_tbl <- purrr::imap_dfr(enet_prots, function(prots, contrast_name) {
+  tibble::tibble(
+    contrast = contrast_name,
+    protein_id = prots,
+    source = "elastic_net"
+  )
+})
+
+limma_fallback_contrasts <- c(
+  "T1D_Normal_vs_T1D_Overweight",
+  "T1D_Obese_vs_T1D_Overweight"
+)
+
+limma_fallback_tbl <- res_m2 %>%
+  dplyr::filter(
+    contrast %in% limma_fallback_contrasts,
+    adj.P.Val < 0.05,
+    abs(logFC) > 0.5,
+    protein_id %in% colnames(prot_age_sex_study)
+  ) %>%
+  dplyr::arrange(contrast, dplyr::desc(abs(t)), adj.P.Val, P.Value) %>%
+  dplyr::group_by(contrast) %>%
+  dplyr::slice_head(n = 100) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(contrast, protein_id) %>%
+  dplyr::mutate(source = "limma_fallback")
+```
+
+```{r}
+final_protein_tbl <- dplyr::bind_rows(
+  enet_prots_tbl,
+  limma_fallback_tbl
+) %>%
+  dplyr::distinct(contrast, protein_id, .keep_all = TRUE) %>%
+  dplyr::left_join(map_tbl, by = "protein_id")
+
+sig_prots <- final_protein_tbl %>%
+  dplyr::pull(protein_id) %>%
+  unique()
+
+sig_prots <- intersect(sig_prots, colnames(prot_age_sex_study))
+
+expr_mat <- prot_age_sex_study[, sig_prots, drop = FALSE]
+
+dim(expr_mat)
+```
 #------------------------------------------
 #Correlations with kidney clinical markers
 #-----------------------------------------
 ```{r}
-prot_ids <- sig_all_models_fc$protein_id
-keep_prots <- intersect(colnames(prot_age_sex_study), prot_ids)
-sig_prots <- prot_age_sex_study[, keep_prots, drop = FALSE]
+#prot_ids <- sig_all_models_fc$protein_id
+#keep_prots <- intersect(colnames(prot_age_sex_study), prot_ids)
+#sig_prots <- prot_age_sex_study[, keep_prots, drop = FALSE]
 
-corr_df <- bind_cols(meta3, sig_prots) %>%
+corr_df <- bind_cols(meta3, expr_mat) %>%
   rename(HbA1c = hba1c, uACR = acr_u) %>%
   mutate(
     HbA1c = as.numeric(HbA1c), #only do this if I haven't included hba1c in the model 
@@ -1516,7 +1752,6 @@ contrast_list <- c(
 get_groups_from_contrast <- function(contrast_name) {
   
   contrast_groups <- list(
-    
     T1D_Normal_vs_LC_Normal = list(
       group1 = "T1D_Normal",
       group2 = "LC_Normal"
@@ -1591,17 +1826,15 @@ run_contrast_correlation <- function(contrast_name, corr_df, keep_prots, min_n =
 # ---- Run all contrasts ----
 all_cor_results <- purrr::map_dfr(
   contrast_list,
-  ~run_contrast_correlation(.x, corr_df, keep_prots, min_n = 10)
+  ~run_contrast_correlation(.x, corr_df, sig_prots, min_n = 10)
 )
 
 all_cor_results %>% filter(FDR <= 0.05)
 ```
-
-```{r}
 #-----------------------------
 # Partial correlations setup
 #-----------------------------
-
+```{r}
 partial_outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr")
 partial_covars   <- c("age", "sex", "study")
 stopifnot(all(partial_covars %in% names(corr_df)))
@@ -1658,31 +1891,17 @@ run_contrast_partial <- function(contrast_name,
 
 all_partial_results <- purrr::map_dfr(
   contrast_list,
-  ~run_contrast_partial(.x, corr_df, keep_prots,
+  ~run_contrast_partial(.x, corr_df, sig_prots,
                         outcomes = partial_outcomes,
                         covars   = partial_covars,
                         min_n    = 15)
 )
 ```
 
-```{r}
-map_tbl <- analytes %>%
-  transmute(
-    seq_id      = AptName,           
-    gene_symbol = EntrezGeneSymbol
-  ) %>%
-  mutate(
-    seq_id      = as.character(seq_id),
-    gene_symbol = as.character(gene_symbol),
-    gene_symbol = na_if(gene_symbol, ""),
-    gene_symbol = if_else(is.na(gene_symbol), seq_id, gene_symbol)
-  ) %>%
-  distinct(seq_id, gene_symbol)
-```
 
 ```{r}
 cor_gene <- all_cor_results %>%
-  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  left_join(map_tbl, by = c("protein" = "protein_id")) %>%
   mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
   group_by(contrast, outcome, gene_symbol) %>%
   summarise(
@@ -1695,7 +1914,7 @@ cor_gene <- all_cor_results %>%
   rename(label = gene_symbol)
 
 partial_gene <- all_partial_results %>%
-  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  left_join(map_tbl, by = c("protein" = "protein_id")) %>%
   mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
   group_by(contrast, outcome, gene_symbol) %>%
   summarise(
@@ -1789,7 +2008,7 @@ make_volcano_cor<- function(df,
     labs(
       title = paste0(title_prefix, "\n", contrast_name, " - ", outcome_name),
       x = "Spearman rho",
-      y = "-log10(raw p-value)",
+      y = "-log10(p)",
       color = "Raw p-value"
     ) +
     
@@ -1846,9 +2065,25 @@ make_volcano_cor<- function(df,
 ```
 
 ```{r}
- partial_gene %>%
-  distinct(contrast) %>%
-  pull(contrast)
+make_volcano_cor_list <- function(df,
+                                 contrast_name,
+                                 outcomes,
+                                 label_n = 10,
+                                 ...) {
+  
+  plots <- lapply(outcomes, function(out) {
+    make_volcano_cor(
+      df = df,
+      contrast_name = contrast_name,
+      outcome_name = out,
+      label_n = label_n,
+      ...
+    )
+  })
+  
+  names(plots) <- outcomes
+  return(plots)
+}
 ```
 
 ```{r}
@@ -1974,611 +2209,3 @@ ggsave(
 
 
 
-
-
-#=========================================
-#archived code
-#setting up metadata and protein matrices
-#=========================================
-```{r}
-#meta <- t1d_hc_dat_soma %>%
-  dplyr:: select (-starts_with("seq"))
-#meta$group
-meta$group <- factor(
-  meta$group,
-  levels = c("Lean Control","Type 1 Diabetes"),
-  labels = c("LC","T1D")
-)
-
-#meta <- meta %>%
-  dplyr::mutate(
-    study = dplyr::recode(study,
-      "CROCODILE"   = "CRC",
-      "PANDA"       = "PAN",
-      "RENAL-HEIR"  = "RH",
-      "CASPER" = "CAS",
-      "ATTEMPT" = "ATT"
-    )
-  )
-
-meta$record_id <- as.character(meta$record_id)
-#meta$bmi_obesity
-#meta$dxa_obesity
-# keep only participants with BOTH BMI and DXA obesity
-meta2 <- meta %>%
-  dplyr::filter(
-    !is.na(bmi_obesity) #,
-    #!is.na(dxa_obesity)
-  )
-
-dat <- t1d_hc_dat_soma %>%
-  dplyr::select(record_id, starts_with("seq"))
-
-
-#dat_urine <- dat %>%
-#  dplyr::select(ends_with("urine"), ends_with("urine_cradj"))
-
-dat_plasma <- dat %>%
-  dplyr:: select(-ends_with("urine"), -ends_with("urine_cradj"))
-dat_plasma <- as.data.frame(dat_plasma)
-rownames(dat_plasma) <- dat_plasma$record_id
-dat_plasma$record_id <- NULL
-
-#filtering final matrices to have the same record_ids
-ids_keep <- meta2$record_id
-
-# plasma
-dat_plasma2 <- dat_plasma[ids_keep, , drop = FALSE]
-meta2 <- meta2 %>%
-  dplyr::filter(record_id %in% rownames(dat_plasma2))
-meta2 <- meta2[match(rownames(dat_plasma2), meta2$record_id), ]
-
-stopifnot(identical(rownames(dat_plasma2), meta2$record_id))
-
-```
-
-
-##filter to proteins that are only in the analyte panel (~7000)
-##check if this is correct for the newer somascan prot pannel
-##should filter ~3000 all from ATTEMPT
-##then filter to keep proteins that are in at least 2 studies
-```{r}
-analytes <- read.csv(
-  file.path(root_path, "Data Harmonization", "Combined SomaScan", "analytes.csv")
-)
-
-stopifnot("AptName" %in% colnames(analytes))
-
-prot_panel <- analytes$AptName %>%
-  as.character() %>%
-  trimws() %>%
-  unique()
-
-prot_panel <- prot_panel[!is.na(prot_panel) & prot_panel != ""]
-
-aptamers_keep <- intersect(prot_panel, colnames(dat_plasma2))
-
-if (length(aptamers_keep) == 0) {
-  stop("No analytes from analytes.csv matched columns in dat_plasma2.")
-}
-
-dat_plasma3 <- dat_plasma2[, aptamers_keep, drop = FALSE]
-
-cat("Plasma features before analyte filter:", ncol(dat_plasma2), "\n")
-cat("Proteins in analyte panel:", length(prot_panel), "\n")
-cat("Matched proteins kept:", length(aptamers_keep), "\n")
-cat("Panel proteins missing from plasma matrix:", length(setdiff(prot_panel, colnames(dat_plasma2))), "\n")
-
-# force numeric safely
-dat_plasma3 <- as.data.frame(dat_plasma3)
-
-dat_plasma3[] <- lapply(dat_plasma3, function(x) {
-  suppressWarnings(as.numeric(as.character(x)))
-})
-
-dat_plasma3 <- as.matrix(dat_plasma3)
-
-# log2 transform
-dat_log <- log2(dat_plasma3 + 1)
-dat_log[!is.finite(dat_log)] <- NA_real_
-
-stopifnot(identical(rownames(dat_log), meta2$record_id))
-```
-
-
-```{r}
-#not really necessary to do as all protiens pass filter once I remove the extra 3000 from the ATTEMPT Panel
-##filtering step where protein must exist in 60% of samples in a study
-stopifnot(identical(rownames(dat_log), meta2$record_id))
-meta2$study <- factor(meta2$study)
-
-study_idx_all <- split(seq_len(nrow(dat_log)), meta2$study)
-present_by_study_all <- sapply(study_idx_all, function(idx) {
-  colMeans(!is.na(dat_log[idx, , drop = FALSE])) >= 0.6
-})
-
-present_by_study_all <- as.matrix(present_by_study_all)
-
-n_studies_present_all <- rowSums(present_by_study_all)
-keep_study_all <- n_studies_present_all >= 2
-
-removed_proteins <- colnames(dat_log)[!keep_study_all]
-kept_proteins    <- colnames(dat_log)[keep_study_all]
-
-cat("All proteomic features before study filter:", ncol(dat_log), "\n")
-cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_proteins), "\n")
-cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_proteins), "\n")
-
-if (length(kept_proteins) == 0) {
-  stop("No proteins passed the study presence filter.")
-}
-
-dat_log_filt <- dat_log[, kept_proteins, drop = FALSE]
-
-stopifnot(identical(rownames(dat_log_filt), meta2$record_id))
-```
-
-#imputating the data
-```{r}
-set.seed(1835)
-dat_imp <- dat_log_filt
-meds <- apply(dat_imp, 2, function(x) {
-  m <- median(x, na.rm = TRUE)
-  if (is.finite(m)) m else NA_real_
-})
-
-for (j in seq_len(ncol(dat_imp))) {
-  if (!is.na(meds[j])) {
-    dat_imp[is.na(dat_imp[, j]), j] <- meds[j]
-  }
-}
-
-keep_cols <- colSums(is.na(dat_imp)) == 0 &
-  apply(dat_imp, 2, var) > 0 &
-  is.finite(apply(dat_imp, 2, var))
-
-dat_imp <- dat_imp[, keep_cols, drop = FALSE]
-```
-
-##--------------------------------
-## Find and Remove Outliers in PCA
-##---------------------------------
-```{r}
-stopifnot(identical(rownames(dat_imp), meta2$record_id))
-
-# PCA outlier detection
-pca0 <- prcomp(dat_imp, center = TRUE, scale. = TRUE)
-
-scores <- as.data.frame(pca0$x[, 1:2, drop = FALSE])
-scores$record_id <- rownames(scores)
-
-scores$dist <- sqrt(scores$PC1^2 + scores$PC2^2)
-
-threshold <- mean(scores$dist, na.rm = TRUE) + 
-  3 * sd(scores$dist, na.rm = TRUE)
-
-outliers <- scores$record_id[scores$dist > threshold]
-
-outliers
-
-# remove outliers from matrix
-dat_imp2 <- dat_imp[
-  !rownames(dat_imp) %in% outliers,, drop = FALSE]
-
-# remove outliers from metadata
-meta3 <- meta2 %>%
-  dplyr::filter(!record_id %in% outliers)
-
-# reorder metadata to match matrix
-meta3 <- meta3[match(rownames(dat_imp2), meta3$record_id), ]
-
-# checks
-cat("Still present in metadata? ", any(outliers %in% meta3$record_id), "\n")
-cat("Still present in matrix? ", any(outliers %in% rownames(dat_imp2)), "\n")
-
-stopifnot(!any(outliers %in% meta3$record_id))
-stopifnot(!any(outliers %in% rownames(dat_imp2)))
-stopifnot(identical(rownames(dat_imp2), meta3$record_id))
-```
-
-```{r}
-meta3 <- meta3 %>%
-  dplyr::mutate(
-    group_bmi = paste(group, bmi_obesity, sep = "_")
-  )
-
-meta3$group_bmi <- factor(meta3$group_bmi)
-
-table(meta3$group_bmi)
-```
-
-
-
-
-#Data tables
-```{r}
-table_study_bmi <- meta3 %>%
-  count(study, bmi_obesity) %>%
-  pivot_wider(
-    names_from = bmi_obesity,
-    values_from = n,
-    values_fill = 0
-  ) %>%
-  mutate(Total = rowSums(across(where(is.numeric))))
-
-table_study_bmi %>%
-  kable(
-    caption = "Participants by study and BMI adiposity group"
-  ) %>%
-  kable_styling(full_width = FALSE)
-```
-
-```{r}
-study_group_bmi_table <- meta3 %>%
-  dplyr::count(study, group, bmi_obesity, name = "n") %>%
-  tidyr::unite("group_bmi", group, bmi_obesity, sep = "_") %>%
-  tidyr::pivot_wider(
-    names_from = group_bmi,
-    values_from = n,
-    values_fill = 0
-  ) %>%
-  dplyr::mutate(
-    Total = rowSums(dplyr::across(where(is.numeric)))
-  )
-
-study_group_bmi_table
-```
-#---------------
-# Plotting Funciton
-#---------------
-```{r}
-make_pca_plot <- function(mat, meta_df, title_str) {
-  pca  <- prcomp(mat, center = TRUE, scale. = TRUE)
-  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
-
-  tibble(
-    PC1    = pca$x[, 1],
-    PC2    = pca$x[, 2],
-    group = meta_df$group,
-    study  = meta_df$study
-  ) %>%
-    ggplot(aes(PC1, PC2, color = group, shape = study)) +
-    geom_point(size = 3, alpha = 0.85) +
-    scale_color_manual(
-      values = c(
-        LC  = "Cyan4",
-        T1D = "DarkRed"
-      ),
-      name = "Group"
-    ) +
-    labs(
-      title = title_str,
-      x = paste0("PC1 (", vexp[1], "%)"),
-      y = paste0("PC2 (", vexp[2], "%)")
-    ) +
-    theme_bw()
-}
-```
-##-----------------------
-## PCAs by disease status
-##-----------------------
-```{r}
-design <- model.matrix(~ group, data = meta3)
-p  <- make_pca_plot(dat_imp2, meta3, "No adjustment")
-
-cov_m1 <- model.matrix(~ age + sex, data = meta3)[, -1, drop = FALSE]
-prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1, design = design))
-p1 <- make_pca_plot(prot_m1, meta3, "Age + Sex")
-
-
-cov_m2 <- model.matrix(~ age + sex + study, data = meta3)[, -1, drop = FALSE]
-prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2, design = design))
-p2 <- make_pca_plot(prot_m2, meta3, "Age + Sex + Study")
-
-pca_disease_status <- (p | p1 | p2) 
-  ggsave(pca_disease_status,
-         plot = pca_disease_status,
-         path = file.path(dir.results),
-         width = 10,
-         height = 8)
-```
-
-```{r}
-make_pca_plot2 <- function(mat, meta_df, title_str) {
-  pca  <- prcomp(mat, center = TRUE, scale. = TRUE)
-  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
-
-  tibble(
-    PC1    = pca$x[, 1],
-    PC2    = pca$x[, 2],
-    bmi_obesity = meta_df$bmi_obesity,
-    study  = meta_df$study
-  ) %>%
-    ggplot(aes(PC1, PC2, color = bmi_obesity, shape = study)) +
-    geom_point(size = 3, alpha = 0.85) +
-    scale_color_manual(
-      values = c(
-        Overweight  = "cyan4",
-        Obese = "plum4",
-        Normal = "orange3"
-      ),
-      name = "BMI group"
-    ) +
-    labs(
-      title = title_str,
-      x = paste0("PC1 (", vexp[1], "%)"),
-      y = paste0("PC2 (", vexp[2], "%)")
-    ) +
-    theme_bw()
-}
-```
-##------------------
-## PCAs by bmi group
-##------------------
-```{r}
-design <- model.matrix(~ bmi_obesity, data = meta3)
-
-p  <- make_pca_plot2(dat_imp2, meta3, "No adjustment")
-
-cov_m1 <- model.matrix(~ age + sex, data = meta3)[, -1, drop = FALSE]
-prot_m1 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m1, design = design))
-p1 <- make_pca_plot2(prot_m1, meta3, "Age + Sex")
-
-
-cov_m2 <- model.matrix(~ age + sex + study, data = meta3)[, -1, drop = FALSE]
-prot_m2 <- t(removeBatchEffect(t(dat_imp2), covariates = cov_m2, design = design))
-p2 <- make_pca_plot2(prot_m2, meta3, "Age + Sex + Study")
-
-(p | p1 | p2)
-```
-
-```{r}
-#setting up limma matrices
-# make sure matrix and metadata match
-stopifnot(identical(rownames(dat_imp2), meta3$record_id))
-
-#neet to transform for limma
-mat1 <- t(dat_imp2)
-
-# set "normal" as reference group
-meta3$bmi_obesity <- factor(
-  meta3$bmi_obesity,
-  levels = c("Normal", "Overweight", "Obese")
-)
-
-meta3$study <- factor(meta3$study)
-```
-
-
-#---------------------------------------------
-#run limma between disease status T1D vs LC
-#---------------------------------------------
-```{r}
-design_m1 <- model.matrix(~ group + age + sex + study, data = meta3) #add/remove study
-
-colnames(design_m1)
-
-# fit model
-disease_m1 <- lmFit(mat1, design_m1)
-disease_m1 <- eBayes(disease_m1)
-
-# extract T1D vs LC
-res_disease_m1 <- topTable(
-  disease_m1,
-  coef = "groupT1D",
-  number = Inf,
-  adjust.method = "BH"
-) %>%
-  rownames_to_column("protein_id") %>%
-  mutate(
-    model = "Disease status: T1D vs LC + age + sex + study",
-    contrast = "T1D vs LC",
-    direction = case_when(
-      adj.P.Val < 0.05 & logFC > 0 ~ "Higher in T1D",
-      adj.P.Val < 0.05 & logFC < 0 ~ "Lower in T1D",
-      TRUE ~ "Not significant"
-    )
-  )
-
-table(res_disease_m1$direction)
-```
-#---------------------------------------------
-#run limma for adiposity across disease status
-#---------------------------------------------
-```{r}
-# Model 1: BMI obesity + age + sex
-design_m1 <- model.matrix(~ 0 + bmi_obesity + age + sex + study, data = meta3) #add/remove study
-colnames(design_m1)
-
-contrast_matrix <- makeContrasts(
-  Overweight_vs_Normal = bmi_obesityOverweight - bmi_obesityNormal,
-  Obese_vs_Normal = bmi_obesityObese - bmi_obesityNormal,
-  Obese_vs_Overweight = bmi_obesityObese - bmi_obesityOverweight,
-  levels = design_m1
-)
-
-
-m <- lmFit(mat1, design_m1)
-m1 <- contrasts.fit(m, contrast_matrix)
-m1 <- eBayes(m1)
-
-results_list <- lapply(colnames(contrast_matrix), function(cn) {
-  topTable(m1, coef = cn, number = Inf, adjust.method = "BH") %>%
-    rownames_to_column("protein_id") %>%
-    mutate(
-      contrast = cn,
-      direction = case_when(
-        adj.P.Val < 0.05 & logFC > 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][1]),
-        adj.P.Val < 0.05 & logFC < 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][2]),
-        TRUE ~ "Not significant"
-      )
-    )
-})
-
-results_bmi_all <- bind_rows(results_list)
-results_sig <- results_bmi_all %>%
-  dplyr::filter(
-    adj.P.Val < 0.05,
-    abs(logFC) > 0
-  )
-results_sig
-```
-
-#------------------------------------
-#limma with only T1D Adiposity Groups
-#------------------------------------
-```{r}
-#subsetting to only T1D group
-meta_t1d <- meta3 %>%
-  dplyr::filter(group == "T1D") %>%
-  dplyr::filter(!is.na(bmi_obesity), !is.na(age), !is.na(sex), !is.na(study))
-
-dat_t1d <- dat_imp2[meta_t1d$record_id, , drop = FALSE]
-
-# reorder metadata to match matrix
-meta_t1d <- meta_t1d[match(rownames(dat_t1d), meta_t1d$record_id), ]
-
-stopifnot(identical(rownames(dat_t1d), meta_t1d$record_id))
-```
-
-```{r}
-#resetting groups as factors
-meta_t1d$bmi_obesity <- factor(
-  meta_t1d$bmi_obesity,
-  levels = c("Normal", "Overweight", "Obese")
-)
-
-meta_t1d$sex   <- factor(meta_t1d$sex)
-meta_t1d$study <- factor(meta_t1d$study)
-
-table(meta_t1d$bmi_obesity)
-table(meta_t1d$study)
-```
-
-```{r}
-mat_t1d <- t(dat_t1d)
-
-design_t1d <- model.matrix(~ 0 + bmi_obesity + age + sex + study,data = meta_t1d
-)
-
-# optional, but protects against invalid names
-colnames(design_t1d) <- make.names(colnames(design_t1d))
-
-colnames(design_t1d)
-
-contrast_t1d <- makeContrasts(
-  Overweight_vs_Normal =
-    bmi_obesityOverweight - bmi_obesityNormal,
-  Obese_vs_Normal =
-    bmi_obesityObese - bmi_obesityNormal,
-  Obese_vs_Overweight =
-    bmi_obesityObese - bmi_obesityOverweight,
-  levels = design_t1d
-)
-```
-```{r}
-fit_t1d <- lmFit(mat_t1d, design_t1d)
-
-fit_t1d2 <- contrasts.fit(fit_t1d, contrast_t1d)
-fit_t1d2 <- eBayes(fit_t1d2)
-```
-
-```{r}
-results_t1d_bmi_all <- lapply(colnames(contrast_t1d), function(cn) {
-  topTable(
-    fit_t1d2,
-    coef = cn,
-    number = Inf,
-    adjust.method = "BH"
-  ) %>%
-    rownames_to_column("protein_id") %>%
-    mutate(
-      contrast = cn,
-      direction = case_when(
-        adj.P.Val < 0.05 & logFC > 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][1]),
-        adj.P.Val < 0.05 & logFC < 0 ~ paste("Higher in", str_split(cn, "_vs_")[[1]][2]),
-        TRUE ~ "Not significant"
-      )
-    )
-}) %>%
-  bind_rows()
-
-res_t1d_bmi_sig <- results_t1d_bmi_all %>%
-  dplyr::filter(adj.P.Val <= 0.05, abs(logFC) >= 0) 
-res_t1d_bmi_sig
-```
-```{r}
-sig_cutoff <- 0.05
-lfc_cutoff <- 0   # change to 0.5 if you want stricter filtering
-
-combined_sig_terms <- dplyr::bind_rows(
-  
-  res_disease_m1 %>%
-    dplyr::mutate(
-      analysis = "Disease status",
-      model = "T1D vs LC + age + sex + study"
-    ),
-  
-  results_bmi_all %>%
-    dplyr::mutate(
-      analysis = "BMI adiposity - all participants",
-      model = "BMI group + age + sex + study"
-    ),
-  
-  results_t1d_bmi_all %>%
-    dplyr::mutate(
-      analysis = "BMI adiposity - T1D only",
-      model = "BMI group within T1D + age + sex + study"
-    )
-) %>%
-  dplyr::filter(
-    adj.P.Val < sig_cutoff,
-    abs(logFC) > lfc_cutoff
-  ) %>%
-  dplyr::mutate(
-    direction_simple = dplyr::case_when(
-      logFC > 0 ~ "Positive logFC",
-      logFC < 0 ~ "Negative logFC",
-      TRUE ~ "No change"
-    )
-  ) %>%
-  dplyr::select(
-    analysis,
-    model,
-    contrast,
-    protein_id,
-    logFC,
-    AveExpr,
-    t,
-    P.Value,
-    adj.P.Val,
-    B,
-    direction,
-    direction_simple
-  ) %>%
-  dplyr::arrange(analysis, contrast, adj.P.Val)
-
-combined_sig_terms_n <- combined_sig_terms %>%
-  dplyr::count(analysis, contrast, direction, name = "n_sig")
-combined_sig_terms_n
-
-
-write.csv(
-  combined_sig_terms,
-  file = file.path(dir.results, "limma_results.csv"),
-  row.names = FALSE
-)
-
-write.csv(
-  combined_sig_terms_n,
-  file = file.path(dir.results, "sig_DEP_counts.csv"),
-  row.names = FALSE
-)
-```
-
-
-#clinical maker correlation 
-#correlate with transcriptomics
-T1D_normal vs LC
-T1D_over_obese vs T1D normal
-combined overweight/obese
