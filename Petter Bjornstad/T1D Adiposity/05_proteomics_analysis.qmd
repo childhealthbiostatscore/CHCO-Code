@@ -1,5 +1,5 @@
 ---
-title: "02_proteomics_analysis"
+title: "05_proteomics_analysis"
 author: "Ye Ji Choi & Savanah Leidholt"
 format: html
 ---
@@ -49,7 +49,7 @@ if (user == "choiyej") { # local version
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
 } else if (user == "sleidholt") {
     root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/T1D Adiposity/Results/Compiled Results/Proteomics Results")
     git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
     keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "savanahleidholt") {
@@ -519,8 +519,16 @@ results_all_models <- bind_rows(
 sig_all_models <- results_all_models %>% filter(adj.P.Val < 0.05)
 sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) > 0.5)
 
-sig_all_models %>% count(model, contrast, direction)
-results_all_models %>% filter(model == "M3: group_bmi + age * HbA1c + sex + study")
+sig_counts <- sig_all_models %>% 
+  filter((adj.P.Val < 0.05 & abs(logFC) > 0.5)) %>%
+  count(model, contrast, direction)
+sig_counts
+sig_counts %>% filter(model == "M3: group_bmi + age * HbA1c + sex + study")
+
+write_csv(sig_counts, 
+          file = file.path(dir.results, "sig_counts_by_model.csv"))
+write_csv(sig_all_models_fc, 
+          file = file.path(dir.results, "limma_results_all_models.csv"))
 ```
 
 ```{r}
@@ -712,8 +720,8 @@ plots_m3 <- make_volcano_list(
   label_n = 5
 )
 
-top_row <- plots_m3[[1]] + plots_m3[[2]] 
-bottom_row <- plots_m3[[3]] + plots_m3[[4]] 
+top_row <- plots_m3[[1]] + plots_m3[[2]] + patchwork::plot_spacer()
+bottom_row <- plots_m3[[3]] + plots_m3[[4]] + plots_m3[[5]]
 
 panel_m3_5 <- top_row / bottom_row
 
@@ -797,6 +805,9 @@ results_limma_annot %>%
     pct_mapped = round(100 * mean(!is.na(gene_symbol)), 1)
   )
 ```
+#--------------
+#fgsea funciton
+#--------------
 ```{r}
 run_fgsea_model <- function(res_df,
                             model_name,
@@ -806,7 +817,7 @@ run_fgsea_model <- function(res_df,
                             min_size = 10,
                             max_size = 500,
                             eps = 0,
-                            nPermSimple = 1000) {
+                            nPermSimple = 10000) {
   
   res_annot <- res_df %>%
     dplyr::left_join(protein_gene_map, by = "protein_id") %>%
@@ -880,6 +891,9 @@ fgsea_kegg_m3 <- fgsea_kegg_m3 %>%
 #GO:CC
 ```
 
+#-----------------
+#plotting function
+#-----------------
 ```{r}
 plot_fgsea_top20 <- function(fgsea_df,
                              model_name,
@@ -918,26 +932,19 @@ plot_fgsea_top20 <- function(fgsea_df,
     )
   
   ggplot(df_top, aes(y = pathway_clean)) +
-    
-    # lollipop line
     geom_segment(
       aes(x = 0, xend = NES, yend = pathway_clean),
       color = "grey70",
       linewidth = 0.6
     ) +
-    
-    # points
     geom_point(
       aes(x = NES, size = fdr_size, color = direction)
     ) +
-    
-    # labels near zero
     geom_text(
       aes(x = 0, label = pathway_clean),
-      hjust = ifelse(df_top$NES > 0, 1.1, -0.1),
+      hjust = ifelse(df_top$NES > 0, 1, 0),
       size = 3
     ) +
-    
     geom_vline(xintercept = 0, linetype = "dashed") +
     
     scale_color_manual(
@@ -977,7 +984,7 @@ plot_fgsea_top20 <- function(fgsea_df,
 ```
 
 ```{r}
-#| fig-width: 20
+#| fig-width: 22
 #| fig-height: 16
 fgsea_kegg_plots_m0 <- fgsea_kegg_m0 %>%
   distinct(model, contrast, pathway_type) %>%
@@ -989,7 +996,7 @@ fgsea_kegg_plots_m0 <- fgsea_kegg_m0 %>%
         model_name = ..1,
         contrast_name = ..2,
         pathway_type_name = ..3,
-        top_n = 20
+        top_n = 15
       )
     )
   )
@@ -1011,7 +1018,7 @@ panel_kegg_m0
 ggsave("GSEA_kegg_m0.png",
        plot = panel_kegg_m0,
        path = dir.results,
-       width = 20,
+       width = 22,
        height =16,
        dpi = 300
        )
@@ -1030,14 +1037,14 @@ fgsea_kegg_plots_m1 <- fgsea_kegg_m1 %>%
         model_name = ..1,
         contrast_name = ..2,
         pathway_type_name = ..3,
-        top_n = 20
+        top_n = 15
       )
     )
   )
 
 plots_m1 <- fgsea_kegg_plots_m1
-top_row <- plots_m1$plot[[1]] + plots_m1$plot[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m1$plot[[3]] + plots_m1$plot[[4]] + plots_m1$plot[[5]]
+top_row <- plots_m1$plot[[1]] + plots_m1$plot[[5]] + patchwork::plot_spacer()
+bottom_row <- plots_m1$plot[[3]] + plots_m1$plot[[2]] + plots_m1$plot[[4]]
 
 panel_kegg_m1 <- top_row / bottom_row
 
@@ -1053,7 +1060,7 @@ ggsave("GSEA_kegg_m1.png",
 ```
 
 ```{r}
-#| fig-width: 18
+#| fig-width: 20
 #| fig-height: 16
 fgsea_kegg_plots_m2 <- fgsea_kegg_m2 %>%
   distinct(model, contrast, pathway_type) %>%
@@ -1065,14 +1072,14 @@ fgsea_kegg_plots_m2 <- fgsea_kegg_m2 %>%
         model_name = ..1,
         contrast_name = ..2,
         pathway_type_name = ..3,
-        top_n = 20
+        top_n = 15
       )
     )
   )
 
 plots_m2 <- fgsea_kegg_plots_m2
-top_row <- plots_m2$plot[[1]] + plots_m2$plot[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m2$plot[[3]] + plots_m2$plot[[4]] + plots_m2$plot[[5]]
+top_row <- plots_m2$plot[[1]] + plots_m2$plot[[5]] + patchwork::plot_spacer()
+bottom_row <- plots_m2$plot[[3]] + plots_m2$plot[[2]] + plots_m2$plot[[4]]
 
 panel_kegg_m2 <- top_row / bottom_row
 
@@ -1101,14 +1108,15 @@ fgsea_kegg_plots_m3 <- fgsea_kegg_m3 %>%
         model_name = ..1,
         contrast_name = ..2,
         pathway_type_name = ..3,
-        top_n = 20
+        top_n = 15
       )
     )
   )
 
 plots_m3 <- fgsea_kegg_plots_m3
-top_row <- plots_m3$plot[[1]] + plots_m3$plot[[2]] 
-bottom_row <- plots_m3$plot[[3]] + plots_m3$plot[[4]] + plots_m3$plot[[5]]
+plots_m3
+top_row <- plots_m3$plot[[1]] + plots_m3$plot[[5]] + patchwork::plot_spacer()
+bottom_row <- plots_m3$plot[[3]] + plots_m3$plot[[2]] + plots_m3$plot[[4]] 
 
 panel_kegg_m3 <- top_row / bottom_row
 
@@ -1122,6 +1130,341 @@ ggsave("GSEA_kegg_m3.png",
        dpi = 300
        )
 ```
+#------------------------------------------
+#Correlations with kidney clinical markers
+#-----------------------------------------
+```{r}
+#contrast_matrix <- makeContrasts(
+    T1DNormal_vs_LCNormal =
+      group_bmiT1D_Normal - group_bmiLC_Normal,
+    
+    T1DOverObese_vs_LCOverObese =
+      ((group_bmiT1D_Overweight + group_bmiT1D_Obese) / 2) -
+      group_bmiLC_Overweight_Obese,
+    
+    T1DNormal_vs_T1DOverweight =
+      group_bmiT1D_Normal - group_bmiT1D_Overweight,
+    
+    T1DNormal_vs_T1DObese =
+      group_bmiT1D_Normal - group_bmiT1D_Obese,
+    
+    T1DObese_vs_T1DOverweight =
+      group_bmiT1D_Obese - group_bmiT1D_Overweight,
+    
+    levels = design
+  )
+
+prot_ids <- sig_all_models_fc$protein_id
+keep_prots <- intersect(colnames(prot_age_sex_study), prot_ids)
+sig_prots <- prot_age_sex_study[, keep_prots, drop = FALSE]
+
+corr_df <- bind_cols(meta3, sig_prots) %>%
+  rename(HbA1c = hba1c, uACR = acr_u) %>%
+  mutate(
+    HbA1c = as.numeric(HbA1c), #only do this if I haven't included hba1c in the model 
+    uACR  = as.numeric(uACR),
+    eGFR = as.numeric(eGFR_CKiD_U25_avg),
+   # ERPF = as.numeric(erpf_bsa_plasma), don't have this in attempt
+    mm_si = as.numeric(mm_si),
+    mm_ir = as.numeric(mm_ir),
+    mm_di = as.numeric(mm_di),
+    wthr = as.numeric(whtr),
+    age   = as.numeric(age),
+    sex   = as.factor(sex),
+    BMI   = as.numeric(bmi)
+  ) %>% filter(!is.na(HbA1c) & !is.na(uACR) & !is.na(eGFR)) 
+
+```
+
+```{r}
+contrast_list <- c("T1D_Normal_vs_LC_Normal","T1D_OverObese_vs_LC_OverObese","T1D_Normal_vs_T1D_Overweight","T1D_Normal_vs_T1D_Obese","T1D_Overweight_vs_T1D_Obese")
+
+get_groups_from_contrast <- function(contrast_name) {
+  strsplit(contrast_name, "_vs_")[[1]]
+}
+
+corr_df$group_bmi
+```
+
+```{r}
+#--------------------------------
+#marginal correlations analysis
+#--------------------------------
+cor_test_one <- function(df, outcome, protein, method = "spearman", min_n = 10) {
+  x  <- df[[outcome]]
+  y  <- df[[protein]]
+  ok <- is.finite(x) & is.finite(y) & !is.na(x) & !is.na(y)  
+  n  <- sum(ok)
+  if (n < min_n) return(tibble(n = n, rho = NA_real_, p_value = NA_real_))
+  ct <- suppressWarnings(cor.test(x[ok], y[ok], method = method, exact = FALSE))
+  tibble(n = n, rho = unname(ct$estimate), p_value = ct$p.value)
+}
+
+run_contrast_correlation <- function(contrast_name, corr_df, keep_prots, min_n = 10) {
+  groups <- get_groups_from_contrast(contrast_name)
+
+  df_sub <- corr_df %>%
+    filter(group_bmi %in% groups)
+  
+  prots <- intersect(keep_prots, colnames(df_sub))
+
+  message("---- marginal: ", contrast_name, " ----")
+  message("subset N samples: ", nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE],
+                        function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+
+  tidyr::crossing(outcome = c("HbA1c", "uACR", "BMI"), protein = prots) %>%
+    mutate(stats = purrr::map2(outcome, protein,
+                               ~cor_test_one(df_sub, .x, .y, min_n = min_n))) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
+# ---- Run all contrasts ----
+all_cor_results <- purrr::map_dfr(
+  contrast_list,
+  ~run_contrast_correlation(.x, corr_df, keep_prots, min_n = 10)
+)
+
+all_cor_results %>% filter(FDR <= 0.05)
+```
+
+```{r}
+#-----------------------------
+# Partial correlations setup
+#-----------------------------
+
+partial_outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr")
+partial_covars   <- c("age", "sex", "study")
+stopifnot(all(partial_covars %in% names(corr_df)))
+
+get_partial_cor <- function(df, protein, outcome, covars, min_n = 15) {
+  vars_needed <- c(protein, outcome, covars)
+  sub_df <- df[, vars_needed, drop = FALSE]
+  sub_df <- sub_df[complete.cases(sub_df), , drop = FALSE]
+  if (nrow(sub_df) < min_n) {
+    return(tibble(n = nrow(sub_df), rho = NA_real_, p_value = NA_real_))
+  }
+  fit_p <- lm(as.formula(paste(protein, "~", paste(covars, collapse = "+"))), data = sub_df)
+  fit_y <- lm(as.formula(paste(outcome, "~", paste(covars, collapse = "+"))), data = sub_df)
+  res_p <- resid(fit_p)
+  res_y <- resid(fit_y)
+  ct <- suppressWarnings(cor.test(res_p, res_y, method = "spearman", exact = FALSE))
+  tibble(n = nrow(sub_df), rho = unname(ct$estimate), p_value = ct$p.value)
+}
+
+run_contrast_partial <- function(contrast_name,         
+                                 corr_df,
+                                 keep_prots,             
+                                 outcomes = partial_outcomes,
+                                 covars   = partial_covars,
+                                 min_n    = 15) {
+  
+  groups <- get_groups_from_contrast(contrast_name)     
+  
+  df_sub <- corr_df %>% filter(group_bmi %in% groups)
+  
+  prots <- intersect(keep_prots, colnames(df_sub))
+  
+  message("---- partial: ", contrast_name, " ----")    
+  message("subset N samples: ",  nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+  
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE],
+                        function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+  
+  tidyr::crossing(outcome = outcomes, protein = prots) %>%
+    mutate(stats = purrr::map2(
+      outcome, protein,
+      ~get_partial_cor(df_sub, .y, .x, covars = covars, min_n = min_n)
+    )) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
+all_partial_results <- purrr::map_dfr(
+  contrast_list,
+  ~run_contrast_partial(.x, corr_df, keep_prots,
+                        outcomes = partial_outcomes,
+                        covars   = partial_covars,
+                        min_n    = 15)
+)
+```
+
+```{r}
+map_tbl <- analytes %>%
+  transmute(
+    seq_id      = AptName,           
+    gene_symbol = EntrezGeneSymbol
+  ) %>%
+  mutate(
+    seq_id      = as.character(seq_id),
+    gene_symbol = as.character(gene_symbol),
+    gene_symbol = na_if(gene_symbol, ""),
+    gene_symbol = if_else(is.na(gene_symbol), seq_id, gene_symbol)
+  ) %>%
+  distinct(seq_id, gene_symbol)
+```
+
+```{r}
+cor_gene <- all_cor_results %>%
+  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
+  group_by(contrast, outcome, gene_symbol) %>%
+  summarise(
+    rho = mean(rho, na.rm = TRUE),
+    p_value = min(p_value, na.rm = TRUE),
+    FDR = min(FDR, na.rm = TRUE),
+    n = max(n, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(label = gene_symbol)
+
+partial_gene <- all_partial_results %>%
+  left_join(map_tbl, by = c("protein" = "seq_id")) %>%
+  mutate(gene_symbol = if_else(is.na(gene_symbol) | gene_symbol == "", protein, gene_symbol)) %>%
+  group_by(contrast, outcome, gene_symbol) %>%
+  summarise(
+    rho = mean(rho, na.rm = TRUE),
+    p_value = min(p_value, na.rm = TRUE),
+    FDR = min(FDR, na.rm = TRUE),
+    n = max(n, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(label = gene_symbol)
+```
+
+
+```{r}
+plot_ranked_cor <- function(data, contrast_name, outcome_name, top_n = 15, show_key = FALSE) {
+
+  df <- data %>%
+    filter(contrast == contrast_name, outcome == outcome_name) %>%
+    filter(is.finite(rho)) %>%
+    arrange(desc(abs(rho))) %>%
+    slice_head(n = top_n) %>%
+    mutate(
+      direction = ifelse(rho > 0, "Positive", "Negative"),
+      signif_label = case_when(
+        !is.na(FDR) & FDR <= 0.001 ~ "***",
+        !is.na(FDR) & FDR <= 0.01  ~ "**",
+        !is.na(FDR) & FDR <= 0.05  ~ "*",
+        TRUE ~ ""
+      ),
+      ylab = reorder(label, rho)
+    )
+
+  if (nrow(df) == 0) {
+    return(ggplot() + theme_void() + labs(title = paste(contrast_name, outcome_name, "(no data)")))
+  }
+
+  xpad <- 0.12
+  xmin <- min(df$rho, na.rm = TRUE) - xpad
+  xmax <- max(df$rho, na.rm = TRUE) + xpad
+
+  p <- ggplot(df, aes(x = rho, y = ylab, fill = direction)) +
+    geom_col() +
+    geom_text(
+      aes(label = signif_label),
+      hjust = ifelse(df$rho > 0, -0.2, 1.2),
+      size = 4
+    ) +
+    theme_bw() +
+    scale_fill_manual(values = c("Positive" = "firebrick", "Negative" = "steelblue")) +
+    labs(
+      title = paste0(contrast_name, " (", outcome_name, ")"),
+      x = "Partial Spearman rho (age + sex + study adjusted)",
+      y = NULL,
+      fill = "Direction"
+    ) +
+    xlim(xmin, xmax)
+
+  if (show_key) {
+    # (Optional) if you ever want it inside a single plot:
+    p <- p +
+      coord_cartesian(clip = "off") +
+      theme(plot.margin = margin(5.5, 45, 5.5, 5.5)) +
+      annotate(
+        "text",
+        x = Inf, y = -Inf,
+        label = "FDR:  * ≤ 0.05   ** ≤ 0.01   *** ≤ 0.001",
+        hjust = 1.05, vjust = -1.2, size = 3.2
+      )
+  }
+
+  p
+}
+```
+
+```{r}
+fdr_key_plot <- ggplot() +
+  annotate("label",
+           x = 1, y = 1,
+           label = "FDR key\n*  ≤ 0.05\n** ≤ 0.01\n*** ≤ 0.001",
+           hjust = 1, vjust = 1, size = 3.2) +
+  xlim(0, 1) + ylim(0, 1) +
+  theme_void()
+```
+
+```{r}
+#plotting funciton for outcomes of interest
+plot_partial_panel <- function(contrast_name, top_n = 15) {
+  P1 <- plot_ranked_cor(partial_gene, contrast_name, "HbA1c", top_n = top_n, show_key = FALSE)
+  P2 <- plot_ranked_cor(partial_gene, contrast_name, "uACR",  top_n = top_n, show_key = FALSE)
+  P3 <- plot_ranked_cor(partial_gene, contrast_name, "BMI",   top_n = top_n, show_key = FALSE)
+  P4 <- plot_ranked_cor(partial_gene, contrast_name,"eGFR", top_n = top_n, show_key = FALSE)
+ # p5 <- plot_ranked_cor(partial_gene, contrast_name = "wthr", top_n = top_n, show_key = FALSE)
+
+  (P1 | P2)/ (P3 | P4) +
+    plot_annotation(title = paste0("Partial correlations (age + sex adjusted): ", contrast_name)) +
+    inset_element(fdr_key_plot, left = 0.72, bottom = 0.02, right = 0.98, top = 0.28)
+}
+```
+
+
+
+```{r}
+#taking the difference of a difference which is confusing
+plot_partial_panel("T1D_Normal_vs_LC_Normal", top_n = 15)
+#plot_partial_panel("T1D_OverObese_vs_LC_OverObese", top_n = 15)
+plot_partial_panel("T1D_Normal_vs_T1D_Overweight", top_n = 15)
+plot_partial_panel("T1D_Normal_vs_T1D_Obese", top_n = 15)
+plot_partial_panel("T1D_Overweight_vs_T1D_Obese", top_n = 15)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #=========================================
@@ -1129,7 +1472,7 @@ ggsave("GSEA_kegg_m3.png",
 #setting up metadata and protein matrices
 #=========================================
 ```{r}
-meta <- t1d_hc_dat_soma %>%
+#meta <- t1d_hc_dat_soma %>%
   dplyr:: select (-starts_with("seq"))
 #meta$group
 meta$group <- factor(
@@ -1138,7 +1481,7 @@ meta$group <- factor(
   labels = c("LC","T1D")
 )
 
-meta <- meta %>%
+#meta <- meta %>%
   dplyr::mutate(
     study = dplyr::recode(study,
       "CROCODILE"   = "CRC",
