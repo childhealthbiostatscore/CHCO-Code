@@ -1,0 +1,859 @@
+---
+title: "ATTEMPT no MT analysis"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+```{r libraries, message = F, warning=F}
+#| include: false
+library(SomaPlotr)
+library(Seurat)
+library(future)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(ReactomeGSA)
+library(GSEABase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(slingshot); library(SingleCellExperiment)
+library(REDCapR)
+library(edgeR)
+library(data.table)
+library(MAST)
+library(limma)      # For linear modeling of microarray and RNA-seq data
+library(muscat)
+library(scater)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+```
+
+```{r load-data, echo = F, include = F}
+# Load dictionary function and file
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/CROCODILE/crocodile_functions.R")
+
+dat <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_clinical_data.RDS")
+so_attempt_pt <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pt.RDS")
+# remove MT genes
+so_attempt_pt <- so_attempt_pt[grep("^MT", rownames(so_attempt_pt), invert = TRUE),] # 97 removed
+
+sce_attempt_pt <- as.SingleCellExperiment(so_attempt_pt)
+sce_attempt_pt$id <- paste0(sce_attempt_pt$visit, sce_attempt_pt$subject_id)
+# remove undetected genes
+sce_attempt_pt <- sce_attempt_pt[rowSums(counts(sce_attempt_pt) > 0) > 0, ]
+dim(sce_attempt_pt)
+qc <- perCellQCMetrics(sce_attempt_pt)
+# remove cells with few detected genes
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce_attempt_pt <- sce_attempt_pt[, !ol]
+dim(sce_attempt_pt)
+# remove lowly expressed genes
+sce_attempt_pt <- sce_attempt_pt[rowSums(counts(sce_attempt_pt) > 1) >= 10, ]
+dim(sce_attempt_pt)
+# compute sum-factors & normalize
+sce_attempt_pt <- computeLibraryFactors(sce_attempt_pt)
+sce_attempt_pt <- logNormCounts(sce_attempt_pt)
+
+sca_attempt_pt <- SceToSingleCellAssay(sce_attempt_pt)
+all_data <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_pb.RDS") %>%
+  arrange(treatment, visit)
+gene_names <- rownames(so_attempt_pt)
+```
+
+
+```{r echo = F}
+# # Design matrix for the interaction
+# so_attempt_pt_meta$treatment <- factor(so_attempt_pt_meta$treatment)
+# so_attempt_pt_meta$treatment <- relevel(so_attempt_pt_meta$treatment, ref = "Placebo")
+# 
+# so_attempt_pt_meta$visit <- factor(so_attempt_pt_meta$visit)
+# so_attempt_pt_meta$visit <- relevel(so_attempt_pt_meta$visit, ref = "PRE")
+# 
+# design <- model.matrix(~ treatment * visit, data = so_attempt_pt_meta)
+# raw_counts <- as.matrix(so_attempt_pt[["RNA"]]$counts)
+# 
+# library(edgeR)
+# # Create a DGEList object
+# dge <- DGEList(counts = raw_counts,  
+#                group = so_attempt_pt_meta$treatment)
+# 
+# # Filter lowly expressed genes
+# keep <- filterByExpr(dge, design = model.matrix(~ treatment * visit, data = so_attempt_pt_meta))
+# dge <- dge[keep, , keep.lib.sizes = FALSE]
+# remove(keep)
+# gc()
+# # Normalize the data
+# dge <- calcNormFactors(dge)
+# 
+# # Estimate dispersions and fit model
+# dge <- estimateDisp(dge, design)
+# fit <- glmQLFit(dge, design)
+# # Test the Treatment × Time interaction
+# qlf <- glmQLFTest(fit, coef = "treatmentDapagliflozin 5mg:visitPOST")
+# 
+# # Extract genes with significant interaction
+# interaction_results <- topTags(qlf, n = Inf, p.value = 0.05)
+# str(interaction_results)
+# interaction_results$table
+```
+
+```{r echo = F}
+# a <- rownames(so_attempt_pt)
+# a1 <- a[1:50]
+# var_list1 <- c("subject_id", "treatment", "visit", "ident", a1)
+# pt_exp1 <- FetchData(so_attempt_pt, vars = var_list1)
+# 
+# # Split data by visit to identify baseline (PRE) and follow-up
+# baseline <- subset(pt_exp1, visit == "PRE")
+# followup <- subset(pt_exp1, visit != "PRE")
+# 
+# # Merge baseline and follow-up on subject_id
+# pt_exp_ancova <- merge(followup, baseline, by = c("subject_id", "treatment"), 
+#                        suffixes = c("_followup", "_baseline")) %>%
+#   group_by(subject_id, treatment) %>%
+#   dplyr::summarise(across(where(is.numeric), ~ mean(.x > 0, na.rm = TRUE)))
+# 
+
+# Aggregated expression per subject
+# Function to perform ANCOVA and filter results
+perform_and_filter_ancova <- function(gene, data) {
+  gene_followup <- paste0("`", gene, "_followup`")
+  gene_baseline <- paste0("`", gene, "_baseline`")
+  formula <- as.formula(paste(gene_followup, "~ treatment +", gene_baseline, sep = ""))
+  model <- lm(formula, data = data)
+  result <- tidy(model)
+
+  # Filter for treatmentDapagliflozin 5mg results
+  filtered <- result %>%
+    dplyr::select(term, estimate, std.error, p.value) %>%
+    mutate(output_variable = gene) %>%
+    filter(term == "treatmentDapagliflozin 5mg")
+
+  return(filtered)
+}
+
+gc()
+```
+
+```{r echo = F}
+all_significant_results <- list()
+batch_size <- 1000
+
+for (i in seq(1, length(gene_names), by = batch_size)) {
+  print(i)
+  print(i/length(gene_names) * 100)
+
+  current_batch <- gene_names[i:min(i + batch_size - 1, length(gene_names))]
+  pt_exp_batch <- all_data[, c("subject_id", "treatment", "visit", current_batch)]
+  
+  baseline <- subset(pt_exp_batch, visit == "PRE")
+  followup <- subset(pt_exp_batch, visit != "PRE")
+  pt_exp_ancova <- merge(followup, baseline, by = c("subject_id", "treatment"), 
+                         suffixes = c("_followup", "_baseline"))
+  
+  batch_results <- lapply(current_batch, perform_and_filter_ancova, data = pt_exp_ancova)
+  all_significant_results[[length(all_significant_results) + 1]] <- bind_rows(batch_results)
+  gc()
+}
+
+final_results <- bind_rows(all_significant_results) %>%
+  filter(!is.na(p.value)) %>%
+  arrange(p.value)
+
+write.csv(final_results, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/ancova_results_noMT.csv", row.names = F)
+```
+
+### MAST (Interaction)
+
+```{r echo = F}
+# First 10000
+zlm_res1 <- zlm(~ treatment*visit, sca_attempt_pt)
+summary_res1 <- summary(zlm_res1, doLRT = "treatmentDapagliflozin:visitPOST")
+show(zlm_res1)
+
+summary_dt1 <- summary_res1$datatable
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_noMT.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### MAST (interaction and subject_id as random effect)
+
+```{r echo = F}
+# First 10000
+zlm_res1_subj <- zlm(~ treatment*visit + (1|subject_id), 
+                     sca_attempt_pt, method = "glmer", ebayes = F,
+                     fitArgsD = list(nAGQ = 0))
+summary_res1_subj <- summary(zlm_res1_subj, doLRT = "treatmentDapagliflozin:visitPOST")
+show(zlm_res1_subj)
+summary_res1_subj$datatable
+
+summary_dt1_subj <- summary_res1_subj$datatable
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_noMT.RData")
+# load("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_noMT.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+# marginal means
+MM_int_subj <- model.matrix(~visit+treatment,unique(colData(sca_attempt_pt)[,c("visit", "treatment"),drop=FALSE]))
+predicted_int_subj <- predict(zlm_res1_subj, modelmatrix=MM_int_subj) %>%
+  arrange(primerid) %>%
+  mutate(mm = case_when(sample == "S-2107-023529-PB_AAACCAAAGCATGTCA-1_1" ~ "PRE, Dapagliflozin",
+                        sample == "S-2107-023637-PB_AAACCCGCATGCTTCA-1_3" ~ "POST, Dapagliflozin",
+                        sample == "S-2107-023682-PB_AAACGAATCCTGTACT-1_4" ~ "PRE, Treatment",
+                        sample == "S-2203-000892-PB_AAACCATTCAATGGCC-1_8" ~ "POST, Treatment"))
+
+predicted_int_subj[1:500,] %>%
+  filter(invlogit(etaD)>0.05) %>%
+  ggplot(aes(x=invlogit(etaD),y=muC,xse=seD,yse=seC,col=mm)) +
+  facet_wrap(~primerid,scales="free_y") +
+  theme_linedraw() +
+  geom_point(size=0.5) +
+  scale_x_continuous("Proportion expression") +
+  scale_y_continuous("Estimated Mean") +
+  stat_ell(aes(x=etaD,y=muC),level=0.95, invert='x')
+
+ggplot(predicted_int_subj, aes(x = invlogit(etaD))) +
+  geom_histogram(binwidth = 0.01, fill = "steelblue", color = "black") +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(title = "Distribution of Expression Probability (invlogit(etaD))",
+       x = "invlogit(etaD)", y = "Count") +
+  theme_minimal()
+``` 
+
+### MAST (no interaction)
+
+```{r echo = F}
+# First 10000
+colnames(colData(sca_attempt_pt))
+colData(sca_attempt_pt)$treatment
+zlm_res1_noint <- zlm(~ treatment+visit, sca_attempt_pt)
+summary_res1_noint <- summary(zlm_res1_noint, doLRT = "treatmentDapagliflozin")
+show(zlm_res1_noint)
+
+summary_dt1_noint <- summary_res1_noint$datatable
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_noMT.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1_noint[contrast=='treatmentDapagliflozin' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_noint[contrast=='treatmentDapagliflozin' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### MAST (Placebo only)
+
+```{r echo = F}
+sca_placebo <- sca_attempt_pt[, colData(sca_attempt_pt)$treatment == "Placebo"]
+colData(sca_placebo)$treatment <- droplevels(colData(sca_placebo)$treatment)
+# Identify subjects with both timepoints
+subject_table <- table(colData(sca_placebo)$subject_id, colData(sca_placebo)$visit)
+valid_subjects <- rownames(subject_table)[rowSums(subject_table > 0) == 2]
+# Subset SingleCellAssay to include only these subjects
+sca_placebo <- sca_placebo[, colData(sca_placebo)$subject_id %in% valid_subjects]
+
+zlm_res1_placebo <- zlm(~ visit + (1|subject_id), sca_placebo, 
+                        method = "glmer", ebayes = F)
+summary_res1_placebo <- summary(zlm_res1_placebo, doLRT = "visitPOST")
+show(zlm_res1_placebo)
+
+summary_dt1_placebo <- summary_res1_placebo$datatable
+
+# extract marginal means
+
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle_placebo <- merge(summary_dt1_placebo[contrast=='visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_placebo[contrast=='visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle_placebo[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m_placebo <- fcHurdle_placebo[,c("primerid","coef","fdr")]
+
+
+plotVolcano(m_placebo, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos_placebo <- as.data.frame(m_placebo) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos_placebo <- top_pos_placebo[c("Gene","coef","fdr")]
+rownames(top_pos_placebo) <- NULL
+top_pos_placebo$Direction <- "Positive"
+
+top_neg_placebo <- as.data.frame(m_placebo) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg_placebo$Direction <- "Negative"
+
+top_genes_placebo <- bind_rows(top_pos_placebo, top_neg_placebo) 
+top_genes_placebo <- top_genes_placebo %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes_placebo$Direction)
+
+ggplot(top_genes_placebo, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### MAST (Dapagliflozin only)
+
+```{r echo = F}
+sca_dapa <- sca_attempt_pt[, colData(sca_attempt_pt)$treatment == "Dapagliflozin"]
+colData(sca_dapa)$treatment <- droplevels(colData(sca_dapa)$treatment)
+# Identify subjects with both timepoints
+subject_table <- table(colData(sca_dapa)$subject_id, colData(sca_dapa)$visit)
+valid_subjects <- rownames(subject_table)[rowSums(subject_table > 0) == 2]
+# Subset SingleCellAssay to include only these subjects
+sca_dapa <- sca_dapa[, colData(sca_dapa)$subject_id %in% valid_subjects]
+
+zlm_res1_dapa <- zlm(~ visit + (1|subject_id), sca_dapa, 
+                        method = "glmer", ebayes = F)
+summary_res1_dapa <- summary(zlm_res1_dapa, doLRT = "visitPOST")
+show(zlm_res1_dapa)
+
+summary_dt1_dapa <- summary_res1_dapa$datatable
+
+# marginal means
+MM_dapa <- model.matrix(~visit,unique(colData(sca_dapa)[,c("visit"),drop=FALSE]))
+predicted_dapa <- predict(zlm_res1_dapa, modelmatrix=MM_dapa) %>%
+  arrange(primerid) %>%
+  mutate(mm = case_when(sample == "S-2107-023529-PB_AAACCAAAGCATGTCA-1_1" ~ "PRE",
+                        sample == "S-2107-023637-PB_AAACCCGCATGCTTCA-1_3" ~ "POST"))
+
+predicted_dapa[1:500,] %>%
+  filter(invlogit(etaD)>0.05) %>%
+  ggplot(aes(x=invlogit(etaD),y=muC,xse=seD,yse=seC,col=mm)) +
+  facet_wrap(~primerid,scales="free_y") +
+  theme_linedraw() +
+  geom_point(size=0.5) +
+  scale_x_continuous("Proportion expression") +
+  scale_y_continuous("Estimated Mean") +
+  stat_ell(aes(x=etaD,y=muC),level=0.95, invert='x')
+
+ggplot(predicted_dapa, aes(x = invlogit(etaD))) +
+  geom_histogram(binwidth = 0.01, fill = "steelblue", color = "black") +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(title = "Distribution of Expression Probability (invlogit(etaD))",
+       x = "invlogit(etaD)", y = "Count") +
+  theme_minimal()
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle_dapa <- merge(summary_dt1_dapa[contrast=='visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_dapa[contrast=='visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle_dapa[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m_dapa <- fcHurdle_dapa[,c("primerid","coef","fdr")]
+
+
+plotVolcano(m_dapa, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos_dapa <- as.data.frame(m_dapa) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos_dapa <- top_pos_dapa[c("Gene","coef","fdr")]
+rownames(top_pos_dapa) <- NULL
+top_pos_dapa$Direction <- "Positive"
+
+top_neg_dapa <- as.data.frame(m_dapa) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg_dapa$Direction <- "Negative"
+
+top_genes_dapa <- bind_rows(top_pos_dapa, top_neg_dapa) 
+top_genes_dapa <- top_genes_dapa %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes_dapa$Direction)
+
+ggplot(top_genes_dapa, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### MAST (Placebo and Dapa comparison)
+```{r echo = F}
+# compare dapa and placebo using placebo as ref
+top_genes_dapa$treatment <- "Dapagliflozin"
+top_genes_placebo$treatment <- "Placebo"
+top_genes <- rbind(top_genes_dapa, top_genes_placebo)
+
+# positive in either
+top_genes_pos <- top_genes %>% 
+  filter(Gene %in% c(top_pos_placebo$Gene, top_pos_dapa$Gene))
+top_genes_pos_names <- top_pos_placebo$Gene
+
+df_upset_pos <- data.frame(gene = unique(c(top_pos_placebo$Gene, top_pos_dapa$Gene)))
+df_upset_pos$dapa <- ifelse(df_upset_pos$gene %in% top_pos_dapa$Gene, 1, 0)
+df_upset_pos$placebo <- ifelse(df_upset_pos$gene %in% top_pos_placebo$Gene, 1, 0)
+
+upset(df_upset_pos, sets = c("dapa", "placebo"), keep.order = T, order.by = "freq")
+
+# only positive in dapa
+df_upset_pos %>%
+  filter(dapa == 1 & placebo != 1)
+
+# negative in either
+top_genes_neg <- top_genes %>% 
+  filter(Gene %in% c(top_neg_placebo$Gene, top_neg_dapa$Gene))
+top_genes_neg_names <- top_neg_placebo$Gene
+
+df_upset_neg <- data.frame(gene = unique(c(top_neg_placebo$Gene, top_neg_dapa$Gene)))
+df_upset_neg$dapa <- ifelse(df_upset_neg$gene %in% top_neg_dapa$Gene, 1, 0)
+df_upset_neg$placebo <- ifelse(df_upset_neg$gene %in% top_neg_placebo$Gene, 1, 0)
+
+upset(df_upset_neg, sets = c("dapa", "placebo"), keep.order = T, order.by = "freq")
+
+# only negative in dapa
+df_upset_neg %>%
+  filter(dapa == 1 & placebo != 1)
+
+
+
+## heatmap
+# all_data_filtered <- all_data %>%
+#   filter(subject_id != 30001)
+# hm_df_pos <- all_data %>%
+#   dplyr::select(top_genes_pos_names) %>%
+#   t()
+# colnames(hm_df_pos) <- paste0(all_data$visit, "_", all_data$subject_id)
+# all_data_annotations <-data.frame(sample=as.character(colnames(hm_df_pos)),
+#                                   treatment=all_data$treatment,
+#                                 visit=all_data$visit) %>%
+#                 column_to_rownames("sample")
+# 
+# pheatmap(hm_df_pos, 
+#          annotation_col = all_data_annotations,
+#          cluster_rows = F,
+#          cluster_cols = F,
+#          show_rownames = F,
+#          scale = "row")
+
+# expected negative
+
+
+# expected no change
+
+
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+# negative
+neg_enrich <- enrichr(df_upset_neg$gene, dbs)
+pos_enrich <- enrichr(df_upset_pos$gene, dbs)
+
+neg_enrich
+pos_enrich
+
+WriteXLS(c(neg_enrich[1], neg_enrich[2], neg_enrich[3], neg_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/neg_enrich.xls", SheetNames = dbs)
+WriteXLS(c(pos_enrich[1], pos_enrich[2], pos_enrich[3], pos_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/pos_enrich.xls", SheetNames = dbs)
+
+# logFC comparison
+logFC_data <- data.frame(gene = fcHurdle_placebo$primerid,
+                         logFC_placebo = fcHurdle_placebo$coef,
+                         logFC_dapa = fcHurdle_dapa$coef)
+logFC_data$logFC_diff <- logFC_data$logFC_dapa - logFC_data$logFC_placebo
+
+logFC_data %>%
+  arrange(logFC_diff) %>%
+  ggplot(aes(x = reorder(gene, logFC_diff), y = logFC_diff)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Differences in logFC Between Treatment and Placebo",
+       y = "Difference in logFC", x = "Genes") +
+  theme_minimal()
+```
+
+```{r echo = F}
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_noMT.RData")
+```
+
+### Fadhl's code from VSG
+
+```{r echo = F}
+# Subset the data to include only the groups of interest: HC, PRE, and POST
+limma <- so_attempt_pt
+ 
+# Set plot dimensions for subsequent visualizations
+options(repr.plot.width = 8, repr.plot.height = 6)
+ 
+# Identify unique cell types from the 'celltype' in metadata and sort them alphabetically
+celltypes1 <- as.character(unique(limma@meta.data$celltype))
+ 
+# Initialize lists to store results of differential expression and enrichment analyses
+result1 <- list()  # For storing differential expression results
+up1 <- list()      # For storing up-regulated gene enrichment results
+down1 <- list()    # For storing down-regulated gene enrichment results
+ 
+# Specify databases for enrichment analysis
+dbs <- c("HumanCyc_2016")
+ 
+# Loop over each cell type for differential expression analysis
+for (i in 1:length(celltypes1)) {
+  # Subset the data for the current cell type
+  temp <- subset(x = limma, subset = celltype == celltypes1[i])
+ 
+  # Initialize list for storing counts and sample information
+  L <- list()
+  gene_expression_matrix <- temp@assays$RNA@counts
+ 
+  # Filter genes expressed in more than 10% of cells
+  expressed_genes <- Matrix::rowSums(gene_expression_matrix != 0) > dim(gene_expression_matrix)[2] * 0.1
+  L$count <- gene_expression_matrix[expressed_genes,]
+ 
+  # Remove mitochondrial genes (prefix "MT")
+  L$count <- L$count[grep("^MT", rownames(L$count), invert = TRUE),]
+  L$condt <- temp$pre_post   # Treatment condition (HC, PRE, POST)
+  L$record_id <- temp$record_id  # Paired sample identifier
+ 
+  # Create a DGEList object for differential expression analysis
+  dge <- DGEList(L$count, group = L$condt)
+  dge <- calcNormFactors(dge)  # Normalize the data
+ 
+  # Construct the design matrix for linear modeling, including paired samples using record_id
+  design <- model.matrix(~0 + L$condt + L$record_id)
+  colnames(design) <- make.names(gsub('\\$', '', colnames(design)))  # Clean column names
+  colnames(design)[c(1, 2)] <- c(levels(factor(L$condt)))  # Set names for condition columns
+ 
+  # Fit the linear model using the limma package
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3)  # Convert counts to log2 counts per million (CPM)
+  fit <- lmFit(y, design = design)
+ 
+  # Create a contrast to compare POST vs. PRE conditions
+  contrast <- makeContrasts(POST - PRE, levels = design)
+  fit2 <- contrasts.fit(fit, contrast)
+  fit2 <- eBayes(fit2, trend = TRUE, robust = TRUE)
+ 
+  # Extract top differentially expressed genes between POST and PRE
+  post_pre <- topTable(fit2, adjust.method = 'BH', number = Inf, p.value = 1, coef = 1)
+ 
+  # Prepare the result table for plotting and enrichment analysis
+  tt1 <- post_pre %>%
+    rownames_to_column('gene') %>%
+    dplyr::rename('logFC_post_pre' = 'logFC', 'P.Value_post_pre' = 'P.Value', 'adj.P.Value_post_pre' = 'adj.P.Val') %>%
+    dplyr::select(gene, logFC_post_pre, P.Value_post_pre, adj.P.Value_post_pre) %>%
+    column_to_rownames('gene')
+ 
+  # Skip if there are no significant results
+  if (length(tt1) == 0) next
+ 
+  # Store results for the current cell type
+  result1[[i]] <- tt1
+ 
+  # Filter for significant genes (adjusted p-value < 0.05)
+  tt3 <- tt1 %>% filter(adj.P.Value_post_pre < 0.05)
+ 
+  # Skip if there are no significant genes
+  if (dim(tt3)[1] == 0) next
+ 
+  # Rename columns for volcano plot function (assuming this function is defined elsewhere)
+  tt2 <- tt1 %>%
+    dplyr::rename('logFC' = 'logFC_post_pre', 'P.Value' = 'P.Value_post_pre', 'adj.P.Val' = 'adj.P.Value_post_pre')
+  my_vlocano_plot(tt2, celltypes1[i])  # Generate volcano plot
+ 
+  # Perform enrichment analysis on down-regulated genes (logFC < 0)
+  d1 <- tt3 %>% filter(logFC_post_pre < 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  down1[[i]] <- enriched
+  plotEnrich1(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Suppressed with surgery_', celltypes1[i], '_', dbs[1], '_Paired'))
+ 
+  # Perform enrichment analysis on up-regulated genes (logFC > 0)
+  d1 <- tt3 %>% filter(logFC_post_pre > 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  up1[[i]] <- enriched
+  plotEnrich1(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Enhanced with surgery_', celltypes1[i], '_', dbs[1], '_Paired'))
+}
+ 
+# Assign cell type names to result lists for easy reference
+names(result1) <- celltypes1
+names(up1) <- celltypes1
+names(down1) <- celltypes1
+```
+
+### muscat
+
+```{r echo = F}
+
+
+# data prep for muscat
+(sce_attempt_pt <- prepSCE(sce_attempt_pt, 
+    kid = "treatment", # subpopulation assignments
+    gid = "visit",  # group IDs (ctrl/stim)
+    sid = "id",   # sample IDs (ctrl/stim.1234)
+    drop = TRUE))  # drop all other colData columns
+nk <- length(kids <- levels(sce_attempt_pt$cluster_id))
+ns <- length(sids <- levels(sce_attempt_pt$sample_id))
+names(kids) <- kids; names(sids) <- sids
+
+t(table(sce_attempt_pt$cluster_id, sce_attempt_pt$sample_id))
+
+# UMAP
+sce_attempt_pt <- runUMAP(sce_attempt_pt, pca = 20)
+
+plotReducedDim(sce_attempt_pt, dimred = dr, colour_by = "cluster_id") +
+    guides(fill = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+    theme_minimal() + theme(aspect.ratio = 1)
+plotReducedDim(sce_attempt_pt, dimred = dr, colour_by = "group_id") +
+    guides(fill = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+    theme_minimal() + theme(aspect.ratio = 1)
+```
+
+```{r echo = F}
+# pseudobulk
+pb <- aggregateData(sce_attempt_pt,
+    assay = "counts", fun = "sum",
+    by = c("cluster_id", "sample_id"))
+t(head(assay(pb)))
+
+# use very distinctive shaping of groups & change cluster colors
+pb_mds <- pb_mds + 
+  scale_shape_manual(values = c(17, 4)) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(8, "Set2"))
+# change point size & alpha
+pb_mds$layers[[1]]$aes_params$size <- 5
+pb_mds$layers[[1]]$aes_params$alpha <- 0.6
+pb_mds
+```
+
+```{r echo = F}
+# construct design & contrast matrix
+ei <- metadata(sce_attempt_pt)$experiment_info
+mm <- model.matrix(~ 0 + ei$group_id)
+dimnames(mm) <- list(ei$sample_id, levels(ei$group_id))
+contrast <- makeContrasts("POST-PRE", levels = mm)
+
+# run DS analysis
+res <- pbDS(pb, design = mm, contrast = contrast)
+
+# access results table for placebo comparison
+tbl <- res$table[[1]]
+# one data.frame per cluster
+names(tbl)
+k1 <- tbl[[1]]
+k1
+# access results table for dapa comparison
+k2 <- tbl[[2]]
+k2
+```
+
+```{r echo = F}
+mm <- mmDS(sce_attempt_pt, method = "dream",
+  n_cells = 10, n_samples = 2, min_cells = 20)
+
+# filter FDR < 5%, abs(logFC) > 1 & sort by adj. p-value
+tbl_fil <- lapply(tbl, function(u) {
+  u <- dplyr::filter(u, p_adj.loc < 0.05, abs(logFC) > 1)
+  dplyr::arrange(u, p_adj.loc)
+})
+
+# nb. of DS genes & % of total by cluster
+n_de <- vapply(tbl_fil, nrow, numeric(1))
+p_de <- format(n_de / nrow(sce_attempt_pt) * 100, digits = 3)
+data.frame("#DS" = n_de, "%DS" = p_de, check.names = FALSE)
+
+# view top 2 hits in each cluster
+top2 <- bind_rows(lapply(tbl_fil, top_n, 2, p_adj.loc))
+format(top2[, -ncol(top2)], digits = 2)
+```
+
+### DEG in Placebo group
+
+### DEG in Dapa group
+
+### Comparison of DEG between Placebo and Dapa

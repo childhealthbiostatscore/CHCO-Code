@@ -1,0 +1,708 @@
+---
+title: "ATTEMPT paired DEG"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+```{r libraries, message = F, warning=F}
+#| include: false
+library(Seurat)
+library(future)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(ReactomeGSA)
+library(GSEABase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(slingshot); library(SingleCellExperiment)
+library(REDCapR)
+library(edgeR)
+library(data.table)
+library(MAST)
+library(limma)      # For linear modeling of microarray and RNA-seq data
+library(SomaPlotr)
+library(enrichR)
+```
+
+```{r load-data, echo = F, include = F}
+# Load dictionary function and file
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/CROCODILE/crocodile_functions.R")
+
+token_dat <- read.csv("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Data Harmonization/api_tokens.csv")
+attempt_token <- token_dat$Token[token_dat$Study == "ATTEMPT"]
+attempt_dat <- redcap_read(redcap_uri = "https://redcap.ucdenver.edu/api/",
+                           token = attempt_token)
+attempt_grp <- read.csv("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Raw/ATTEMPT_unblinding.csv")
+```
+
+```{r echo = F, include=F}
+race_names <- c(
+  "American Indian or Alaskan Native",
+  "Asian",
+  "Hawaiian or Pacific Islander",
+  "Black or African American",
+  "White",
+  "Unknown",
+  "Other"
+)
+ethnicity_names <- c(
+  "Hispanic",
+  "Non-Hispanic",
+  "Unknown")
+
+dat <- attempt_dat$data %>%
+  group_by(subject_id) %>%
+  fill(everything(), .direction = "down") %>%
+  ungroup() %>% rowwise() %>%
+  dplyr::mutate(visit = case_when(redcap_event_name == "visit_2_arm_1" ~ "PRE",
+                                  redcap_event_name == "visit_3_arm_1" ~ "POST",
+                                  T ~ "Screening"),
+                age = case_when(is.na(bx_date) ~ age_consent,
+                                T ~ as.integer((bx_date - dob) / dyears(1))),
+                race = case_when(sum(c_across(starts_with("race___")), na.rm = TRUE) == 0 ~ "Unknown",
+                                 sum(c_across(starts_with("race___")), na.rm = TRUE) > 1 ~ "More than one race",
+                                 race___1 == 1 ~ race_names[1],
+                                 race___2 == 1 ~ race_names[2],
+                                 race___3 == 1 ~ race_names[3],
+                                 race___4 == 1 ~ race_names[4],
+                                 race___5 == 1 ~ race_names[5],
+                                 race___6 == 1 ~ race_names[6],
+                                 race___7 == 1 ~ race_names[7]),
+                ethnicity = case_when(sum(c_across(starts_with("ethnicity___")), na.rm = TRUE) == 0 ~ "Unknown",
+                                 sum(c_across(starts_with("ethnicity___")), na.rm = TRUE) > 1 ~ "More than one ethnicity",
+                                 ethnicity___1 == 1 ~ ethnicity_names[1],
+                                 ethnicity___2 == 1 ~ ethnicity_names[2],
+                                 ethnicity___3 == 1 ~ ethnicity_names[3]),
+                diabetes_duration = case_when(visit == "Screening" ~ as.integer((consent_date - t1d_date) / dyears(1)),
+                                              T ~ as.integer((bx_date - t1d_date) / dyears(1)))) %>%
+  filter(visit != "Screening") %>%
+  left_join(attempt_grp)
+
+# manually adding three participants missing in REDCap for now...
+dat[nrow(dat) + 1, "subject_id"] <- 30058
+dat[nrow(dat), "visit"] <- "PRE"
+dat[nrow(dat), "treatment"] <- "Placebo"
+dat[nrow(dat) + 1, "subject_id"] <- 30058
+dat[nrow(dat), "visit"] <- "POST"
+dat[nrow(dat), "treatment"] <- "Placebo"
+dat[nrow(dat) + 1, "subject_id"] <- 30173
+dat[nrow(dat), "visit"] <- "PRE"
+dat[nrow(dat), "treatment"] <- "Placebo"
+dat[nrow(dat) + 1, "subject_id"] <- 30173
+dat[nrow(dat), "visit"] <- "POST"
+dat[nrow(dat), "treatment"] <- "Placebo"
+dat[nrow(dat) + 1, "subject_id"] <- 30186
+dat[nrow(dat), "visit"] <- "PRE"
+dat[nrow(dat), "treatment"] <- "Placebo"
+dat[nrow(dat) + 1, "subject_id"] <- 30186
+dat[nrow(dat), "visit"] <- "POST"
+dat[nrow(dat), "treatment"] <- "Placebo"
+
+dat$visit <- factor(dat$visit, levels = c("PRE", "POST"))
+```
+
+## scRNA Data
+
+```{r echo = F}
+plan(multisession, workers = 16)
+options(future.globals.maxSize=2e9)
+so_attempt <- readRDS("/home/choiyej/Documents/Local data/PB_attempt_harmony_rpca_Sept2024.RDS")
+so_attempt_meta <- so_attempt@meta.data %>%
+  mutate(subject_id = Subject.ID,
+         visit = case_when(Visit == "BL" ~ "PRE", 
+                           Visit == "4M" ~ "POST"))
+so_attempt_meta <- left_join(so_attempt_meta, dat, by = c("subject_id", "visit"))
+rownames(so_attempt_meta) <- so_attempt_meta$barcode
+so_attempt <- AddMetaData(so_attempt, so_attempt_meta)
+so_attempt$celltype_pt <- ifelse(grepl("PT-", so_attempt$celltype),
+                         "PT", as.character(so_attempt$celltype))
+```
+
+```{r echo = F}
+so_attempt_pt <- subset(so_attempt, celltype_pt == "PT" & celltype != "PT_lowQuality")
+remove(so_attempt)
+gc()
+options(future.globals.maxSize = 3000 * 1024^3)
+so_attempt_pt <- NormalizeData(so_attempt_pt)
+so_attempt_pt <- ScaleData(so_attempt_pt)
+ElbowPlot(so_attempt_pt)
+# so_attempt_pt <- RunPCA(so_attempt_pt, ncomponents = 10, features = VariableFeatures(object = so_attempt_pt))
+so_attempt_pt <- FindNeighbors(so_attempt_pt)
+so_attempt_pt <- FindClusters(so_attempt_pt)
+so_attempt_pt <- RunUMAP(so_attempt_pt, dims = 1:30, reduction.key = "UMAP_")
+gc()
+```
+
+
+## edgeR
+### All PT cells
+
+#### Placebo
+```{r echo = F}
+so_attempt_pt$visit <- factor(so_attempt_pt$visit, levels = c("PRE", "POST"))
+so_attempt_pt$treatment <- factor(so_attempt_pt$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
+
+# generalization of a paired t-test, ref on edgeR manual
+# Placebo group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Placebo"), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+#### Dapagliflozin
+```{r echo = F}
+# generalization of a paired t-test, ref on edgeR manual
+# Dapagliflozin group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Dapagliflozin 5mg"), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+### PT-1,-2,-3
+
+#### Placebo
+```{r echo = F}
+# generalization of a paired t-test, ref on edgeR manual
+# Placebo group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Placebo" & celltype %in% c("PT-1", "PT-2", "PT-3")), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+#### Dapagliflozin
+```{r echo = F}
+# generalization of a paired t-test, ref on edgeR manual
+# Dapagliflozin group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Dapagliflozin 5mg" & celltype %in% c("PT-1", "PT-2", "PT-3")), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+### PT-4,-5
+
+#### Placebo
+```{r echo = F}
+# generalization of a paired t-test, ref on edgeR manual
+# Placebo group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Placebo" & celltype %in% c("PT-4", "PT-5")), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% p
+summary(decideTests(lrt, adjust.method = "none"))
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+#### Dapagliflozin
+```{r echo = F}
+# generalization of a paired t-test, ref on edgeR manual
+# Dapagliflozin group
+# create y
+y <- Seurat2PB(subset(so_attempt_pt, treatment == "Dapagliflozin 5mg" & celltype %in% c("PT-4", "PT-5")), sample = "subject_id", cluster = "visit")
+dim(y)
+summary(y$samples$lib.size)
+y$genes <- y$genes[1:1]
+
+# filtering low expression
+keep.samples <- y$samples$lib.size > 5e4
+table(keep.samples)
+y <- y[, keep.samples]
+keep.genes <- filterByExpr(y, group=y$samples$cluster,
+                           min.count=10, min.total.count=20)
+table(keep.genes)
+y <- y[keep.genes, , keep=FALSE]
+
+# normalize y
+y <- normLibSizes(y)
+head(y$samples)
+plotMDS(y) # no notable pattern..
+
+# create design matrix
+subject <- factor(y$samples$sample)
+visit <- factor(y$samples$cluster)
+design <- model.matrix(~subject + visit)
+rownames(design) <- colnames(y)
+
+# estimate dispersion
+y <- estimateDisp(y, design, robust = T)
+y$common.dispersion
+plotBCV(y)
+
+# fit linear model and test for visit effect
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit)
+topTags(lrt)
+
+# counts per million
+o <- order(lrt$table$PValue)
+cpm(y)[o[1:10],]
+
+# summary of DEGs at 5% p
+summary(decideTests(lrt, adjust.method = "none"))
+
+# summary of DEGs at 5% FDR
+summary(decideTests(lrt))
+plotMD(lrt)
+abline(h=c(-1,1), col="red")
+```
+
+### Fadhl's code from VSG
+##### Placebo
+```{r echo = F}
+# placebo
+limma <- subset(so_attempt_pt, treatment == "Placebo")
+
+# Set plot dimensions for subsequent visualizations
+options(repr.plot.width = 8, repr.plot.height = 6)
+ 
+# Identify unique cell types from the 'celltype' in metadata and sort them alphabetically
+celltypes1 <- as.character(unique(limma@meta.data$celltype_pt))
+ 
+# Initialize lists to store results of differential expression and enrichment analyses
+result1 <- list()  # For storing differential expression results
+up1 <- list()      # For storing up-regulated gene enrichment results
+down1 <- list()    # For storing down-regulated gene enrichment results
+ 
+# Specify databases for enrichment analysis
+dbs <- c("HumanCyc_2016")
+ 
+# Loop over each cell type for differential expression analysis
+for (i in 1:length(celltypes1)) {
+  # Subset the data for the current cell type
+  temp <- subset(x = limma, subset = celltype_pt == celltypes1[i])
+ 
+  # Initialize list for storing counts and sample information
+  L <- list()
+  gene_expression_matrix <- temp@assays$RNA$counts
+
+  # Filter genes expressed in more than 10% of cells
+  expressed_genes <- Matrix::rowSums(gene_expression_matrix != 0) > dim(gene_expression_matrix)[2] * 0.1
+  L$count <- gene_expression_matrix[expressed_genes,]
+ 
+  # Remove mitochondrial genes (prefix "MT")
+  L$condt <- temp$visit   # Treatment condition (HC, PRE, POST)
+  L$record_id <- temp$subject_id  # Paired sample identifier
+ 
+  # Create a DGEList object for differential expression analysis
+  dge <- DGEList(L$count, group = L$condt)
+  dge <- calcNormFactors(dge)  # Normalize the data
+ 
+  # Construct the design matrix for linear modeling, including paired samples using record_id
+  design <- model.matrix(~0 + L$condt + L$record_id)
+  colnames(design) <- make.names(gsub('\\$', '', colnames(design)))  # Clean column names
+  colnames(design)[c(1, 2)] <- c(levels(factor(L$condt)))  # Set names for condition columns
+ 
+  # Fit the linear model using the limma package
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3)  # Convert counts to log2 counts per million (CPM)
+  fit <- lmFit(y, design = design)
+ 
+  # Create a contrast to compare POST vs. PRE conditions
+  contrast <- makeContrasts(POST - PRE, levels = design)
+  fit2 <- contrasts.fit(fit, contrast)
+  fit2 <- eBayes(fit2, trend = TRUE, robust = TRUE)
+
+  # Extract top differentially expressed genes between POST and PRE
+  post_pre <- topTable(fit2, adjust.method = 'BH', number = Inf, p.value = 1, coef = 1)
+ 
+  # Prepare the result table for plotting and enrichment analysis
+  tt1 <- post_pre %>%
+    rownames_to_column('gene') %>%
+    dplyr::rename('logFC_post_pre' = 'logFC', 'P.Value_post_pre' = 'P.Value', 'adj.P.Value_post_pre' = 'adj.P.Val') %>%
+    dplyr::select(gene, logFC_post_pre, P.Value_post_pre, adj.P.Value_post_pre) %>%
+    column_to_rownames('gene')
+ 
+  # Skip if there are no significant results
+  if (length(tt1) == 0) next
+ 
+  # Store results for the current cell type
+  result1[[i]] <- tt1
+ 
+  # Filter for significant genes (adjusted p-value < 0.05)
+  tt3 <- tt1 %>% filter(adj.P.Value_post_pre < 0.05)
+ 
+  # Skip if there are no significant genes
+  if (dim(tt3)[1] == 0) next
+ 
+  # Rename columns for volcano plot function (assuming this function is defined elsewhere)
+  tt2 <- tt1 %>%
+    rownames_to_column("Gene") %>%
+    dplyr::rename('logFC' = 'logFC_post_pre', 'P.Value' = 'P.Value_post_pre', 
+                  'adj.P.Val' = 'adj.P.Value_post_pre')
+  # Generate volcano plot
+  print(plotVolcano(tt2, 
+            FC = logFC, 
+            label = Gene,
+            p.value = P.Value, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC(POST/PRE)"))
+ 
+  # Perform enrichment analysis on down-regulated genes (logFC < 0)
+  d1 <- tt3 %>% filter(logFC_post_pre < 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  down1[[i]] <- enriched
+  print(plotEnrich(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Suppressed with treatment_', celltypes1[i], '_', dbs[1], '_Paired')))
+ 
+  # Perform enrichment analysis on up-regulated genes (logFC > 0)
+  d1 <- tt3 %>% filter(logFC_post_pre > 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  up1[[i]] <- enriched
+  print(plotEnrich(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Enhanced with treatment_', celltypes1[i], '_', dbs[1], '_Paired')))
+}
+ 
+# Assign cell type names to result lists for easy reference
+names(result1) <- celltypes1
+names(up1) <- celltypes1
+names(down1) <- celltypes1
+result1
+up1
+down1
+```
+
+##### Dapagliflozin
+
+```{r echo = F}
+# Dapagliflozin
+limma <- subset(so_attempt_pt, treatment != "Placebo")
+ 
+# Set plot dimensions for subsequent visualizations
+options(repr.plot.width = 8, repr.plot.height = 6)
+ 
+# Identify unique cell types from the 'celltype' in metadata and sort them alphabetically
+celltypes1 <- as.character(unique(limma@meta.data$celltype_pt))
+ 
+# Initialize lists to store results of differential expression and enrichment analyses
+result1 <- list()  # For storing differential expression results
+up1 <- list()      # For storing up-regulated gene enrichment results
+down1 <- list()    # For storing down-regulated gene enrichment results
+ 
+# Specify databases for enrichment analysis
+dbs <- c("HumanCyc_2016")
+ 
+# Loop over each cell type for differential expression analysis
+for (i in 1:length(celltypes1)) {
+  # Subset the data for the current cell type
+  temp <- subset(x = limma, subset = celltype_pt == celltypes1[i])
+ 
+  # Initialize list for storing counts and sample information
+  L <- list()
+  gene_expression_matrix <- temp@assays$RNA$counts
+
+  # Filter genes expressed in more than 10% of cells
+  expressed_genes <- Matrix::rowSums(gene_expression_matrix != 0) > dim(gene_expression_matrix)[2] * 0.1
+  L$count <- gene_expression_matrix[expressed_genes,]
+ 
+  # Remove mitochondrial genes (prefix "MT")
+  L$condt <- temp$visit   # Treatment condition (HC, PRE, POST)
+  L$record_id <- temp$subject_id  # Paired sample identifier
+ 
+  # Create a DGEList object for differential expression analysis
+  dge <- DGEList(L$count, group = L$condt)
+  dge <- calcNormFactors(dge)  # Normalize the data
+ 
+  # Construct the design matrix for linear modeling, including paired samples using record_id
+  design <- model.matrix(~0 + L$condt + L$record_id)
+  colnames(design) <- make.names(gsub('\\$', '', colnames(design)))  # Clean column names
+  colnames(design)[c(1, 2)] <- c(levels(factor(L$condt)))  # Set names for condition columns
+ 
+  # Fit the linear model using the limma package
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3)  # Convert counts to log2 counts per million (CPM)
+  fit <- lmFit(y, design = design)
+ 
+  # Create a contrast to compare POST vs. PRE conditions
+  contrast <- makeContrasts(POST - PRE, levels = design)
+  fit2 <- contrasts.fit(fit, contrast)
+  fit2 <- eBayes(fit2, trend = TRUE, robust = TRUE)
+ 
+  # Extract top differentially expressed genes between POST and PRE
+  post_pre <- topTable(fit2, adjust.method = 'BH', number = Inf, p.value = 1, coef = 1)
+ 
+  # Prepare the result table for plotting and enrichment analysis
+  tt1 <- post_pre %>%
+    rownames_to_column('gene') %>%
+    dplyr::rename('logFC_post_pre' = 'logFC', 'P.Value_post_pre' = 'P.Value', 'adj.P.Value_post_pre' = 'adj.P.Val') %>%
+    dplyr::select(gene, logFC_post_pre, P.Value_post_pre, adj.P.Value_post_pre) %>%
+    column_to_rownames('gene')
+ 
+  # Skip if there are no significant results
+  if (length(tt1) == 0) next
+ 
+  # Store results for the current cell type
+  result1[[i]] <- tt1
+ 
+  # Filter for significant genes (adjusted p-value < 0.05)
+  tt3 <- tt1 %>% filter(adj.P.Value_post_pre < 0.05)
+ 
+  # Skip if there are no significant genes
+  if (dim(tt3)[1] == 0) next
+ 
+  # Rename columns for volcano plot function (assuming this function is defined elsewhere)
+  tt2 <- tt1 %>%
+    rownames_to_column("Gene") %>%
+    dplyr::rename('logFC' = 'logFC_post_pre', 'P.Value' = 'P.Value_post_pre', 
+                  'adj.P.Val' = 'adj.P.Value_post_pre')
+  # Generate volcano plot
+  print(plotVolcano(tt2, 
+            FC = logFC, 
+            label = Gene,
+            p.value = P.Value, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC(POST/PRE)"))
+ 
+  # Perform enrichment analysis on down-regulated genes (logFC < 0)
+  d1 <- tt3 %>% filter(logFC_post_pre < 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  down1[[i]] <- enriched
+  print(plotEnrich(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Suppressed with treatment_', celltypes1[i], '_', dbs[1], '_Paired')))
+ 
+  # Perform enrichment analysis on up-regulated genes (logFC > 0)
+  d1 <- tt3 %>% filter(logFC_post_pre > 0) %>% rownames()
+  if (length(d1) == 0) next
+  enriched <- enrichr(d1, dbs)  # Perform enrichment analysis
+  up1[[i]] <- enriched
+  print(plotEnrich(enriched[[1]], showTerms = 20, numChar = 40, y = "Count", orderBy = "P.value",
+              title = paste0(length(d1), '_Enhanced with treatment_', celltypes1[i], '_', dbs[1], '_Paired')))
+}
+ 
+# Assign cell type names to result lists for easy reference
+names(result1) <- celltypes1
+names(up1) <- celltypes1
+names(down1) <- celltypes1
+result1
+up1
+down1
+```
+
+* look at TAL at some point later as well
+
