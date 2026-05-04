@@ -1,0 +1,359 @@
+---
+title: "Omics_data_summary"
+author: "Savanah Leidholt"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#directores
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(arsenal)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(Hmisc)
+library(readxl)
+library(purrr)
+library(aws.s3)
+library(jsonlite)
+library(kableExtra)
+
+
+# Load your saved objects
+omics_objects <- readRDS(file.path(root_path, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects_clean.rds"))
+
+list2env(omics_objects, envir = .GlobalEnv)
+```
+
+```{r}
+## Create an S3 client
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+
+pb90_multiomics_subset <- s3readRDS(
+          object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
+          bucket = "scrna",
+          region = "")
+```
+
+```{r}
+# HELPER: count non-NA samples in a matrix for a given metadata
+count_samples_with_data <- function(meta_df, mat_df) {
+  # A sample "has data" if it has at least one non-NA value in the omics matrix
+  has_data <- rowSums(!is.na(mat_df)) > 0
+  meta_df %>%
+    mutate(has_omics = has_data) %>%
+    filter(has_omics)
+}
+```
+
+# -----------------------------
+# IDs with each data type
+# -----------------------------
+```{r}
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_prot  <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_scrna <- pb90_multiomics_subset %>%
+  dplyr::pull(record_id) %>%
+  unique()
+
+# clean IDs
+ids_metab <- trimws(as.character(ids_metab))
+ids_prot  <- trimws(as.character(ids_prot))
+ids_scrna <- trimws(as.character(ids_scrna))
+ids_scrna
+```
+
+```{r}
+# ============================================================
+# Build clean metadata for each data type
+# ============================================================
+
+meta_metab_clean <- meta_metab %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_metab) %>%
+  mutate(data_source = "Metabolomics")
+
+meta_prot_clean <- meta_prot %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_prot) %>%
+  mutate(data_source = "Proteomics")
+
+meta_scrna_clean <- pb90_multiomics_subset %>%
+  mutate(record_id = trimws(as.character(record_id))) %>%
+  filter(record_id %in% ids_scrna) %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(data_source = "scRNA-seq")
+
+# ============================================================
+# Participant-level metadata with flags
+# ============================================================
+
+meta_all <- bind_rows(
+  meta_prot_clean,
+  meta_metab_clean,
+  meta_scrna_clean
+) %>%
+  arrange(record_id, data_source) %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(
+    has_metabolomics = record_id %in% ids_metab,
+    has_proteomics   = record_id %in% ids_prot,
+    has_scrna        = record_id %in% ids_scrna,
+    has_all_three    = has_metabolomics & has_proteomics & has_scrna
+  ) %>%
+  mutate(
+    age          = as.numeric(age),
+    bmi          = as.numeric(bmi),
+    hba1c        = as.numeric(hba1c),
+    acr_u        = as.numeric(acr_u),
+    eGFR_U25     = as.numeric(eGFR_CKiD_U25_avg),
+    eGFR_fas_cr  = as.numeric(eGFR_fas_cr),
+    sex          = as.factor(sex),
+    group        = as.factor(group),
+    study        = as.factor(study)
+  )
+```
+
+```{r}
+meta_all <- meta_all %>%
+  mutate(
+    obese = bmi >= 30
+  )
+```
+
+```{r}
+table(meta_all$group, meta_all$obese, useNA = "ifany")
+```
+```{r}
+meta_all2 <- meta_all %>%
+  filter(!(group == "Type 1 Diabetes" & obese))
+```
+
+```{r}
+meta_metab_sub <- meta_all2 %>% filter(has_metabolomics)
+meta_prot_sub  <- meta_all2 %>% filter(has_proteomics)
+meta_scrna_sub <- meta_all2 %>% filter(has_scrna)
+meta_all3_sub  <- meta_all2 %>% filter(has_all_three)
+```
+
+
+```{r}
+# ============================================================
+# Helper functions for summary formatting
+# ============================================================
+
+mean_sd <- function(x, digits = 1) {
+  if (all(is.na(x))) return("")
+  sprintf(
+    paste0("%.", digits, "f ± %.", digits, "f"),
+    mean(x, na.rm = TRUE),
+    sd(x, na.rm = TRUE)
+  )
+}
+
+median_iqr <- function(x, digits = 1) {
+  if (all(is.na(x))) return("")
+  q <- quantile(x, probs = c(0.25, 0.75), na.rm = TRUE)
+  sprintf(
+    paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"),
+    median(x, na.rm = TRUE),
+    q[1],
+    q[2]
+  )
+}
+
+n_pct <- function(x, level) {
+  n <- sum(x == level, na.rm = TRUE)
+  denom <- sum(!is.na(x))
+  if (denom == 0) return("")
+  paste0(n, " (", round(100 * n / denom, 1), "%)")
+}
+```
+
+```{r}
+# ============================================================
+# Summary table by study
+# ============================================================
+
+make_summary_by_study <- function(data) {
+  
+  data %>%
+    group_by(study) %>%
+    summarise(
+      N = n(),
+      Age = mean_sd(age),
+      Female = n_pct(sex, "Female"),
+      BMI = mean_sd(bmi),
+      HbA1c = mean_sd(hba1c),
+      `uACR, median` = median_iqr(acr_u),
+      eGFR_fas_cr = mean_sd(eGFR_fas_cr),
+      eGFR_U25 = mean_sd(eGFR_U25),
+      .groups = "drop"
+    )
+}
+```
+
+```{r}
+# ============================================================
+# Categorical breakdown table by study
+# ============================================================
+
+make_categorical_by_study <- function(data, var) {
+  
+  data %>%
+    filter(!is.na(.data[[var]])) %>%
+    count(study, .data[[var]], name = "n") %>%
+    group_by(study) %>%
+    mutate(
+      pct = round(100 * n / sum(n), 1),
+      value = paste0(n, " (", pct, "%)")
+    ) %>%
+    ungroup() %>%
+    select(study, !!sym(var), value) %>%
+    pivot_wider(
+      names_from = !!sym(var),
+      values_from = value,
+      values_fill = "0 (0%)"
+    )
+}
+```
+
+```{r}
+# ============================================================
+# Render function with kableExtra
+# ============================================================
+
+render_kable <- function(tbl, caption) {
+  
+  tbl %>%
+    kbl(
+      caption = caption,
+      align = "c",
+      booktabs = TRUE
+    ) %>%
+    kable_styling(
+      full_width = FALSE,
+      bootstrap_options = c("striped", "hover", "condensed")
+    ) %>%
+    row_spec(0, bold = TRUE)
+}
+```
+
+```{r}
+# ============================================================
+# Overall summary by study
+# ============================================================
+
+tbl_overall <- make_summary_by_study(meta_all)
+
+render_kable(
+  tbl_overall,
+  caption = "Overall Participant Characteristics by Study"
+)
+```
+
+```{r}
+# ============================================================
+# Data-type-specific summary tables
+# ============================================================
+
+render_kable(
+  make_summary_by_group(meta_prot_sub),
+  caption = "Proteomics Participant Characteristics by Group"
+)
+
+render_kable(
+  make_summary_by_group(meta_metab_sub),
+  caption = "Metabolomics Participant Characteristics by Group"
+)
+
+render_kable(
+  make_summary_by_group(meta_scrna_sub),
+  caption = "Single-cell RNA-seq Participant Characteristics by Group"
+)
+
+render_kable(
+  make_summary_by_group(meta_all3_sub),
+  caption = "Participants with Metabolomics + Proteomics + scRNA-seq by Group"
+)
+
+```
+
+```{r}
+# ============================================================
+# Optional: data-type-specific group distributions
+# ============================================================
+
+render_kable(
+  make_categorical_by_study(meta_metab_sub, "group"),
+  caption = "Metabolomics Group Distribution by Study"
+)
+
+render_kable(
+  make_categorical_by_study(meta_prot_sub, "group"),
+  caption = "Proteomics Group Distribution by Study"
+)
+
+render_kable(
+  make_categorical_by_study(meta_scrna_sub, "group"),
+  caption = "Single-cell RNA-seq Group Distribution by Study"
+)
+
+render_kable(
+  make_categorical_by_study(meta_all3_sub, "group"),
+  caption = "All Three Data Types Group Distribution by Study"
+)
+```
+

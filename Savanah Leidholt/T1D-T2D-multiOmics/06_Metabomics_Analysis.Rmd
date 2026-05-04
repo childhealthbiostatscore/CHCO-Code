@@ -11,8 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 #Directories
-computer <- "mac studio"
-#computer <- "mac laptop"
+#computer <- "mac studio"
+computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -47,7 +47,7 @@ if (computer == "mac studio") {
 
   if (user == "savanahleidholt") {
     dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
+    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/T1D-T2D/Results/Metabolomics"
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
     
   } else if (user == "hhampson") {
@@ -342,29 +342,27 @@ kept_metabolites    <- colnames(mat_all)[keep_study_all]
 cat("All metabolomic features before study filter:", ncol(mat_all), "\n")
 cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_metabolites), "\n")
 cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_metabolites), "\n")
-```
-```{r}
-#remove the filtered metabolites here before moving on. 
-```
 
+mat_filt <- mat_all[, kept_metabolites, drop = FALSE]
+```
 
 ##--------------------------
 ## log transform & imputation
 ##-------------------
 ```{r}
-mat_all <- as.matrix(mat_metab)
-rownames(mat_all) <- trimws(as.character(rownames(mat_all)))
+mat_filt <- as.matrix(mat_filt)
+rownames(mat_filt) <- trimws(as.character(rownames(mat_filt)))
 
-mat_log_all <- log2(mat_all + 1)
+mat_log_all <- log2(mat_filt + 1)
 
 mat_log_all[!is.finite(mat_log_all)] <- NA_real_
 
-meds_all <- apply(mat_filt_all, 2, function(x) {
+meds_all <- apply(mat_filt, 2, function(x) {
   m <- median(x, na.rm = TRUE)
   if (is.finite(m)) m else NA_real_
 })
 
-mat_imp_all <- mat_filt_all
+mat_imp_all <- mat_filt
 
 for (j in seq_len(ncol(mat_imp_all))) {
   if (!is.na(meds_all[j])) {
@@ -392,14 +390,14 @@ nzv_idx <- nearZeroVar(mat_imp_all)
 length(nzv_idx)   # how many features will be removed
 colnames(mat_imp_all)[nzv_idx]  #view removed features
 
-mat_imp_all <- mat_imp_all[, -nzv_idx, drop = FALSE]
+mat_imp_filt <- mat_imp_all[, -nzv_idx, drop = FALSE]
 ```
 
 ##---------------------------
 ## PCA-based outlier removal
 ##---------------------------
 ```{r}
-pca_all <- prcomp(mat_imp_all, center = TRUE, scale. = TRUE)
+pca_all <- prcomp(mat_imp_filt, center = TRUE, scale. = TRUE)
 pca_dist_all <- sqrt(rowSums(pca_all$x[, 1:5]^2))
 
 cutoff_all <- median(pca_dist_all) + 3 * mad(pca_dist_all, constant = 1)
@@ -420,30 +418,30 @@ outlier_df_all %>%
 keep_ids_all <- outlier_df_all %>%
   dplyr::filter(!pca_outlier) %>%
   dplyr::pull(record_id)
-keep_ids_all
+
 # subset matrix
-mat_imp_all <- mat_imp_all[keep_ids_all, , drop = FALSE]
+mat_imp_filt <- mat_imp_filt[keep_ids_all, , drop = FALSE]
 
 # reorder metadata to match matrix
 meta_all <- meta_all[match(keep_ids_all, meta_all$record_id), , drop = FALSE]
 cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
 cat("number of participants kept", nrow(mat_imp_all), "\n")
 
-stopifnot(identical(meta_all$record_id, rownames(mat_imp_all)))
+stopifnot(identical(meta_all$record_id, rownames(mat_imp_filt)))
 ```
 
 ##-----------------------
 ## PCA: all metabolomics
 ##-----------------------
 ```{r}
-p0_all <- make_pca_plot(mat_imp_all, meta_all, "Metabolomics - No adjustment")
+p0_all <- make_pca_plot(mat_imp_filt, meta_all, "Metabolomics - No adjustment")
 
 cov1_all <- model.matrix(~ age + sex, data = meta_all)[, -1, drop = FALSE]
-mat_adj1_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov1_all))
+mat_adj1_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov1_all))
 p1_all <- make_pca_plot(mat_adj1_all, meta_all, "Metabolomics - Age + Sex")
 
 cov2_all <- model.matrix(~ age + sex + study, data = meta_all)[, -1, drop = FALSE]
-mat_adj2_all <- t(removeBatchEffect(t(mat_imp_all), covariates = cov2_all))
+mat_adj2_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov2_all))
 p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Study")
 
 (p0_all | p1_all | p2_all) +
@@ -456,7 +454,7 @@ p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Stud
 ## LIMMA: all metabolomics
 ## ------------------------
 ```{r}
-Y_all <- t(as.matrix(mat_imp_all))
+Y_all <- t(as.matrix(mat_imp_filt))
 
 design_all <- model.matrix(~ 0 + group4 + age + sex + study, data = meta_all)
 colnames(design_all) <- sub("^group4", "", colnames(design_all))
@@ -594,6 +592,8 @@ cat("Subset features kept for PCA/LIMMA:", ncol(mat_imp_mp), "\n")
 cat("number of participants kept", nrow(mat_imp_mp), "\n")
 stopifnot(identical(rownames(mat_imp_mp), meta_mp$record_id))
 ```
+
+
 ```{r}
 #removing near zero variance metabolites
 nzv_idx <- nearZeroVar(mat_imp_mp)
@@ -1225,7 +1225,7 @@ if (any(tab < min_per_class)) {
   cat("Best alpha:", best$alpha, "\n")
   cat("AUC:", auc_val, "\n")
   cat("Nonzero coefficients:", nrow(coef_df), "\n")
-  cat("Selected protein terms:", length(protein_terms), "\n")
+  cat("Selected metabolites:", length(protein_terms), "\n")
   
   list(
     contrast         = cc,
@@ -1249,7 +1249,7 @@ res_T1D_LC <- run_elastic_net(
   cc = "T1D_vs_LC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_imp_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -1309,3 +1309,161 @@ res_OC_LC <- run_elastic_net(
   covars = c("age", "sex")
 )
 ```
+#------------------------------------
+#boostrapping function for elasticnet
+#-------------------------------------
+```{r}
+run_elastic_net_bootstrap_metab <- function(
+  cc,
+  out_list,
+  meta_df,
+  X_mat,
+  top_n = 50,
+  covars = c("age", "sex"),
+  alpha_grid = seq(0.1, 1, by = 0.1),
+  n_boot = 100,
+  seed = 1835,
+  min_per_class = 5
+) {
+  
+  set.seed(seed)
+  boot_res <- vector("list", n_boot)
+  
+  for (b in seq_len(n_boot)) {
+    
+    idx0 <- which(meta_df$group4 %in% strsplit(cc, "_vs_")[[1]])
+    meta_sub0 <- meta_df[idx0, , drop = FALSE]
+    
+    idx_boot <- unlist(lapply(split(seq_len(nrow(meta_sub0)), meta_sub0$group4), function(ii) {
+      sample(ii, size = length(ii), replace = TRUE)
+    }))
+    
+    meta_boot <- meta_sub0[idx_boot, , drop = FALSE]
+    meta_boot$record_id_boot <- paste0(meta_boot$record_id, "_boot", seq_len(nrow(meta_boot)))
+    
+    X_boot <- X_mat[meta_boot$record_id, , drop = FALSE]
+    rownames(X_boot) <- meta_boot$record_id_boot
+    meta_boot$record_id <- meta_boot$record_id_boot
+    
+    fit_b <- tryCatch(
+      run_elastic_net(
+        cc = cc,
+        out_list = out_list,
+        meta_df = meta_boot,
+        X_mat = X_boot,
+        top_n = top_n,
+        covars = covars,
+        seed = seed + b
+      ),
+      error = function(e) NULL
+    )
+    
+    boot_res[[b]] <- fit_b
+  }
+  
+  boot_res <- Filter(Negate(is.null), boot_res)
+  
+  selected_tbl <- lapply(seq_along(boot_res), function(i) {
+    tibble(
+      boot = i,
+      contrast = cc,
+      feature_id = unique(boot_res[[i]]$protein_terms)  # still named this internally
+    )
+  }) %>%
+    bind_rows() %>%
+    distinct(contrast, boot, feature_id)
+  
+  stability_tbl <- selected_tbl %>%
+    count(contrast, feature_id, name = "n_selected") %>%
+    mutate(
+      n_boot_success = length(boot_res),
+      selection_frequency = n_selected / n_boot_success,
+      selection_percent = 100 * selection_frequency
+    ) %>%
+    arrange(desc(selection_frequency))
+  
+  list(
+    contrast = cc,
+    stability_tbl = stability_tbl,
+    boot_res = boot_res
+  )
+}
+```
+
+#t1d vs lc
+```{r}
+boot_metab_T1D_LC <- run_elastic_net_bootstrap_metab(
+  cc = "T1D_vs_LC",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50
+)
+```
+```{r}
+core_metab_T1D_LC <- boot_metab_T1D_LC$stability_tbl %>%
+  filter(selection_frequency >= 0.7)
+core_metab_T1D_LC
+```
+
+```{r}
+boot_metab_T1D_T2D <- run_elastic_net_bootstrap_metab(
+  cc = "T1D_vs_T2D",
+  out_list = out_all,
+  meta_df = meta_all,
+  X_mat = mat_imp_all,
+  top_n = 50
+)
+```
+```{r}
+core_metab_T1D_T2D <- boot_metab_T1D_T2D$stability_tbl %>%
+  filter(selection_frequency >= 0.7)
+core_metab_T1D_T2D
+```
+
+```{r}
+plot_stability_metab <- function(boot_obj, min_freq = 0.7, top_n = 25) {
+  
+  plot_df <- boot_obj$stability_tbl %>%
+    filter(selection_frequency >= min_freq) %>%
+    slice_max(selection_frequency, n = top_n, with_ties = FALSE)
+  
+  ggplot(plot_df, aes(
+    x = reorder(feature_id, selection_percent),
+    y = selection_percent
+  )) +
+    geom_col() +
+    coord_flip() +
+    labs(
+      title = paste0("Metabolite stability: ", boot_obj$contrast),
+      x = NULL,
+      y = "Bootstrap selection frequency (%)"
+    ) +
+    theme_bw()
+}
+```
+
+```{r}
+plot_stability_metab(boot_metab_T1D_LC)
+plot_stability_metab(boot_metab_T1D_T2D)
+```
+
+```{r}
+run_kegg_metab_ora(
+  tt = out_all[["T1D_vs_LC"]],
+  pathway_map = pathway2compound,
+  p_cutoff = 0.05,
+  fc_cutoff = 0,
+  min_overlap = 3
+)
+```
+
+```{r}
+sig_metabs <- core_metab_T1D_LC$feature_id
+
+ora_input <- out_all[["T1D_vs_LC"]] %>%
+  mutate(is_sig = feature_id %in% sig_metabs)
+
+run_kegg_metab_ora(ora_input, pathway2compound)
+```
+

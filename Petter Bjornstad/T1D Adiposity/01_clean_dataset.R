@@ -74,15 +74,38 @@ t1d_hc_dat_soma <- harm_dat %>%
                                         dexa_body_fat >= 35 & sex == "Female" ~ "Obese"),
                 bmi_obesity = factor(bmi_obesity, levels = c("Normal", "Overweight", "Obese")),
                 dxa_obesity = factor(dxa_obesity, levels = c("Normal", "Overweight", "Obese")),
+                whtr = waistcm / height, # waist-to-height ratio
+                whtr_obesity = case_when(
+                  whtr < 0.5             ~ "Normal",
+                  whtr >= 0.5 & whtr < 0.6 ~ "Overweight",
+                  whtr >= 0.6            ~ "Obese",
+                  TRUE                   ~ NA_character_
+                ),
+                whtr_obese_binary = case_when(
+                  whtr_obesity == "Obese"                       ~ "Obese",
+                  whtr_obesity %in% c("Normal", "Overweight")   ~ "Non_Obese",
+                  TRUE                                          ~ NA_character_
+                ),
+                whtr_ow_obese_binary = case_when(
+                  whtr_obesity == "Normal"                      ~ "Normal",
+                  whtr_obesity %in% c("Overweight", "Obese")    ~ "Overweight_Obese",
+                  TRUE                                          ~ NA_character_
+                )
                 # mgfr_raw_combined = coalesce(gfr_raw_plasma, mgfr_jodal),
                 # mgfr_bsa_combined = coalesce(gfr_bsa_plasma, mgfr_jodal_bsa)
-                ) %>% # need attempt mgfr
+  ) %>% # need attempt mgfr
   dplyr::select(-c(mrn, dob)) %>%
   filter(record_id %nin% c("PNDA-105", "PNDA-127")) # screen failed
 
 t1d_hc_dat <- t1d_hc_dat_soma %>%
   dplyr::select(-starts_with("seq"))
 
+table(t1d_hc_dat$whtr_obesity,
+      t1d_hc_dat$study)
+summary(t1d_hc_dat$whtr)
+
+subset(t1d_hc_dat, is.na(whtr_obesity))$record_id
+subset(t1d_hc_dat, select = c(whtr, waistcm, height, whtr_obesity, bmi))
 # test <- t1d_hc_dat %>% select(record_id, age, bmi, bmip, sex, weight, height, dexa_body_fat, bmi_obesity, dxa_obesity)
 # current issue (3/10: missing ATTEMPT not from Denver site, checking with Dawn on PNDA 208 who may not have anthro measures)
 

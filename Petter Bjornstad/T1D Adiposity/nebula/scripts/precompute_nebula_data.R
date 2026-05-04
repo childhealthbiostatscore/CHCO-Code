@@ -116,6 +116,8 @@ keep_meta_cols <- c(
   "dexa_body_fat", "dexa_bone_mineral_density", "dexa_fat_kg",
   "dexa_lean_mass", "dexa_lean_kg", "dexa_ag_ratio",
   "dexa_est_vat", "dexa_trunk_kg", "dexa_trunk_mass",
+  # WHtR-based (continuous and categorical, derived in 01_clean_dataset.R)
+  "whtr", "whtr_obesity",
   # Step 6 matched-subset flag (unused this pass but cheap to keep)
   "has_both_bmi_dxa"
 )
@@ -162,11 +164,22 @@ precompute_one <- function(celltype, celltype_var) {
     meta$dxa_obesity %in% c("Overweight", "Obese")  ~ "Overweight_Obese",
     TRUE                                            ~ NA_character_
   )
+  meta$whtr_obese_binary <- dplyr::case_when(
+    meta$whtr_obesity == "Obese"                     ~ "Obese",
+    meta$whtr_obesity %in% c("Normal", "Overweight") ~ "Non_Obese",
+    TRUE                                             ~ NA_character_
+  )
+  meta$whtr_ow_obese_binary <- dplyr::case_when(
+    meta$whtr_obesity == "Normal"                    ~ "Normal",
+    meta$whtr_obesity %in% c("Overweight", "Obese")  ~ "Overweight_Obese",
+    TRUE                                             ~ NA_character_
+  )
 
   # Trim metadata to the columns downstream analyses might need
   wanted <- c(keep_meta_cols,
-              "bmi_obese_binary", "bmi_ow_obese_binary",
-              "dxa_obese_binary", "dxa_ow_obese_binary")
+              "bmi_obese_binary",  "bmi_ow_obese_binary",
+              "dxa_obese_binary",  "dxa_ow_obese_binary",
+              "whtr_obese_binary", "whtr_ow_obese_binary")
   present <- intersect(wanted, colnames(meta))
   missing <- setdiff(wanted, present)
   if (length(missing) > 0) {

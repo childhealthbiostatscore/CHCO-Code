@@ -21,6 +21,7 @@ library(knitr)
 library(dplyr)
 library(kableExtra)
 library(tidyverse)
+library(fgsea)
 ```
 
 ```{r include = F}
@@ -29,6 +30,7 @@ user <- Sys.info()[["user"]]
 if (user == "choiyej") {
   results_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/T1D Adiposity"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "yejichoi") {
   results_dir <- "/mmfs1/gscratch/togo/yejichoi/T1D_Adiposity"
   keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
@@ -108,6 +110,9 @@ celltype_groups <- list(
   Schwann = "SchwannCells",
   Other = "non-specific"
 )
+
+kpmp_general <- c(
+  "PT", "TAL", "PC", "IC", "EC", "Immune")
 ```
 
 ```{r echo = F}
@@ -243,644 +248,531 @@ meta_df_compiled <- tryCatch({
 })
 ```
 
-```{r echo = F}
-# Helper function to render a section for a given analysis folder
-# Returns TRUE if at least one cell type was rendered, FALSE otherwise
-render_section <- function(folder, celltype_groups, meta_df_compiled, results_dir) {
-  rendered_any <- FALSE
+# Helpers
+```{r}
+# =============================================================================
+# VOLCANO PLOT FUNCTION
+# =============================================================================
+make_volcano <- function(data, p_col, fc, title = NULL,
+                         test_name,
+                         sig_type = "pval", fdr_col = NULL,
+                         p_thresh = 0.05,
+                         cell_type = "",
+                         formula_text = NULL,
+                         cohort_text = NULL,
+                         positive_text = "Positive",
+                         negative_text = "Negative",
+                         text_size = 20,
+                         geom_text_size = 4,
+                         caption_size = 8.5,
+                         legend_text_size = 10,
+                         volcano_force = 6,
+                         volcano_box_padding = 0,
+                         off_chart_threshold = 0.95,
+                         off_chart_y_position = 0.85,
+                         off_chart_arrow_length = 0.02) {
+  
+  if (!p_col %in% names(data) || !fc %in% names(data)) return(NULL)
+  
+  data <- data %>% dplyr::filter(!is.na(.data[[p_col]]) & !is.na(.data[[fc]]))
+  if (nrow(data) == 0) return(NULL)
+  
+  # Apply significance filter based on sig_type
+  if (sig_type == "fdr") {
+    if (is.null(fdr_col) || !fdr_col %in% names(data)) return(NULL)
+    data <- data %>% dplyr::filter(!is.na(.data[[fdr_col]]))
+    data$is_sig <- data[[fdr_col]] < p_thresh
+  } else {
+    data$is_sig <- data[[p_col]] < p_thresh
+  }
+  
+  set.seed(1)
+  epsilon <- 1e-300
+  
+  # For FDR plots, use adjusted p-values on the y-axis; otherwise use raw p-values
+  y_col <- if (sig_type == "fdr") fdr_col else p_col
+  data <- data %>%
+    dplyr::mutate(neg_log_p = -log10(.data[[y_col]] + epsilon))
+  
+  y_max <- max(data$neg_log_p, na.rm = TRUE) * 1.1
+  y_cutoff <- y_max * off_chart_threshold
+  
+  top_pos <- data %>%
+    dplyr::filter(.data[[fc]] > 0 & is_sig) %>%
+    dplyr::arrange(.data[[y_col]])
+  n_pos <- nrow(top_pos)
+  top_pos_n <- top_pos %>% dplyr::slice_head(n = 20)
+  
+  top_neg <- data %>%
+    dplyr::filter(.data[[fc]] < 0 & is_sig) %>%
+    dplyr::arrange(.data[[y_col]])
+  n_neg <- nrow(top_neg)
+  top_neg_n <- top_neg %>% dplyr::slice_head(n = 20)
+  
+  # Identify off-chart genes
+  off_chart_genes <- data %>%
+    dplyr::filter(Gene %in% c(top_pos_n$Gene, top_neg_n$Gene) & neg_log_p > y_cutoff) %>%
+    dplyr::mutate(
+      is_positive = .data[[fc]] > 0,
+      x_position = ifelse(is_positive,
+                          .data[[fc]] + seq(from = 0.1, by = 0.2, length.out = n()),
+                          .data[[fc]] - seq(from = 0.1, by = 0.2, length.out = n())),
+      y_position = y_max * off_chart_y_position
+    )
+  
+  on_chart_genes <- c(top_pos_n$Gene, top_neg_n$Gene)[!c(top_pos_n$Gene, top_neg_n$Gene) %in% off_chart_genes$Gene]
+  
+  data <- data %>%
+    dplyr::mutate(
+      top_color = case_when(
+        Gene %in% top_pos$Gene ~ "#f28482",
+        Gene %in% top_neg$Gene ~ "#457b9d",
+        TRUE ~ "#ced4da"
+      ),
+      top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+      top_lab  = if_else(Gene %in% on_chart_genes, Gene, ""),
+      display_neg_log_p = pmin(neg_log_p, y_cutoff)
+    ) %>%
+    dplyr::filter(abs(.data[[fc]]) < 10)
+  
+  max_fc <- max(data[[fc]], na.rm = TRUE)
+  min_fc <- min(data[[fc]], na.rm = TRUE)
+  
+  # Build caption
+  has_formula <- !is.null(formula_text) && !is.na(formula_text)
+  has_cohort  <- !is.null(cohort_text) && !is.na(cohort_text)
+  
+  caption_text <- paste0(
+    if (has_formula && has_cohort) {
+      paste0("Formula: ", formula_text, " + (1|subject) | Cohort: ", cohort_text, "\n\n")
+    } else if (has_formula) {
+      paste0("Formula: ", formula_text, " + (1|subject)\n\n")
+    } else if (has_cohort) {
+      paste0("Cohort: ", cohort_text, "\n\n")
+    } else { "" },
+    "\nCell type: ", cell_type,
+    if (cell_type != "") " | " else "",
+    "Positive n = ", n_pos, " | Negative n = ", n_neg,
+    if (nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else ""
+  )
+  
+  # Y-axis label
+  y_label <- ifelse(sig_type == "fdr", "-log10(adj. p-value)", "-log10(p-value)")
+  
+  p <- ggplot(data, aes(x = .data[[fc]], y = display_neg_log_p)) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.5, aes(color = top_color), size = 3) +
+    geom_label_repel(seed = 1,
+                     data = dplyr::filter(data, top_lab != ""),
+                     aes(label = top_lab, color = top_color),
+                     fontface = "bold",
+                     size = geom_text_size, max.overlaps = Inf,
+                     force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+                     box.padding = volcano_box_padding,
+                     fill = fill_alpha("white", 0.7),
+                     label.size = 0
+    )
+  
+  # Add arrows for off-chart genes
+  if (nrow(off_chart_genes) > 0) {
+    p <- p +
+      geom_segment(
+        data = off_chart_genes,
+        aes(x = .data[[fc]], y = y_cutoff * 0.98,
+            xend = .data[[fc]], yend = y_cutoff - (y_max * off_chart_arrow_length)),
+        arrow = arrow(length = unit(0.15, "cm"), type = "closed"),
+        color = "black", size = 0.6
+      ) +
+      geom_text(
+        data = off_chart_genes,
+        aes(x = x_position, y = y_position, label = Gene),
+        size = geom_text_size * 0.9,
+        hjust = ifelse(off_chart_genes$is_positive, 0, 1),
+        color = "black", fontface = "italic"
+      ) +
+      geom_text(
+        data = off_chart_genes,
+        aes(x = x_position, y = y_position - (y_max * 0.03),
+            label = paste0("p=", format(.data[[y_col]], scientific = TRUE, digits = 2))),
+        size = geom_text_size * 0.7,
+        hjust = ifelse(off_chart_genes$is_positive, 0, 1),
+        color = "darkgrey"
+      )
+  }
+  
+  p <- p +
+    labs(title = title,
+         x = paste0("log2 FC ", test_name),
+         y = y_label,
+         caption = caption_text) +
+    scale_size_continuous(range = c(1, 1.3)) +
+    scale_color_manual(values = c("#457b9d" = "#457b9d", "#ced4da" = "#ced4da", "#f28482" = "#f28482")) +
+    guides(color = "none", size = "none") +
+    annotate("segment",
+             x = max_fc / 8, xend = (max_fc * 7) / 8,
+             y = -y_max * 0.13,
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text",
+             x = mean(c(max_fc / 8, (max_fc * 7) / 8)),
+             y = -y_max * 0.18,
+             label = positive_text,
+             size = geom_text_size, color = "#343a40") +
+    annotate("segment",
+             x = min_fc / 8, xend = (min_fc * 7) / 8,
+             y = -y_max * 0.13,
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text",
+             x = mean(c(min_fc / 8, (min_fc * 7) / 8)),
+             y = -y_max * 0.18,
+             label = negative_text,
+             size = geom_text_size, color = "#343a40") +
+    scale_y_continuous(expand = c(0, 0)) +
+    coord_cartesian(ylim = c(0, y_max), clip = "off") +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = text_size),
+          title = element_text(size = legend_text_size),
+          plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+          axis.title.x = element_text(margin = margin(t = 32)),
+          plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = 15)),
+          panel.background = element_rect(fill = "transparent", color = NA),
+          plot.background  = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.box.background = element_rect(fill = "transparent", color = NA))
+  
+  return(p)
+}
+```
 
-  # Check if this analysis type has any results at all
-  if (nrow(meta_df_compiled) == 0 || !folder %in% meta_df_compiled$analysis_type) {
-    cat(paste0("\n**No results available yet for `", folder, "`.**\n\n"))
-    return(FALSE)
+# T1D adiposity state
+
+## BMI
+```{r}
+transparent_theme <- theme(
+  plot.background      = element_rect(fill = "transparent", color = NA),
+  panel.background     = element_rect(fill = "transparent", color = NA),
+  legend.background    = element_rect(fill = "transparent", color = NA),
+  legend.box.background = element_rect(fill = "transparent", color = NA),
+  legend.key           = element_rect(fill = "transparent", color = NA)
+)
+
+# =============================================================================
+# Helper: run the full pipeline (scatters, bars, GSEA, CSVs) for one
+# adiposity definition. Definition must be one of "bmi", "dxa", "whtr".
+# =============================================================================
+run_contrast_analysis <- function(definition,
+                                  kpmp_general,
+                                  root_path,
+                                  pathways,
+                                  transparent_theme) {
+
+  stopifnot(definition %in% c("bmi", "dxa", "whtr"))
+
+  # File suffix and path for each contrast (per analysis_config in run_nebula_single.R)
+  hc_subdir   <- sprintf("HC_vs_T1D_normal_%s", definition)
+  hc_suffix   <- sprintf("hc_t1d_norm_%s",     definition)
+  obow_subdir <- sprintf("T1D_normal_vs_ow_obese_%s", definition)
+  obow_suffix <- sprintf("t1d_norm_owob_%s",   definition)
+
+  # Dynamic column names for the within-T1D OW+OB binary contrast
+  obow_logfc_col <- sprintf("logFC_%s_ow_obese_binaryOverweight_Obese", definition)
+  obow_se_col    <- sprintf("se_%s_ow_obese_binaryOverweight_Obese",    definition)
+  obow_pval_col  <- sprintf("p_%s_ow_obese_binaryOverweight_Obese",     definition)
+
+  # Output directories (one per figure type, organized by definition)
+  fig_base <- file.path(root_path, "T1D Adiposity/Results/Figures/Contrasts", definition)
+  csv_base <- file.path(root_path, "T1D Adiposity/Results/Compiled results/Contrasts", definition)
+  for (sub in c("scatter", "bar", "specific", "nebula", "gsea")) {
+    out_dir <- if (sub %in% c("nebula", "gsea")) file.path(csv_base, sub) else file.path(fig_base, sub)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   }
 
-  for (cell in names(celltype_groups)) {
+  for (cell in kpmp_general) {
+    cat(sprintf("[%s] %s ...\n", definition, cell))
 
-    cell_norm <- tolower(gsub("/", "_", cell))
+    # ---- Load HC vs T1D-Normal results ----
+    ct_hc_vs_t1d_normal <- s3readRDS(
+      object = sprintf("results/nebula/%s/%s/%s_nebula_%s_processed.rds",
+                       hc_subdir, cell, cell, hc_suffix),
+      bucket = "t1d.adiposity", region = ""
+    ) %>%
+      select(Gene,
+             logFC.diab = `logFC_groupType 1 Diabetes`,
+             se.diab    = `se_groupType 1 Diabetes`,
+             pval.diab  = `p_groupType 1 Diabetes`,
+             fdr.diab   = fdr) %>%
+      distinct(Gene, .keep_all = TRUE)
 
-    meta_sub <- meta_df_compiled %>%
-      dplyr::filter(
-        analysis_type == folder,
-        celltype == cell
+    # ---- Load T1D OW+OB vs T1D-Normal results ----
+    ct_t1d_ow_obese_vs_t1d_normal <- s3readRDS(
+      object = sprintf("results/nebula/%s/%s/%s_nebula_%s_processed.rds",
+                       obow_subdir, cell, cell, obow_suffix),
+      bucket = "t1d.adiposity", region = ""
+    ) %>%
+      select(Gene,
+             logFC.obese = !!sym(obow_logfc_col),
+             se.obese    = !!sym(obow_se_col),
+             pval.obese  = !!sym(obow_pval_col),
+             fdr.obese   = fdr) %>%
+      distinct(Gene, .keep_all = TRUE)
+
+    cell_safe <- gsub("/", "_", cell)
+
+    # ---- Combine and classify ----
+    ct_combined <- merge(ct_hc_vs_t1d_normal, ct_t1d_ow_obese_vs_t1d_normal) %>%
+      mutate(
+        sig.obese = case_when(pval.obese < 0.05 & logFC.obese > 0 ~ "up",
+                              pval.obese < 0.05 & logFC.obese < 0 ~ "down",
+                              TRUE ~ "ns"),
+        sig.diab  = case_when(pval.diab  < 0.05 & logFC.diab  > 0 ~ "up",
+                              pval.diab  < 0.05 & logFC.diab  < 0 ~ "down",
+                              TRUE ~ "ns"),
+        sig.joint = paste(sig.obese, sig.diab, sep = "_"),
+        sig.joint_clean = case_when(
+          sig.joint %in% c("up_up", "down_down") ~ "Amplified",
+          sig.joint %in% c("up_down", "down_up") ~ "Reversed",
+          sig.joint %in% c("down_ns", "up_ns")   ~ "Adiposity-specific",
+          sig.joint %in% c("ns_down", "ns_up")   ~ "T1D-specific",
+          TRUE ~ "NS"
+        )
       )
-
-    if (nrow(meta_sub) == 0) next
-
-    rendered_any <- TRUE
-    print(knitr::kable(meta_sub))
-    cat("\n::: {layout-ncol=2}\n\n")
-
-    plot_paths <- list(
-      pval     = file.path(results_dir, paste0("Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
-      fdr      = file.path(results_dir, paste0("Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
-      gsea     = file.path(results_dir, paste0("Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
-      lollipop = file.path(results_dir, paste0("Results/Figures/Pathways Lollipop/hallmark_", folder, "_", cell_norm, "_lollipop.png"))
+    ct_combined$sig.joint_clean <- factor(
+      ct_combined$sig.joint_clean,
+      c("Amplified", "Reversed", "Adiposity-specific", "T1D-specific", "NS")
     )
 
-    for (ptype in names(plot_paths)) {
-      if (file.exists(plot_paths[[ptype]])) {
-        label <- switch(ptype,
-          pval     = "p-value < 0.05",
-          fdr      = "FDR < 0.05",
-          gsea     = "GSEA Hallmark Pathways",
-          lollipop = "GSEA Hallmark Pathways (Lollipop)",
-          "")
-        cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
-      }
-    }
+    ct_sig            <- ct_combined %>% filter(sig.joint_clean %in% c("Amplified", "Reversed"))
+    ct_sig_concordant <- ct_combined %>% filter(sig.joint_clean %in% c("Adiposity-specific", "T1D-specific"))
 
-    cat(":::\n\n")
+    # ---- logFC scatter ----
+    ct_combined %>%
+      filter(sig.joint_clean == "NS") %>%
+      ggplot(aes(x = logFC.diab, y = logFC.obese, color = sig.joint_clean)) +
+      geom_hline(yintercept = 0, color = "grey", linetype = "dashed") +
+      geom_vline(xintercept = 0, color = "grey", linetype = "dashed") +
+      geom_point(alpha = 0.1, size = 1) +
+      geom_point(data = ct_sig_concordant, alpha = 0.3, size = 2) +
+      geom_point(data = ct_sig, alpha = 0.8, size = 3) +
+      geom_label_repel(data = ct_sig, aes(label = Gene), max.overlaps = Inf) +
+      scale_color_manual(values = c("Amplified" = "#f08080",
+                                    "Reversed" = "#90be6d",
+                                    "Adiposity-specific" = "#669bbc",
+                                    "T1D-specific" = "#ffcb77",
+                                    "NS" = "#e5e5e5")) +
+      theme_minimal() +
+      theme(text = element_text(size = 15),
+            panel.grid = element_blank(),
+            plot.title = element_text(size = 18, hjust = 0.5, face = "bold")) +
+      labs(x = "logFC\nT1D NW vs. HC",
+           y = "logFC\nT1D OB+OW vs. T1D NW",
+           color = NULL,
+           title = cell_safe) +
+      transparent_theme
+    ggsave(file.path(fig_base, "scatter",
+                     sprintf("%s_scatterplot_t1d_obow.png", cell_safe)),
+           width = 7, height = 7, bg = "transparent")
+
+    # ---- Bar plot ----
+    ct_combined %>%
+      filter(sig.joint_clean != "NS") %>%
+      ggplot(aes(x = sig.joint_clean, fill = sig.joint_clean)) +
+      geom_bar() +
+      scale_fill_manual(values = c("Amplified" = "#f08080",
+                                   "Reversed" = "#90be6d",
+                                   "Adiposity-specific" = "#669bbc",
+                                   "T1D-specific" = "#ffcb77",
+                                   "NS" = "#e5e5e5")) +
+      theme_minimal() +
+      theme(text = element_text(size = 15),
+            panel.grid = element_blank(),
+            plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+            legend.position = "none",
+            axis.text.x = element_text(angle = 60, hjust = 1)) +
+      labs(x = NULL, y = "Count") +
+      transparent_theme
+    ggsave(file.path(fig_base, "bar",
+                     sprintf("%s_bar_t1d_obow.png", cell_safe)),
+           width = 5, height = 7, bg = "transparent")
+
+    # ---- GSEA ----
+    ranks.diab  <- with(ct_hc_vs_t1d_normal, logFC.diab / se.diab)
+    names(ranks.diab) <- ct_hc_vs_t1d_normal$Gene
+    ranks.diab  <- sort(ranks.diab[is.finite(ranks.diab)], decreasing = TRUE)
+
+    ranks.obese <- with(ct_t1d_ow_obese_vs_t1d_normal, logFC.obese / se.obese)
+    names(ranks.obese) <- ct_t1d_ow_obese_vs_t1d_normal$Gene
+    ranks.obese <- sort(ranks.obese[is.finite(ranks.obese)], decreasing = TRUE)
+
+    fg.diab  <- fgseaMultilevel(pathways = pathways, stats = ranks.diab,
+                                minSize = 10, maxSize = 500, nPermSimple = 10000)
+    fg.obese <- fgseaMultilevel(pathways = pathways, stats = ranks.obese,
+                                minSize = 10, maxSize = 500, nPermSimple = 10000)
+
+    fg <- inner_join(
+      fg.diab  %>% select(pathway, NES.diab  = NES, padj.diab  = padj, leA = leadingEdge),
+      fg.obese %>% select(pathway, NES.obese = NES, padj.obese = padj, leB = leadingEdge),
+      by = "pathway"
+    ) %>%
+      mutate(
+        sig.diab  = padj.diab  < 0.05,
+        sig.obese = padj.obese < 0.05,
+        quadrant = case_when(
+          sig.diab & sig.obese & NES.diab > 0 & NES.obese > 0 ~ "Amplified",
+          sig.diab & sig.obese & NES.diab < 0 & NES.obese < 0 ~ "Amplified",
+          sig.diab & sig.obese & NES.diab > 0 & NES.obese < 0 ~ "Reversed",
+          sig.diab & sig.obese & NES.diab < 0 & NES.obese > 0 ~ "Reversed",
+          sig.diab & !sig.obese  ~ "T1D-specific",
+          !sig.diab & sig.obese  ~ "Adiposity-specific",
+          TRUE ~ "NS"
+        ),
+        pathway = gsub("_", " ", gsub("HALLMARK_", "", pathway))
+      )
+    fg$quadrant <- factor(fg$quadrant,
+                          c("Amplified", "Reversed", "Adiposity-specific", "T1D-specific", "NS"))
+
+    # GSEA scatterplot
+    ggplot(fg, aes(NES.diab, NES.obese, color = quadrant)) +
+      geom_hline(yintercept = 0, color = "grey", linetype = "dashed") +
+      geom_vline(xintercept = 0, color = "grey", linetype = "dashed") +
+      geom_point(alpha = 0.8, size = 3) +
+      ggrepel::geom_label_repel(
+        data = filter(fg, sig.diab & sig.obese),
+        aes(label = pathway), max.overlaps = Inf
+      ) +
+      scale_color_manual(values = c("Amplified" = "#f08080",
+                                    "Reversed" = "#90be6d",
+                                    "Adiposity-specific" = "#669bbc",
+                                    "T1D-specific" = "#ffcb77",
+                                    "NS" = "#e5e5e5")) +
+      labs(x = "NES\nT1D NW vs. HC",
+           y = "NES\nT1D OB+OW vs. T1D NW",
+           title = cell_safe,
+           color = NULL) +
+      theme_minimal() +
+      theme(text = element_text(size = 15),
+            panel.grid = element_blank(),
+            plot.title = element_text(size = 18, hjust = 0.5, face = "bold")) +
+      transparent_theme
+    ggsave(file.path(fig_base, "scatter",
+                     sprintf("%s_hallmark_t1d_obow.png", cell_safe)),
+           bg = "transparent")
+
+    # Save NEBULA combined CSV
+    write.csv(ct_combined,
+              file.path(csv_base, "nebula",
+                        sprintf("%s_t1d_obow_nebula.csv", cell_safe)),
+              row.names = FALSE)
+
+    # ---- Focused: T1D-specific and Adiposity-specific volcano + GSEA ----
+    specific.df <- ct_combined %>%
+      filter(sig.joint_clean %nin% c("Reversed", "Amplified"))
+
+    # T1D-specific volcano
+    make_volcano(data = specific.df,
+                 p_col = "pval.diab",
+                 fc = "logFC.diab",
+                 test_name = "T1D NW vs. HC",
+                 cell_type = cell_safe,
+                 positive_text = "Up in T1D",
+                 negative_text = "Down in T1D")
+    ggsave(file.path(fig_base, "specific",
+                     sprintf("%s_t1d_specific_volcano.png", cell_safe)),
+           bg = "transparent", width = 8, height = 7)
+
+    # T1D-specific Hallmark
+    fg %>%
+      filter(quadrant == "T1D-specific") %>%
+      arrange(desc(padj.diab)) %>%
+      mutate(pathway = factor(pathway, levels = pathway)) %>%
+      ggplot(aes(y = pathway, x = -log10(padj.diab), fill = NES.diab)) +
+      geom_col(width = 0.9) +
+      geom_vline(xintercept = -log10(0.05), linetype = "dashed", color = "#aaaaaa") +
+      geom_text(aes(label = pathway),
+                x = -log10(0.05) + 0.1, hjust = 0,
+                fontface = "bold", color = "#2b2b2b") +
+      scale_fill_gradient2(low = "#219ebc", mid = "white", high = "#d00000",
+                           midpoint = 0,
+                           guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+      expand_limits(x = 3) + 
+      theme_minimal() +
+      theme(panel.grid = element_blank(),
+            plot.title = element_text(hjust = 0.5, face = "bold"),
+            legend.position = "top",
+            axis.text.y = element_blank(),
+            legend.title = element_text(vjust = 0.8),
+            plot.caption = element_text(hjust = 0, size = 8, lineheight = 1.2),
+            panel.background  = element_rect(fill = "transparent", color = NA),
+            plot.background   = element_rect(fill = "transparent", color = NA),
+            legend.background = element_rect(fill = "transparent", color = NA),
+            legend.box.background = element_rect(fill = "transparent", color = NA)) +
+      labs(y = NULL, x = "-log(adj.p-value)", fill = "NES", title = cell_safe)
+    ggsave(file.path(fig_base, "specific",
+                     sprintf("%s_t1d_specific_hallmark.png", cell_safe)),
+           bg = "transparent")
+
+    # Adiposity-specific volcano
+    make_volcano(data = specific.df,
+                 p_col = "pval.obese",
+                 fc = "logFC.obese",
+                 test_name = "T1D-OB vs T1D-NW",
+                 cell_type = cell_safe,
+                 positive_text = "Up in T1D-OB",
+                 negative_text = "Down in T1D-OB")
+    ggsave(file.path(fig_base, "specific",
+                     sprintf("%s_obese_specific_volcano.png", cell_safe)),
+           bg = "transparent", width = 8, height = 7)
+
+    # Adiposity-specific Hallmark
+    fg %>%
+      filter(quadrant == "Adiposity-specific") %>%
+      arrange(desc(padj.obese)) %>%
+      mutate(pathway = factor(pathway, levels = pathway)) %>%
+      ggplot(aes(y = pathway, x = -log10(padj.obese), fill = NES.obese)) +
+      geom_col(width = 0.9) +
+      geom_vline(xintercept = -log10(0.05), linetype = "dashed", color = "#aaaaaa") +
+      geom_text(aes(label = pathway),
+                x = -log10(0.05) + 0.1, hjust = 0,
+                fontface = "bold", color = "#2b2b2b") +
+      scale_fill_gradient2(low = "#219ebc", mid = "white", high = "#d00000",
+                           midpoint = 0,
+                           guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+      expand_limits(x = 3) + 
+      theme_minimal() +
+      theme(panel.grid = element_blank(),
+            plot.title = element_text(hjust = 0.5, face = "bold"),
+            legend.position = "top",
+            axis.text.y = element_blank(),
+            legend.title = element_text(vjust = 0.8),
+            plot.caption = element_text(hjust = 0, size = 8, lineheight = 1.2),
+            panel.background  = element_rect(fill = "transparent", color = NA),
+            plot.background   = element_rect(fill = "transparent", color = NA),
+            legend.background = element_rect(fill = "transparent", color = NA),
+            legend.box.background = element_rect(fill = "transparent", color = NA)) +
+      labs(y = NULL, x = "-log(adj.p-value)", fill = "NES", title = cell_safe)
+    ggsave(file.path(fig_base, "specific",
+                     sprintf("%s_obese_specific_hallmark.png", cell_safe)),
+           bg = "transparent")
+
+    # Save GSEA CSV (collapse leading edges to comma-separated strings)
+    fg$leA <- vapply(fg$leA, function(x) paste(unlist(x), collapse = ","), character(1))
+    fg$leB <- vapply(fg$leB, function(x) paste(unlist(x), collapse = ","), character(1))
+    write.csv(fg,
+              file.path(csv_base, "gsea",
+                        sprintf("%s_t1d_obow_hallmark.csv", cell_safe)),
+              row.names = FALSE)
   }
-
-  if (!rendered_any) {
-    cat(paste0("\n**Results pending for `", folder, "` (no cell types completed yet).**\n\n"))
-  }
-
-  return(rendered_any)
 }
-```
 
-
-# Run completion status
-
-```{r echo = F, results = 'asis'}
-if (nrow(meta_df_compiled) == 0) {
-  cat("**No NEBULA results found yet.** Run `compile_metadata.R` after jobs complete.\n\n")
-} else {
-  n_analysis_types <- n_distinct(meta_df_compiled$analysis_type)
-  n_celltypes <- n_distinct(meta_df_compiled$celltype)
-  n_total <- nrow(meta_df_compiled)
-
-  cat(sprintf("**Results loaded: %d analysis-celltype combinations (%d analysis types, %d cell types)**\n\n",
-              n_total, n_analysis_types, n_celltypes))
-
-  # Show which analysis types are complete vs missing
-  all_expected <- unname(folders)
-  completed <- unique(meta_df_compiled$analysis_type)
-  missing_types <- setdiff(all_expected, completed)
-
-  if (length(missing_types) == 0) {
-    cat("All 94 analysis types have results.\n\n")
-  } else {
-    cat(sprintf("%d / %d analysis types have results. **%d pending:**\n\n",
-                length(completed), length(all_expected), length(missing_types)))
-    for (m in missing_types) {
-      display <- reverse_folders[[m]]
-      if (!is.na(display)) {
-        cat(sprintf("- %s (`%s`)\n", display, m))
-      } else {
-        cat(sprintf("- `%s`\n", m))
-      }
-    }
-    cat("\n")
-  }
-
-  # Show cell type coverage
-  all_celltypes_expected <- unique(unlist(celltype_groups))
-  completed_celltypes <- unique(meta_df_compiled$celltype)
-  missing_celltypes <- setdiff(all_celltypes_expected, completed_celltypes)
-
-  if (length(missing_celltypes) > 0) {
-    cat(sprintf("**Cell types with no results across any analysis:** %s\n\n",
-                paste(missing_celltypes, collapse = ", ")))
-  }
-
-  # Per-analysis type completion count
-  completion_summary <- meta_df_compiled %>%
-    group_by(analysis_type) %>%
-    summarise(n_celltypes = n_distinct(celltype), .groups = "drop") %>%
-    mutate(display_name = reverse_folders[analysis_type]) %>%
-    arrange(n_celltypes)
-
-  cat("\n### Cell types completed per analysis\n\n")
-  cat(sprintf("Range: %d to %d cell types per analysis (out of %d possible)\n\n",
-              min(completion_summary$n_celltypes),
-              max(completion_summary$n_celltypes),
-              length(all_celltypes_expected)))
-}
-```
-
-# Descriptive
-
-```{r echo = F}
-# Load the clinical metadata from S3
-pb90_meta <- tryCatch({
-  s3readRDS(object = "data_clean/t1d_hc_scrna_w_clinical.rds", bucket = "t1d.adiposity", region = "")@meta.data %>%
-    distinct(record_id, .keep_all = TRUE)
-}, error = function(e) {
-  message("Could not load Seurat metadata: ", e$message)
-  data.frame()
-})
-```
-
-```{r echo = F, results = 'asis', eval = nrow(pb90_meta) == 0}
-cat("**Could not load Seurat metadata from S3.** Descriptive tables will be skipped.\n\n")
-```
-
-## Sample characteristics
-
-```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
-summary(arsenal::tableby(group ~ age + sex + bmi +
-                           dexa_body_fat + dexa_bone_mineral_density +
-                           dexa_fat_kg + dexa_lean_mass + dexa_lean_kg +
-                           dexa_ag_ratio + dexa_est_vat +
-                           dexa_trunk_kg + dexa_trunk_mass,
-                         data = pb90_meta),
-        total = TRUE, digits = 1)
-```
-
-## BMI obesity distribution
-
-```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
-summary(arsenal::tableby(group ~ bmi_obesity,
-                         data = pb90_meta),
-        total = TRUE)
-```
-
-## DXA obesity distribution
-
-```{r echo = F, results = 'asis', eval = nrow(pb90_meta) > 0}
-summary(arsenal::tableby(group ~ dxa_obesity,
-                         data = pb90_meta),
-        total = TRUE)
-```
-
-
-# Analysis summary
-
-## Categorical comparisons
-
-### Obesity within T1D
-
-| Comparison | Obesity Metric | Adjustment | Scientific Question |
-|---|---|---|---|
-| [T1D Normal vs Overweight (BMI)](#t1d-norm-ow-bmi) | BMI | None | How does overweight (BMI) alter gene expression in T1D kidneys? |
-| [T1D Non-obese vs Obese (BMI)](#t1d-nonob-ob-bmi) | BMI | None | What is the transcriptomic signature of obesity (BMI) in T1D? |
-| [T1D Normal vs Obese (BMI)](#t1d-norm-ob-bmi) | BMI | None | What are the extreme weight-related changes (BMI, excl. overweight) in T1D? |
-| [T1D Normal vs Overweight (DXA)](#t1d-norm-ow-dxa) | DXA | None | How does overweight (body fat) alter gene expression in T1D? |
-| [T1D Non-obese vs Obese (DXA)](#t1d-nonob-ob-dxa) | DXA | None | What is the body-fat-defined obesity signature in T1D? |
-| [T1D Normal vs Obese (DXA)](#t1d-norm-ob-dxa) | DXA | None | Extreme body fat changes (excl. overweight) in T1D? |
-
-### Obesity within T1D (adjusted for age)
-
-| Comparison | Obesity Metric | Adjustment | Scientific Question |
-|---|---|---|---|
-| [T1D Normal vs Overweight (BMI, adj age)](#t1d-norm-ow-bmi-adj) | BMI | Age | Age-independent overweight effects (BMI) in T1D? |
-| [T1D Non-obese vs Obese (BMI, adj age)](#t1d-nonob-ob-bmi-adj) | BMI | Age | Age-independent obesity effects (BMI) in T1D? |
-| [T1D Normal vs Obese (BMI, adj age)](#t1d-norm-ob-bmi-adj) | BMI | Age | Age-independent extreme weight effects (BMI) in T1D? |
-| [T1D Normal vs Overweight (DXA, adj age)](#t1d-norm-ow-dxa-adj) | DXA | Age | Age-independent overweight effects (DXA) in T1D? |
-| [T1D Non-obese vs Obese (DXA, adj age)](#t1d-nonob-ob-dxa-adj) | DXA | Age | Age-independent obesity effects (DXA) in T1D? |
-| [T1D Normal vs Obese (DXA, adj age)](#t1d-norm-ob-dxa-adj) | DXA | Age | Age-independent extreme fat effects (DXA) in T1D? |
-
-### HC vs T1D by obesity category
-
-| Comparison | Obesity Metric | Adjustment | Scientific Question |
-|---|---|---|---|
-| [HC vs T1D Normal (BMI)](#hc-t1d-norm-bmi) | BMI | None | How does T1D alter gene expression in normal-weight kidneys? |
-| [HC vs T1D Overweight (BMI)](#hc-t1d-ow-bmi) | BMI | None | T1D effects in overweight (BMI) kidneys? |
-| [HC vs T1D Obese (BMI)](#hc-t1d-ob-bmi) | BMI | None | T1D effects in obese (BMI) kidneys? |
-| [HC vs T1D Normal (DXA)](#hc-t1d-norm-dxa) | DXA | None | T1D effects in normal body fat kidneys? |
-| [HC vs T1D Overweight (DXA)](#hc-t1d-ow-dxa) | DXA | None | T1D effects in overweight (DXA) kidneys? |
-| [HC vs T1D Obese (DXA)](#hc-t1d-ob-dxa) | DXA | None | T1D effects in obese (DXA) kidneys? |
-
-### HC vs T1D by obesity category (adjusted for age)
-
-| Comparison | Obesity Metric | Adjustment | Scientific Question |
-|---|---|---|---|
-| [HC vs T1D Normal (BMI, adj age)](#hc-t1d-norm-bmi-adj) | BMI | Age | Age-independent T1D effects in normal-weight? |
-| [HC vs T1D Overweight (BMI, adj age)](#hc-t1d-ow-bmi-adj) | BMI | Age | Age-independent T1D effects in overweight (BMI)? |
-| [HC vs T1D Obese (BMI, adj age)](#hc-t1d-ob-bmi-adj) | BMI | Age | Age-independent T1D effects in obese (BMI)? |
-| [HC vs T1D Normal (DXA, adj age)](#hc-t1d-norm-dxa-adj) | DXA | Age | Age-independent T1D effects in normal body fat? |
-| [HC vs T1D Overweight (DXA, adj age)](#hc-t1d-ow-dxa-adj) | DXA | Age | Age-independent T1D effects in overweight (DXA)? |
-| [HC vs T1D Obese (DXA, adj age)](#hc-t1d-ob-dxa-adj) | DXA | Age | Age-independent T1D effects in obese (DXA)? |
-
-## Continuous associations
-
-### T1D only
-
-| Variable | Adjustment | Scientific Question |
-|---|---|---|
-| [BMI (T1D)](#cont-bmi-t1d) | None | Association of BMI with gene expression in T1D? |
-| [DXA measures (T1D)](#cont-dxa-t1d) | None | Associations of body composition with gene expression in T1D? |
-| [BMI (T1D, adj age)](#cont-bmi-t1d-adj) | Age | Age-independent BMI association in T1D? |
-| [DXA measures (T1D, adj age)](#cont-dxa-t1d-adj) | Age | Age-independent body composition associations in T1D? |
-
-### All subjects
-
-| Variable | Adjustment | Scientific Question |
-|---|---|---|
-| [BMI (All)](#cont-bmi-all) | None | Overall BMI-gene expression association? |
-| [DXA measures (All)](#cont-dxa-all) | None | Overall body composition associations? |
-| [BMI (All, adj group)](#cont-bmi-all-adj) | Group | BMI association independent of disease status? |
-| [DXA measures (All, adj group)](#cont-dxa-all-adj) | Group | Body composition independent of disease status? |
-| [BMI (All, adj age)](#cont-bmi-all-age) | Age | Age-independent BMI association across all subjects? |
-| [DXA measures (All, adj age)](#cont-dxa-all-age) | Age | Age-independent body composition across all? |
-| [BMI (All, adj group+age)](#cont-bmi-all-grp-age) | Group + Age | BMI association independent of disease and age? |
-| [DXA measures (All, adj group+age)](#cont-dxa-all-grp-age) | Group + Age | Body composition independent of disease and age? |
-
-## Interaction models
-
-| Variable | Model | Scientific Question |
-|---|---|---|
-| [BMI x Group](#int-bmi) | `~ bmi * group` | Does BMI's effect on gene expression differ between T1D and HC? |
-| [DXA measures x Group](#int-dxa) | `~ dxa_var * group` | Does body composition's effect differ by disease status? |
-
-
-<!-- ================================================================== -->
-<!-- CATEGORICAL COMPARISONS: OBESITY WITHIN T1D (UNADJUSTED)           -->
-<!-- ================================================================== -->
-
-# Obesity within T1D (unadjusted)
-
-## T1D Normal vs Overweight (BMI) {#t1d-norm-ow-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_overweight_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Non-obese vs Obese (BMI) {#t1d-nonob-ob-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_nonobese_vs_obese_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Obese (BMI) {#t1d-norm-ob-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_obese_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Overweight (DXA) {#t1d-norm-ow-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_overweight_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Non-obese vs Obese (DXA) {#t1d-nonob-ob-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_nonobese_vs_obese_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Obese (DXA) {#t1d-norm-ob-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_obese_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-
-<!-- ================================================================== -->
-<!-- CATEGORICAL COMPARISONS: OBESITY WITHIN T1D (ADJUSTED FOR AGE)     -->
-<!-- ================================================================== -->
-
-# Obesity within T1D (adjusted for age)
-
-## T1D Normal vs Overweight (BMI, adj age) {#t1d-norm-ow-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_overweight_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Non-obese vs Obese (BMI, adj age) {#t1d-nonob-ob-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_nonobese_vs_obese_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Obese (BMI, adj age) {#t1d-norm-ob-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_obese_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Overweight (DXA, adj age) {#t1d-norm-ow-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_overweight_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Non-obese vs Obese (DXA, adj age) {#t1d-nonob-ob-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_nonobese_vs_obese_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## T1D Normal vs Obese (DXA, adj age) {#t1d-norm-ob-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "T1D_normal_vs_obese_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-
-<!-- ================================================================== -->
-<!-- CATEGORICAL COMPARISONS: HC VS T1D BY OBESITY (UNADJUSTED)         -->
-<!-- ================================================================== -->
-
-# HC vs T1D by obesity category (unadjusted)
-
-## HC vs T1D Normal (BMI) {#hc-t1d-norm-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_normal_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Overweight (BMI) {#hc-t1d-ow-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_overweight_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Obese (BMI) {#hc-t1d-ob-bmi}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_obese_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Normal (DXA) {#hc-t1d-norm-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_normal_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Overweight (DXA) {#hc-t1d-ow-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_overweight_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Obese (DXA) {#hc-t1d-ob-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_obese_dxa"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-
-<!-- ================================================================== -->
-<!-- CATEGORICAL COMPARISONS: HC VS T1D BY OBESITY (ADJUSTED FOR AGE)   -->
-<!-- ================================================================== -->
-
-# HC vs T1D by obesity category (adjusted for age)
-
-## HC vs T1D Normal (BMI, adj age) {#hc-t1d-norm-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_normal_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Overweight (BMI, adj age) {#hc-t1d-ow-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_overweight_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Obese (BMI, adj age) {#hc-t1d-ob-bmi-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_obese_bmi_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Normal (DXA, adj age) {#hc-t1d-norm-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_normal_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Overweight (DXA, adj age) {#hc-t1d-ow-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_overweight_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## HC vs T1D Obese (DXA, adj age) {#hc-t1d-ob-dxa-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "HC_vs_T1D_obese_dxa_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: T1D ONLY (UNADJUSTED)                                  -->
-<!-- ================================================================== -->
-
-# Continuous associations: T1D only {#cont-bmi-t1d}
-
-## BMI (T1D)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_t1d"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (T1D) {#cont-dxa-t1d}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_t1d <- c("cont_dexa_body_fat_t1d", "cont_dexa_bone_mineral_density_t1d",
-                   "cont_dexa_fat_kg_t1d", "cont_dexa_lean_mass_t1d",
-                   "cont_dexa_lean_kg_t1d", "cont_dexa_ag_ratio_t1d",
-                   "cont_dexa_est_vat_t1d", "cont_dexa_trunk_kg_t1d",
-                   "cont_dexa_trunk_mass_t1d")
-for (folder in dxa_vars_t1d) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: T1D ONLY (ADJUSTED FOR AGE)                            -->
-<!-- ================================================================== -->
-
-# Continuous associations: T1D only (adj age) {#cont-bmi-t1d-adj}
-
-## BMI (T1D, adj age)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_t1d_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (T1D, adj age) {#cont-dxa-t1d-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_t1d_adj <- c("cont_dexa_body_fat_t1d_adj_age", "cont_dexa_bone_mineral_density_t1d_adj_age",
-                       "cont_dexa_fat_kg_t1d_adj_age", "cont_dexa_lean_mass_t1d_adj_age",
-                       "cont_dexa_lean_kg_t1d_adj_age", "cont_dexa_ag_ratio_t1d_adj_age",
-                       "cont_dexa_est_vat_t1d_adj_age", "cont_dexa_trunk_kg_t1d_adj_age",
-                       "cont_dexa_trunk_mass_t1d_adj_age")
-for (folder in dxa_vars_t1d_adj) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: ALL SUBJECTS (UNADJUSTED)                              -->
-<!-- ================================================================== -->
-
-# Continuous associations: All subjects {#cont-bmi-all}
-
-## BMI (All)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_all"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (All) {#cont-dxa-all}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_all <- c("cont_dexa_body_fat_all", "cont_dexa_bone_mineral_density_all",
-                   "cont_dexa_fat_kg_all", "cont_dexa_lean_mass_all",
-                   "cont_dexa_lean_kg_all", "cont_dexa_ag_ratio_all",
-                   "cont_dexa_est_vat_all", "cont_dexa_trunk_kg_all",
-                   "cont_dexa_trunk_mass_all")
-for (folder in dxa_vars_all) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR GROUP)                      -->
-<!-- ================================================================== -->
-
-# Continuous associations: All subjects (adj group) {#cont-bmi-all-adj}
-
-## BMI (All, adj group)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_all_adj_group"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (All, adj group) {#cont-dxa-all-adj}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_all_adj <- c("cont_dexa_body_fat_all_adj_group", "cont_dexa_bone_mineral_density_all_adj_group",
-                       "cont_dexa_fat_kg_all_adj_group", "cont_dexa_lean_mass_all_adj_group",
-                       "cont_dexa_lean_kg_all_adj_group", "cont_dexa_ag_ratio_all_adj_group",
-                       "cont_dexa_est_vat_all_adj_group", "cont_dexa_trunk_kg_all_adj_group",
-                       "cont_dexa_trunk_mass_all_adj_group")
-for (folder in dxa_vars_all_adj) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR AGE)                        -->
-<!-- ================================================================== -->
-
-# Continuous associations: All subjects (adj age) {#cont-bmi-all-age}
-
-## BMI (All, adj age)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_all_adj_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (All, adj age) {#cont-dxa-all-age}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_all_age <- c("cont_dexa_body_fat_all_adj_age", "cont_dexa_bone_mineral_density_all_adj_age",
-                       "cont_dexa_fat_kg_all_adj_age", "cont_dexa_lean_mass_all_adj_age",
-                       "cont_dexa_lean_kg_all_adj_age", "cont_dexa_ag_ratio_all_adj_age",
-                       "cont_dexa_est_vat_all_adj_age", "cont_dexa_trunk_kg_all_adj_age",
-                       "cont_dexa_trunk_mass_all_adj_age")
-for (folder in dxa_vars_all_age) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- CONTINUOUS: ALL SUBJECTS (ADJUSTED FOR GROUP + AGE)                -->
-<!-- ================================================================== -->
-
-# Continuous associations: All subjects (adj group + age) {#cont-bmi-all-grp-age}
-
-## BMI (All, adj group + age)
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "cont_bmi_all_adj_group_age"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures (All, adj group + age) {#cont-dxa-all-grp-age}
-
-```{r echo = F, results = 'asis', eval = T}
-dxa_vars_all_grp_age <- c("cont_dexa_body_fat_all_adj_group_age", "cont_dexa_bone_mineral_density_all_adj_group_age",
-                           "cont_dexa_fat_kg_all_adj_group_age", "cont_dexa_lean_mass_all_adj_group_age",
-                           "cont_dexa_lean_kg_all_adj_group_age", "cont_dexa_ag_ratio_all_adj_group_age",
-                           "cont_dexa_est_vat_all_adj_group_age", "cont_dexa_trunk_kg_all_adj_group_age",
-                           "cont_dexa_trunk_mass_all_adj_group_age")
-for (folder in dxa_vars_all_grp_age) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-}
-```
-
-
-<!-- ================================================================== -->
-<!-- INTERACTION MODELS                                                  -->
-<!-- ================================================================== -->
-
-# Interaction models (continuous x group) {#int-bmi}
-
-## BMI x Group
-
-```{r echo = F, results = 'asis', eval = T}
-folder <- "interaction_bmi"
-render_section(folder, celltype_groups, meta_df_compiled, results_dir)
-```
-
-## DXA measures x Group {#int-dxa}
-
-```{r echo = F, results = 'asis', eval = T}
-int_dxa_vars <- c("interaction_dexa_body_fat", "interaction_dexa_bone_mineral_density",
-                   "interaction_dexa_fat_kg", "interaction_dexa_lean_mass",
-                   "interaction_dexa_lean_kg", "interaction_dexa_ag_ratio",
-                   "interaction_dexa_est_vat", "interaction_dexa_trunk_kg",
-                   "interaction_dexa_trunk_mass")
-for (folder in int_dxa_vars) {
-  display_name <- reverse_folders[[folder]]
-  if (!is.na(display_name)) cat(paste0("\n### ", display_name, "\n\n"))
-  render_section(folder, celltype_groups, meta_df_compiled, results_dir)
+# =============================================================================
+# Run all three definitions
+# =============================================================================
+pathways <- gmtPathways(file.path(root_path, "GSEA/6_h.all.v2025.1.Hs.symbols.gmt"))
+
+for (def in c("bmi", "dxa", "whtr")) {
+  run_contrast_analysis(definition       = def,
+                        kpmp_general     = kpmp_general,
+                        root_path        = root_path,
+                        pathways         = pathways,
+                        transparent_theme = transparent_theme)
 }
 ```
