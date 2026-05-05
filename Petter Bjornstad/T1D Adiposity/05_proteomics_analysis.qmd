@@ -328,6 +328,50 @@ study_group_bmi_table %>%
   kable(caption = "Participants by study and disease-adiposity group") %>%
   kable_styling(full_width = FALSE)
 ```
+```{r}
+clinical_summary_table <- meta3 %>%
+  dplyr::mutate(
+    HbA1c = as.numeric(hba1c),
+    uACR  = as.numeric(acr_u),
+    eGFR  = as.numeric(eGFR_CKiD_U25_avg),
+    WHtR  = as.numeric(whtr),
+    BMI   = as.numeric(bmi),
+    age   = as.numeric(age),
+    sex   = as.factor(sex),
+    Adiposity_group = as.factor(group_bmi)
+  ) %>%
+  dplyr::group_by(Adiposity_group) %>%
+  dplyr::summarise(
+    N = dplyr::n(),
+
+    Age = sprintf("%.1f (%.1f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
+    Sex = paste0(
+      "Female: ", sum(sex == "Female", na.rm = TRUE),
+      "; Male: ", sum(sex == "Male", na.rm = TRUE)
+    ),
+
+    HbA1c = sprintf("%.2f (%.2f)", mean(HbA1c, na.rm = TRUE), sd(HbA1c, na.rm = TRUE)),
+    uACR = sprintf(
+      "%.1f [%.1f, %.1f]",
+      median(uACR, na.rm = TRUE),
+      quantile(uACR, 0.25, na.rm = TRUE),
+      quantile(uACR, 0.75, na.rm = TRUE)
+    ),
+    eGFR = sprintf("%.1f (%.1f)", mean(eGFR, na.rm = TRUE), sd(eGFR, na.rm = TRUE)),
+    WHtR = sprintf("%.2f (%.2f)", mean(WHtR, na.rm = TRUE), sd(WHtR, na.rm = TRUE)),
+    BMI = sprintf("%.1f (%.1f)", mean(BMI, na.rm = TRUE), sd(BMI, na.rm = TRUE)),
+
+    .groups = "drop"
+  )
+
+clinical_summary_table %>%
+  kable(
+    caption = "Clinical characteristics by disease-adiposity group",
+    align = "l"
+  ) %>%
+  kable_styling(full_width = FALSE)
+```
+
 #-------------------------------------
 #PCA plotting function for group_bmi
 #-------------------------------------
@@ -2096,7 +2140,7 @@ plots_cor_p1 <- make_volcano_cor_list(
   label_n = 10
 )
 
-panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[2]]) /
+panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[2]] | patchwork::plot_spacer()) /
              (plots_cor_p1[[3]] | plots_cor_p1[[4]] |plots_cor_p1[[5]])
 
 panel_cor_p1
@@ -2206,6 +2250,107 @@ ggsave(
   dpi = 300
 )
 ```
+#--------------------------------------
+#summary table for correlations n/group
+#--------------------------------------
+```{r}
+# function to get N per group per contrast
+get_contrast_n <- function(contrast_name, corr_df) {
+  
+  groups <- get_groups_from_contrast(contrast_name)
+  
+  corr_df %>%
+    filter(group_bmi %in% c(groups$group1, groups$group2)) %>%
+    group_by(contrast = contrast_name, group_bmi) %>%
+    summarise(
+      n_total = n(),
+      n_complete = sum(
+        !is.na(HbA1c) & !is.na(uACR) & !is.na(eGFR)
+      ),
+      .groups = "drop"
+    )
+}
 
+# apply across all contrasts
+contrast_n_table <- purrr::map_dfr(
+  contrast_list,
+  ~get_contrast_n(.x, corr_df)
+)
 
+contrast_n_table
+
+contrast_n_table_wide <- contrast_n_table %>%
+  select(contrast, group_bmi, n_complete) %>%
+  pivot_wider(
+    names_from = group_bmi,
+    values_from = n_complete
+  )
+
+contrast_n_table_wide
+
+#write_csv()
+```
+```{r}
+clinical_summary <- corr_df %>%
+  group_by(group_bmi) %>%
+  summarise(
+    N = n(),
+    
+    age_mean = mean(age, na.rm = TRUE),
+    age_sd   = sd(age, na.rm = TRUE),
+    
+    HbA1c_mean = mean(HbA1c, na.rm = TRUE),
+    HbA1c_sd   = sd(HbA1c, na.rm = TRUE),
+    
+    uACR_median = median(uACR, na.rm = TRUE),
+    uACR_IQR    = IQR(uACR, na.rm = TRUE),
+    
+    eGFR_mean = mean(eGFR, na.rm = TRUE),
+    eGFR_sd   = sd(eGFR, na.rm = TRUE),
+    
+    wthr_mean = mean(wthr, na.rm = TRUE),
+    wthr_sd   = sd(wthr, na.rm = TRUE),
+    
+    BMI_mean = mean(BMI, na.rm = TRUE),
+    BMI_sd   = sd(BMI, na.rm = TRUE),
+    
+    male_n = sum(sex == "Male", na.rm = TRUE),
+    female_n = sum(sex == "Female", na.rm = TRUE),
+    
+    .groups = "drop"
+)
+
+clinical_summary
+```
+```{r}
+clinical_table_pretty <- corr_df %>%
+  group_by(group_bmi) %>%
+  summarise(
+    N = n(),
+    
+    Age = sprintf("%.1f (%.1f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
+    HbA1c = sprintf("%.2f (%.2f)", mean(HbA1c, na.rm = TRUE), sd(HbA1c, na.rm = TRUE)),
+    eGFR = sprintf("%.1f (%.1f)", mean(eGFR, na.rm = TRUE), sd(eGFR, na.rm = TRUE)),
+    BMI = sprintf("%.1f (%.1f)", mean(BMI, na.rm = TRUE), sd(BMI, na.rm = TRUE)),
+    WHtR = sprintf("%.2f (%.2f)", mean(wthr, na.rm = TRUE), sd(wthr, na.rm = TRUE)),
+    
+    uACR = sprintf("%.1f [%0.1f]", median(uACR, na.rm = TRUE), IQR(uACR, na.rm = TRUE)),
+    
+    Sex = sprintf(
+      "M: %d, F: %d",
+      sum(sex == "Male", na.rm = TRUE),
+      sum(sex == "Female", na.rm = TRUE)
+    ),
+    
+    .groups = "drop"
+)
+
+clinical_table_pretty
+```
+
+```{r}
+clinical_table_pretty %>%
+  kable(caption = "Clinical characteristics by group") %>%
+  kable_styling(full_width = FALSE)
+```
 
