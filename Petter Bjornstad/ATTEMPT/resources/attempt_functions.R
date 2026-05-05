@@ -2013,40 +2013,49 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     label.size = 0) +
     
     labs(title = NULL,
-         x = paste(x_axis),
-         y = paste(y_axis),
-         caption = if (!is.null(clinical_direction) & !is.null(formula)) {
-           paste0("Formula: ~ ", formula, " + (1|subject)", 
-                  "\n\nCell type: ", 
-                  cell_type, if(cell_type != "") " | " else "", 
-                  "Concordant genes: n = ", n_concordant,
-                  "\n\n", caption_text)
-         } else if (!is.null(clinical_direction) & is.null(formula) & is.null(caption_text)) {
-           paste0("Cell type: ", 
-                  cell_type, if(cell_type != "") " | " else "", 
-                  "Concordant genes: n = ", n_concordant)
-         } else NULL) +
+         x = NULL,
+         y = paste(y_axis)
+         # caption = if (!is.null(clinical_direction) & !is.null(formula)) {
+         #   paste0("Formula: ~ ", formula, " + (1|subject)", 
+         #          "\n\nCell type: ", 
+         #          cell_type, if(cell_type != "") " | " else "", 
+         #          "Concordant genes: n = ", n_concordant,
+         #          "\n\n", caption_text)
+         # } else if (!is.null(clinical_direction) & is.null(formula) & is.null(caption_text)) {
+         #   paste0("Cell type: ", 
+         #          cell_type, if(cell_type != "") " | " else "", 
+         #          "Concordant genes: n = ", n_concordant)
+         # } else NULL
+         ) +
     theme_minimal() +
+    annotate("text",
+             x = 0,
+             y = -y_max * 0.005,        # closest to plot
+             label = paste(x_axis),
+             size = 7,  # convert pt to ggplot size
+             fontface = "plain") +
+    
+    # Arrows go further down:
     annotate("segment", 
-             x=max_fc/10, 
-             xend=(max_fc*9)/10, 
-             y=-y_max * arrow_padding,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
-    annotate("text", 
-             x=mean(c(max_fc/10, (max_fc*9)/10)), 
-             y=-y_max * arrow_text_padding, 
-             label=positive_text,
-             size=annotation_text_size, color="#343a40") +
+             x = max_fc/10, xend = (max_fc*9)/10, 
+             y = -y_max * 0.15,        # was arrow_padding (0.09)
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
     annotate("segment", 
-             x=min_fc/10, 
-             xend=(min_fc*9)/10, 
-             y=-y_max * arrow_padding,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+             x = min_fc/10, xend = (min_fc*9)/10, 
+             y = -y_max * 0.15,
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    
+    # Text goes furthest down:
     annotate("text", 
-             x=mean(c(min_fc/10, (min_fc*9)/10)), 
-             y=-y_max * arrow_text_padding, 
-             label=negative_text,
-             size=annotation_text_size, color="#343a40") +
+             x = mean(c(max_fc/10, (max_fc*9)/10)), 
+             y = -y_max * 0.24,        # was arrow_text_padding (0.18)
+             label = positive_text,
+             size = annotation_text_size, color = "#343a40") +
+    annotate("text", 
+             x = mean(c(min_fc/10, (min_fc*9)/10)), 
+             y = -y_max * 0.24,
+             label = negative_text,
+             size = annotation_text_size, color = "#343a40") +
     scale_y_continuous(expand=c(0,y_expand)) +
     scale_x_continuous(expand = expansion(mult = c(0.25, 0.25))) + 
     coord_cartesian(ylim = c(0, y_max), clip="off") +
@@ -2057,7 +2066,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
           legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
           legend.direction = "horizontal",
           legend.spacing.x = unit(0.3, 'cm'),
-          plot.margin = margin(t = 10, r = 20, b = 10, l = 20),
+          plot.margin = margin(t = 10, r = 20, b = 100, l = 20),
           axis.title.x = element_text(margin = margin(t = x_axis_padding), size = axis_title_size),
           axis.title.y = element_text(size = axis_title_size),
           axis.text.x = element_text(size = axis_text_size),
@@ -4074,7 +4083,7 @@ plot_treatment_heatmap <- function(data,
   gene_levels <- c(top_neg, top_pos)
   
   y_colors <- setNames(
-    c(rep("#457b9d", top_n), rep("#f28482", top_n)),
+    c(rep("#457b9d", length(top_neg)), rep("#f28482", length(top_pos))),
     gene_levels
   )
   
