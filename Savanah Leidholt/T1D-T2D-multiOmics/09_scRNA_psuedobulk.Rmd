@@ -40,6 +40,8 @@ library(Matrix)
 library(edgeR)
 library(stringr)
 library(patchwork)
+library(msigdbr)
+library(fgsea)
 ```
 
 ```{r}
@@ -790,7 +792,241 @@ ggsave("cell_type_exrpession.png",
        height = 6)
 ```
 
+#------------------------------------------------------------------
+#plot to create panel volcanos for a specific cell type of interest
+#-------------------------------------------------------------------
 ```{r}
+celltype_of_interest <- "EC"  # <-- change this
 
+de_ct <- de_all %>%
+  filter(celltype == celltype_of_interest) %>%
+  mutate(
+    neg_log10_fdr = -log10(FDR),
+    sig = case_when(
+      FDR < 0.05 & logFC > 0.5  ~ "Up",
+      FDR < 0.05 & logFC < -0.5 ~ "Down",
+      TRUE ~ "NS"
+    )
+  )
+
+label_df <- de_ct %>%
+  filter(FDR < 0.05) %>%
+  group_by(comparison) %>%
+  arrange(FDR, .by_group = TRUE) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+volcano_celltype_panel <- ggplot(de_ct, aes(x = logFC, y = neg_log10_fdr, color = sig)) +
+  geom_point(alpha = 0.6, size = 1.3) +
+  geom_text_repel(
+    data = label_df,
+    aes(label = gene),
+    size = 5,
+    max.overlaps = Inf
+  ) +
+  geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  facet_wrap(~ comparison) +
+  scale_color_manual(values = c("Up" = "orange2", "Down" = "purple4", "NS" = "grey")) +
+  labs(
+    title = paste("Volcano plots for", celltype_of_interest),
+    x = "log2 Fold Change",
+    y = "-log10(FDR)",
+    color = NULL
+  ) +
+  theme_classic() +
+  theme(
+    strip.text = element_text(face = "bold", size = 14),
+    legend.position = "top" + 
+  theme(axis.title = element_text(size = 12))
+  )
+
+volcano_celltype_panel
+  
+#ggsave(filename = "TAL_volcano_plots.png",
+ #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
+  #      width = 12,
+   #     height = 10)
+
+ggsave(filename = "EC_volcano_plots.png",
+        path = file.path(dir.results, "T1D-T2D", "RESULTS"),
+        width = 12,
+        height = 10)
+
+#ggsave(filename = "Immune_volcano_plots.png",
+ #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
+  #      width = 12,
+   #     height = 10)
+
+#ggsave(filename = "PT_volcano_plots.png",
+ #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
+  #      width = 12,
+   #     height = 10)
+```
+#GSEA anlaysis
+```{r}
+# choose cell type
+celltype_of_interest <- "TAL"  # <-- change this
+
+# choose MSigDB gene sets
+msig_reactome <- msigdbr(species = "Homo sapiens", collection = "C2", subcollection = "CP:REACTOME")
+msig_go_bp <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:BP")
+msig_go_mf <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:MF")
+msig_go_cc <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:CC")
+
+msig_all <- bind_rows(
+  msig_reactome,
+  msig_go_bp,
+  msig_go_mf,
+  msig_go_cc
+)
+
+pathways <- msig_all %>%
+  split(x = .$gene_symbol, f = .$gs_name)
+```
+
+# -----------------------------
+# fgsea function for one celltype
+# -----------------------------
+```{r}
+run_fgsea_one <- function(tt, pathways, minSize = 15, maxSize = 500) {
+  
+  ranks <- tt %>%
+    filter(!is.na(gene), !is.na(logFC), !is.na(PValue)) %>%
+    mutate(rank_metric = sign(logFC) * -log10(PValue)) %>%
+    group_by(gene) %>%
+    slice_max(order_by = abs(rank_metric), n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    arrange(desc(rank_metric)) %>%
+    select(gene, rank_metric)
+  
+  stats <- ranks$rank_metric
+  names(stats) <- ranks$gene
+  
+  fgsea(
+    pathways = pathways,
+    stats = stats,
+    minSize = minSize,
+    maxSize = maxSize
+  ) %>%
+    as_tibble() %>%
+    arrange(padj)
+}
+```
+
+```{r}
+de_ct <- de_all %>%
+  filter(celltype == celltype_of_interest)
+
+gsea_results <- list()
+
+for (comp in unique(de_ct$comparison)) {
+  
+  message("Running GSEA: ", celltype_of_interest, " | ", comp)
+  
+  tt_sub <- de_ct %>%
+    filter(comparison == comp)
+  
+  gsea_results[[comp]] <- run_fgsea_one(
+    tt = tt_sub,
+    pathways = pathways
+  ) %>%
+    mutate(
+      comparison = comp,
+      celltype = celltype_of_interest
+    )
+}
+```
+
+```{r}
+gsea_table <- bind_rows(gsea_results)
+
+gsea_table %>%
+  select(celltype, comparison, pathway, NES, pval, padj, size) %>%
+  arrange(padj)
+```
+
+```{r}
+# choose one contrast
+contrast_of_interest <- unique(gsea_table$comparison)[1]
+
+gsea_plot_df <- gsea_table %>%
+  filter(comparison == contrast_of_interest, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  slice_head(n = 20)
+```
+```{r}
+library(forcats)
+
+celltype_of_interest <- "TAL"  # change this
+gene_set_to_plot <- "REACTOME"     # options: , "REACTOME", "GO:..."
+
+gsea_plot_df <- gsea_table %>%
+  filter(celltype == celltype_of_interest) %>%
+  mutate(
+    gene_set = case_when(
+      str_detect(pathway, "REACTOME") ~ "REACTOME",
+      str_detect(pathway, "GOBP|GOMF|GOCC|GO_") ~ "GO",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  filter(gene_set == gene_set_to_plot) %>%
+  filter(padj < 0.05) %>%
+  mutate(
+    Direction = ifelse(NES > 0, "Up", "Down"),
+    neg_log10_fdr = -log10(padj),
+    pathway_clean = pathway %>%
+      str_replace_all("_", " ") %>%
+      str_replace("^KEGG ", "KEGG ") %>%
+      str_replace("^REACTOME ", "Reactome ") %>%
+      str_replace("^GOBP ", "GO BP ") %>%
+      str_to_sentence()
+  ) %>%
+  group_by(comparison) %>%
+  arrange(desc(abs(NES)), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+gsea_lollipop <- ggplot(
+  gsea_plot_df,
+  aes(x = NES, y = fct_reorder(pathway_clean, NES))
+) +
+  geom_segment(
+    aes(x = 0, xend = NES, yend = pathway_clean),
+    color = "grey70",
+    linewidth = 0.5
+  ) +
+  geom_point(
+    aes(color = Direction, size = neg_log10_fdr),
+    alpha = 0.95
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ comparison, scales = "free_y", ncol = 3) +
+  scale_color_manual(
+    values = c("Up" = "orange2", "Down" = "purple4")
+  ) +
+  scale_size_continuous(name = "-log10(FDR)") +
+  labs(
+    title = paste0(celltype_of_interest, "\n", gene_set_to_plot),
+    x = "Normalized enrichment score",
+    y = NULL,
+    color = "Direction"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    strip.text = element_text(face = "bold", size = 10),
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 9),
+    legend.position = "right"
+  )
+
+gsea_lollipop
+
+
+ggsave(filename = "GSEA_TAL.png",
+       path = file.path(dir.results, "T1D-T2D", "Results"),
+       width = 26,
+       height = 18)
 ```
 
