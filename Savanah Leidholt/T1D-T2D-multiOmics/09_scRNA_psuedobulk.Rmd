@@ -45,7 +45,7 @@ library(fgsea)
 ```
 
 ```{r}
-#directores
+#directories
 user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
@@ -186,8 +186,6 @@ umap_p_study<- ggplot(pb90_multiomics_subset_meta,
 umap_p_study
 ```
 
-
-
 ```{r}
 table((pb90_multiomics_subset_meta%>%
   distinct(record_id, visit, .keep_all = T))$group)
@@ -236,9 +234,6 @@ ggsave("Umap_cells_group.png",
 
 ```
 
-
-
-
 ## b. Descriptive Statistics
 ```{r}
 #Load Metadata cleaned
@@ -280,19 +275,18 @@ cell_counts <- pb90_multiomics_subset_meta %>%
 
 max_n <- max(cell_counts$n, na.rm = TRUE)
 
-label_pos <- -max_n * 0.05   # where cell names sit
-xmin_lim  <- -max_n * 0.35   # left plot boundary
-xmax_lim  <-  max_n * 1.15   # right plot boundary
+label_pos <- -max_n * 0.05  
+xmin_lim  <- -max_n * 0.35  
+xmax_lim  <-  max_n * 1.15   
 
 cell_count_bar <- ggplot(cell_counts, 
                          aes(x = reorder(KPMP_celltype_general, n), y = n)) +
   geom_col(fill = "#97a97c") +
   
-  # counts on right side of bars
+
   geom_text(aes(y = n, label = n),
             hjust = -0.1, size = 4) +
   
-  # cell names in real plot space on the left
   geom_text(aes(y = label_pos, label = KPMP_celltype_general),
             hjust = 1, size = 4) +
   
@@ -431,7 +425,7 @@ for (pair in group_pairs) {
   
   # Subset metadata to just these two groups
   meta_sub <- pb90_multiomics_subset_meta[pb90_multiomics_subset_meta$group %in% pair, ]
-  meta_sub$group <- droplevels(factor(meta_sub$group))  # drop unused levels
+  meta_sub$group <- droplevels(factor(meta_sub$group))
   
   res <- propeller(
     clusters  = meta_sub$KPMP_celltype_general,
@@ -490,7 +484,6 @@ meta <- meta %>%
     !is.na(celltype)
   )
 
-# make sure cell order matches metadata row order
 counts <- GetAssayData(pb90_multiomics_subset, layer = "counts")
 counts <- counts[, meta$cell_barcode, drop = FALSE]
 
@@ -556,12 +549,12 @@ keep_idx <- which(!sapply(pb_count_list, is.null))
 pb_count_list <- pb_count_list[keep_idx]
 pb_meta_list  <- pb_meta_list[keep_idx]
 
-# combine into matrix + metadata
+#combine into matrix + metadata
 pb_counts <- do.call(cbind, pb_count_list)
 colnames(pb_counts) <- sapply(pb_meta_list, function(x) x$pseudobulk_id)
 pb_meta <- bind_rows(pb_meta_list)
 
-# make sure order matches
+
 pb_meta <- pb_meta %>% slice(match(colnames(pb_counts), pseudobulk_id))
 stopifnot(identical(colnames(pb_counts), pb_meta$pseudobulk_id))
 ```
@@ -616,10 +609,10 @@ for (cell_name in celltypes) {
     #design matrix
     design <- model.matrix(~ group + age + sex, data = meta_sub)
     
-    # edgeR object
+    #edgeR object
     y <- DGEList(counts = counts_sub)
     
-    # filter low-expression genes
+    #filter low-expression genes
     keep_genes <- filterByExpr(y, design = design)
     y <- y[keep_genes, , keep.lib.sizes = FALSE]
     
@@ -628,10 +621,10 @@ for (cell_name in celltypes) {
       next
     }
     
-    # normalization
+    #normalization
     y <- calcNormFactors(y)
     
-    # estimate dispersion
+    #estimate dispersion
     y <- estimateDisp(y, design)
     
     # fit the model
@@ -668,9 +661,6 @@ for (cell_name in celltypes) {
     cat("Saved:", out_file, "\n")
   
     
-    # -------------------------
-    # make volcano plot function
-    # -------------------------
   plot_volcano <- function(tt, title = "", fdr_cutoff = 0.05, lfc_cutoff = 0.5, n_labels = 10) {
   
   tt <- tt %>%
@@ -682,7 +672,7 @@ for (cell_name in celltypes) {
         TRUE ~ "NS"
       )
     )
-  #labeling top 10 DEGs
+ 
   label_df <- tt %>%
     filter(FDR < fdr_cutoff) %>%
     arrange(FDR) %>%
@@ -709,10 +699,7 @@ for (cell_name in celltypes) {
     ) +
     theme_classic()
 }
-    
-    #---------------------------------------------
-    #calling each plot per contrast and cell type
-    #---------------------------------------------
+
     volcano_plot <- plot_volcano(
       tt,
       title = paste(cell_name, pair_name),
@@ -738,7 +725,6 @@ for (cell_name in celltypes) {
 #plotting cell type specific expression patterns per contrast
 #------------------------------------------------------------
 ```{r}
-# read all pseudobulk edgeR results
 pb_files <- list.files(
   file.path(dir.results,"T1D-T2D", "Results", "pseudobulk_1"),
   pattern = "^pseudobulk_edgeR_.*\\.csv$",
@@ -747,7 +733,7 @@ pb_files <- list.files(
 
 de_all <- map_dfr(pb_files, read.csv)
 de_all
-# summarize number of DE genes by comparison, cell type, and direction
+
 de_counts <- de_all %>%
   mutate(
     direction = dplyr::case_when(
@@ -771,7 +757,7 @@ ggplot(de_counts, aes(x = n_plot, y = celltype, fill = direction)) +
   facet_wrap(~ comparison, scales = "free_x") +
   scale_x_continuous(labels = abs) +
   scale_fill_manual(
-    values = c("Negative" = "cyan4", "Positive" = "darkred")
+    values = c("Negative" = "purple4", "Positive" = "orange2")
   ) +
   labs(
     x = "Number of DE genes (FDR < 0.05)",
@@ -863,6 +849,7 @@ ggsave(filename = "PT_volcano_plots.png",
         width = 12,
         height = 10)
 ```
+
 #GSEA anlaysis
 ```{r}
 # choose cell type
@@ -945,16 +932,19 @@ gsea_table %>%
   select(celltype, comparison, pathway, NES, pval, padj, size) %>%
   arrange(padj)
 ```
+```{r}
+#a lot of ribosomal & mRNA processing check for contamination 
+gsea_plot_sig <- gsea_table %>%
+  filter(comparison == "Type 1 Diabetes_vs_Type 2 Diabetes", padj < 0.05) %>% 
+  filter(celltype == celltype_of_interest)
+gsea_plot_sig
+```
 
 ```{r}
 # choose one contrast
 contrast_of_interest <- unique(gsea_table$comparison)[1]
-
-gsea_plot_df <- gsea_table %>%
-  filter(comparison == contrast_of_interest, padj < 0.05) %>%
-  arrange(desc(abs(NES))) %>%
-  slice_head(n = 20)
 ```
+
 ```{r}
 library(forcats)
 
@@ -977,7 +967,6 @@ gsea_plot_df <- gsea_table %>%
     neg_log10_fdr = -log10(padj),
     pathway_clean = pathway %>%
       str_replace_all("_", " ") %>%
-      str_replace("^KEGG ", "KEGG ") %>%
       str_replace("^REACTOME ", "Reactome ") %>%
       str_replace("^GOBP ", "GO BP ") %>%
       str_to_sentence()
