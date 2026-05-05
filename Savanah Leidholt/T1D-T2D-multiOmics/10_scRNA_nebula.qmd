@@ -1,0 +1,222 @@
+---
+title: "10_scRNA_nebula"
+author: "Savanah Leidholt"
+date: "today"
+date-format: long
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-float: true
+    code-fold: true
+    self-contained: true
+    fig-cap-location: top
+    page-layout: full
+    theme:
+      light: flatly
+      dark: darkly
+editor: source
+---
+
+
+```{r}
+
+```
+
+# =========================================================
+# CLEANER NEBULA PIPELINE
+# - pairwise group comparisons
+# - loop over cell types
+# - run one gene at a time
+# =========================================================
+```{r}
+n_hvg <- 500 #change to to 1000 then 2000 to see if it can still run
+min_cells_per_celltype <- 50   # skip tiny cell types (not really necessary since small cells are grouped as "other")
+overwrite_existing <- TRUE     # FALSE = skip if output file exists
+
+
+# group pairs
+groups <- unique(pb90_multiomics_subset_meta$group)
+group_pairs <- combn(groups, 2, simplify = FALSE)
+
+celltypes_list <- unique(pb90_multiomics_subset_meta$KPMP_celltype_general)
+
+
+#main loop
+for (pair in group_pairs) {
+  
+  pair_name <- paste(pair, collapse = "_vs_")
+  cat("\n============================\n")
+  cat("Comparison:", pair_name, "\n")
+  cat("============================\n")
+  
+  # subset once per comparison
+  seurat_pair <- subset(pb90_multiomics_subset, group %in% pair)
+  seurat_pair$group <- droplevels(factor(seurat_pair$group, levels = pair))
+  
+  for (cell_name in celltypes_list) {
+    
+    cat("\n--- Cell type:", cell_name, "---\n")
+    
+    # subset once per cell type
+    seurat_sub <- subset(seurat_pair, KPMP_celltype_general == cell_name)
+    
+    n_cells <- ncol(seurat_sub)
+    if (n_cells < min_cells_per_celltype) {
+      cat("Skipping", cell_name, "- too few cells:", n_cells, "\n")
+      next
+    }
+    
+    DefaultAssay(seurat_sub) <- "RNA"
+    meta_full <- seurat_sub@meta.data
+    
+    # make sure factors are clean
+    meta_full$group <- droplevels(factor(meta_full$group, levels = pair))
+    meta_full$sex   <- factor(meta_full$sex)
+    meta_full$study <- factor(meta_full$study)
+    
+    # model matrix ONCE per cell type
+    pred_gene <- model.matrix(~ group + age + sex + study, data = meta_full)
+    library_offset <- meta_full$pooled_offset
+    subject_id <- meta_full$record_id
+    
+    # choose HVGs once per cell type
+    seurat_sub <- FindVariableFeatures(
+      seurat_sub,
+      selection.method = "vst",
+      nfeatures = n_hvg
+    )
+    
+    genes_list <- VariableFeatures(seurat_sub)
+    cat("Cells:", n_cells, "| HVGs:", length(genes_list), "\n")
+    
+    # counts matrix once per cell type
+    counts_hvg <- GetAssayData(seurat_sub, layer = "counts")[genes_list, , drop = FALSE]
+    counts_hvg <- round(counts_hvg)
+    
+    # output file
+    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
+    out_path <- file.path(
+      dir.results, "T1D-T2D", "Results",
+      paste0("nebula_", pair_name, "_", cell_name_file, ".csv")
+    )
+    
+    if (file.exists(out_path) && !overwrite_existing) {
+      cat("Skipping existing file:", out_path, "\n")
+      next
+    }
+    
+    if (file.exists(out_path) && overwrite_existing) {
+      file.remove(out_path)
+    }
+    
+    first_write <- TRUE
+    error_log <- character(0)
+    converged_vec <- c()
+    
+    start_time <- Sys.time()
+    
+    for (g in genes_list) {
+      
+      tryCatch({
+        count_gene <- counts_hvg[g, , drop = FALSE]
+        
+        data_g_gene <- group_cell(
+          count  = count_gene,
+          id     = subject_id,
+          pred   = pred_gene,
+          offset = library_offset
+        )
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(
+            count  = count_gene,
+            id     = subject_id,
+            pred   = pred_gene,
+            offset = library_offset
+          )
+        }
+        
+        fit <- nebula(
+          count      = data_g_gene$count,
+          id         = data_g_gene$id,
+          pred       = data_g_gene$pred,
+          offset     = data_g_gene$offset,
+          ncore      = 1,
+          reml       = TRUE,
+          model      = "NBLMM",
+          output_re  = FALSE,
+          covariance = FALSE
+        )
+        
+        # store convergence code separately
+        conv_code <- fit$convergence
+        converged_vec[g] <- conv_code
+        
+        # extract result summary
+        res <- as.data.frame(fit$summary)
+        res$gene <- g
+        res$comparison <- pair_name
+        res$celltype <- cell_name
+        res$cells <- n_cells
+        
+        # append directly to disk
+        write.table(
+          res,
+          file = out_path,
+          sep = ",",
+          row.names = FALSE,
+          col.names = first_write,
+          append = !first_write
+        )
+        
+        first_write <- FALSE
+        
+        rm(count_gene, data_g_gene, fit, res)
+        gc(verbose = FALSE)
+        
+      }, error = function(e) {
+        msg <- paste("Gene:", g, "| Error:", conditionMessage(e))
+        cat(msg, "\n")
+        error_log <<- c(error_log, msg)
+      })
+    }
+    
+    elapsed <- difftime(Sys.time(), start_time, units = "mins")
+    cat("Finished", cell_name, "in", round(elapsed, 2), "minutes\n")
+    
+    # save convergence table
+    conv_df <- data.frame(
+      gene = names(converged_vec),
+      convergence_code = as.numeric(converged_vec),
+      comparison = pair_name,
+      celltype = cell_name
+    )
+    
+    conv_path <- file.path(
+      dir.results, "T1D-T2D", "Results",
+      paste0("nebula_", pair_name, "_", cell_name_file, "_convergence.csv")
+    )
+    write.csv(conv_df, conv_path, row.names = FALSE)
+    
+    # save errors if any
+    if (length(error_log) > 0) {
+      err_path <- file.path(
+        dir.results, "T1D-T2D", "Results",
+        paste0("nebula_", pair_name, "_", cell_name_file, "_errors.txt")
+      )
+      writeLines(error_log, err_path)
+    }
+    
+    # clean memory before next cell type
+    rm(seurat_sub, meta_full, pred_gene, library_offset, subject_id,
+       genes_list, counts_hvg, conv_df, converged_vec, error_log)
+    gc(verbose = FALSE)
+  }
+  
+  rm(seurat_pair)
+  gc(verbose = FALSE)
+}
+```
+
+
