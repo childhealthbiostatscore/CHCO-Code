@@ -453,7 +453,6 @@ for (pair in group_pairs) {
 #psuedobulk analysis since OC only have 3 particpants
 #-----------------------------------------------------
 ```{r}
-#settings should already be min cell counts but just in case
 min_cells_per_sample <- 20     # minimum cells contributing to a pseudobulk sample
 min_donors_per_group <- 3      # minimum donors per group required to run DE
 min_total_count <- 10          # edgeR gene filter helper
@@ -738,5 +737,58 @@ for (cell_name in celltypes) {
 
 ```
 
+#plotting cell type specific expression patterns per contrast
+```{r}
+# read all pseudobulk edgeR results
+pb_files <- list.files(
+  file.path(dir.results,"T1D-T2D", "Results", "pseudobulk_1"),
+  pattern = "^pseudobulk_edgeR_.*\\.csv$",
+  full.names = TRUE
+)
 
+de_all <- map_dfr(pb_files, read.csv)
+de_all
+# summarize number of DE genes by comparison, cell type, and direction
+de_counts <- de_all %>%
+  mutate(
+    direction = dplyr::case_when(
+      FDR < 0.05 & logFC > 0  ~ "Positive",
+      FDR < 0.05 & logFC < 0  ~ "Negative",
+      TRUE ~ "NS"
+    )
+  ) %>%
+  filter(direction != "NS") %>%
+  group_by(comparison, celltype, direction) %>%
+  summarise(n_de = n(), .groups = "drop") %>%
+  mutate(
+    n_plot = ifelse(direction == "Negative", -n_de, n_de)
+  )
+```
+
+```{r}
+ggplot(de_counts, aes(x = n_plot, y = celltype, fill = direction)) +
+  geom_col(width = 0.75) +
+  geom_vline(xintercept = 0, color = "gray40") +
+  facet_wrap(~ comparison, scales = "free_x") +
+  scale_x_continuous(labels = abs) +
+  scale_fill_manual(
+    values = c("Negative" = "cyan4", "Positive" = "darkred")
+  ) +
+  labs(
+    x = "Number of DE genes (FDR < 0.05)",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_classic() +
+  theme(
+    strip.text = element_text(face = "bold", size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 9),
+    legend.position = "top"
+  )
+```
+
+```{r}
+
+```
 
