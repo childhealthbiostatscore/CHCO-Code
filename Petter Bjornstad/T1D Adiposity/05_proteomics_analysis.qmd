@@ -433,23 +433,29 @@ prot_age_sex_study <- t(removeBatchEffect(t(dat_imp2),
 ))
 p2 <- make_pca(prot_age_sex_study, meta3, "Adjusted for age + sex + study")
 
-#model 3 ~ age * HbA1c + sex + study adjustment
-cov_hba1c_age <- model.matrix(
+#model 3b ~ age * HbA1c + sex + study adjustment
+cov_hba1c_age_study <- model.matrix(
   as.formula(paste0("~ age * ", hba1c_var, " + sex + study")),
   data = meta3
 )[, -1, drop = FALSE]
 
 # final row checks
 nrow(design)
-nrow(cov_hba1c_age)
-stopifnot(nrow(design) == nrow(cov_hba1c_age))
+nrow(cov_hba1c_age_study)
+stopifnot(nrow(design) == nrow(cov_hba1c_age_study))
 stopifnot(nrow(design) == nrow(dat_imp2))
 
+prot_hba1c_age_study <- t(removeBatchEffect(t(dat_imp2), covariates = cov_hba1c_age_study, design = design))
+p3b <- make_pca(prot_hba1c_age_study, meta3,"Adjusted for age * HbA1c + sex + study")
+
+#model 3a
+cov_hba1c_age <- model.matrix(as.formula(paste0("~ age * ", hba1c_var, " + sex")), data = meta3)[, -1, drop = FALSE]
 prot_hba1c_age <- t(removeBatchEffect(t(dat_imp2), covariates = cov_hba1c_age, design = design))
-p3 <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex + study")
+p3a <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex ")
+
 
 # combine plots
-pca_group_bmi_all <- (p0 | p1) / (p2 | p3)
+pca_group_bmi_all <- (p0 | p1 | p3a) / (p2 | p3b | patchwork::plot_spacer())
 pca_group_bmi_all
 ```
 
@@ -609,13 +615,13 @@ res_m3 <- res_m3 %>%
     )
   )
 sig_all_models <- results_all_models %>% filter(adj.P.Val < 0.05)
-sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) > 0.5)
-
+sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) >= 0.5)
+sig_all_models_fc %>% 
 sig_counts <- sig_all_models %>% 
-  filter((adj.P.Val < 0.05 & abs(logFC) > 0.5)) %>%
-  count(model, contrast, direction)
-sig_counts
-sig_counts %>% filter(model == "M3: group_bmi + age * HbA1c + sex + study")
+  filter((adj.P.Val < 0.05 & abs(logFC) >= 0.5)) %>%
+  count(model, contrast)
+sig_all_models_fc %>% filter(contrast == "T1D_Normal_vs_T1D_Overweight")
+sig_counts %>% filter(model == "M2: group_bmi + age + sex + study")
 
 write_csv(sig_counts, 
           file = file.path(dir.results, "sig_counts_by_model.csv"))
@@ -832,8 +838,8 @@ ggsave("M3_pca_plots.png",
 ```{r}
 msig_kegg <- msigdbr(
   species = "Homo sapiens",
-  category = "C2",
-  subcategory = "CP:REACTOME"
+  collection = "C2",
+  subcollection = "CP:REACTOME"
 )
 
 kegg_list <- msig_kegg %>%
@@ -842,8 +848,8 @@ kegg_list <- msig_kegg %>%
 # GO Biological Process
 msig_go_bp <- msigdbr(
   species = "Homo sapiens",
-  category = "C5",
-  subcategory = "GO:BP"
+  collection = "C5",
+  subcollection = "GO:BP"
 )
 
 go_bp_list <- msig_go_bp %>%
@@ -852,8 +858,8 @@ go_bp_list <- msig_go_bp %>%
 # GO Molecular Function
 msig_go_mf <- msigdbr(
   species = "Homo sapiens",
-  category = "C5",
-  subcategory = "GO:MF"
+  collection = "C5",
+  subcollection= "GO:MF"
 )
 
 go_mf_list <- msig_go_mf %>%
@@ -862,8 +868,8 @@ go_mf_list <- msig_go_mf %>%
 # GO Cellular Component
 msig_go_cc <- msigdbr(
   species = "Homo sapiens",
-  category = "C5",
-  subcategory = "GO:CC"
+  collection = "C5",
+  subcollection = "GO:CC"
 )
 
 go_cc_list <- msig_go_cc %>%
@@ -968,6 +974,9 @@ fgsea_kegg_m1 <- fgsea_kegg_m1 %>%
 fgsea_kegg_m2 <- run_fgsea_model(res_df = res_m2, model_name = "M2: group_bmi age + sex + study", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
 fgsea_kegg_m2 <- fgsea_kegg_m2 %>%
   dplyr::filter(padj < 0.05) %>%
+  dplyr::mutate(
+    pathway = stringr::str_remove(pathway, "^REACTOME_")
+  ) %>%
   dplyr::arrange(model, contrast, pathway_type, padj)
 
 fgsea_kegg_m3 <- run_fgsea_model(res_df = res_m3, model_name = "M3: group_bmi age*hba1c + sex +study", pathways = kegg_list, pathway_type = "KEGG", protein_gene_map = protein_gene_map)
@@ -1010,9 +1019,11 @@ plot_fgsea_top20 <- function(fgsea_df,
     slice_head(n = top_n) %>%
     mutate(
       pathway_clean = pathway %>%
+        str_remove("^REACTOME_") %>%
         str_replace_all("_", " ") %>%
         str_replace("^GO ", "") %>%
-        str_to_sentence(),
+        str_to_sentence() %>%
+        stringr::str_wrap(width = 45),
       
       pathway_clean = forcats::fct_reorder(pathway_clean, NES),
       
@@ -1026,16 +1037,19 @@ plot_fgsea_top20 <- function(fgsea_df,
     geom_segment(
       aes(x = 0, xend = NES, yend = pathway_clean),
       color = "grey70",
-      linewidth = 0.6
+      linewidth = 1
     ) +
+    
     geom_point(
       aes(x = NES, size = fdr_size, color = direction)
     ) +
+    
     geom_text(
       aes(x = 0, label = pathway_clean),
       hjust = ifelse(df_top$NES > 0, 1, 0),
-      size = 3
+      size = 5
     ) +
+    
     geom_vline(xintercept = 0, linetype = "dashed") +
     
     scale_color_manual(
@@ -1047,7 +1061,8 @@ plot_fgsea_top20 <- function(fgsea_df,
     ) +
     
     scale_size_continuous(
-      name = "-log10(FDR)"
+      name = "-log10(FDR)",
+      range = c(6, 14)
     ) +
     
     scale_x_continuous(
@@ -1061,15 +1076,27 @@ plot_fgsea_top20 <- function(fgsea_df,
       y = NULL
     ) +
     
-    theme_minimal() +
+    theme_minimal(base_size = 22) +
     theme(
       panel.grid = element_blank(),
       panel.border = element_blank(),
-      axis.line = element_line(color = "black"),
+      axis.line = element_line(color = "black", linewidth = 1),
+      
+      axis.text.x = element_text(size = 12),
+      axis.title.x = element_text(size = 12, face = "bold"),
+      
       axis.text.y = element_blank(),
       axis.ticks.y = element_blank(),
-      plot.title = element_text(face = "bold", size = 12),
-      legend.position = "right"
+      
+      plot.title = element_text(
+        face = "bold",
+        size = 12
+      ),
+      
+      legend.position = "right",
+      
+      legend.title = element_text(size = 12),
+      legend.text = element_text(size = 12)
     )
 }
 ```
@@ -1099,8 +1126,8 @@ fgsea_kegg_plots_m0 <- fgsea_kegg_m0 %>%
 #fgsea_kegg_plots_m0$plot[[5]]
 
 plots_m0 <- fgsea_kegg_plots_m0
-top_row <- plots_m0$plot[[1]] + plots_m0$plot[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m0$plot[[3]] + plots_m0$plot[[4]] + plots_m0$plot[[5]]
+top_row <- plots_m0$plot[[1]] + plots_m0$plot[[5]] + patchwork::plot_spacer()
+bottom_row <- plots_m0$plot[[3]] + plots_m0$plot[[2]] + plots_m0$plot[[4]]
 
 panel_kegg_m0 <- top_row / bottom_row
 
@@ -1151,8 +1178,8 @@ ggsave("GSEA_kegg_m1.png",
 ```
 
 ```{r}
-#| fig-width: 20
-#| fig-height: 16
+#| fig-width: 28
+#| fig-height: 24
 fgsea_kegg_plots_m2 <- fgsea_kegg_m2 %>%
   distinct(model, contrast, pathway_type) %>%
   mutate(
@@ -1179,8 +1206,8 @@ panel_kegg_m2
 ggsave("GSEA_kegg_m2.png",
        plot = panel_kegg_m2,
        path = dir.results,
-       width = 20,
-       height =16,
+       width = 28,
+       height =24,
        dpi = 300
        )
 
@@ -1205,7 +1232,6 @@ fgsea_kegg_plots_m3 <- fgsea_kegg_m3 %>%
   )
 
 plots_m3 <- fgsea_kegg_plots_m3
-plots_m3
 top_row <- plots_m3$plot[[1]] + patchwork::plot_spacer() + patchwork::plot_spacer()
 bottom_row <- plots_m3$plot[[3]] + plots_m3$plot[[2]] + plots_m3$plot[[4]] 
 
@@ -1236,6 +1262,8 @@ map_tbl <- analytes %>%
     )
   ) %>%
   dplyr::distinct()
+
+
 ```
 
 #----------------------------------------
@@ -1539,11 +1567,39 @@ run_elastic_net_bootstrap <- function(
 
   for (b in seq_len(n_boot)) {
 
-    cat("\nBootstrap", b, "of", n_boot, "for", contrast_name, "\n")
+  cat("\n============================\n")
+  cat("Running contrast:", contrast_name, "\n")
 
-    parts <- strsplit(contrast_name, "_vs_")[[1]]
-    g_pos <- parts[1]
-    g_neg <- parts[2]
+  contrast_groups <- list(
+    T1D_Normal_vs_LC_Normal = list(
+      positive = "T1D_Normal",
+      negative = "LC_Normal"
+    ),
+    T1D_OverObese_vs_LC_OverObese = list(
+      positive = c("T1D_Overweight", "T1D_Obese"),
+      negative = "LC_Overweight_Obese"
+    ),
+    T1D_Normal_vs_T1D_Overweight = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Overweight"
+    ),
+    T1D_Normal_vs_T1D_Obese = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Obese"
+    ),
+    T1D_Obese_vs_T1D_Overweight = list(
+      positive = "T1D_Obese",
+      negative = "T1D_Overweight"
+    )
+  )
+
+  if (!contrast_name %in% names(contrast_groups)) {
+    stop("Contrast not found in contrast_groups: ", contrast_name)
+  }
+
+  g_pos <- contrast_groups[[contrast_name]]$positive
+  g_neg <- contrast_groups[[contrast_name]]$negative
+
 
     meta_sub0 <- meta_df %>%
       dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg))
@@ -1645,7 +1701,7 @@ run_elastic_net_bootstrap <- function(
 #boostrapping T1D vs LC
 #----------------------
 ```{r}
-net1 <- run_elastic_net(
+net1 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_Normal_vs_LC_Normal",
   limma_df = res_m2,
   meta_df = meta3,
@@ -1656,14 +1712,14 @@ net1 <- run_elastic_net(
   p_cutoff = 0.05,
   fc_cutoff = 0.5,
   covars = c("age", "sex"),
+  n_boot = 100,
   seed = 1835
 )
-net1
 
 ```
 
 ```{r}
-net2 <- run_elastic_net(
+net2 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_OverObese_vs_LC_OverObese",
   limma_df = res_m2,
   meta_df = meta3,
@@ -1674,10 +1730,10 @@ net2 <- run_elastic_net(
   p_cutoff = 0.05,
   fc_cutoff = 0.5,
   covars = c("age", "sex"),
+  n_boot = 100,
   seed = 1835
 )
 
-net2
 ```
 
 ```{r}
@@ -1685,7 +1741,7 @@ net3 <- cat("T1D_Normal_vs_T1D_Overweight too few proteins")
 net3
 ```
 ```{r}
-net4 <- run_elastic_net(
+net4 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_Normal_vs_T1D_Obese",
   limma_df = res_m2,
   meta_df = meta3,
@@ -1695,27 +1751,145 @@ net4 <- run_elastic_net(
   sig_only = TRUE,
   p_cutoff = 0.05,
   fc_cutoff = 0.5,
+  n_boot = 100,
   covars = c("age", "sex"),
+  
   seed = 1835
 )
 
-net4
 ```
+
 ```{r}
 net5 <- cat("T1D_overweight vs obese too few proteins")
 ```
+#checking which proteins are the most stable across bootstrapping
+```{r}
+net1_stability_plot <- net1$stability_tbl %>%
+  filter(selection_percent >= 75) %>%
+  mutate(
+    feature_label = ifelse(
+      !is.na(gene_symbol) & gene_symbol != "",
+      gene_symbol,
+      protein_id
+    )
+  ) %>%
+  arrange(desc(selection_percent)) %>%
+  mutate(
+    feature_label = fct_reorder(feature_label, selection_percent)
+  ) %>%
+  ggplot(aes(x = selection_percent, y = feature_label)) +
+  geom_col(width = 0.9, fill = "grey40") +
+  scale_x_continuous(
+    limits = c(0, 100),
+    breaks = c(0, 25, 50, 75, 100)
+  ) +
+  labs(
+    title = "feature stability: T1D_Normal_vs_LC_Normal",
+    x = "Bootstrap selection frequency (%)",
+    y = NULL
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+
+net1_stability_plot
+ 
+```
+
+```{r}
+net2_stability_plot <- net2$stability_tbl %>%
+  filter(selection_percent >= 75) %>%
+  mutate(
+    feature_label = ifelse(
+      !is.na(gene_symbol) & gene_symbol != "",
+      gene_symbol,
+      protein_id
+    )
+  ) %>%
+  arrange(desc(selection_percent)) %>%
+  mutate(
+    feature_label = fct_reorder(feature_label, selection_percent)
+  ) %>%
+  ggplot(aes(x = selection_percent, y = feature_label)) +
+  geom_col(width = 0.9, fill = "grey40") +
+  scale_x_continuous(
+    limits = c(0, 100),
+    breaks = c(0, 25, 50, 75, 100)
+  ) +
+  labs(
+    title = "feature stability: T1D_OverObese_vs_LC_OverObese",
+    x = "Bootstrap selection frequency (%)",
+    y = NULL
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+
+net2_stability_plot
+```
+```{r fig.width=24}
+net4_stability_plot <- net4$stability_tbl %>%
+  filter(selection_percent >= 75) %>%
+  mutate(
+    feature_label = ifelse(
+      !is.na(gene_symbol) & gene_symbol != "",
+      gene_symbol,
+      protein_id
+    )
+  ) %>%
+  arrange(desc(selection_percent)) %>%
+  mutate(
+    feature_label = fct_reorder(feature_label, selection_percent)
+  ) %>%
+  ggplot(aes(x = selection_percent, y = feature_label)) +
+  geom_col(width = 0.9, fill = "grey40") +
+  scale_x_continuous(
+    limits = c(0, 100),
+    breaks = c(0, 25, 50, 75, 100)
+  ) +
+  labs(
+    title = "feature stability: T1D_Normal_vs_T1D_Obese",
+    x = "Bootstrap selection frequency (%)",
+    y = NULL
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+
+net1_stability_plot | net2_stability_plot| net4_stability_plot
+```
+
+
+
 ```{r}
 enet_prots <- list(
-  T1D_Normal_vs_LC_Normal = net1$selected_proteins,
-  T1D_OverObese_vs_LC_OverObese = net2$selected_proteins,
-  T1D_Normal_vs_T1D_Obese = net4$selected_proteins
+  T1D_Normal_vs_LC_Normal =
+    net1$stability_tbl %>%
+    filter(selection_percent >= 75) %>%
+    pull(protein_id),
+
+  T1D_OverObese_vs_LC_OverObese =
+    net2$stability_tbl %>%
+    filter(selection_percent >= 75) %>%
+    pull(protein_id),
+
+  T1D_Normal_vs_T1D_Obese =
+    net4$stability_tbl %>%
+    filter(selection_percent >= 75) %>%
+    pull(protein_id)
 )
 
 enet_prots_tbl <- purrr::imap_dfr(enet_prots, function(prots, contrast_name) {
   tibble::tibble(
     contrast = contrast_name,
     protein_id = prots,
-    source = "elastic_net"
+    source = "elastic_net_bootstrap_75pct"
   )
 })
 
@@ -1750,9 +1924,9 @@ final_protein_tbl <- dplyr::bind_rows(
 sig_prots <- final_protein_tbl %>%
   dplyr::pull(protein_id) %>%
   unique()
-
+sig_prots
 sig_prots <- intersect(sig_prots, colnames(prot_age_sex_study))
-
+sig_prots
 expr_mat <- prot_age_sex_study[, sig_prots, drop = FALSE]
 
 dim(expr_mat)
@@ -1879,7 +2053,8 @@ all_cor_results %>% filter(FDR <= 0.05)
 # Partial correlations setup
 #-----------------------------
 ```{r}
-partial_outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr")
+meta3$avg_k_
+partial_outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr", "avg_k_r2", "avg_c_r2")
 partial_covars   <- c("age", "sex", "study")
 stopifnot(all(partial_covars %in% names(corr_df)))
 
@@ -2130,8 +2305,8 @@ make_volcano_cor_list <- function(df,
 }
 ```
 
-```{r}
-outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr")
+```{r fig.width=20}
+outcomes <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr", "avg_k_r2", "avg_c_r2")
 
 plots_cor_p1 <- make_volcano_cor_list(
   df = partial_gene,
@@ -2140,8 +2315,9 @@ plots_cor_p1 <- make_volcano_cor_list(
   label_n = 10
 )
 
-panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[2]] | patchwork::plot_spacer()) /
-             (plots_cor_p1[[3]] | plots_cor_p1[[4]] |plots_cor_p1[[5]])
+panel_cor_p1 <- (plots_cor_p1[[1]] | plots_cor_p1[[7]] | plots_cor_p1[[6]])/ 
+                (plots_cor_p1[[2]] |plots_cor_p1[[4]] | patchwork::plot_spacer()) /
+                (plots_cor_p1[[3]]  |plots_cor_p1[[5]] | patchwork:: plot_spacer())
 
 panel_cor_p1
 
@@ -2149,13 +2325,13 @@ ggsave(
   filename = "panel_cor_p1.png",
   plot = panel_cor_p1,
   path = dir.results,
-  height = 10,
-  width = 12,
+  height = 12,
+  width = 18,
   dpi = 300
 )
 ```
 
-```{r}
+```{r fig.width=18}
 plots_cor_p2 <- make_volcano_cor_list(
   df = partial_gene,
   contrast_name = "T1D_OverObese_vs_LC_OverObese",
@@ -2164,8 +2340,9 @@ plots_cor_p2 <- make_volcano_cor_list(
 )
 
 
-panel_cor_p2 <- (plots_cor_p2[[1]] | plots_cor_p2[[2]] | patchwork::plot_spacer())/
-             (plots_cor_p2[[3]] | plots_cor_p2[[4]] | plots_cor_p2[[5]])
+panel_cor_p2 <- (plots_cor_p2[[1]] | plots_cor_p2[[7]] | plots_cor_p2[[6]])/ 
+                (plots_cor_p2[[2]] |plots_cor_p2[[4]] | patchwork::plot_spacer()) /
+                (plots_cor_p2[[3]]  |plots_cor_p2[[5]] | patchwork:: plot_spacer())
 
 panel_cor_p2
 
@@ -2173,13 +2350,13 @@ ggsave(
   filename = "panel_cor_p2.png",
   plot = panel_cor_p2,
   path = dir.results,
-  height = 10,
-  width = 12,
+  height = 12,
+  width = 18,
   dpi = 300
 )
 ```
 
-```{r}
+```{r fig.width=18}
 plots_cor_p3 <- make_volcano_cor_list(
   df = partial_gene,
   contrast_name = "T1D_Normal_vs_T1D_Overweight",
@@ -2188,8 +2365,9 @@ plots_cor_p3 <- make_volcano_cor_list(
 )
 
 
-panel_cor_p3 <- (plots_cor_p3[[1]] | plots_cor_p3[[2]] | patchwork::plot_spacer()) /
-             (plots_cor_p3[[3]] | plots_cor_p3[[4]] | plots_cor_p3[[5]])
+panel_cor_p3 <- (plots_cor_p3[[1]] | plots_cor_p3[[7]] | plots_cor_p3[[6]])/ 
+  (plots_cor_p3[[2]] | plots_cor_p3[[4]] | patchwork::plot_spacer())/
+  (plots_cor_p3[[3]] | plots_cor_p3[[5]] | patchwork:: plot_spacer())
 
 panel_cor_p3
 
@@ -2197,13 +2375,13 @@ ggsave(
   filename = "panel_cor_p3.png",
   plot = panel_cor_p3,
   path = dir.results,
-  height = 10,
-  width = 12,
+  height = 12,
+  width = 18,
   dpi = 300
 )
 ```
 
-```{r}
+```{r fig.width=18}
 plots_cor_p4 <- make_volcano_cor_list(
   df = partial_gene,
   contrast_name = "T1D_Normal_vs_T1D_Obese",
@@ -2212,8 +2390,9 @@ plots_cor_p4 <- make_volcano_cor_list(
 )
 
 
-panel_cor_p4 <- (plots_cor_p4[[1]] | plots_cor_p4[[2]] | patchwork::plot_spacer()) /
-             (plots_cor_p4[[3]] | plots_cor_p4[[4]] | plots_cor_p4[[5]])
+panel_cor_p4 <- (plots_cor_p4[[1]] | plots_cor_p4[[7]] | plots_cor_p4[[6]])/ 
+                (plots_cor_p4[[2]] |plots_cor_p4[[4]] | patchwork::plot_spacer()) /
+                (plots_cor_p4[[3]]  |plots_cor_p4[[5]] | patchwork:: plot_spacer())
 
 panel_cor_p4
 
@@ -2221,13 +2400,13 @@ ggsave(
   filename = "panel_cor_p4.png",
   plot = panel_cor_p4,
   path = dir.results,
-  height = 10,
-  width = 12,
+  height = 12,
+  width = 18,
   dpi = 300
 )
 ```
 
-```{r}
+```{r fig.width=18}
 plots_cor_p5 <- make_volcano_cor_list(
   df = partial_gene,
   contrast_name = "T1D_Obese_vs_T1D_Overweight",
@@ -2236,8 +2415,9 @@ plots_cor_p5 <- make_volcano_cor_list(
 )
 
 
-panel_cor_p5 <- (plots_cor_p5[[1]] | plots_cor_p5[[2]] | patchwork::plot_spacer()) /
-             (plots_cor_p5[[3]] | plots_cor_p5[[4]] | plots_cor_p5[[5]])
+panel_cor_p5 <- (plots_cor_p5[[1]] | plots_cor_p5[[7]] | plots_cor_p5[[6]])/ 
+                (plots_cor_p5[[2]] |plots_cor_p5[[4]] | patchwork::plot_spacer()) /
+                (plots_cor_p5[[3]]  |plots_cor_p5[[5]] | patchwork:: plot_spacer())
 
 panel_cor_p5
 
@@ -2245,11 +2425,255 @@ ggsave(
   filename = "panel_cor_p5.png",
   plot = panel_cor_p5,
   path = dir.results,
-  height = 10,
-  width = 12,
+  height = 12,
+  width = 18,
   dpi = 300
 )
 ```
+#------------------------------------------
+# Correlate all selected proteins with variables of interest
+# Not stratified/subset by contrast
+#------------------------------------------
+```{r}
+library(broom)
+
+vars_interest <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr", "avg_k_r2", "avg_c_r2")
+
+protein_ids <- colnames(expr_mat)
+
+run_partial_spearman <- function(data, protein, outcome,
+                                 covars = c("age", "sex", "study")) {
+  
+  model_vars <- c(protein, outcome, covars)
+  
+  dat_sub <- data %>%
+    dplyr::select(dplyr::all_of(model_vars)) %>%
+    tidyr::drop_na()
+  
+  if (nrow(dat_sub) < 10) {
+    return(tibble(
+      protein_id = protein,
+      outcome = outcome,
+      n = nrow(dat_sub),
+      rho = NA_real_,
+      p.value = NA_real_
+    ))
+  }
+  
+  # residualize protein and outcome on covariates
+  prot_resid <- resid(lm(as.formula(paste(protein, "~", paste(covars, collapse = " + "))),
+                         data = dat_sub))
+  
+  out_resid <- resid(lm(as.formula(paste(outcome, "~", paste(covars, collapse = " + "))),
+                        data = dat_sub))
+  
+  ct <- suppressWarnings(
+    cor.test(prot_resid, out_resid, method = "spearman")
+  )
+  
+  tibble(
+    protein_id = protein,
+    outcome = outcome,
+    n = nrow(dat_sub),
+    rho = unname(ct$estimate),
+    p.value = ct$p.value
+  )
+}
+
+selected_protein_correlations <- expand_grid(
+  protein_id = protein_ids,
+  outcome = vars_interest
+) %>%
+  mutate(
+    result = purrr::map2(
+      protein_id,
+      outcome,
+      ~ run_partial_spearman(
+        data = corr_df,
+        protein = .x,
+        outcome = .y,
+        covars = c("age", "sex", "study")
+      )
+    )
+  ) %>%
+  select(result) %>%
+  unnest(result) %>%
+  group_by(outcome) %>%
+  mutate(
+    FDR = p.adjust(p.value, method = "BH")
+  ) %>%
+  ungroup() %>%
+  left_join(map_tbl, by = "protein_id") %>%
+  mutate(
+    gene_symbol = ifelse(
+      is.na(gene_symbol) | gene_symbol == "",
+      protein_id,
+      gene_symbol
+    ),
+    corr_direction = case_when(
+      rho > 0 ~ "Positive",
+      rho < 0 ~ "Negative",
+      TRUE ~ "None"
+    ),
+    significance = case_when(
+      FDR < 0.05 & rho > 0 ~ "Positive FDR < 0.05",
+      FDR < 0.05 & rho < 0 ~ "Negative FDR < 0.05",
+      p.value < 0.05 & rho > 0 ~ "Positive raw p < 0.05",
+      p.value < 0.05 & rho < 0 ~ "Negative raw p < 0.05",
+      TRUE ~ "Not significant"
+    ),
+    neg_log10_p = -log10(p.value),
+    neg_log10_fdr = -log10(FDR)
+  )
+```
+
+
+```{r}
+selected_corr_plot <- selected_protein_correlations %>%
+  ggplot(aes(x = rho, y = neg_log10_p)) +
+  geom_point(aes(color = significance), alpha = 0.75, size = 2.5) +
+  geom_vline(xintercept = 0, color = "grey40") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  ggrepel::geom_text_repel(
+    data = selected_protein_correlations %>%
+      filter(FDR < 0.05),
+    aes(label = gene_symbol),
+    size = 3.5,
+    max.overlaps = Inf
+  ) +
+  scale_color_manual(
+    values = c(
+      "Negative FDR < 0.05" = "cyan4",
+      "Positive FDR < 0.05" = "darkred",
+      "Negative raw p < 0.05" = "cyan2",
+      "Positive raw p < 0.05" = "pink",
+      "Not significant" = "grey80"
+    )
+  ) +
+  facet_wrap(~ outcome, scales = "free") +
+  labs(
+    title = "Partial correlations across selected proteins",
+    subtitle = "Elastic-net/bootstrap-selected proteins tested against clinical variables",
+    x = "Partial Spearman rho",
+    y = "-log10(raw p-value)",
+    color = NULL
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid = element_blank()
+  )
+
+selected_corr_plot
+```
+#----------------------------------------------------------------------------------
+#are there specific clinical associations when only looking at T1D adiposity groups
+#----------------------------------------------------------------------------------
+```{r}
+corr_df_t1d <- corr_df %>%
+  dplyr::filter(
+    group_bmi %in% c(
+      "T1D_Normal",
+      "T1D_Overweight",
+      "T1D_Obese"
+    )
+  )
+
+table(corr_df_t1d$group_bmi)
+```
+
+
+```{r}
+vars_interest <- c("HbA1c", "uACR", "BMI", "eGFR", "wthr", "avg_k_r2", "avg_c_r2")
+
+protein_ids <- colnames(expr_mat)
+
+selected_protein_correlations_t1d <- tidyr::expand_grid(
+  protein_id = protein_ids,
+  outcome = vars_interest
+) %>%
+  dplyr::mutate(
+    result = purrr::map2(
+      protein_id,
+      outcome,
+      ~ run_partial_spearman(
+        data = corr_df_t1d,
+        protein = .x,
+        outcome = .y,
+        covars = c("age", "sex", "study")
+      )
+    )
+  ) %>%
+  dplyr::select(result) %>%
+  tidyr::unnest(result) %>%
+  dplyr::group_by(outcome) %>%
+  dplyr::mutate(FDR = p.adjust(p.value, method = "BH")) %>%
+  dplyr::ungroup() %>%
+  dplyr::left_join(map_tbl, by = "protein_id") %>%
+  dplyr::mutate(
+    gene_symbol = ifelse(
+      is.na(gene_symbol) | gene_symbol == "",
+      protein_id,
+      gene_symbol
+    ),
+    significance = dplyr::case_when(
+      FDR < 0.05 & rho > 0 ~ "Positive FDR < 0.05",
+      FDR < 0.05 & rho < 0 ~ "Negative FDR < 0.05",
+      p.value < 0.05 & rho > 0 ~ "Positive raw p < 0.05",
+      p.value < 0.05 & rho < 0 ~ "Negative raw p < 0.05",
+      TRUE ~ "Not significant"
+    ),
+    neg_log10_p = -log10(p.value)
+  )
+```
+
+```{r}
+selected_corr_plot_t1d <- selected_protein_correlations_t1d %>%
+  ggplot(aes(x = rho, y = neg_log10_p)) +
+  geom_point(aes(color = significance), alpha = 0.75, size = 2.5) +
+  geom_vline(xintercept = 0, color = "grey40") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  ggrepel::geom_text_repel(
+    data = selected_protein_correlations_t1d %>%
+      dplyr::filter(FDR < 0.05),
+    aes(label = gene_symbol),
+    size = 3.5,
+    max.overlaps = Inf
+  ) +
+  scale_color_manual(
+    values = c(
+      "Negative FDR < 0.05" = "cyan4",
+      "Positive FDR < 0.05" = "darkred",
+      "Negative raw p < 0.05" = "cyan2",
+      "Positive raw p < 0.05" = "pink",
+      "Not significant" = "grey80"
+    )
+  ) +
+  facet_wrap(~ outcome, scales = "free") +
+  labs(
+    title = "Partial correlations in T1D adiposity groups",
+    subtitle = "Selected proteins tested among T1D Normal, T1D Overweight, and T1D Obese participants",
+    x = "Partial Spearman rho",
+    y = "-log10(raw p-value)",
+    color = NULL
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid = element_blank()
+  )
+
+selected_corr_plot_t1d
+
+ggsave(filename = "Adiposity_clinical_cor.png",
+       path = dir.results,
+       width = 18,
+       height = 12,
+       dpi = 300
+)
+```
+
+
 #--------------------------------------
 #summary table for correlations n/group
 #--------------------------------------
@@ -2290,6 +2714,7 @@ contrast_n_table_wide
 
 #write_csv()
 ```
+
 ```{r}
 clinical_summary <- corr_df %>%
   group_by(group_bmi) %>%
@@ -2322,6 +2747,7 @@ clinical_summary <- corr_df %>%
 
 clinical_summary
 ```
+
 ```{r}
 clinical_table_pretty <- corr_df %>%
   group_by(group_bmi) %>%
