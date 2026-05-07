@@ -23,6 +23,7 @@ library(readxl)
 library(purrr)
 library(aws.s3)
 library(jsonlite)
+library(Seurat)
 
 ```
 
@@ -31,17 +32,17 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
-  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/") #hyak
   git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
 } else if (user == "sleidholt") {
-    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #mac studio
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
 } else if (user == "savanahleidholt") {
-    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #laptop
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
 } else if (user == "choiyej") {
   root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -110,28 +111,40 @@ pb90_multiomics<- s3readRDS(
           object = "data_clean/pb90_multiomics_savanah_baseline_20260406.rds", 
           bucket = "scrna",
           region = "")
+```
 
-
+```{r}
 ids <- pb90_multiomics@meta.data$record_id 
 ids <- as.data.frame(ids) %>%
   dplyr::distinct(ids) %>%
   dplyr::pull(ids)  
 ``` 
+#-----------------------------------
+#reacreating UMAPS for TRIAD subset
+#-----------------------------------
+```{r}
+pb90_mulitomics_subset <- FindVariableFeatures(pb90_multiomics_subset)
+pb90_mulitomics_subset <- ScaleData(pb90_mulitomics_subset)
+pb90_mulitomics_subset  <- RunPCA(pb90_mulitomics_subset)
+pb90_mulitomics_subset <- FindNeighbors(pb90_mulitomics_subset, dims = 1:30)
+pb90_mulitomics_subset <- FindClusters(pb90_mulitomics_subset, cluster.name "TRIAD_clusters")
+pb90_mulitomics_subset <- RunUMAP(pb90_mulitomics_subset, dims = 1:30)
+```
+
 
 ```{r}
-#Load harmonized data for biopsy
-
 #harm_meta_data <- s3read_using(FUN = readr::read_csv,
  #   object = "harmonized_dataset.csv",
   #  bucket = "harmonized.dataset",
    # region = "")
 
 
-bucket <- "harmonized.dataset" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
-harm_meta_data <- read.csv(temp_file)
+#bucket <- "harmonized.dataset" # bucket name in Kopah
+#temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+#s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+#harm_meta_data <- read.csv(temp_file)
 
+harm_meta_data <- readRDS(file.path(root_path, "Data Harmonization", "Data Clean", "harmonized_dataset.rds"))
 ```
 
 ```{r}
@@ -143,8 +156,7 @@ id_cols <- as.character(c(
 
 #clinical numeric data I want to keep stored in a list
 clin_cols <- c(
-  "age","bmi","eGFR_fas_cr","hba1c",
-  "acr_u"
+  "age","bmi","eGFR_CKiD_U25_avg", "avg_c_r2", "avg_k_r2","acr_u"
 )
 #filtering the same way as metabolomic and proteomic metadata
  # for non-numeric: keep value only if it's consistent within record_id+visit
@@ -190,15 +202,11 @@ pb90_multiomics_meta_subset <- pb90_multiomics@meta.data %>%
   dplyr::mutate(rownames = paste0(source, "_", barcode)) 
 ```
 
+#-----------------------------------------------------------------
+#create KPMP_celltype_general
+#   also create subset data with just endothelial cells & subtypes
+#-----------------------------------------------------------------
 ```{r}
-#Load celltype annotation database
-#temp_file <- tempfile(fileext = ".gmt")
-#s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
-#c8 <- GSA.read.gmt(temp_file)
-```
-
-```{r}
-# create KPMP_celltype_general
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
@@ -206,7 +214,7 @@ celltype_groups <- list(
   IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
   DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),  #endothelial cells
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
   # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
