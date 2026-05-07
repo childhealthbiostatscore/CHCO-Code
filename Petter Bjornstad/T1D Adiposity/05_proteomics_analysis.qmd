@@ -27,6 +27,7 @@ library(caret)
 library(kableExtra)
 library(msigdbr)
 library(fgsea)
+library(emmeans)
 ```
 
 ```{r}
@@ -84,16 +85,45 @@ Sys.setenv(
 #check mrns to see if there are people are co-enrolled
 
 ```{r}
+root_path
 t1d_hc_dat_soma <- s3readRDS(object = "data_clean/t1d_hc_clinical_data_soma.csv", 
                              bucket = "t1d.adiposity",
                              region = "")
+
+harm <- readRDS(file.path(root_path,"Data Harmonization", "Data Clean", "harmonized_dataset.rds" ))
+
+t1d_hc_dat_soma <- t1d_hc_dat_soma %>%
+  mutate(record_id = as.character(record_id))
+
+recordID_mrn <- harm %>%
+  dplyr::select(record_id, mrn) %>%
+  distinct() %>%
+  mutate(record_id = as.character(record_id))
+
+# join MRNs into the soma dataset
+t1d_hc_dat_soma <- t1d_hc_dat_soma %>%
+  left_join(recordID_mrn, by = "record_id")
+
+t1d_hc_dat_soma <- t1d_hc_dat_soma %>%
+  relocate(record_id, mrn)
+
+t1d_hc_dat_soma_dedup <- t1d_hc_dat_soma %>%
+  mutate(
+    dedup_id = ifelse(
+      !is.na(mrn) & mrn != "",
+      as.character(mrn),
+      paste0("record_", record_id)
+    )
+  ) %>%
+  distinct(dedup_id, .keep_all = TRUE) %>%
+  select(-dedup_id)
 ```
 
 #-------------------------
 #creating cleaned metadata
 #-------------------------
 ```{r}
-meta <- t1d_hc_dat_soma %>%
+meta <- t1d_hc_dat_soma_dedup %>%
   dplyr::select(-starts_with("seq")) %>%
   dplyr::mutate(
     record_id = as.character(record_id),
@@ -156,7 +186,198 @@ meta2 <- meta %>%
   )
 
 table(meta2$group_bmi, useNA = "ifany")
+
+
 ```
+
+```{r}
+# outcomes to test
+outcome_vars <- c(
+  eGFR   = "eGFR_CKiD_U25_avg",
+  avg_c_r2 = "avg_c_r2",
+  avg_k_r2 = "avg_k_r2",
+  uACR   = "acr_u",
+  BMI    = "bmi",
+  WHtR   = "whtr"
+)
+
+# optional: log-transform uACR because it is usually skewed
+meta_emm <- meta3 %>%
+  mutate(
+    log_uACR = log1p(as.numeric(acr_u)),
+    group_bmi = factor(group_bmi),
+    sex = factor(sex),
+    study = factor(study)
+  )
+
+outcome_vars2 <- c(
+  eGFR= "eGFR_CKiD_U25_avg",
+  avg_c_r2 = "avg_c_r2",
+  avg_k_r2 = "avg_k_r2",
+  log_uACR = "log_uACR",
+  BMI      = "bmi",
+  WHtR     = "whtr"
+)
+
+run_emmeans_outcome <- function(data, outcome, outcome_label) {
+  
+  model_df <- data %>%
+    select(group_bmi, age, sex, study, all_of(outcome)) %>%
+    mutate(
+      y = as.numeric(.data[[outcome]])
+    ) %>%
+    drop_na(y, group_bmi, age, sex, study)
+  
+  fit <- lm(y ~ group_bmi + age + sex + study, data = model_df)
+  
+  emm <- emmeans(fit, ~ group_bmi)
+  
+  emm_tbl <- as.data.frame(emm) %>%
+    mutate(
+      outcome = outcome_label,
+      n_model = nrow(model_df)
+    )
+  
+  contrast_tbl <- as.data.frame(
+    contrast(emm, method = "pairwise", adjust = "BH")
+  ) %>%
+    mutate(
+      outcome = outcome_label,
+      n_model = nrow(model_df)
+    )
+  
+  list(
+    model = fit,
+    emmeans = emm_tbl,
+    contrasts = contrast_tbl
+  )
+}
+
+emm_results <- purrr::imap(
+  outcome_vars2,
+  ~ run_emmeans_outcome(meta_emm, outcome = .x, outcome_label = .y)
+)
+
+emm_table <- purrr::map_dfr(emm_results, "emmeans")
+
+contrast_table <- purrr::map_dfr(emm_results, "contrasts") %>%
+  arrange(outcome, p.value)
+
+emm_table
+contrast_table
+```
+
+```{r}
+meta3$eGFR_CKiD_U25_avg
+plot_outcomes <- c(
+  eGFR     = "eGFR_CKiD_U25_avg",
+  avg_c_r2 = "avg_c_r2",
+  avg_k_r2 = "avg_k_r2",
+  log_uACR = "log_uACR",
+  BMI      = "bmi",
+  WHtR     = "whtr"
+)
+
+#-----------------------------------
+# add transformed uACR
+#-----------------------------------
+plot_clinical_boxplot <- function(data, outcome_var, outcome_label) {
+  
+  plot_df <- data %>%
+    dplyr::select(group_bmi, age, sex, study, dplyr::all_of(outcome_var)) %>%
+    dplyr::mutate(
+      y = as.numeric(.data[[outcome_var]]),
+      group_bmi = factor(group_bmi),
+      sex = factor(sex),
+      study = factor(study)
+    ) %>%
+    tidyr::drop_na(y, group_bmi)
+  
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(
+      x = group_bmi,
+      y = y,
+      fill = group_bmi
+    )
+  ) +
+    ggplot2::geom_boxplot(
+      width = 0.65,
+      alpha = 0.75,
+      outlier.shape = NA
+    ) +
+    ggplot2::geom_jitter(
+      width = 0.15,
+      size = 2.5,
+      alpha = 0.75
+    ) +
+    ggplot2::labs(
+      title = outcome_label,
+      x = NULL,
+      y = outcome_label
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(
+        "LC_Normal" = "cyan4",
+        "LC_Overweight_Obese" = "darkred",
+        "T1D_Normal" = "gold",
+        "T1D_Overweight" = "plum3",
+        "T1D_Obese" = "black"
+      )
+    ) +
+    ggplot2::theme_bw(base_size = 18) +
+    ggplot2::theme(
+      legend.position = "none",
+      axis.text.x = ggplot2::element_text(
+        angle = 45,
+        hjust = 1
+      ),
+      plot.title = ggplot2::element_text(
+        face = "bold",
+        hjust = 0.5
+      ),
+      panel.grid = ggplot2::element_blank()
+    )
+}
+```
+
+```{r}
+clinical_boxplot_list <- purrr::imap(
+  plot_outcomes,
+  ~ plot_clinical_boxplot(
+    data = meta_emm,
+    outcome_var = .x,
+    outcome_label = .y
+  )
+)
+
+clinical_boxplot_panel <- (
+  clinical_boxplot_list[[1]] |
+  clinical_boxplot_list[[2]] |
+  clinical_boxplot_list[[3]]
+) / (
+  clinical_boxplot_list[[4]] |
+  clinical_boxplot_list[[5]] |
+  clinical_boxplot_list[[6]]
+)
+
+clinical_boxplot_panel
+
+ggsave(
+  "clinical_boxplot_panels.png",
+  plot = clinical_boxplot_panel,
+  path = dir.results,
+  width = 22,
+  height = 14,
+  dpi = 300
+)
+```
+
+
+
+
+
+
 #----------------------------
 # Plasma protein matrix setup
 #----------------------------
@@ -616,7 +837,7 @@ res_m3 <- res_m3 %>%
   )
 sig_all_models <- results_all_models %>% filter(adj.P.Val < 0.05)
 sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) >= 0.5)
-sig_all_models_fc %>% 
+sig_all_models_fc 
 sig_counts <- sig_all_models %>% 
   filter((adj.P.Val < 0.05 & abs(logFC) >= 0.5)) %>%
   count(model, contrast)
@@ -1737,8 +1958,20 @@ net2 <- run_elastic_net_bootstrap(
 ```
 
 ```{r}
-net3 <- cat("T1D_Normal_vs_T1D_Overweight too few proteins")
-net3
+net3 <- run_elastic_net_bootstrap(
+  contrast_name = "T1D_Normal_vs_T1D_Overweight",
+  limma_df = res_m2,
+  meta_df = meta3,
+  X_mat = prot_age_sex_study,
+  protein2symbol = map_tbl,
+  top_n = 100,
+  sig_only = TRUE,
+  p_cutoff = 0.05,
+  fc_cutoff = 0.5,
+  covars = c("age", "sex"),
+  n_boot = 100,
+  seed = 1835
+)
 ```
 ```{r}
 net4 <- run_elastic_net_bootstrap(
@@ -2144,6 +2377,10 @@ partial_gene <- all_partial_results %>%
     .groups = "drop"
   ) %>%
   rename(label = gene_symbol)
+
+partial_gene %>% filter(contrast == "T1D_Normal_vs_T1D_Obese") %>%
+  filter(outcome == "avg_c_r2") %>%
+  filter(FDR <= 0.05)
 ```
 
 
@@ -2671,6 +2908,27 @@ ggsave(filename = "Adiposity_clinical_cor.png",
        height = 12,
        dpi = 300
 )
+```
+```{r}
+corr_table_t1d <- selected_protein_correlations_t1d %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::arrange(outcome, FDR) %>%
+  dplyr::select(
+    outcome,
+    gene_symbol,
+    rho,
+    p.value,
+    FDR,
+    n,
+    significance
+  ) %>%
+  dplyr::mutate(
+    rho = round(rho, 3),
+    p.value = signif(p.value, 3),
+    FDR = signif(FDR, 3)
+  )
+
+corr_table_t1d
 ```
 
 
