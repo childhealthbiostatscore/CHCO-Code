@@ -121,7 +121,7 @@ analyze_negative_fsoc <- function(dat) {
                             round(min(medullary_fsoc_abs, na.rm = TRUE), 2), NA_real_),
       .groups = "drop"
     ) %>%
-    select(-n_wk_available, -n_med_available)
+    dplyr::select(-n_wk_available, -n_med_available)
   
   cat("BY DISEASE GROUP:\n")
   print(as.data.frame(negative_by_group))
@@ -146,7 +146,7 @@ analyze_negative_fsoc <- function(dat) {
   negative_subjects <- dat %>%
     filter(!is.na(group)) %>%
     filter(whole_kidney_fsoc_abs < 0 | medullary_fsoc_abs < 0) %>%
-    select(record_id, group, sex, age, 
+    dplyr::select(record_id, group, sex, age, 
            whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
     arrange(medullary_fsoc_abs)
   
@@ -814,7 +814,7 @@ create_table1 <- function(dat) {
     # Also filter out invalid FSOC values (matching other analyses in script)
     filter(is.na(whole_kidney_fsoc_abs) | whole_kidney_fsoc_abs < 15) %>%
     filter(is.na(medullary_fsoc_abs) | medullary_fsoc_abs >= 0) %>%
-    select(group, age, sex, bmi, hba1c, diabetes_duration,
+    dplyr::select(group, age, sex, bmi, hba1c, diabetes_duration,
            eGFR_CKD_epi, acr_u,
            whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
     tbl_summary(
@@ -1036,6 +1036,11 @@ cat("========================================\n")
 
 
 
+# Colors matching your FSOC analysis exactly
+group_colors <- c("Lean Control" = "#3182BD",
+                  "Obese Control" = "#9ECAE1",
+                  "Type 1 Diabetes" = "#FDAE6B",
+                  "Type 2 Diabetes" = "#E6550D")
 
 
 
@@ -1133,15 +1138,189 @@ plot_fsoc_by_group <- function(dat) {
     labs(x = "Disease Group", 
          y = "FSOC Value (s⁻¹)",
          title = "Whole Kidney FSOC") +
-    scale_fill_brewer(palette = "Set2") +
+ 
+# ============================================================================
+# PET ANALYSIS: Hypermetabolism Across Disease Groups
+# Boxplots, Sex-stratified boxplots, and Heatmaps
+# Matching FSOC analysis style
+# ============================================================================
+
+# Additional libraries needed
+library(car)
+library(rstatix)
+library(ggpubr)
+library(ggsignif)
+
+# Set output directory
+OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/PET_Analysis"
+dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================================
+# DATA PREPARATION
+# ============================================================================
+
+# Define PET endpoints (non-VW versions)
+pet_endpoints <- c("avg_c_k2", "avg_m_k2", "avg_c_f", "avg_m_f", 
+                   "avg_c_k2_f", "avg_m_k2_f")
+
+# Define nice labels for PET variables
+pet_labels <- c(
+  "avg_c_k2" = "Cortical K2",
+  "avg_m_k2" = "Medullary K2",
+  "avg_c_f" = "Cortical F (Perfusion)",
+  "avg_m_f" = "Medullary F (Perfusion)",
+  "avg_c_k2_f" = "Cortical K2/F Ratio",
+  "avg_m_k2_f" = "Medullary K2/F Ratio"
+)
+
+# Group levels and colors - MATCHING FSOC ANALYSIS
+group_levels <- c("Lean Control", "Obese Control", "Type 1 Diabetes", 
+                  "Type 2 Diabetes")
+
+# Colors matching your FSOC analysis exactly
+group_colors <- c("Lean Control" = "#3182BD",
+                  "Obese Control" = "#9ECAE1",
+                  "Type 1 Diabetes" = "#FDAE6B",
+                  "Type 2 Diabetes" = "#E6550D")
+
+# Prepare the data - set up group and sex factors
+dat_results <- dat_results %>%
+  filter(group != "PKD") %>%
+  mutate(group = factor(group, levels = group_levels),
+         sex = factor(sex, levels = c("Female", "Male")))
+
+# ============================================================================
+# 1. BOXPLOTS BY GROUP WITH PAIRWISE P-VALUES (simplified, fast version)
+# ============================================================================
+
+plot_pet_by_group <- function(dat, endpoint, label) {
+  
+  dat_plot <- dat %>% 
+    filter(!is.na(group), !is.na(.data[[endpoint]])) %>%
+    mutate(group = factor(group, levels = group_levels))
+  
+  # Run ANOVA with covariates for adjusted analysis
+  formula_str <- paste(endpoint, "~ group + age + sex + weight")
+  model <- tryCatch({
+    lm(as.formula(formula_str), data = dat_plot)
+  }, error = function(e) {
+    message("Model failed for ", endpoint, ": ", e$message)
+    return(NULL)
+  })
+  
+  # Get pairwise comparisons using emmeans (adjusted)
+  pairs_df <- NULL
+  if (!is.null(model)) {
+    emm <- emmeans(model, ~ group)
+    pairs_result <- pairs(emm, adjust = "tukey")
+    pairs_df <- as.data.frame(pairs_result)
+    
+    # Print pairwise results
+    cat("\n--- Pairwise comparisons for", label, "(adjusted) ---\n")
+    print(pairs_df[, c("contrast", "estimate", "SE", "p.value")])
+  }
+  
+  # Calculate unadjusted pairwise comparisons (Wilcoxon)
+  stat_test <- dat_plot %>%
+    wilcox_test(as.formula(paste(endpoint, "~ group")), p.adjust.method = 'BH') %>%
+    mutate(p_label = case_when(
+      p < 0.001 ~ "p<0.001",
+      p < 0.01 ~ paste0("p=", formatC(p, format = "f", digits = 3)),
+      TRUE ~ paste0("p=", formatC(p, format = "f", digits = 2))
+    ))
+  
+  # Get y-axis range for positioning
+  y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+  y_min <- min(dat_plot[[endpoint]], na.rm = TRUE)
+  y_range <- y_max - y_min
+  
+  # Create boxplot (no p-value brackets for speed - they're printed to console)
+  p <- ggplot(dat_plot, aes(x = group, y = .data[[endpoint]], fill = group)) +
+    geom_boxplot(width = 0.7, outlier.shape = NA, alpha = 0.8) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
+    scale_fill_manual(values = group_colors) +
+    labs(title = label,
+         y = label, x = "") +
+    theme_bw() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+      plot.title = element_text(face = "bold", size = 12),
+      plot.subtitle = element_text(size = 8, color = "gray50"),
+      panel.grid.minor = element_blank()
+    )
+  
+  # After creating `p` in plot_pet_by_group(), add:
+  if (endpoint %in% c("avg_c_k2", "avg_m_k2", "avg_c_k2_f", "avg_m_k2_f")) {
+    sig_pairs <- stat_test %>% filter(p.adj < 0.05)
+    
+    if (nrow(sig_pairs) > 0) {
+      group_levels_present <- levels(dat_plot$group)
+      y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+      y_range <- max(dat_plot[[endpoint]], na.rm = TRUE) - min(dat_plot[[endpoint]], na.rm = TRUE)
+      
+      for (k in seq_len(nrow(sig_pairs))) {
+        x1 <- which(group_levels_present == sig_pairs$group1[k])
+        x2 <- which(group_levels_present == sig_pairs$group2[k])
+        y_pos <- y_max + (0.15 * k) * y_range
+        p_lab <- ifelse(sig_pairs$p.adj[k] < 0.001, "p<0.001",
+                        paste0("p=", formatC(sig_pairs$p.adj[k], format = "f", digits = 3)))
+        
+        p <- p +
+          annotate("segment", x = x1, xend = x2, y = y_pos, yend = y_pos) +
+          annotate("segment", x = x1, xend = x1, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("segment", x = x2, xend = x2, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("text", x = (x1 + x2) / 2, y = y_pos + 0.06 * y_range,
+                   label = p_lab, size = 3)
+      }
+      
+      p <- p + coord_cartesian(ylim = c(
+        min(dat_plot[[endpoint]], na.rm = TRUE) - 0.05 * y_range,
+        y_max + (0.15 * (nrow(sig_pairs) + 1)) * y_range
+      ))
+    }
+  }
+  
+  return(list(plot = p, model = model, pairwise = pairs_df, stat_test = stat_test))
+}
+
+# Generate all group boxplots
+generate_group_boxplots <- function(dat) {
+  results <- list()
+  plots <- list()
+  
+  for (endpoint in pet_endpoints) {
+    label <- pet_labels[endpoint]
+    result <- tryCatch({
+      plot_pet_by_group(dat, endpoint, label)
+    }, error = function(e) {
+      message("Failed for ", endpoint, ": ", e$message)
+      return(NULL)
+    })
+    
+    if (!is.null(result)) {
+      results[[endpoint]] <- result
+      plots[[endpoint]] <- result$plot
+    }
+  }
+  
+  # Add raw p-values above each group if we have them
+  
+  
+  # Combine plots
+  combined_plot <- cowplot::plot_grid(plotlist = plots, ncol = 3, nrow = 2)
+  
+  return(list(individual = results, combined = combined_plot))
+}
+
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.25)))
   
   # Medullary plot
   med_data <- fsoc_long %>% filter(fsoc_type == "Medullary FSOC")
   
   p_med <- ggplot(med_data, aes(x = group, y = fsoc_value, fill = group)) +
-    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-    geom_jitter(width = 0.2, alpha = 0.4, size = 1.5) +
+    geom_boxplot(width = 0.7, outlier.shape = NA, alpha = 0.8) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
     geom_signif(
       comparisons = comparisons,
       annotations = sapply(med_pvals, format_p),
@@ -1151,17 +1330,17 @@ plot_fsoc_by_group <- function(dat) {
       vjust = 0.3,
       map_signif_level = FALSE
     ) +
-    theme_bw(base_size = 12) +
+    scale_fill_manual(values = group_colors) +
+    theme_bw() +
     theme(
       legend.position = "none",
-      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-      panel.grid.major.x = element_blank(),
-      plot.title = element_text(face = "bold", size = 11)
-    ) +
-    labs(x = "Disease Group", 
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+      plot.title = element_text(face = "bold", size = 12),
+      plot.subtitle = element_text(size = 8, color = "gray50"),
+      panel.grid.minor = element_blank())+
+    labs(x = "", 
          y = "FSOC Value (s⁻¹)",
          title = "Medullary FSOC") +
-    scale_fill_brewer(palette = "Set2") +
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.25)))
   
   # Combine
@@ -1188,6 +1367,20 @@ ggsave(file.path(OUTPUT_DIR, "fsoc_by_group_pairwise.tiff"), p_group, width = 14
 
 
 
+
+
+
+
+
+
+
+
+
+# Colors matching your FSOC analysis exactly
+group_colors <- c("Lean Control" = "#3182BD",
+                  "Obese Control" = "#9ECAE1",
+                  "Type 1 Diabetes" = "#FDAE6B",
+                  "Type 2 Diabetes" = "#E6550D")
 
 
 
