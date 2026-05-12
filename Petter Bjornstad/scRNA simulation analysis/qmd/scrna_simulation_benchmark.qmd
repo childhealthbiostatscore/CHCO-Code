@@ -10,6 +10,7 @@ library(tidyr)
 library(dplyr)
 library(aws.s3)
 library(jsonlite)
+library(purrr)
 ```
 
 ```{r paths, include=FALSE}
@@ -207,6 +208,29 @@ names(compute_s_plots) <- sapply(param_specs, `[[`, "x_var")
 compute_s_plots
 ```
 
+
+# AUC-ROC comparisons
+
+```{r}
+auc_plots <- lapply(param_specs, function(spec) {
+  plot_metric_by(benchmark,
+                 x_var    = spec$x_var,
+                 x_levels = spec$x_levels,
+                 x_label  = spec$x_label,
+                 y_var = "mean_auc_roc",
+                 y_label = "AUC-ROC",
+                 hline = 0.8)
+})
+names(auc_plots) <- sapply(param_specs, `[[`, "x_var")
+
+for (nm in names(auc_plots)) {
+  ggsave(file.path(paste0(root_path, "/scRNA simulation analysis/Results/Figures/auc_by_", nm, ".png")), 
+         auc_plots[[nm]],
+         width = 7, height = 5)
+  }
+```
+
+
 ```{r}
 methods <- unique(benchmark$method)
 
@@ -260,18 +284,39 @@ plot_power_vs_t1e <- function(data) {
   ggplot(data, aes(x = mean_t1e, y = mean_power, color = method)) +
     geom_vline(xintercept = 0.05, linetype = "dotted") +
     geom_hline(yintercept = 0.80, linetype = "dashed") +
-    geom_point(alpha = 0.5) +
+    geom_point(alpha = 0.5, size = 3) +
     scale_x_continuous(limits = c(0, NA)) +
     scale_y_continuous(limits = c(0, 1)) +
     labs(x = "Type I Error", y = "Power",
          color = "Method") +
-    # scale_color_manual(values = method_palette) +
+    scale_color_manual(values = method_palette) +
     theme_minimal() +
-    theme(text = element_text(size = 15),
+    theme(text = element_text(size = 25),
           panel.grid = element_blank())
 }
 
 plot_power_vs_t1e(benchmark %>% filter(prop_de > 0))
+ggsave(file.path(root_path, "/scRNA simulation analysis/Results/Figures/t1e_power_fig_combined.png"),
+       width = 10, height = 7)
+
+benchmark %>% filter(prop_de > 0) %>%
+  ggplot(aes(x = mean_t1e, y = mean_power, color = method)) +
+    geom_vline(xintercept = 0.05, linetype = "dotted") +
+    geom_hline(yintercept = 0.80, linetype = "dashed") +
+    geom_point(alpha = 0.5, size = 3) +
+    scale_x_continuous(limits = c(0, NA)) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(x = "Type I Error", y = "Power",
+         color = "Method") +
+    scale_color_manual(values = method_palette) +
+    theme_minimal() +
+    theme(text = element_text(size = 20),
+          panel.grid = element_blank(),
+          legend.position = "none") +
+  facet_wrap(~method, ncol = 2)
+
+ggsave(file.path(root_path, "/scRNA simulation analysis/Results/Figures/t1e_power_fig_facet.png"),
+       width = 7, height = 10)
 ```
 
 # KS statistics at null
@@ -288,7 +333,7 @@ benchmark %>%
         panel.grid = element_blank(),
         axis.text.x = element_text(angle = 60, hjust = 1),
         legend.position = "none") +
-  labs(x = NULL, y = "KS statistic")
+  labs(x = NULL, y = "KS statistic") 
 ```
 
 
@@ -331,20 +376,15 @@ ref_dat_summary <- ref_dat$summary_table
 # 7 in placebo; 9 in dapa at baseline
 # 4 in placebo; 7 in dapa at follow up
 # avg ~ 6-7 subjects per arm
-# median number of cells: 839 (low)
-# median LFC: ~ 0.5 (med)
+# median LFC: ~ 0.5 (med) lfc_label
+# median number of cells: 839 (low) cells_label
 # ICC: 0.42 (med)
 
 benchmark_ref <- benchmark %>%
   filter(n_subjects_per_arm == 10 &
            lfc_label == "med" &
            cells_label == "low" &
-           indiv_var_label == "med")
-summary(benchmark_ref[benchmark_ref$method == "MAST",]$mean_power)
-summary(benchmark_ref[benchmark_ref$method == "Wilcoxon rank-sum",]$mean_power)
-summary(benchmark_ref[benchmark_ref$method == "edgeR",]$mean_power)
-summary(benchmark_ref[benchmark_ref$method == "limma-voom",]$mean_power)
-summary(benchmark_ref[benchmark_ref$method == "NEBULA",]$mean_power)
+           indiv_var_label == "high")
 
 benchmark_ref %>%
   ggplot(aes(x = method, y = mean_power, fill = method)) +
@@ -369,11 +409,15 @@ benchmark_ref %>%
        caption = "In ATTEMPT: 7, 9 at baseline; 4, 7 at follow up\n
        Median LFC ~ 0.5 (corresponds to med)\n
        Median number of cells/person: 839 (corresponds to low)\n
-       ICC: 0.42 (corresponds to med)")
+       ICC: 0.42 (corresponds to high between subject SD)")
 
 ggsave(file.path(root_path, "scRNA simulation analysis/Results/Figures/attempt_simulations.png"))
 
-
+summary(benchmark_ref[benchmark_ref$method == "MAST",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "Wilcoxon rank-sum",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "edgeR",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "limma-voom",]$mean_power)
+summary(benchmark_ref[benchmark_ref$method == "NEBULA",]$mean_power)
 
 ```
 
@@ -381,4 +425,73 @@ ggsave(file.path(root_path, "scRNA simulation analysis/Results/Figures/attempt_s
 summary(arsenal::tableby(method ~ mean_compute_s + mean_compute_m, data = benchmark,
                          numeric.stats=c("median","q1q3")))
 benchmark$mean_compute_m <- benchmark$mean_compute_s/60
+```
+
+# Best and worst combinations
+
+```{r}
+ 
+# Filter to valid methods, non-null scenarios with power data
+valid <- benchmark %>%
+  filter(prop_de > 0,
+         !is.na(mean_power))
+ 
+# ============================================================
+# TOP 5: Highest power AND lowest FDR
+# Rank by power descending, then FDR ascending as tiebreaker
+# ============================================================
+top5 <- valid %>%
+  arrange(desc(mean_power), mean_fdr) %>%
+  select(method, n_subjects_per_arm, cells_label, lfc_label,
+         indiv_var_label, corr_cells, prop_de,
+         mean_power, mean_fdr, mean_t1e) %>%
+  head(5)
+ 
+cat("\n=== TOP 5 SCENARIOS (highest power, lowest FDR) ===\n\n")
+print(as.data.frame(top5), row.names = FALSE)
+ 
+# ============================================================
+# WORST 5: Lowest power among scenarios where we'd expect
+# to detect something (exclude vlow LFC since those are
+# near-undetectable by design)
+# ============================================================
+worst5 <- valid %>%
+  filter(lfc_label != "vlow") %>%
+  arrange(mean_power, desc(mean_fdr)) %>%
+  select(method, n_subjects_per_arm, cells_label, lfc_label,
+         indiv_var_label, corr_cells, prop_de,
+         mean_power, mean_fdr, mean_t1e) %>%
+  head(5)
+ 
+cat("\n=== WORST 5 SCENARIOS (lowest power, highest FDR) ===\n")
+cat("(excluding vlow LFC where near-zero power is expected)\n\n")
+print(as.data.frame(worst5), row.names = FALSE)
+ 
+# ============================================================
+# BONUS: Best and worst per method
+# ============================================================
+cat("\n=== BEST SCENARIO PER METHOD ===\n\n")
+best_per_method <- valid %>%
+  group_by(method) %>%
+  arrange(desc(mean_power), mean_fdr) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(method, n_subjects_per_arm, cells_label, lfc_label,
+         indiv_var_label, corr_cells, prop_de,
+         mean_power, mean_fdr)
+ 
+print(as.data.frame(best_per_method), row.names = FALSE)
+ 
+cat("\n=== WORST SCENARIO PER METHOD (excluding vlow LFC) ===\n\n")
+worst_per_method <- valid %>%
+  filter(lfc_label != "vlow") %>%
+  group_by(method) %>%
+  arrange(mean_power, desc(mean_fdr)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(method, n_subjects_per_arm, cells_label, lfc_label,
+         indiv_var_label, corr_cells, prop_de,
+         mean_power, mean_fdr)
+ 
+print(as.data.frame(worst_per_method), row.names = FALSE)
 ```
