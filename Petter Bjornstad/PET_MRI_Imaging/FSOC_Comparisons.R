@@ -687,7 +687,7 @@ plot_fsoc_by_group <- function(dat) {
   
   pairwise_results <- fsoc_long %>%
     group_by(fsoc_type) %>%
-    wilcox_test(fsoc_value ~ group, p.adjust.method = "none") %>%
+    wilcox_test(fsoc_value ~ group, p.adjust.method = "BH") %>%
     mutate(p_formatted = case_when(
       p < 0.001 ~ "<0.001",
       p < 0.01 ~ as.character(round(p, 4)),
@@ -1969,8 +1969,8 @@ run_lean_control_phenotype <- function(linked_data,
   fsoc_cutoff <- lc_fsoc_mean - n_sd * lc_fsoc_sd
   
   cat(sprintf("\nCUTOFFS (Lean Control mean ± %.1f SD):\n", n_sd))
-  cat(sprintf("  K2 cutoff: %.4f (above = High K2)\n", k2_cutoff))
-  cat(sprintf("  FSOC cutoff: %.2f (below = Low FSOC)\n", fsoc_cutoff))
+  #cat(sprintf("  K2 cutoff: %.4f (above = High K2)\n", k2_cutoff))
+  #cat(sprintf("  FSOC cutoff: %.2f (below = Low FSOC)\n", fsoc_cutoff))
   
   dat_valid <- dat_valid %>%
     mutate(
@@ -2201,7 +2201,6 @@ compare_discordant_vs_others <- function(pheno_results, min_n = 2) {
     disc_vals <- disc_vals[!is.na(disc_vals)]
     other_vals <- other_vals[!is.na(other_vals)]
     
-    # UPDATED: Skip if either group has insufficient sample size
     if (length(disc_vals) < min_n | length(other_vals) < min_n) {
       skipped_vars <- c(skipped_vars, 
                         sprintf("%s (Discordant n=%d, Others n=%d)", 
@@ -2371,20 +2370,14 @@ plot_phenotype_scatter_lc <- function(pheno_results, k2_var = "avg_c_k2", fsoc_v
     geom_vline(xintercept = lc_stats$fsoc_mean, linetype = "dotted", color = "blue", linewidth = 0.7) +
     geom_hline(yintercept = lc_stats$k2_mean, linetype = "dotted", color = "blue", linewidth = 0.7) +
     geom_point(aes(fill = group, shape = discordant), size = 5, alpha = 0.85, color = "black", stroke = 0.5) +
-    {if (use_repel) {
-      geom_text_repel(aes(label = k2_record_id), size = 2.5, max.overlaps = 20,
-                      box.padding = 0.3, point.padding = 0.2)
-    } else {
-      geom_text(aes(label = k2_record_id), hjust = -0.15, vjust = -0.4, size = 2.5)
-    }} +
-    annotate("text", x = x_range[1] + x_pad, y = y_range[2] - y_pad,
-             label = paste0("DISCORDANT\n(High K2 / Low FSOC)\nn = ", 
-                            sum(dat$phenotype_4 == "High K2 / Low FSOC")),
-             fontface = "bold", size = 3.5, color = "#C92A2A", hjust = 0, vjust = 1) +
-    annotate("text", x = x_range[2] - x_pad, y = y_range[1] + y_pad,
-             label = paste0("NORMAL\n(Normal K2 / Normal FSOC)\nn = ", 
-                            sum(dat$phenotype_4 == "Normal K2 / Normal FSOC")),
-             fontface = "bold", size = 3.5, color = "#2B8A3E", hjust = 1, vjust = 0) +
+ #   annotate("text", x = x_range[1] + x_pad, y = y_range[2] - y_pad,
+#             label = paste0("DISCORDANT\n(High K2 / Low FSOC)\nn = ", 
+#                            sum(dat$phenotype_4 == "High K2 / Low FSOC")),
+#             fontface = "bold", size = 3.5, color = "#C92A2A", hjust = 0, vjust = 1) +
+#    annotate("text", x = x_range[2] - x_pad, y = y_range[1] + y_pad,
+#             label = paste0("NORMAL\n(Normal K2 / Normal FSOC)\nn = ", 
+#                            sum(dat$phenotype_4 == "Normal K2 / Normal FSOC")),
+#             fontface = "bold", size = 3.5, color = "#2B8A3E", hjust = 1, vjust = 0) +
     scale_fill_manual(values = group_colors, name = "Group") +
     scale_color_manual(values = group_colors, name = "Group") +
     scale_shape_manual(values = c("Concordant" = 21, "Discordant" = 24), name = "Phenotype") +
@@ -2394,11 +2387,7 @@ plot_phenotype_scatter_lc <- function(pheno_results, k2_var = "avg_c_k2", fsoc_v
           plot.title = element_text(face = "bold"), plot.subtitle = element_text(size = 10)) +
     labs(x = expression("Medullary FSOC (s"^-1*")"),
          y = expression("Cortical K2 - TCA Metabolism (s"^-1*")"),
-         title = "K2 vs FSOC Phenotype Classification",
-         subtitle = paste0("Cutoffs: Lean Control mean ± ", n_sd, " SD\n",
-                           "K2 cutoff: ", round(k2_cut, 4), " | FSOC cutoff: ", round(fsoc_cut, 2), "\n",
-                           "Discordant: ", n_disc, "/", n_total, " (", round(100*n_disc/n_total, 1), "%)"),
-         caption = "Blue dotted lines = Lean Control means; Red dashed lines = cutoffs")
+         title = "K2 vs FSOC Phenotype Classification")
   
   return(p)
 }
