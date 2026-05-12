@@ -4114,6 +4114,7 @@ plot_treatment_heatmap <- function(data,
       legend.title = element_text(hjust = 0.5, size = 10),
       axis.text.x = element_text(angle = 60, hjust = 1), 
       axis.text.y = element_markdown(face = "bold"),
+      axis.text.y.right = element_markdown(face = "bold", hjust = 0),
       plot.caption = element_text(size = 18, hjust = 0.5)
     ) +
     labs(
