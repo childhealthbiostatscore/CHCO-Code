@@ -1,0 +1,411 @@
+---
+title: "ATTEMPT Pathway Visualization"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, echo=F, include = F}
+library(tidyverse)
+library(arsenal)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(readxl)
+library(patchwork)
+library(GGally)
+library(ggpattern)
+```
+
+
+# try progeny
+
+```{r echo = F}
+pathways <- read_excel("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_placebo_V3.xls", skip = 1) 
+dapa <- read_excel("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_V3.xls", skip = 1) 
+placebo <- read_excel("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_placebo_V3.xls", skip = 1) 
+
+colnames(pathways) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+colnames(dapa) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
+colnames(placebo) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
+
+pathways_merged <- pathways %>%
+  full_join(dapa) %>% full_join(placebo) %>%
+  dplyr::select(pathway, neg_log_p, z, neg_log_p_dapa, z_dapa, neg_log_p_placebo, z_placebo)  %>%
+  mutate(scenario = case_when(
+    (neg_log_p_dapa > -log10(0.05) & z_dapa > 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo > 0) ~ "D+/P+",
+    (neg_log_p_dapa > -log10(0.05) & z_dapa > 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo < 0) ~ "D+/P-",
+    (neg_log_p_dapa > -log10(0.05) & z_dapa > 0) & (neg_log_p_placebo <= -log10(0.05) | z_placebo == 0) ~ "D+/P0",
+    (neg_log_p_dapa > -log10(0.05) & z_dapa < 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo > 0) ~ "D-/P+",
+    (neg_log_p_dapa > -log10(0.05) & z_dapa < 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo < 0) ~ "D-/P-",
+    (neg_log_p_dapa > -log10(0.05) & z_dapa < 0) & (neg_log_p_placebo <= -log10(0.05) | z_placebo == 0) ~ "D-/P0",
+    (neg_log_p_dapa <= -log10(0.05) | z_dapa == 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo > 0) ~ "D0/P+",
+    (neg_log_p_dapa <= -log10(0.05) | z_dapa == 0) & (neg_log_p_placebo > -log10(0.05) & z_placebo < 0) ~ "D0/P-",
+    (neg_log_p_dapa <= -log10(0.05) | z_dapa == 0) & (neg_log_p_placebo <= -log10(0.05) | z_placebo == 0) ~ "NA*",
+    T ~ "NA*"),
+    scenario_2 = case_when(
+      scenario == "D+/P+" & z_placebo < z_dapa ~ "Activated in both, more in D",
+      scenario == "D+/P+" & z_placebo > z_dapa ~ "Activated in both, less in D",
+      scenario %in% c("D+/P-","D+/P0") ~ "Activated in D, stable/inhibited in P",
+      scenario == "D-/P-" & z_placebo < z_dapa ~ "Inhibited in both, less in D",
+      scenario == "D-/P-" & z_placebo > z_dapa ~ "Inhibited in both, more in D",
+      scenario %in% c("D-/P+","D0/P+") ~ "Activated in P, stable/inhibited in D",
+      scenario == "D0/P-" ~ "Stable in D, inhibited in P",
+      scenario == "D-/P0" ~ "Stable in P, inhibited in D"))
+
+pathways_merged$scenario <- factor(pathways_merged$scenario,
+                                   levels = c("D+/P+", "D+/P-","D+/P0",
+                                              "D-/P+","D-/P-", "D-/P0",
+                                              "D0/P+","D0/P-",
+                                              "NA*"))
+pathways_merged$scenario_2 <- factor(pathways_merged$scenario_2,
+                                     levels = c("Activated in D, stable/inhibited in P","Activated in both, more in D",
+                                                "Stable in D, inhibited in P","Inhibited in both, less in D",
+                                                "Activated in P, stable/inhibited in D","Activated in both, less in D",
+                                                "Stable in P, inhibited in D", "Inhibited in both, more in D"))
+
+```
+
+```{r echo = F}
+text1 = 6.5
+text2 = 18
+text3 = 20
+```
+
+## Negative Pathways
+```{r echo = F}
+pathways_negative <- pathways_merged %>%
+  filter(z < 0) %>%
+  arrange(desc(neg_log_p))
+
+pathways_negative$pathway <- reorder(pathways_negative$pathway, pathways_negative$neg_log_p)
+  
+top50_negative <- pathways_negative[1:50,] %>%
+  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
+  geom_point(aes(size = abs(z), color = scenario_2), alpha = 0.8) +
+  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+  geom_text(aes(group = pathway, color = scenario_2), hjust = 0, size = text1, nudge_x = 0.5) +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = text3),
+        axis.title = element_text(size = text3),
+        axis.ticks.y = element_blank(), 
+        legend.position = c(0.9,0.2),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = text2),
+        legend.text = element_text(size = text2),
+        title = element_text (size = text3)) +
+  labs(x = "-log(p-value)",
+       y = "Pathways",
+       color = "Scenario",
+       size = "Z-score",
+       title = "Top 50 Inhibited Pathways")   +
+  scale_x_continuous(limits = c(0, 60), expand = c(0, 0)) +
+  # scale_color_manual(values=c("D+/P+"="#f08080",
+  #                             "D+/P-"="#f4978e",
+  #                             "D+/P0"="#f8ad9d",
+  #                             "D-/P+"="#01497c",
+  #                             "D-/P-"="#2a6f97",
+  #                             "D-/P0"="#2c7da0",
+  #                             "D0/P+"="#5e548e",
+  #                             "D0/P-"="#9f86c0",
+  #                             "NA*"="#6c757d")) +
+  scale_color_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_y_discrete(expand = expansion(add = 1)) 
+n_pathways_negative <- pathways_negative %>%
+  filter(neg_log_p > -log10(0.05)) %>%
+  nrow()
+negative_scenarios <- as.data.frame(table(pathways_negative$scenario_2))[5:8,] %>%
+  mutate(percent = (Freq / nrow(pathways_negative))*100) %>%
+  ggplot(aes(x = Var1, y = percent, fill = Var1)) + 
+  geom_col() +
+  scale_fill_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_x_discrete(drop = T) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(size = text2,
+                                   angle = 30,
+                                   hjust = 1),
+        axis.ticks.y = element_blank(), 
+        legend.position = "none",
+        text = element_text(size = text3),
+        panel.background = element_rect(color="black")) +
+  labs(y = "Percent",
+       x = NULL,
+       fill = "Scenario") +
+  ylim(c(0,50))
+
+top50_negative + inset_element(negative_scenarios, 
+                               left = 0.45, bottom = 0.01,
+                               right = 0.8, top = 0.6)
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top50_negative_pathways.jpeg",
+       width = 27.5, height = 14, scale = 1)
+
+########## Limited to z < -2
+pathways_negative_sig <- pathways_negative %>%
+  filter(z < -2)
+top50_negative <- pathways_negative_sig[1:50,] %>%
+  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
+  geom_point(aes(size = abs(z), color = scenario_2), alpha = 0.8) +
+  scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+  geom_text(aes(group = pathway, color = scenario_2), hjust = 0, size = text1, nudge_x = 0.5) +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = text3),
+        axis.title = element_text(size = text3),
+        axis.ticks.y = element_blank(), 
+        legend.position = c(0.9,0.2),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = text2),
+        legend.text = element_text(size = text2),
+        title = element_text (size = text3)) +
+  labs(x = "-log(p-value)",
+       y = "Pathways",
+       color = "Scenario",
+       size = "Z-score",
+       title = "Top 50 Inhibited Pathways")   +
+  scale_x_continuous(limits = c(0, 60), expand = c(0, 0)) +
+  scale_color_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_y_discrete(expand = expansion(add = 1)) 
+
+top50_negative + inset_element(negative_scenarios, 
+                               left = 0.45, bottom = 0.01,
+                               right = 0.80, top = 0.6)
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top50_negative_pathways_2.jpeg",
+       width = 27.5, height = 14, scale = 1)
+```
+
+## Positive Pathways
+```{r echo = F}
+pathways_positive <- pathways_merged %>%
+  filter(z > 0) %>%
+  arrange(desc(neg_log_p)) 
+
+pathways_positive$pathway <- reorder(pathways_positive$pathway, pathways_positive$neg_log_p)
+  
+top50_positive <- pathways_positive[1:50,] %>%
+  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
+  geom_point(aes(size = z, color = scenario_2), alpha = 0.8) +
+  scale_size_continuous(range = c(0,10)) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+  geom_text(aes(group = pathway, color = scenario_2), hjust = 0, size = text1, nudge_x = 0.5) +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = text3),
+        axis.title = element_text(size = text3),
+        axis.ticks.y = element_blank(), 
+        legend.position = c(0.9,0.2),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = text2),
+        legend.text = element_text(size = text2),
+        title = element_text (size = text3)) +
+  labs(x = "-log(p-value)",
+       y = "Pathways",
+       color = "Scenario",
+       size = "Z-score",
+       title = "Top 50 Activated Pathways")   +
+  scale_x_continuous(limits = c(0, 40), expand = c(0, 0)) +
+  scale_color_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_y_discrete(expand = expansion(add = 1)) 
+
+n_pathways_positive <- pathways_positive %>%
+  filter(neg_log_p > -log10(0.05)) %>%
+  nrow()
+positive_scenarios <- as.data.frame(table(pathways_positive$scenario_2))[1:4,] %>%
+  mutate(percent = (Freq / nrow(pathways_positive))*100) %>%
+  ggplot(aes(x = Var1, y = percent, fill = Var1)) + 
+  geom_col() +
+  scale_fill_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_x_discrete(drop = T) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(size = text2,
+                                   angle = 30,
+                                   hjust = 1),
+        axis.ticks.y = element_blank(), 
+        legend.position = "none",
+        text = element_text(size = text3),
+        panel.background = element_rect(color="black")) +
+  labs(y = "Percent",
+       x = NULL,
+       fill = "Scenario") +
+  ylim(c(0,50))
+
+top50_positive + inset_element(positive_scenarios, 
+                               left = 0.45, bottom = 0.01,
+                               right = 0.8, top = 0.6)
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top50_positive_pathways.jpeg",
+       width = 27.5, height = 14, scale = 1)
+
+
+
+########## Limited to z > 2
+pathways_positive_sig <- pathways_positive %>%
+  filter(z > 2)
+top50_positive <- pathways_positive_sig[1:50,] %>%
+  ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
+  geom_point(aes(size = z, color = scenario_2), alpha = 0.8) +
+  scale_size(range = c(0,10)) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+  geom_text(aes(group = pathway, color = scenario_2), hjust = 0, size = text1, nudge_x = 0.5) +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = text3),
+        axis.title = element_text(size = text3),
+        axis.ticks.y = element_blank(), 
+        legend.position = c(0.9,0.2),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = text2),
+        legend.text = element_text(size = text2),
+        title = element_text (size = text3)) +
+  labs(x = "-log(p-value)",
+       y = "Pathways",
+       color = "Scenario",
+       size = "Z-score",
+       title = "Top 50 Activated Pathways")   +
+  scale_x_continuous(limits = c(0, 40), expand = c(0, 0)) +
+  scale_color_manual(values = c("Activated in D, stable/inhibited in P" = "#81171b",
+                                "Activated in both, more in D" = "#ad2e24",
+                                "Stable in D, inhibited in P" = "#c75146",
+                                "Inhibited in both, less in D" = "#ea8c55",
+                                "Activated in P, stable/inhibited in D" = "#1d3461",
+                                "Activated in both, less in D" = "#004ba8",
+                                "Stable in P, inhibited in D" = "#2c7da0", 
+                                "Inhibited in both, more in D" = "#22aed1")) +
+  scale_y_discrete(expand = expansion(add = 1)) 
+
+top50_positive + inset_element(positive_scenarios, 
+                               left = 0.45, bottom = 0.01,
+                               right = 0.8, top = 0.6)
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top50_positive_pathways_2.jpeg",
+       width = 27.5, height = 14, scale = 1)
+```
+
+
+```{r echo = F}
+# z-scores in bar charts
+neg_pathways_merged_long <- pathways_merged %>% 
+  filter(z < 0) %>%
+  head(10) %>%
+  pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
+  mutate(name = case_when(name == "z" ~ "DiD",
+                          name == "z_dapa" ~ "Dapagliflozin",
+                          name == "z_placebo" ~ "Placebo"),
+         w = case_when(name == "DiD" ~ 0.5,
+                       name == "Dapagliflozin" ~ 0.3,
+                       name == "Placebo" ~ 0.3),
+         a = case_when(name == "DiD" ~ 0.7,
+                       name == "Dapagliflozin" ~ 0.8,
+                       name == "Placebo" ~ 0.8))
+neg_pathways_merged_long$name <- factor(neg_pathways_merged_long$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+
+neg_pathways_merged_long %>%
+  mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
+  ggplot(aes(x = pathway, y = value, fill = name)) +
+  geom_bar(stat = "identity", position = "identity",
+           aes(width=w, alpha = a)) +
+  scale_alpha_continuous(range = c(0.7, 0.8)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        panel.grid = element_blank()) +
+  scale_fill_manual(values = c("Placebo" = "#f28482",
+                               "Dapagliflozin" = "#669bbc",
+                               "DiD" = "#bb8588")) +
+  labs(y = "Z-score",
+      x = NULL,
+      fill = "Treatment",
+      title = "Top 10 Inhibited Pathways") +
+  guides(alpha = "none")
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top10_neg_pathway_zscores.jpeg",
+       scale = 1)
+
+pos_pathways_merged_long <- pathways_merged %>% 
+  filter(z > 0) %>%
+  head(10) %>%
+  pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
+  mutate(name = case_when(name == "z" ~ "DiD",
+                          name == "z_dapa" ~ "Dapagliflozin",
+                          name == "z_placebo" ~ "Placebo"),
+         w = case_when(name == "DiD" ~ 0.5,
+                       name == "Dapagliflozin" ~ 0.3,
+                       name == "Placebo" ~ 0.3),
+         a = case_when(name == "DiD" ~ 0.7,
+                       name == "Dapagliflozin" ~ 0.8,
+                       name == "Placebo" ~ 0.8))
+pos_pathways_merged_long$name <- factor(pos_pathways_merged_long$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+
+pos_pathways_merged_long
+pos_pathways_merged_long %>%
+  mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
+  ggplot(aes(x = pathway, y = value, fill = name)) +
+  geom_bar(stat = "identity", position = "identity",
+           aes(width=w, alpha = a)) +
+  scale_alpha_continuous(range = c(0.7, 0.8)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        panel.grid = element_blank()) +
+  scale_fill_manual(values = c("Placebo" = "#f28482",
+                               "Dapagliflozin" = "#669bbc",
+                               "DiD" = "#bb8588")) +
+  labs(y = "Z-score",
+      x = NULL,
+      fill = "Treatment",
+      title = "Top 10 Activated Pathways") +
+  guides(alpha = "none")
+ggsave("/Volumes/Peds Endo/Petter Bjornstad/ATTEMPT/Results/top10_pos_pathway_zscores.jpeg",
+       scale = 1)
+
+
+```

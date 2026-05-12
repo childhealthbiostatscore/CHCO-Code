@@ -1,0 +1,1510 @@
+---
+title: "ATTEMPT scRNA other cell type analysis"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+```{r libraries, message = F, warning=F}
+#| include: false
+library(SomaPlotr)
+library(Seurat)
+library(future)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(ReactomeGSA)
+library(GSEABase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(slingshot); library(SingleCellExperiment)
+library(REDCapR)
+library(edgeR)
+library(data.table)
+library(MAST)
+library(limma)      # For linear modeling of microarray and RNA-seq data
+library(muscat)
+library(scater)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(ideas)
+library(SAVER)
+library(readxl)
+```
+
+```{r echo = F, include = F}
+# Load dictionary function and file
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/CROCODILE/crocodile_functions.R")
+dat <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_clinical_data.RDS")
+
+```
+
+### TAL
+
+```{r load-data, echo = F, include = F}
+so_attempt_tal <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_tal.RDS")
+sce_attempt_tal <- as.SingleCellExperiment(so_attempt_tal)
+sce_attempt_tal$id <- paste0(sce_attempt_tal$visit, sce_attempt_tal$subject_id)
+# remove undetected genes
+sce_attempt_tal <- sce_attempt_tal[rowSums(counts(sce_attempt_tal) > 0) > 0, ]
+dim(sce_attempt_tal)
+qc <- perCellQCMetrics(sce_attempt_tal)
+# remove cells with few detected genes
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce_attempt_tal <- sce_attempt_tal[, !ol]
+dim(sce_attempt_tal)
+# remove lowly expressed genes
+sce_attempt_tal <- sce_attempt_tal[rowSums(counts(sce_attempt_tal) > 1) >= 10, ]
+dim(sce_attempt_tal)
+# compute sum-factors & normalize
+sce_attempt_tal <- computeLibraryFactors(sce_attempt_tal)
+sce_attempt_tal <- logNormCounts(sce_attempt_tal)
+
+sca_attempt_tal <- SceToSingleCellAssay(sce_attempt_tal)
+all_data <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_pb.RDS") %>%
+  arrange(treatment, visit)
+gene_names <- rownames(so_attempt_tal)
+
+```
+
+#### MAST (interaction and subject_id as random effect)
+
+```{r echo = F}
+zlm_res1_subj <- zlm(~ treatment*visit + (1|subject_id), 
+                     sca_attempt_tal, method = "glmer", ebayes = F,
+                     fitArgsD = list(nAGQ = 0))
+summary_res1_subj <- summary(zlm_res1_subj, doLRT = "treatmentDapagliflozin:visitPOST")
+show(zlm_res1_subj)
+summary_res1_subj$datatable
+
+summary_dt1_subj <- summary_res1_subj$datatable
+
+# write.csv(summary_dt1_subj, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/MAST_output_example.csv",
+#          row.names = F)
+
+
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# load("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+```
+
+```{r echo = F}
+# no MT
+summary_dt1_subj_nomt <- summary_dt1_subj %>%
+  filter(!startsWith(primerid, "MT"))
+
+fcHurdle <- merge(summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+# write.csv(m, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_interaction_output.csv", row.names = F)
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+
+```
+
+
+```{r echo = F}
+# # GSEA using bootstrap
+# boots <- bootVcov1(zlm_res1_subj, R = 1)
+# boots_5 <- bootVcov1(zlm_res1_subj, R = 5)
+# min_gene_in_module <- 5
+# # save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# 
+# # Get KEGG gene sets for humans
+# kegg_gene_sets <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:KEGG")
+# kegg_list <- split(kegg_gene_sets$gene_symbol, kegg_gene_sets$gs_name)
+# 
+# kegg_sets_indices <- limma::ids2indices(kegg_list, mcols(sca_attempt_tal)$primerid)
+# kegg_sets_indices <- kegg_sets_indices[sapply(kegg_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_kegg <- gseaAfterBoot(zlm_res1_subj, boots_5, kegg_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_kegg <- summary(gsea_kegg, testType='normal')
+# 
+# sigModules_kegg <- z_stat_comb_kegg[combined_adj<.01]
+# gseaTable_kegg <- melt(sigModules_kegg[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_kegg, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+# 
+# # Get GO Biological Processes gene sets for humans
+# go_bp_gene_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP")
+# go_list <- split(go_bp_gene_sets$gene_symbol, go_bp_gene_sets$gs_name)
+# 
+# go_sets_indices <- limma::ids2indices(go_list, mcols(sca_attempt_tal)$primerid)
+# go_sets_indices <- go_sets_indices[sapply(go_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_go <- gseaAfterBoot(zlm_res1_subj, boots_5, go_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_go <- summary(gsea_go, testType='normal')
+# 
+# sigModules_go <- z_stat_comb_go[combined_adj<.01]
+# gseaTable_go <- melt(sigModules_go[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_go, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+``` 
+
+```{r echo = F}
+# pathways
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# negative
+neg_enrich <- enrichr(top_pos$Gene, dbs)
+# positive
+pos_enrich <- enrichr(top_neg$Gene, dbs)
+
+neg_enrich
+pos_enrich
+
+# WriteXLS(c(neg_enrich[1], neg_enrich[2], neg_enrich[3], neg_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_neg_enrich.xls", SheetNames = dbs)
+# WriteXLS(c(pos_enrich[1], pos_enrich[2], pos_enrich[3], pos_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_pos_enrich.xls", SheetNames = dbs)
+```
+
+```{r echo = F}
+# marginal means
+MM_int_subj <- model.matrix(~treatment*visit,unique(colData(sca_attempt_tal)[,c("visit", "treatment"),drop=FALSE]))
+predicted_int_subj <- predict(zlm_res1_subj, modelmatrix=MM_int_subj) %>%
+  arrange(primerid) %>%
+  filter(primerid %in% top_genes$Gene) %>%
+  mutate(mm = case_when(sample == "S-2107-023529-PB_AAACCAAAGTGCTCAA-1_1" ~ "PRE, Dapagliflozin",
+                        sample == "S-2107-023637-PB_AAACCATTCACAGCCG-1_3" ~ "POST, Dapagliflozin",
+                        sample == "S-2107-023682-PB_AAACCAAAGCCACGCA-1_4" ~ "PRE, Placebo",
+                        sample == "S-2203-000892-PB_AAACGAATCCAGGGTT-1_8" ~ "POST, Placebo"))
+
+predicted_int_subj[1:100,] %>%
+  filter(invlogit(etaD)>0.05) %>%
+  ggplot(aes(x=invlogit(etaD),y=muC,xse=seD,yse=seC,col=mm)) +
+  facet_wrap(~primerid,scales="free_y") +
+  theme_linedraw() +
+  geom_point(size=0.5) +
+  scale_x_continuous("Proportion expression") +
+  scale_y_continuous("Estimated Mean") +
+  stat_ell(aes(x=etaD,y=muC),level=0.95, invert='x')
+
+ggplot(predicted_int_subj, aes(x = invlogit(etaD))) +
+  geom_histogram(binwidth = 0.01, fill = "steelblue", color = "black") +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(title = "Distribution of Expression Probability (invlogit(etaD))",
+       x = "invlogit(etaD)", y = "Count") +
+  theme_minimal()
+
+predicted_int_subj$mm <- factor(predicted_int_subj$mm, 
+                                levels = c("PRE, Placebo", "POST, Placebo",
+                                           "PRE, Dapagliflozin", "POST, Dapagliflozin"))
+predicted_int_subj[1:40,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[41:80,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[81:120,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[121:160,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+predicted_int_subj_wide <- predicted_int_subj %>%
+  dplyr::select(muC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = muC) %>%
+  column_to_rownames("primerid") %>%
+  mutate(dapa_delta = `POST, Dapagliflozin` - `PRE, Dapagliflozin`,
+         placebo_delta = `POST, Placebo` - `PRE, Placebo`,
+         placebo_dapa_delta = placebo_delta - dapa_delta) 
+
+predicted_int_subj_wide_op_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_op_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+pheatmap(predicted_int_subj_wide_op_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_op_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+```
+
+
+```{r echo = F}
+# pathways from marginalized means
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# opposite direction (expected positive)
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+# opposite direction (expected negative)
+exp_op_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_op_neg), dbs)
+# same direction (expected positive)
+exp_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_pos), dbs)
+# same direction (expected negative)
+exp_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_neg), dbs)
+# combined
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+
+exp_op_pos_enrich
+exp_op_neg_enrich
+exp_pos_enrich
+exp_neg_enrich
+
+
+```
+
+```{r echo = F}
+# marginal means differences for IPA
+predicted_int_subj_wide_diff <- predicted_int_subj %>%
+  dplyr::select(muC, seC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = c(muC, seC)) %>%
+  mutate(dapa_diff = `muC_POST, Dapagliflozin` - `muC_PRE, Dapagliflozin`,
+         dapa_se_diff = sqrt(`seC_POST, Dapagliflozin`^2 + `seC_PRE, Dapagliflozin`^2),
+         dapa_z = dapa_diff / dapa_se_diff,
+         dapa_p_value = 2 * (1-pnorm(abs(dapa_z))),
+         dapa_q_value = p.adjust(dapa_p_value, "fdr"),
+         placebo_diff = `muC_POST, Placebo` - `muC_PRE, Placebo`,
+         placebo_se_diff = sqrt(`seC_POST, Placebo`^2 + `seC_PRE, Placebo`^2),
+         placebo_z = placebo_diff / placebo_se_diff,
+         placebo_p_value = 2 * (1-pnorm(abs(placebo_z))),
+         placebo_q_value = p.adjust(placebo_p_value, "fdr"),
+         dapa_placebo_diff = dapa_diff - placebo_diff,
+         dapa_placebo_se = sqrt(dapa_se_diff^2 + placebo_se_diff^2),
+         dapa_placebo_z = dapa_placebo_diff / dapa_placebo_se,
+         dapa_placebo_p_value = 2 * (1-pnorm(abs(dapa_placebo_z))),
+         dapa_placebo_q_value = p.adjust(dapa_placebo_p_value))
+
+mm_delta_long <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, placebo_diff) %>%
+  pivot_longer(
+    cols = matches("^(dapa|placebo)"),
+    names_to = "treatment",
+    names_pattern = "(.*)_diff",
+    values_to = "delta") %>%
+  mutate(treatment = case_when(treatment == "dapa" ~ "Dapagliflozin",
+                               T ~ "Placebo"))
+mm_delta_long$treatment <- factor(mm_delta_long$treatment, levels = c("Placebo",
+                                                          "Dapagliflozin"))
+
+dapa_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, dapa_p_value, dapa_q_value)
+placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, placebo_diff, placebo_p_value, placebo_q_value)
+dapa_placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_placebo_diff, dapa_placebo_p_value, dapa_placebo_q_value)
+
+# checking for the cutoffs for IPA
+sum(abs(dapa_wide_diff$dapa_diff) > .12 & dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+sum(abs(placebo_wide_diff$placebo_diff) > .1 & placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+sum(abs(dapa_placebo_wide_diff$dapa_placebo_diff) > .18 & dapa_placebo_wide_diff$dapa_placebo_q_value < 0.1, na.rm = T)
+
+# sum(dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+# sum(placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+# sum(dapa_placebo_wide_diff$dapa_placebo_q_value < 0.1, na.rm = T)
+
+# save results for input for IPA
+write.csv(dapa_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_mm_tal.csv", row.names = F)
+write.csv(placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_placebo_mm_tal.csv", row.names = F)
+write.csv(dapa_placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_placebo_mm_tal.csv", row.names = F)
+```
+
+#### IPA Pathway results
+```{r echo =F}
+pathways <- read_excel("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_placebo_V3.xls", skip = 1) 
+dapa <- read_excel("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_V3.xls", skip = 1) 
+placebo <- read_excel("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_placebo_V3.xls", skip = 1) 
+colnames(pathways) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+colnames(dapa) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
+colnames(placebo) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
+
+pathways_neg <- pathways %>%
+  filter(z < 0) %>%
+  arrange(desc(neg_log_p))
+pathways_pos <- pathways %>%
+  filter(z > 0) %>%
+  arrange(desc(neg_log_p))
+
+# obtain top 100 pathway gene sets in each direction 
+pathways_genes_pos <- list()
+pathways_genes_neg <- list()
+
+for (i in 1:100) {
+  pathways_genes_pos[[i]] <- unlist(strsplit(pathways_pos[i, ]$genes, split = ","))
+  pathways_genes_neg[[i]] <- unlist(strsplit(pathways_neg[i, ]$genes, split = ","))
+}
+
+pathways_long <- predicted_int_subj_wide_diff %>%
+  dplyr::select(1:9) %>%
+  pivot_longer(
+    cols = matches("^(muC|seC)"),
+    names_to = c(".value", "grp"),
+    names_pattern = "^(muC|seC)_(.*)$") %>%
+  mutate(visit = case_when(grepl("PRE", grp) ~ "PRE",
+                               T ~ "POST"),
+         treatment = case_when(grepl("Dapa", grp) ~ "Dapagliflozin",
+                               T ~ "Placebo")) 
+pathways_long$grp <- factor(pathways_long$grp, levels = c("PRE, Placebo",
+                                                          "POST, Placebo",
+                                                          "PRE, Dapagliflozin",
+                                                          "POST, Dapagliflozin"))
+pathways_long$treatment <- factor(pathways_long$treatment, levels = c("Placebo",
+                                                          "Dapagliflozin"))
+pathways_long$visit <- factor(pathways_long$visit, levels = c("PRE",
+                                                          "POST"))
+
+# Function to plot delta values for a specified pathway index
+plot_pathway_genes <- function(index, mm_delta_long, pathways_genes, pathways_metadata, title_color = "black") {
+  # Generate the plot
+  p <- mm_delta_long %>%
+    filter(primerid %in% pathways_genes[[index]]) %>%
+    ggplot(aes(x = primerid, y = delta, fill = treatment)) +
+    geom_bar(stat = "identity", position = "identity", alpha = 0.8) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 8),
+          panel.grid = element_blank(),
+          plot.title = element_text(color = title_color),
+          text = element_text(size = 12),
+          legend.position = c(0.92, 0.12)) +
+    labs(x = NULL,
+         y = "Delta (Post - Pre)",
+         fill = NULL,
+         title = pathways_metadata[index, ]$pathway) +
+    scale_fill_manual(values = c("Placebo" = "#df7373",
+                                 "Dapagliflozin" = "#3e7cb1")) +
+    ylim(c(-0.8, 0.8))
+  
+  # Return the plot
+  return(p)
+}
+```
+
+```{r echo = F}
+pathways_neg1 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_neg[[1]])
+pathways_neg2 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_neg[[2]])
+pathways_neg3 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_neg[[3]])
+pathways_neg4 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_neg[[4]])
+pathways_neg5 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_neg[[5]])
+
+pathways_neg1 %>%
+  ggplot(aes(x = muC, y = primerid, color = grp, shape = visit)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal() +
+  scale_color_manual(values = c("POST, Dapagliflozin" = "#006d77",
+                                "PRE, Dapagliflozin" = "#83c5be",
+                                "POST, Placebo" = "#f08080",
+                                "PRE, Placebo" = "#f4978e"))
+
+pathways_neg1 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+pathways_neg2 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+pathways_neg3 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+
+
+# top 5 inhibited pathways
+neg1 <- plot_pathway_genes(1, mm_delta_long, pathways_genes_neg, pathways_neg, "#2c7da0")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/neg1_geneset_tal.jpeg", neg1, scale = 1, width = 12, height = 5)
+neg2 <- plot_pathway_genes(2, mm_delta_long, pathways_genes_neg, pathways_neg, "#2c7da0")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/neg2_geneset_tal.jpeg", neg2, scale = 1, width = 12, height = 5)
+neg3 <- plot_pathway_genes(3, mm_delta_long, pathways_genes_neg, pathways_neg, "#2c7da0")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/neg3_geneset_tal.jpeg", neg3, scale = 1, width = 12, height = 5)
+neg4 <- plot_pathway_genes(4, mm_delta_long, pathways_genes_neg, pathways_neg, "#2c7da0")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/neg4_geneset_tal.jpeg", neg4, scale = 1, width = 12, height = 5)
+neg5 <- plot_pathway_genes(5, mm_delta_long, pathways_genes_neg, pathways_neg, "#2c7da0")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/neg5_geneset_tal.jpeg", neg5, scale = 1, width = 12, height = 5)
+
+# top 5 activated pathways
+pos1 <- plot_pathway_genes(1, mm_delta_long, pathways_genes_pos, pathways_pos, "#c75146")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/pos1_geneset_tal.jpeg", pos1, scale = 1, width = 12, height = 5)
+pos2 <- plot_pathway_genes(2, mm_delta_long, pathways_genes_pos, pathways_pos, "#c75146")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/pos2_geneset_tal.jpeg", pos2, scale = 1, width = 12, height = 5)
+pos3 <- plot_pathway_genes(3, mm_delta_long, pathways_genes_pos, pathways_pos, "#c75146")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/pos3_geneset_tal.jpeg", pos3, scale = 1, width = 12, height = 5)
+pos4 <- plot_pathway_genes(4, mm_delta_long, pathways_genes_pos, pathways_pos, "#c75146")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/pos4_geneset_tal.jpeg", pos4, scale = 1, width = 12, height = 5)
+pos5 <- plot_pathway_genes(5, mm_delta_long, pathways_genes_pos, pathways_pos, "#c75146")
+ggsave("/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/pos5_geneset_tal.jpeg", pos5, scale = 1, width = 12, height = 5)
+
+```
+
+```{r echo = F}
+pathways_pos1 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_pos1)
+pathways_pos2 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_pos2)
+pathways_pos3 <- pathways_long %>%
+  filter(primerid %in% pathways_genes_pos3)
+
+pathways_pos1 %>%
+  ggplot(aes(x = muC, y = primerid, color = grp, shape = visit)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal() +
+  scale_color_manual(values = c("POST, Dapagliflozin" = "#006d77",
+                                "PRE, Dapagliflozin" = "#83c5be",
+                                "POST, Placebo" = "#f08080",
+                                "PRE, Placebo" = "#f4978e"))
+
+pathways_pos1 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+pathways_pos2 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+pathways_pos3 %>%
+  ggplot(aes(x = visit, y = muC, group = paste0(primerid,treatment), color = treatment)) + 
+  geom_line(alpha = 0.7) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  labs(color = "Treatment",
+       x = "Visit") +
+  scale_color_manual(values = c("Placebo" = "#e5989b",
+                                "Dapagliflozin" = "#33658a"))
+```
+
+### POD
+
+```{r load-data, echo = F, include = F}
+so_attempt_pod <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pod.RDS")
+sce_attempt_pod <- as.SingleCellExperiment(so_attempt_pod)
+sce_attempt_pod$id <- paste0(sce_attempt_pod$visit, sce_attempt_pod$subject_id)
+# remove undetected genes
+sce_attempt_pod <- sce_attempt_pod[rowSums(counts(sce_attempt_pod) > 0) > 0, ]
+dim(sce_attempt_pod)
+qc <- perCellQCMetrics(sce_attempt_pod)
+# remove cells with few detected genes
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce_attempt_pod <- sce_attempt_pod[, !ol]
+dim(sce_attempt_pod)
+# remove lowly expressed genes
+sce_attempt_pod <- sce_attempt_pod[rowSums(counts(sce_attempt_pod) > 1) >= 10, ]
+dim(sce_attempt_pod)
+# compute sum-factors & normalize
+sce_attempt_pod <- computeLibraryFactors(sce_attempt_pod)
+sce_attempt_pod <- logNormCounts(sce_attempt_pod)
+sca_attempt_pod <- SceToSingleCellAssay(sce_attempt_pod)
+gene_names <- rownames(so_attempt_pod)
+
+```
+
+#### MAST (interaction and subject_id as random effect)
+
+```{r echo = F}
+zlm_res1_subj <- zlm(~ treatment*visit + (1|subject_id), 
+                     sca_attempt_pod, method = "glmer", ebayes = F,
+                     fitArgsD = list(nAGQ = 0))
+summary_res1_subj <- summary(zlm_res1_subj, doLRT = "treatmentDapagliflozin:visitPOST")
+show(zlm_res1_subj)
+summary_res1_subj$datatable
+
+summary_dt1_subj <- summary_res1_subj$datatable
+
+# write.csv(summary_dt1_subj, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/MAST_output_example.csv",
+#          row.names = F)
+
+
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# load("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+```
+
+```{r echo = F}
+# no MT
+summary_dt1_subj_nomt <- summary_dt1_subj %>%
+  filter(!startsWith(primerid, "MT"))
+
+fcHurdle <- merge(summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+# write.csv(m, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_interaction_output.csv", row.names = F)
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+
+```
+
+
+```{r echo = F}
+# # GSEA using bootstrap
+# boots <- bootVcov1(zlm_res1_subj, R = 1)
+# boots_5 <- bootVcov1(zlm_res1_subj, R = 5)
+# min_gene_in_module <- 5
+# # save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# 
+# # Get KEGG gene sets for humans
+# kegg_gene_sets <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:KEGG")
+# kegg_list <- split(kegg_gene_sets$gene_symbol, kegg_gene_sets$gs_name)
+# 
+# kegg_sets_indices <- limma::ids2indices(kegg_list, mcols(sca_attempt_pod)$primerid)
+# kegg_sets_indices <- kegg_sets_indices[sapply(kegg_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_kegg <- gseaAfterBoot(zlm_res1_subj, boots_5, kegg_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_kegg <- summary(gsea_kegg, testType='normal')
+# 
+# sigModules_kegg <- z_stat_comb_kegg[combined_adj<.01]
+# gseaTable_kegg <- melt(sigModules_kegg[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_kegg, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+# 
+# # Get GO Biological Processes gene sets for humans
+# go_bp_gene_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP")
+# go_list <- split(go_bp_gene_sets$gene_symbol, go_bp_gene_sets$gs_name)
+# 
+# go_sets_indices <- limma::ids2indices(go_list, mcols(sca_attempt_pod)$primerid)
+# go_sets_indices <- go_sets_indices[sapply(go_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_go <- gseaAfterBoot(zlm_res1_subj, boots_5, go_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_go <- summary(gsea_go, testType='normal')
+# 
+# sigModules_go <- z_stat_comb_go[combined_adj<.01]
+# gseaTable_go <- melt(sigModules_go[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_go, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+``` 
+
+```{r echo = F}
+# pathways
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# negative
+neg_enrich <- enrichr(top_pos$Gene, dbs)
+# positive
+pos_enrich <- enrichr(top_neg$Gene, dbs)
+
+neg_enrich
+pos_enrich
+
+# WriteXLS(c(neg_enrich[1], neg_enrich[2], neg_enrich[3], neg_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_neg_enrich.xls", SheetNames = dbs)
+# WriteXLS(c(pos_enrich[1], pos_enrich[2], pos_enrich[3], pos_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_pos_enrich.xls", SheetNames = dbs)
+```
+
+```{r echo = F}
+# marginal means
+MM_int_subj <- model.matrix(~treatment*visit,unique(colData(sca_attempt_pod)[,c("visit", "treatment"),drop=FALSE]))
+predicted_int_subj <- predict(zlm_res1_subj, modelmatrix=MM_int_subj) %>%
+  arrange(primerid) %>%
+  filter(primerid %in% top_genes$Gene) %>%
+  mutate(mm = case_when(sample == "S-2107-023529-PB_AAAGCTAAGCTGGTAC-1_1" ~ "PRE, Dapagliflozin",
+                        sample == "S-2107-023637-PB_AAACGTAAGCGAACGA-1_3" ~ "POST, Dapagliflozin",
+                        sample == "S-2107-023682-PB_CAACTCCCACAAGGCC-1_4" ~ "PRE, Placebo",
+                        sample == "S-2203-000892-PB_AACGGATAGGATACTT-1_8" ~ "POST, Placebo"))
+
+predicted_int_subj[1:100,] %>%
+  filter(invlogit(etaD)>0.05) %>%
+  ggplot(aes(x=invlogit(etaD),y=muC,xse=seD,yse=seC,col=mm)) +
+  facet_wrap(~primerid,scales="free_y") +
+  theme_linedraw() +
+  geom_point(size=0.5) +
+  scale_x_continuous("Proportion expression") +
+  scale_y_continuous("Estimated Mean") +
+  stat_ell(aes(x=etaD,y=muC),level=0.95, invert='x')
+
+ggplot(predicted_int_subj, aes(x = invlogit(etaD))) +
+  geom_histogram(binwidth = 0.01, fill = "steelblue", color = "black") +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(title = "Distribution of Expression Probability (invlogit(etaD))",
+       x = "invlogit(etaD)", y = "Count") +
+  theme_minimal()
+
+predicted_int_subj$mm <- factor(predicted_int_subj$mm, 
+                                levels = c("PRE, Placebo", "POST, Placebo",
+                                           "PRE, Dapagliflozin", "POST, Dapagliflozin"))
+predicted_int_subj[1:40,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[41:80,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[81:120,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[121:160,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+predicted_int_subj_wide <- predicted_int_subj %>%
+  dplyr::select(muC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = muC) %>%
+  column_to_rownames("primerid") %>%
+  mutate(dapa_delta = `POST, Dapagliflozin` - `PRE, Dapagliflozin`,
+         placebo_delta = `POST, Placebo` - `PRE, Placebo`,
+         placebo_dapa_delta = placebo_delta - dapa_delta) 
+
+predicted_int_subj_wide_op_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_op_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+pheatmap(predicted_int_subj_wide_op_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_op_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+```
+
+
+```{r echo = F}
+# pathways from marginalized means
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# opposite direction (expected positive)
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+# opposite direction (expected negative)
+exp_op_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_op_neg), dbs)
+# same direction (expected positive)
+exp_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_pos), dbs)
+# same direction (expected negative)
+exp_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_neg), dbs)
+# combined
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+
+exp_op_pos_enrich
+exp_op_neg_enrich
+exp_pos_enrich
+exp_neg_enrich
+
+
+```
+
+```{r echo = F}
+# marginal means differences for IPA
+predicted_int_subj_wide_diff <- predicted_int_subj %>%
+  dplyr::select(muC, seC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = c(muC, seC)) %>%
+  mutate(dapa_diff = `muC_POST, Dapagliflozin` - `muC_PRE, Dapagliflozin`,
+         dapa_se_diff = sqrt(`seC_POST, Dapagliflozin`^2 + `seC_PRE, Dapagliflozin`^2),
+         dapa_z = dapa_diff / dapa_se_diff,
+         dapa_p_value = 2 * (1-pnorm(abs(dapa_z))),
+         dapa_q_value = p.adjust(dapa_p_value, "fdr"),
+         placebo_diff = `muC_POST, Placebo` - `muC_PRE, Placebo`,
+         placebo_se_diff = sqrt(`seC_POST, Placebo`^2 + `seC_PRE, Placebo`^2),
+         placebo_z = placebo_diff / placebo_se_diff,
+         placebo_p_value = 2 * (1-pnorm(abs(placebo_z))),
+         placebo_q_value = p.adjust(placebo_p_value, "fdr"),
+         dapa_placebo_diff = dapa_diff - placebo_diff,
+         dapa_placebo_se = sqrt(dapa_se_diff^2 + placebo_se_diff^2),
+         dapa_placebo_z = dapa_placebo_diff / dapa_placebo_se,
+         dapa_placebo_p_value = 2 * (1-pnorm(abs(dapa_placebo_z))),
+         dapa_placebo_q_value = p.adjust(dapa_placebo_p_value))
+
+mm_delta_long <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, placebo_diff) %>%
+  pivot_longer(
+    cols = matches("^(dapa|placebo)"),
+    names_to = "treatment",
+    names_pattern = "(.*)_diff",
+    values_to = "delta") %>%
+  mutate(treatment = case_when(treatment == "dapa" ~ "Dapagliflozin",
+                               T ~ "Placebo"))
+mm_delta_long$treatment <- factor(mm_delta_long$treatment, levels = c("Placebo",
+                                                          "Dapagliflozin"))
+
+dapa_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, dapa_p_value, dapa_q_value)
+placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, placebo_diff, placebo_p_value, placebo_q_value)
+dapa_placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_placebo_diff, dapa_placebo_p_value, dapa_placebo_q_value)
+
+# checking for the cutoffs for IPA
+# sum(abs(dapa_wide_diff$dapa_diff) > .12 & dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+# sum(abs(placebo_wide_diff$placebo_diff) > .1 & placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+# sum(abs(dapa_placebo_wide_diff$dapa_placebo_diff) > .18 & dapa_placebo_wide_diff$dapa_placebo_q_value < 0.1, na.rm = T)
+
+sum(dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+sum(placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+sum(dapa_placebo_wide_diff$dapa_placebo_q_value < 1, na.rm = T)
+
+# save results for input for IPA
+write.csv(dapa_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_mm_pod.csv", row.names = F)
+write.csv(placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_placebo_mm_pod.csv", row.names = F)
+write.csv(dapa_placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_placebo_mm_pod.csv", row.names = F)
+
+# too few genes (161) for IPA analysis in POD
+```
+
+### EC
+
+```{r load-data, echo = F, include = F}
+so_attempt_ec <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_ec.RDS")
+sce_attempt_ec <- as.SingleCellExperiment(so_attempt_ec)
+sce_attempt_ec$id <- paste0(sce_attempt_ec$visit, sce_attempt_ec$subject_id)
+# remove undetected genes
+sce_attempt_ec <- sce_attempt_ec[rowSums(counts(sce_attempt_ec) > 0) > 0, ]
+dim(sce_attempt_ec)
+qc <- perCellQCMetrics(sce_attempt_ec)
+# remove cells with few detected genes
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce_attempt_ec <- sce_attempt_ec[, !ol]
+dim(sce_attempt_ec)
+# remove lowly expressed genes
+sce_attempt_ec <- sce_attempt_ec[rowSums(counts(sce_attempt_ec) > 1) >= 10, ]
+dim(sce_attempt_ec)
+# compute sum-factors & normalize
+sce_attempt_ec <- computeLibraryFactors(sce_attempt_ec)
+sce_attempt_ec <- logNormCounts(sce_attempt_ec)
+sca_attempt_ec <- SceToSingleCellAssay(sce_attempt_ec)
+gene_names <- rownames(so_attempt_ec)
+
+```
+
+#### MAST (interaction and subject_id as random effect)
+
+```{r echo = F}
+zlm_res1_subj <- zlm(~ treatment*visit + (1|subject_id), 
+                     sca_attempt_ec, method = "glmer", ebayes = F,
+                     fitArgsD = list(nAGQ = 0))
+summary_res1_subj <- summary(zlm_res1_subj, doLRT = "treatmentDapagliflozin:visitPOST")
+show(zlm_res1_subj)
+summary_res1_subj$datatable
+
+summary_dt1_subj <- summary_res1_subj$datatable
+
+# write.csv(summary_dt1_subj, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/MAST_output_example.csv",
+#          row.names = F)
+
+
+save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# load("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+```
+
+```{r echo = F}
+#Format results for barchart
+fcHurdle <- merge(summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+```
+
+```{r echo = F}
+# no MT
+summary_dt1_subj_nomt <- summary_dt1_subj %>%
+  filter(!startsWith(primerid, "MT"))
+
+fcHurdle <- merge(summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                  summary_dt1_subj_nomt[contrast=='treatmentDapagliflozin:visitPOST' & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+fcHurdle[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+m <- fcHurdle[,c("primerid","coef","fdr")]
+# write.csv(m, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_interaction_output.csv", row.names = F)
+
+plotVolcano(m, 
+            FC = coef, 
+            label = primerid,
+            p.value = fdr, 
+            identify = T,
+            fc.cutoff = 0.1,
+            cutoff = 0.05,
+            x.lab = "logFC")
+
+
+top_pos <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef>0) %>% 
+  dplyr::rename(Gene=primerid)
+top_pos <- top_pos[c("Gene","coef","fdr")]
+rownames(top_pos) <- NULL
+top_pos$Direction <- "Positive"
+
+top_neg <- as.data.frame(m) %>%
+  filter(fdr<0.05) %>%
+  filter(coef<0) %>% 
+  dplyr::rename(Gene=primerid)
+top_neg$Direction <- "Negative"
+
+top_genes <- bind_rows(top_pos, top_neg) 
+top_genes <- top_genes %>%
+  mutate(Gene = factor(Gene, levels = Gene[order(Direction, coef)])) 
+
+table(top_genes$Direction)
+
+ggplot(top_genes, aes(x = coef, y = Gene, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  labs(x = "logFC", y = "Gene") +
+  scale_fill_manual(values = c("#6a994e", "#bc4749")) +
+  scale_color_manual(values = c("#6a994e", "#bc4749")) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks.y = element_blank())
+
+
+```
+
+
+```{r echo = F}
+# # GSEA using bootstrap
+# boots <- bootVcov1(zlm_res1_subj, R = 1)
+# boots_5 <- bootVcov1(zlm_res1_subj, R = 5)
+# min_gene_in_module <- 5
+# # save.image(file = "/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_workspace_allcelltypes.RData")
+# 
+# # Get KEGG gene sets for humans
+# kegg_gene_sets <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:KEGG")
+# kegg_list <- split(kegg_gene_sets$gene_symbol, kegg_gene_sets$gs_name)
+# 
+# kegg_sets_indices <- limma::ids2indices(kegg_list, mcols(sca_attempt_ec)$primerid)
+# kegg_sets_indices <- kegg_sets_indices[sapply(kegg_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_kegg <- gseaAfterBoot(zlm_res1_subj, boots_5, kegg_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_kegg <- summary(gsea_kegg, testType='normal')
+# 
+# sigModules_kegg <- z_stat_comb_kegg[combined_adj<.01]
+# gseaTable_kegg <- melt(sigModules_kegg[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_kegg, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+# 
+# # Get GO Biological Processes gene sets for humans
+# go_bp_gene_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP")
+# go_list <- split(go_bp_gene_sets$gene_symbol, go_bp_gene_sets$gs_name)
+# 
+# go_sets_indices <- limma::ids2indices(go_list, mcols(sca_attempt_ec)$primerid)
+# go_sets_indices <- go_sets_indices[sapply(go_sets_indices, length) >= min_gene_in_module]
+# 
+# gsea_go <- gseaAfterBoot(zlm_res1_subj, boots_5, go_sets_indices, CoefficientHypothesis("treatmentDapagliflozin:visitPOST")) 
+# z_stat_comb_go <- summary(gsea_go, testType='normal')
+# 
+# sigModules_go <- z_stat_comb_go[combined_adj<.01]
+# gseaTable_go <- melt(sigModules_go[,.(set, disc_Z, cont_Z, combined_Z)], id.vars='set')
+# ggplot(gseaTable_go, aes(y=set, x=variable, fill=value))+geom_raster() + scale_fill_distiller(palette="PiYG")
+``` 
+
+```{r echo = F}
+# pathways
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# negative
+neg_enrich <- enrichr(top_pos$Gene, dbs)
+# positive
+pos_enrich <- enrichr(top_neg$Gene, dbs)
+
+neg_enrich
+pos_enrich
+
+# WriteXLS(c(neg_enrich[1], neg_enrich[2], neg_enrich[3], neg_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_neg_enrich.xls", SheetNames = dbs)
+# WriteXLS(c(pos_enrich[1], pos_enrich[2], pos_enrich[3], pos_enrich[4]), "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/no_mt_interaction_pos_enrich.xls", SheetNames = dbs)
+```
+
+```{r echo = F}
+# marginal means
+MM_int_subj <- model.matrix(~treatment*visit,unique(colData(sca_attempt_ec)[,c("visit", "treatment"),drop=FALSE]))
+predicted_int_subj <- predict(zlm_res1_subj, modelmatrix=MM_int_subj) %>%
+  arrange(primerid) %>%
+  filter(primerid %in% top_genes$Gene) %>%
+  mutate(mm = case_when(sample == "S-2107-023529-PB_AAACCCGCACATTCCA-1_1" ~ "PRE, Dapagliflozin",
+                        sample == "S-2107-023637-PB_AAACGTAAGAAGCCTC-1_3" ~ "POST, Dapagliflozin",
+                        sample == "S-2107-023682-PB_AAACCATTCGTACCGG-1_4" ~ "PRE, Placebo",
+                        sample == "S-2203-000892-PB_AAACCATTCCATCACT-1_8" ~ "POST, Placebo"))
+
+predicted_int_subj[1:100,] %>%
+  filter(invlogit(etaD)>0.05) %>%
+  ggplot(aes(x=invlogit(etaD),y=muC,xse=seD,yse=seC,col=mm)) +
+  facet_wrap(~primerid,scales="free_y") +
+  theme_linedraw() +
+  geom_point(size=0.5) +
+  scale_x_continuous("Proportion expression") +
+  scale_y_continuous("Estimated Mean") +
+  stat_ell(aes(x=etaD,y=muC),level=0.95, invert='x')
+
+ggplot(predicted_int_subj, aes(x = invlogit(etaD))) +
+  geom_histogram(binwidth = 0.01, fill = "steelblue", color = "black") +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(title = "Distribution of Expression Probability (invlogit(etaD))",
+       x = "invlogit(etaD)", y = "Count") +
+  theme_minimal()
+
+predicted_int_subj$mm <- factor(predicted_int_subj$mm, 
+                                levels = c("PRE, Placebo", "POST, Placebo",
+                                           "PRE, Dapagliflozin", "POST, Dapagliflozin"))
+predicted_int_subj[1:40,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[41:80,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[81:120,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+predicted_int_subj[121:160,] %>%
+  ggplot(aes(x=primerid, y=muC, col=mm)) +
+  geom_crossbar(aes(ymin = muC-seC, ymax = muC+seC), 
+               position = "dodge") +
+  scale_y_continuous("Estimated Mean") + 
+  scale_color_manual(values = c("PRE, Placebo" = "#fb8500",
+                                "POST, Placebo" = "#ffb703",
+                                "PRE, Dapagliflozin" = "#219ebc",
+                                "POST, Dapagliflozin" = "#8ecae6")) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+predicted_int_subj_wide <- predicted_int_subj %>%
+  dplyr::select(muC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = muC) %>%
+  column_to_rownames("primerid") %>%
+  mutate(dapa_delta = `POST, Dapagliflozin` - `PRE, Dapagliflozin`,
+         placebo_delta = `POST, Placebo` - `PRE, Placebo`,
+         placebo_dapa_delta = placebo_delta - dapa_delta) 
+
+predicted_int_subj_wide_op_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_op_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_pos <- predicted_int_subj_wide %>%
+  filter(dapa_delta > 0 & placebo_delta > 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+predicted_int_subj_wide_neg <- predicted_int_subj_wide %>%
+  filter(dapa_delta < 0 & placebo_delta < 0) %>%
+  arrange(placebo_dapa_delta) %>%
+  dplyr::select(1:4) %>%
+  as.matrix()
+
+pheatmap(predicted_int_subj_wide_op_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_op_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_pos,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+
+pheatmap(predicted_int_subj_wide_neg,
+         cluster_rows = F, cluster_cols = F,
+         border_color = NA, show_rownames = F,
+         scale = "row")
+```
+
+
+```{r echo = F}
+# pathways from marginalized means
+# enrichment analysis
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         "Reactome_2022", "Reactome_Pathways_2024")
+
+# opposite direction (expected positive)
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+# opposite direction (expected negative)
+exp_op_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_op_neg), dbs)
+# same direction (expected positive)
+exp_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_pos), dbs)
+# same direction (expected negative)
+exp_neg_enrich <- enrichr(rownames(predicted_int_subj_wide_neg), dbs)
+# combined
+exp_op_pos_enrich <- enrichr(rownames(predicted_int_subj_wide_op_pos), dbs)
+
+exp_op_pos_enrich
+exp_op_neg_enrich
+exp_pos_enrich
+exp_neg_enrich
+
+
+```
+
+```{r echo = F}
+# marginal means differences for IPA
+predicted_int_subj_wide_diff <- predicted_int_subj %>%
+  dplyr::select(muC, seC, primerid, mm) %>%
+  pivot_wider(names_from = mm,
+              values_from = c(muC, seC)) %>%
+  mutate(dapa_diff = `muC_POST, Dapagliflozin` - `muC_PRE, Dapagliflozin`,
+         dapa_se_diff = sqrt(`seC_POST, Dapagliflozin`^2 + `seC_PRE, Dapagliflozin`^2),
+         dapa_z = dapa_diff / dapa_se_diff,
+         dapa_p_value = 2 * (1-pnorm(abs(dapa_z))),
+         dapa_q_value = p.adjust(dapa_p_value, "fdr"),
+         placebo_diff = `muC_POST, Placebo` - `muC_PRE, Placebo`,
+         placebo_se_diff = sqrt(`seC_POST, Placebo`^2 + `seC_PRE, Placebo`^2),
+         placebo_z = placebo_diff / placebo_se_diff,
+         placebo_p_value = 2 * (1-pnorm(abs(placebo_z))),
+         placebo_q_value = p.adjust(placebo_p_value, "fdr"),
+         dapa_placebo_diff = dapa_diff - placebo_diff,
+         dapa_placebo_se = sqrt(dapa_se_diff^2 + placebo_se_diff^2),
+         dapa_placebo_z = dapa_placebo_diff / dapa_placebo_se,
+         dapa_placebo_p_value = 2 * (1-pnorm(abs(dapa_placebo_z))),
+         dapa_placebo_q_value = p.adjust(dapa_placebo_p_value))
+
+mm_delta_long <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, placebo_diff) %>%
+  pivot_longer(
+    cols = matches("^(dapa|placebo)"),
+    names_to = "treatment",
+    names_pattern = "(.*)_diff",
+    values_to = "delta") %>%
+  mutate(treatment = case_when(treatment == "dapa" ~ "Dapagliflozin",
+                               T ~ "Placebo"))
+mm_delta_long$treatment <- factor(mm_delta_long$treatment, levels = c("Placebo",
+                                                          "Dapagliflozin"))
+
+dapa_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_diff, dapa_p_value, dapa_q_value)
+placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, placebo_diff, placebo_p_value, placebo_q_value)
+dapa_placebo_wide_diff <- predicted_int_subj_wide_diff %>%
+  dplyr::select(primerid, dapa_placebo_diff, dapa_placebo_p_value, dapa_placebo_q_value)
+
+# checking for the cutoffs for IPA
+# sum(abs(dapa_wide_diff$dapa_diff) > .12 & dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+# sum(abs(placebo_wide_diff$placebo_diff) > .1 & placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+# sum(abs(dapa_placebo_wide_diff$dapa_placebo_diff) > .18 & dapa_placebo_wide_diff$dapa_placebo_q_value < 0.1, na.rm = T)
+
+sum(dapa_wide_diff$dapa_q_value < 0.1, na.rm = T)
+sum(placebo_wide_diff$placebo_q_value < 0.1, na.rm = T)
+sum(dapa_placebo_wide_diff$dapa_placebo_q_value < 1, na.rm = T)
+
+# save results for input for IPA
+write.csv(dapa_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_mm_ec.csv", row.names = F)
+write.csv(placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_placebo_mm_ec.csv", row.names = F)
+write.csv(dapa_placebo_wide_diff, "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Results/ATTEMPT_dapa_placebo_mm_ec.csv", row.names = F)
+
+```
+
