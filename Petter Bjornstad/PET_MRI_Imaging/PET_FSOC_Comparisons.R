@@ -246,7 +246,7 @@ plot_pet_by_group <- function(dat, endpoint, label) {
   
   # Calculate unadjusted pairwise comparisons (Wilcoxon)
   stat_test <- dat_plot %>%
-    wilcox_test(as.formula(paste(endpoint, "~ group"))) %>%
+    wilcox_test(as.formula(paste(endpoint, "~ group")), p.adjust.method = 'BH') %>%
     mutate(p_label = case_when(
       p < 0.001 ~ "p<0.001",
       p < 0.01 ~ paste0("p=", formatC(p, format = "f", digits = 3)),
@@ -264,7 +264,6 @@ plot_pet_by_group <- function(dat, endpoint, label) {
     geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
     scale_fill_manual(values = group_colors) +
     labs(title = label,
-         subtitle = "Raw pairwise Wilcoxon p-values printed to console",
          y = label, x = "") +
     theme_bw() +
     theme(
@@ -297,6 +296,25 @@ generate_group_boxplots <- function(dat) {
       plots[[endpoint]] <- result$plot
     }
   }
+  
+  # Add raw p-values above each group if we have them
+  if (!is.null(stat_test) && nrow(stat_test) > 0) {
+    groups_in_plot <- levels(dat_plot$group)
+    for (i in seq_along(groups_in_plot)) {
+      grp <- groups_in_plot[i]
+      p_row <- stat_test %>% filter(group == grp)
+      if (nrow(p_row) > 0) {
+        p <- p + annotate("text", 
+                          x = i, 
+                          y = y_max + 0.08 * y_range,
+                          label = p_row$p_label[1],
+                          size = 2.5)
+      }
+    }
+    # Expand y-axis to fit p-values
+    p <- p + coord_cartesian(ylim = c(y_min - 0.02 * y_range, y_max + 0.18 * y_range))
+  }
+  
   
   # Combine plots
   combined_plot <- cowplot::plot_grid(plotlist = plots, ncol = 3, nrow = 2)
@@ -727,7 +745,7 @@ library(gtsummary)
 library(gt)
 
 demographics <- dat_results %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, diabetes_duration, eGFR_CKD_epi, acr_u, group) %>%
+  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, diabetes_duration, eGFR_CKD_epi, acr_u, group) %>%
   tbl_summary(
     by = group,
     type = list(
