@@ -2013,6 +2013,7 @@ net2 <- run_elastic_net_bootstrap(
 #  seed = 1835
 #)
 ```
+
 ```{r}
 net4 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_Normal_vs_T1D_Obese",
@@ -2048,6 +2049,7 @@ net5 <- run_elastic_net_bootstrap(
   
   seed = 1835)
 ```
+
 #checking which proteins are the most stable across bootstrapping
 ```{r}
 net1_stability_plot <- net1$stability_tbl %>%
@@ -2342,7 +2344,6 @@ get_groups_from_contrast <- function(contrast_name) {
 # Partial correlations setup
 #-----------------------------
 ```{r}
-meta3$avg_k_
 partial_outcomes <- c("HbA1c", "uACR", "BMI", "eGFR","avg_k_r2", "avg_c_r2") #"wthr",
 partial_covars   <- c("age", "sex", "study")
 stopifnot(all(partial_covars %in% names(corr_df)))
@@ -2395,6 +2396,44 @@ get_partial_cor <- function(df, protein, outcome, covars, min_n = 15) {
     covars_used = paste(covars_use, collapse = "+")
   )
 }
+```
+
+```{r}
+run_contrast_partial <- function(contrast_name,         
+                                 corr_df,
+                                 keep_prots,             
+                                 outcomes = partial_outcomes,
+                                 covars   = partial_covars,
+                                 min_n    = 15) {
+  
+  groups <- get_groups_from_contrast(contrast_name)
+
+  df_sub <- corr_df %>%
+    filter(group_bmi %in% c(groups$group1, groups$group2))
+  
+  prots <- intersect(keep_prots, colnames(df_sub))
+  
+  message("---- partial: ", contrast_name, " ----")    
+  message("subset N samples: ",  nrow(df_sub))
+  message("subset N proteins: ", length(prots))
+  
+  if (nrow(df_sub) == 0 || length(prots) == 0) return(NULL)
+  prots <- prots[sapply(df_sub[, prots, drop = FALSE],
+                        function(v) sd(v, na.rm = TRUE) > 0)]
+  if (length(prots) == 0) return(NULL)
+  
+  tidyr::crossing(outcome = outcomes, protein = prots) %>%
+    mutate(stats = purrr::map2(
+      outcome, protein,
+      ~get_partial_cor(df_sub, .y, .x, covars = covars, min_n = min_n)
+    )) %>%
+    tidyr::unnest(stats) %>%
+    mutate(contrast = contrast_name) %>%
+    group_by(contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
 all_partial_results <- purrr::map_dfr(
   contrast_list,
   ~run_contrast_partial(.x, corr_df, sig_prots,
