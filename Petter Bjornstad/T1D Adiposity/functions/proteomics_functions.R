@@ -934,3 +934,355 @@ run_elastic_net <- function(
   )
 }
 
+
+#----------------------------------------
+# Bootstrap elastic net stability selection
+#----------------------------------------
+run_elastic_net_bootstrap <- function(
+    contrast_name,
+    limma_df,
+    meta_df,
+    X_mat,
+    protein2symbol = NULL,
+    group_var = "group_bmi",
+    top_n = 100,
+    sig_only = TRUE,
+    p_cutoff = 0.05,
+    fc_cutoff = 0.5,
+    covars = c("age", "sex"),
+    alpha_grid = seq(0.1, 1, by = 0.1),
+    n_boot = 100,
+    seed = 1835,
+    min_per_class = 5
+) {
+  
+  set.seed(seed)
+  
+  boot_res <- vector("list", n_boot)
+  
+  for (b in seq_len(n_boot)) {
+    
+    cat("\n============================\n")
+    cat("Running contrast:", contrast_name, "\n")
+    
+    contrast_groups <- list(
+      T1D_Normal_vs_LC_Normal = list(
+        positive = "T1D_Normal",
+        negative = "LC_Normal"
+      ),
+      T1D_OverObese_vs_LC_OverObese = list(
+        positive = c("T1D_Overweight", "T1D_Obese"),
+        negative = "LC_Overweight_Obese"
+      ),
+      T1D_Normal_vs_T1D_Overweight = list(
+        positive = "T1D_Normal",
+        negative = "T1D_Overweight"
+      ),
+      T1D_Normal_vs_T1D_Obese = list(
+        positive = "T1D_Normal",
+        negative = "T1D_Obese"
+      ),
+      T1D_Obese_vs_T1D_Overweight = list(
+        positive = "T1D_Obese",
+        negative = "T1D_Overweight"
+      )
+    )
+    
+    if (!contrast_name %in% names(contrast_groups)) {
+      stop("Contrast not found in contrast_groups: ", contrast_name)
+    }
+    
+    g_pos <- contrast_groups[[contrast_name]]$positive
+    g_neg <- contrast_groups[[contrast_name]]$negative
+    
+    
+    meta_sub0 <- meta_df %>%
+      dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg))
+    
+    boot_idx <- unlist(
+      lapply(split(seq_len(nrow(meta_sub0)), meta_sub0[[group_var]]), function(ii) {
+        sample(ii, size = length(ii), replace = TRUE)
+      })
+    )
+    
+    meta_boot <- meta_sub0[boot_idx, , drop = FALSE]
+    meta_boot$record_id_original <- meta_boot$record_id
+    meta_boot$record_id <- paste0(meta_boot$record_id_original, "_boot", seq_len(nrow(meta_boot)))
+    
+    X_boot <- X_mat[meta_boot$record_id_original, , drop = FALSE]
+    rownames(X_boot) <- meta_boot$record_id
+    
+    fit_b <- tryCatch(
+      run_elastic_net(
+        contrast_name = contrast_name,
+        limma_df = limma_df,
+        meta_df = meta_boot,
+        X_mat = X_boot,
+        protein2symbol = protein2symbol,
+        group_var = group_var,
+        top_n = top_n,
+        sig_only = sig_only,
+        p_cutoff = p_cutoff,
+        fc_cutoff = fc_cutoff,
+        covars = covars,
+        alpha_grid = alpha_grid,
+        seed = seed + b,
+        min_per_class = min_per_class
+      ),
+      error = function(e) {
+        message("Bootstrap failed at b = ", b, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    
+    boot_res[[b]] <- fit_b
+  }
+  
+  boot_res <- Filter(Negate(is.null), boot_res)
+  
+  if (length(boot_res) == 0) {
+    stop("All bootstrap elastic net runs failed.")
+  }
+  
+  selected_tbl <- purrr::map_dfr(seq_along(boot_res), function(i) {
+    tibble::tibble(
+      boot = i,
+      contrast = contrast_name,
+      best_alpha = boot_res[[i]]$best_alpha,
+      auc_train = boot_res[[i]]$auc_train,
+      protein_id = unique(boot_res[[i]]$selected_proteins)
+    )
+  }) %>%
+    dplyr::filter(!is.na(protein_id), protein_id != "")
+  
+  stability_tbl <- selected_tbl %>%
+    dplyr::distinct(contrast, boot, protein_id) %>%
+    dplyr::count(contrast, protein_id, name = "n_selected") %>%
+    dplyr::mutate(
+      n_boot_success = length(boot_res),
+      selection_frequency = n_selected / n_boot_success,
+      selection_percent = 100 * selection_frequency
+    )
+  
+  if (!is.null(protein2symbol)) {
+    stability_tbl <- stability_tbl %>%
+      dplyr::left_join(protein2symbol, by = "protein_id")
+  }
+  
+  stability_tbl <- stability_tbl %>%
+    dplyr::arrange(dplyr::desc(selection_frequency))
+  
+  model_summary <- tibble::tibble(
+    contrast = contrast_name,
+    n_boot_requested = n_boot,
+    n_boot_success = length(boot_res),
+    mean_auc = mean(sapply(boot_res, function(x) x$auc_train), na.rm = TRUE),
+    median_auc = median(sapply(boot_res, function(x) x$auc_train), na.rm = TRUE),
+    mean_alpha = mean(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE),
+    median_alpha = median(sapply(boot_res, function(x) x$best_alpha), na.rm = TRUE)
+  )
+  
+  list(
+    contrast = contrast_name,
+    boot_res = boot_res,
+    selected_tbl = selected_tbl,
+    stability_tbl = stability_tbl,
+    model_summary = model_summary
+  )
+}
+
+
+#------------------------------------------
+#correlation function for partial spearmans
+#------------------------------------------
+run_partial_spearman <- function(data,
+                                 proteins,
+                                 outcomes,
+                                 covars = c("age", "sex", "study"),
+                                 analysis_label = "global",
+                                 contrast_name = NA_character_,
+                                 min_n = 15) {
+  
+  proteins <- intersect(proteins, colnames(data))
+  outcomes <- intersect(outcomes, colnames(data))
+  covars   <- intersect(covars, colnames(data))
+  
+  purrr::map_dfr(outcomes, function(outcome_var) {
+    
+    purrr::map_dfr(proteins, function(protein_var) {
+      
+      model_df <- data %>%
+        dplyr::select(all_of(c(outcome_var, protein_var, covars))) %>%
+        drop_na()
+      
+      if (nrow(model_df) < min_n) {
+        return(tibble(
+          analysis = analysis_label,
+          contrast = contrast_name,
+          outcome = outcome_var,
+          protein_id = protein_var,
+          rho = NA_real_,
+          p_value = NA_real_,
+          n = nrow(model_df)
+        ))
+      }
+      
+      # ppcor needs numeric covariates
+      model_df2 <- model_df %>%
+        mutate(
+          across(where(is.factor), as.numeric),
+          across(where(is.character), as.factor),
+          across(where(is.factor), as.numeric)
+        )
+      
+      test <- tryCatch(
+        ppcor::pcor.test(
+          x = model_df2[[protein_var]],
+          y = model_df2[[outcome_var]],
+          z = model_df2[, covars, drop = FALSE],
+          method = "spearman"
+        ),
+        error = function(e) NULL
+      )
+      
+      if (is.null(test)) {
+        return(tibble(
+          analysis = analysis_label,
+          contrast = contrast_name,
+          outcome = outcome_var,
+          protein_id = protein_var,
+          rho = NA_real_,
+          p_value = NA_real_,
+          n = nrow(model_df)
+        ))
+      }
+      
+      tibble(
+        analysis = analysis_label,
+        contrast = contrast_name,
+        outcome = outcome_var,
+        protein_id = protein_var,
+        rho = unname(test$estimate),
+        p_value = test$p.value,
+        n = nrow(model_df)
+      )
+    })
+  }) %>%
+    group_by(analysis, contrast, outcome) %>%
+    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+}
+
+#-----------------------------------------
+#volcano function for correlation results
+#----------------------------------------
+make_partial_cor_volcano <- function(cor_df,
+                                     analysis_name,
+                                     contrast_name,
+                                     outcome_name,
+                                     title_prefix = "Partial Spearman correlations",
+                                     fdr_cutoff = 0.05,
+                                     rho_cutoff = 0,
+                                     label_n = 10) {
+  
+  plot_df <- cor_df %>%
+    filter(
+      analysis == analysis_name,
+      contrast == contrast_name,
+      outcome == outcome_name
+    ) %>%
+    filter(
+      is.finite(rho),
+      is.finite(p_value),
+      is.finite(FDR)
+    ) %>%
+    mutate(
+      neg_log10_fdr = -log10(FDR),
+      sig_group = case_when(
+        FDR < fdr_cutoff & rho > rho_cutoff  ~ "Positive",
+        FDR < fdr_cutoff & rho < -rho_cutoff ~ "Negative",
+        TRUE ~ "Not significant"
+      ),
+      label = if_else(
+        !is.na(gene_symbol) & gene_symbol != "",
+        gene_symbol,
+        protein_id
+      )
+    )
+  
+  n_pos <- sum(plot_df$sig_group == "Positive", na.rm = TRUE)
+  n_neg <- sum(plot_df$sig_group == "Negative", na.rm = TRUE)
+  n_ns  <- sum(plot_df$sig_group == "Not significant", na.rm = TRUE)
+  
+  legend_labs <- c(
+    "Positive" = paste0("Positive (n = ", n_pos, ")"),
+    "Negative" = paste0("Negative (n = ", n_neg, ")"),
+    "Not significant" = paste0("Not significant (n = ", n_ns, ")")
+  )
+  
+  top_labels <- plot_df %>%
+    filter(FDR < fdr_cutoff) %>%
+    arrange(FDR) %>%
+    slice_head(n = label_n)
+  
+  ggplot(plot_df, aes(x = rho, y = neg_log10_fdr)) +
+    geom_point(aes(color = sig_group), alpha = 0.75, size = 2) +
+    geom_vline(xintercept = 0, linetype = "solid", alpha = 0.5) +
+    geom_hline(yintercept = -log10(fdr_cutoff), linetype = "dashed") +
+    ggrepel::geom_text_repel(
+      data = top_labels,
+      aes(label = label),
+      size = 3.5,
+      max.overlaps = Inf
+    ) +
+    scale_color_manual(
+      values = c(
+        "Positive" = "orange3",
+        "Negative" = "purple4",
+        "Not significant" = "grey70"
+      ),
+      labels = legend_labs
+    ) +
+    coord_cartesian(xlim = c(-1, 1)) +
+    labs(
+      title = paste(contrast_name, outcome_name, sep = "\n"),
+      x = "Partial Spearman rho",
+      y = "-log10 FDR",
+      color = NULL
+    ) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+}
+
+
+#----------------------------------------------
+#function for plotting all volcanos for all covariates
+#----------------------------------------------
+make_contrast_volcano_panel <- function(cor_df,
+                                        contrast_name,
+                                        outcomes = partial_outcomes) {
+  
+  plot_list <- purrr::map(
+    outcomes,
+    ~ make_partial_cor_volcano(
+      cor_df = cor_df,
+      analysis_name = "Contrast-specific",
+      contrast_name = contrast_name,
+      outcome_name = .x
+    )
+  )
+  
+  names(plot_list) <- outcomes
+  
+  panel <-
+    (plot_list[["BMI"]] | plot_list[["eGFR"]]) /
+    (plot_list[["avg_c_r2"]] | plot_list[["avg_k_r2"]])/
+    (plot_list[["HbA1c"]] | plot_list[["uACR"]])
+  
+  
+  panel
+}
