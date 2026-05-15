@@ -953,51 +953,54 @@ run_elastic_net_bootstrap <- function(
     alpha_grid = seq(0.1, 1, by = 0.1),
     n_boot = 100,
     seed = 1835,
-    min_per_class = 5
+    min_per_class = 5,
+    verbose = FALSE
 ) {
   
   set.seed(seed)
   
   boot_res <- vector("list", n_boot)
   
+  contrast_groups <- list(
+    T1D_Normal_vs_LC_Normal = list(
+      positive = "T1D_Normal",
+      negative = "LC_Normal"
+    ),
+    T1D_OverObese_vs_LC_OverObese = list(
+      positive = c("T1D_Overweight", "T1D_Obese"),
+      negative = "LC_Overweight_Obese"
+    ),
+    T1D_Normal_vs_T1D_Overweight = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Overweight"
+    ),
+    T1D_Normal_vs_T1D_Obese = list(
+      positive = "T1D_Normal",
+      negative = "T1D_Obese"
+    ),
+    T1D_Obese_vs_T1D_Overweight = list(
+      positive = "T1D_Obese",
+      negative = "T1D_Overweight"
+    )
+  )
+  
+  if (!contrast_name %in% names(contrast_groups)) {
+    stop("Contrast not found in contrast_groups: ", contrast_name)
+  }
+  
+  g_pos <- contrast_groups[[contrast_name]]$positive
+  g_neg <- contrast_groups[[contrast_name]]$negative
+  
+  meta_sub0 <- meta_df %>%
+    dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg))
+  
   for (b in seq_len(n_boot)) {
     
-    cat("\n============================\n")
-    cat("Running contrast:", contrast_name, "\n")
-    
-    contrast_groups <- list(
-      T1D_Normal_vs_LC_Normal = list(
-        positive = "T1D_Normal",
-        negative = "LC_Normal"
-      ),
-      T1D_OverObese_vs_LC_OverObese = list(
-        positive = c("T1D_Overweight", "T1D_Obese"),
-        negative = "LC_Overweight_Obese"
-      ),
-      T1D_Normal_vs_T1D_Overweight = list(
-        positive = "T1D_Normal",
-        negative = "T1D_Overweight"
-      ),
-      T1D_Normal_vs_T1D_Obese = list(
-        positive = "T1D_Normal",
-        negative = "T1D_Obese"
-      ),
-      T1D_Obese_vs_T1D_Overweight = list(
-        positive = "T1D_Obese",
-        negative = "T1D_Overweight"
-      )
-    )
-    
-    if (!contrast_name %in% names(contrast_groups)) {
-      stop("Contrast not found in contrast_groups: ", contrast_name)
+    if (verbose) {
+      cat("\n============================\n")
+      cat("Bootstrap:", b, "of", n_boot, "\n")
+      cat("Running contrast:", contrast_name, "\n")
     }
-    
-    g_pos <- contrast_groups[[contrast_name]]$positive
-    g_neg <- contrast_groups[[contrast_name]]$negative
-    
-    
-    meta_sub0 <- meta_df %>%
-      dplyr::filter(.data[[group_var]] %in% c(g_pos, g_neg))
     
     boot_idx <- unlist(
       lapply(split(seq_len(nrow(meta_sub0)), meta_sub0[[group_var]]), function(ii) {
@@ -1013,24 +1016,57 @@ run_elastic_net_bootstrap <- function(
     rownames(X_boot) <- meta_boot$record_id
     
     fit_b <- tryCatch(
-      run_elastic_net(
-        contrast_name = contrast_name,
-        limma_df = limma_df,
-        meta_df = meta_boot,
-        X_mat = X_boot,
-        protein2symbol = protein2symbol,
-        group_var = group_var,
-        top_n = top_n,
-        sig_only = sig_only,
-        p_cutoff = p_cutoff,
-        fc_cutoff = fc_cutoff,
-        covars = covars,
-        alpha_grid = alpha_grid,
-        seed = seed + b,
-        min_per_class = min_per_class
-      ),
+      {
+        if (verbose) {
+          run_elastic_net(
+            contrast_name = contrast_name,
+            limma_df = limma_df,
+            meta_df = meta_boot,
+            X_mat = X_boot,
+            protein2symbol = protein2symbol,
+            group_var = group_var,
+            top_n = top_n,
+            sig_only = sig_only,
+            p_cutoff = p_cutoff,
+            fc_cutoff = fc_cutoff,
+            covars = covars,
+            alpha_grid = alpha_grid,
+            seed = seed + b,
+            min_per_class = min_per_class
+          )
+        } else {
+          suppressMessages(
+            suppressWarnings(
+              invisible(
+                capture.output(
+                  fit_tmp <- run_elastic_net(
+                    contrast_name = contrast_name,
+                    limma_df = limma_df,
+                    meta_df = meta_boot,
+                    X_mat = X_boot,
+                    protein2symbol = protein2symbol,
+                    group_var = group_var,
+                    top_n = top_n,
+                    sig_only = sig_only,
+                    p_cutoff = p_cutoff,
+                    fc_cutoff = fc_cutoff,
+                    covars = covars,
+                    alpha_grid = alpha_grid,
+                    seed = seed + b,
+                    min_per_class = min_per_class
+                  )
+                )
+              )
+            )
+          )
+          
+          fit_tmp
+        }
+      },
       error = function(e) {
-        message("Bootstrap failed at b = ", b, ": ", conditionMessage(e))
+        if (verbose) {
+          message("Bootstrap failed at b = ", b, ": ", conditionMessage(e))
+        }
         NULL
       }
     )
