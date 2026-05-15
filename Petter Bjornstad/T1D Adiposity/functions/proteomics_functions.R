@@ -1,9 +1,6 @@
----
-title: "proteomics_functions"
-author: "Ye Ji Choi & Savanah Leidholt"
-format: html
----
-  
+
+
+
 ########################
 # specify user for paths
 ########################
