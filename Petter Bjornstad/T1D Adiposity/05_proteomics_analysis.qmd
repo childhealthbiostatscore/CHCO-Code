@@ -83,15 +83,17 @@ Sys.setenv(
 #also do waist to hip = wthr, wthr_obesity
 #hba1c with age
 #check mrns to see if there are people are co-enrolled
-
 ```{r}
-root_path
 t1d_hc_dat_soma <- s3readRDS(object = "data_clean/t1d_hc_clinical_data_soma.csv", 
                              bucket = "t1d.adiposity",
                              region = "")
 
 harm <- readRDS(file.path(root_path,"Data Harmonization", "Data Clean", "harmonized_dataset.rds" ))
-
+```
+#----------------------
+#cleaning up data & ids
+#----------------------
+```{r}
 t1d_hc_dat_soma <- t1d_hc_dat_soma %>%
   mutate(record_id = as.character(record_id))
 
@@ -116,7 +118,7 @@ t1d_hc_dat_soma_dedup <- t1d_hc_dat_soma %>%
     )
   ) %>%
   distinct(dedup_id, .keep_all = TRUE) %>%
-  select(-dedup_id)
+  dplyr::select(-dedup_id)
 ```
 
 #-------------------------
@@ -174,35 +176,23 @@ meta$group_bmi <- factor(
 )
 
 # keep BMI-complete samples
-hba1c_var <- "hba1c"
 meta2 <- meta %>%
  dplyr::filter(
     !is.na(record_id),
     !is.na(group_bmi),
     !is.na(age),
-    !is.na(.data[[hba1c_var]]),
     !is.na(sex),
     !is.na(study)
   )
 
 table(meta2$group_bmi, useNA = "ifany")
-
-
 ```
-
+#----------------------------------
+#checking out clinical outcome data
+#----------------------------------
 ```{r}
-# outcomes to test
-outcome_vars <- c(
-  eGFR   = "eGFR_CKiD_U25_avg",
-  avg_c_r2 = "avg_c_r2",
-  avg_k_r2 = "avg_k_r2",
-  uACR   = "acr_u",
-  BMI    = "bmi",
-  WHtR   = "whtr"
-)
-
-# optional: log-transform uACR because it is usually skewed
-meta_emm <- meta2 %>%
+#log-transform uACR because it is usually skewed
+meta_box <- meta2 %>%
   mutate(
     log_uACR = log1p(as.numeric(acr_u)),
     group_bmi = factor(group_bmi),
@@ -210,76 +200,18 @@ meta_emm <- meta2 %>%
     study = factor(study)
   )
 
-outcome_vars2 <- c(
-  eGFR= "eGFR_CKiD_U25_avg",
+
+# outcomes to plot
+outcome_vars <- c(
+  eGFR   = "eGFR_CKiD_U25_avg",
   avg_c_r2 = "avg_c_r2",
   avg_k_r2 = "avg_k_r2",
-  log_uACR = "log_uACR",
-  BMI      = "bmi",
-  WHtR     = "whtr"
+  HbA1c = "hba1c",
+  log_uACR   = "log_uACR",
+  BMI    = "bmi",
+  WHtR   = "whtr"
 )
 
-run_emmeans_outcome <- function(data, outcome, outcome_label) {
-  
-  model_df <- data %>%
-    select(group_bmi, age, sex, study, all_of(outcome)) %>%
-    mutate(
-      y = as.numeric(.data[[outcome]])
-    ) %>%
-    drop_na(y, group_bmi, age, sex, study)
-  
-  fit <- lm(y ~ group_bmi + age + sex + study, data = model_df)
-  
-  emm <- emmeans(fit, ~ group_bmi)
-  
-  emm_tbl <- as.data.frame(emm) %>%
-    mutate(
-      outcome = outcome_label,
-      n_model = nrow(model_df)
-    )
-  
-  contrast_tbl <- as.data.frame(
-    contrast(emm, method = "pairwise", adjust = "BH")
-  ) %>%
-    mutate(
-      outcome = outcome_label,
-      n_model = nrow(model_df)
-    )
-  
-  list(
-    model = fit,
-    emmeans = emm_tbl,
-    contrasts = contrast_tbl
-  )
-}
-
-emm_results <- purrr::imap(
-  outcome_vars2,
-  ~ run_emmeans_outcome(meta_emm, outcome = .x, outcome_label = .y)
-)
-
-emm_table <- purrr::map_dfr(emm_results, "emmeans")
-
-contrast_table <- purrr::map_dfr(emm_results, "contrasts") %>%
-  arrange(outcome, p.value)
-
-emm_table
-contrast_table
-```
-
-```{r}
-plot_outcomes <- c(
-  eGFR     = "eGFR_CKiD_U25_avg",
-  avg_c_r2 = "avg_c_r2",
-  avg_k_r2 = "avg_k_r2",
-  log_uACR = "log_uACR",
-  BMI      = "bmi",
-  WHtR     = "whtr"
-)
-
-#-----------------------------------
-# add transformed uACR
-#-----------------------------------
 plot_clinical_boxplot <- function(data, outcome_var, outcome_label) {
   
   plot_df <- data %>%
@@ -339,12 +271,15 @@ plot_clinical_boxplot <- function(data, outcome_var, outcome_label) {
     )
 }
 ```
-
+#------------------------------
+#boxplots of clinical outcomes
+#add emmeans function and stats
+#------------------------------
 ```{r}
 clinical_boxplot_list <- purrr::imap(
-  plot_outcomes,
+  outcome_vars,
   ~ plot_clinical_boxplot(
-    data = meta_emm,
+    data = meta_box,
     outcome_var = .x,
     outcome_label = .y
   )
@@ -371,8 +306,6 @@ ggsave(
   dpi = 300
 )
 ```
-
-
 #----------------------------
 # Plasma protein matrix setup
 #----------------------------
@@ -437,8 +370,9 @@ dat_plasma3 <- as.matrix(dat_plasma3)
 dat_log <- log2(dat_plasma3 + 1)
 dat_log[!is.finite(dat_log)] <- NA_real_
 ```
-
+#------------------------------------------------
 #filtering out participants with no proteomic data
+#-------------------------------------------------
 ```{r}
 sample_nonmissing <- rowSums(!is.na(dat_log))
 
@@ -589,12 +523,157 @@ study_group_table %>%
 ```
 
 ```{r}
+library(gtsummary)
+
+clinical_df <- meta3 %>%
+  mutate(
+    Group = as.factor(group),
+    Age = as.numeric(age),
+    Sex = as.factor(sex),
+    HbA1c = as.numeric(hba1c),
+    uACR  = as.numeric(acr_u),
+    eGFR  = as.numeric(eGFR_CKiD_U25_avg),
+    WHtR  = as.numeric(whtr),
+    BMI   = as.numeric(bmi),
+    Cortical_R = as.numeric(avg_c_r2),
+    Medullary_R = as.numeric(avg_k_r2),
+    Adiposity_group = factor(
+      bmi_obesity,
+      levels = c("Normal", "Overweight", "Obese")
+    )
+  ) %>%
+  dplyr::select(
+    Adiposity_group,
+    Group, Age, Sex, HbA1c, uACR, eGFR, WHtR, BMI,
+    Cortical_R, Medullary_R
+  )
+
+clinical_summary_table <- clinical_df %>%
+  tbl_summary(
+    by = Adiposity_group,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      uACR ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 1,
+      uACR ~ 1,
+      HbA1c ~ 1,
+      WHtR ~ 2
+    ),
+    label = list(
+      Group ~ "Group",
+      Age ~ "Age (Years)",
+      Sex ~ "Sex",
+      HbA1c ~ "HbA1c (%)",
+      uACR ~ "UACR (ug/g)",
+      eGFR ~ "eGFR",
+      WHtR ~ "WHtR",
+      BMI ~ "BMI (kg/m²)",
+      Cortical_R ~ "Cortical R2*",
+      Medullary_R ~ "Medullary R2*"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall(last = FALSE) %>%
+  add_p(
+    test = list(
+      all_continuous() ~ "kruskal.test",
+      all_categorical() ~ "chisq.test"
+    )
+  ) %>%
+  modify_header(
+    label ~ "**Characteristic**",
+    stat_0 ~ "**Total**",
+    all_stat_cols() ~ "**{level}**<br>N = {n}",
+    p.value ~ "**p value**"
+  ) %>%
+  bold_labels()
+
+clinical_summary_table
+```
+```{r}
+clinical_df_t1d <- meta3 %>%
+  filter(group == "T1D") %>%
+  mutate(
+    Group = as.factor(group),
+    Age = as.numeric(age),
+    Sex = as.factor(sex),
+    HbA1c = as.numeric(hba1c),
+    uACR  = as.numeric(acr_u),
+    eGFR  = as.numeric(eGFR_CKiD_U25_avg),
+    WHtR  = as.numeric(whtr),
+    BMI   = as.numeric(bmi),
+    Cortical_R = as.numeric(avg_c_r2),
+    Medullary_R = as.numeric(avg_k_r2),
+    Adiposity_group = factor(
+      bmi_obesity,
+      levels = c("Normal", "Overweight", "Obese")
+    )
+  ) %>%
+  dplyr::select(
+    Adiposity_group,
+    Group, Age, Sex, HbA1c, uACR, eGFR, WHtR, BMI,
+    Cortical_R, Medullary_R
+  )
+
+clinical_summary_table_t1d <- clinical_df_t1d %>%
+  tbl_summary(
+    by = Adiposity_group,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      uACR ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 1,
+      uACR ~ 1,
+      HbA1c ~ 1,
+      WHtR ~ 2
+    ),
+    label = list(
+      Age ~ "Age (Years)",
+      Sex ~ "Sex (Female)",
+      HbA1c ~ "HbA1c (%)",
+      uACR ~ "UACR (ug/g)",
+      eGFR ~ "eGFR",
+      WHtR ~ "WHtR",
+      BMI ~ "BMI (kg/m²)",
+      Cortical_R ~ "Cortical R2*",
+      Medullary_R ~ "Medullary R2*"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall(last = FALSE) %>%
+  add_p(
+    test = list(
+      all_continuous() ~ "kruskal.test",
+      all_categorical() ~ "chisq.test"
+    )
+  ) %>%
+  modify_header(
+    label ~ "**Characteristic**",
+    stat_0 ~ "**Total**",
+    all_stat_cols() ~ "**{level}**<br>N = {n}",
+    p.value ~ "**p value**"
+  ) %>%
+  bold_labels()
+
+clinical_summary_table_t1d
+```
+
+
+
+```{r}
 clinical_summary_table <- meta3 %>%
   dplyr::mutate(
     HbA1c = as.numeric(hba1c),
     uACR  = as.numeric(acr_u),
     eGFR  = as.numeric(eGFR_CKiD_U25_avg),
     WHtR  = as.numeric(whtr),
+    Cortical_R = as.numeric(avg_c_r2),
+    Medullary_R = as.numeric(avg_k_r2),
     BMI   = as.numeric(bmi),
     age   = as.numeric(age),
     sex   = as.factor(sex),
@@ -636,19 +715,40 @@ clinical_summary_table %>%
 #PCA plotting function for group_bmi
 #-------------------------------------
 ```{r}
-make_pca <- function(mat, meta_df, title_str) {
+make_pca <- function(mat, meta_df, title_str, add_ellipses = TRUE) {
   stopifnot(identical(rownames(mat), meta_df$record_id))
 
   pca <- prcomp(mat, center = TRUE, scale. = TRUE)
   vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
 
-  tibble(
+  pca_df <- tibble(
     PC1 = pca$x[, 1],
     PC2 = pca$x[, 2],
     group_bmi = meta_df$group_bmi,
     study = meta_df$study
-  ) %>%
-    ggplot(aes(PC1, PC2, color = group_bmi, shape = study)) +
+  )
+
+  p <- ggplot(
+    pca_df,
+    aes(
+      x = PC1,
+      y = PC2,
+      color = group_bmi
+    )
+  ) +
+    {
+      if (add_ellipses) {
+        stat_ellipse(
+          aes(group = group_bmi, color = group_bmi),
+          type = "norm",
+          level = 0.68,
+          linewidth = 1,
+          linetype = "solid",
+          alpha = 0.8
+        )
+      }
+    } +
+    geom_point(aes(shape = study), size = 3, alpha = 0.85) +
     scale_color_manual(
       values = c(
         LC_Normal  = "cyan4",
@@ -657,16 +757,22 @@ make_pca <- function(mat, meta_df, title_str) {
         T1D_Overweight = "plum3",
         T1D_Obese = "black"
       ),
-      name = "Group"
+      name = "Disease-adiposity group"
     ) +
-    geom_point(size = 3, alpha = 0.85) +
     labs(
       title = title_str,
       x = paste0("PC1 (", vexp[1], "%)"),
       y = paste0("PC2 (", vexp[2], "%)"),
-      color = "Disease-adiposity group"
+      color = "Disease-adiposity group",
+      shape = "Study"
     ) +
-    theme_bw()
+    theme_bw(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+
+  return(p)
 }
 ```
 
@@ -691,9 +797,10 @@ prot_age_sex_study <- t(removeBatchEffect(t(dat_imp2),
   covariates = cov_age_sex_study,
   design = design
 ))
-p2 <- make_pca(prot_age_sex_study, meta3, "Adjusted for age + sex + study")
+p2 <- make_pca(prot_age_sex_study, meta3, "Adjusted for age + sex + cohort")
 
 #model 3b ~ age * HbA1c + sex + study adjustment
+hba1c_var <- "hba1c"
 cov_hba1c_age_study <- model.matrix(
   as.formula(paste0("~ age * ", hba1c_var, " + sex + study")),
   data = meta3
@@ -717,14 +824,159 @@ p3a <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex ")
 # combine plots
 pca_group_bmi_all <- (p0 | p1 | p3a) / (p2 | p3b | patchwork::plot_spacer())
 pca_group_bmi_all
+
+p2
+ggsave(filename = file.path(dir.results, "Plots", "pca_m2.png"),
+       width = 7,
+       height = 5,
+       dpi = 300)
+```
+```{r}
+#-----------------------------------------
+# PERMANOVA + beta dispersion for M2 PCA
+#-----------------------------------------
+
+library(vegan)
+
+# distance matrix from adjusted proteomic matrix
+dist_m2 <- dist(prot_age_sex_study, method = "euclidean")
+set.seed(1835)
+
+permanova_m2 <- adonis2(
+  dist_m2 ~ group_bmi,
+  data = meta3,
+  permutations = 999
+)
+
+permanova_m2
+
+beta_m2 <- betadisper(
+  dist_m2,
+  group = meta3$group_bmi
+)
+beta_m2
+# overall dispersion test
+anova(beta_m2)
+
+# permutation test
+set.seed(1835)
+
+permutest(beta_m2, permutations = 999)
+TukeyHSD(beta_m2)
 ```
 
 
-#--------------
-#running limma
-#--------------
+
+
+#--------------------------------------------------
+#running limma for global T1D proteomic differences
+#--------------------------------------------------
+```{r}
+meta_t1d <- meta3 %>%
+  filter(group == "T1D") %>%
+  droplevels()
+
+mat_t1d <- t(dat_imp2)
+mat_t1d <- mat_t1d[, meta_t1d$record_id]
+
+stopifnot(all(colnames(mat_t1d) == meta_t1d$record_id))
+```
+#----------------------
+#all T1D limma function
+#----------------------
+```{r}
+run_t1d_global_adiposity_limma <- function(mat, meta_df, design_formula, model_label) {
+  
+  design <- model.matrix(design_formula, data = meta_df)
+  colnames(design) <- make.names(colnames(design))
+  
+  message("Design columns for ", model_label, ":")
+  print(colnames(design))
+  
+  fit <- lmFit(mat, design)
+  fit <- eBayes(fit)
+  
+  group_cols <- grep("^group_bmi", colnames(design), value = TRUE)
+  
+  topTable(
+    fit,
+    coef = group_cols,
+    number = Inf,
+    adjust.method = "BH",
+    sort.by = "F"
+  ) %>%
+    rownames_to_column("protein_id") %>%
+    mutate(
+      model = model_label,
+      contrast = "T1D_global_adiposity",
+      direction = case_when(
+        adj.P.Val < 0.05 ~ "Global adiposity-associated difference",
+        TRUE ~ "Not significant"
+      )
+    )
+}
+```
+
+```{r}
+res_t1d_global_m0 <- run_t1d_global_adiposity_limma(
+  mat = mat_t1d,
+  meta_df = meta_t1d,
+  design_formula = ~ 0 + group_bmi,
+  model_label = "T1D M0: no adjustment"
+)
+
+res_t1d_global_m1 <- run_t1d_global_adiposity_limma(
+  mat = mat_t1d,
+  meta_df = meta_t1d,
+  design_formula = ~ 0 + group_bmi + age + sex,
+  model_label = "T1D M1: age + sex"
+)
+
+res_t1d_global_m2 <- run_t1d_global_adiposity_limma(
+  mat = mat_t1d,
+  meta_df = meta_t1d,
+  design_formula = ~ 0 + group_bmi + age + sex + study,
+  model_label = "T1D M2: age + sex + study"
+)
+
+design_t1d_m3 <- as.formula(
+  paste0("~ 0 + group_bmi + age * ", hba1c_var, " + sex + study")
+)
+
+res_t1d_global_m3 <- run_t1d_global_adiposity_limma(
+  mat = mat_t1d,
+  meta_df = meta_t1d,
+  design_formula = design_t1d_m3,
+  model_label = "T1D M3: age * HbA1c + sex + study"
+)
+```
+#-------------------------------
+#T1D all proteomic results
+#-------------------------------
+```{r}
+res_t1d_global_all <- bind_rows(
+  res_t1d_global_m0,
+  res_t1d_global_m1,
+  res_t1d_global_m2,
+  res_t1d_global_m3
+)
+
+res_t1d_global_all
+
+sig_t1d_global <- res_t1d_global_all %>%
+  filter(adj.P.Val < 0.05)
+
+sig_t1d_global_fc <- res_t1d_global_all %>%
+  filter(adj.P.Val < 0.05, abs(adj.P.Val) >= 0.5)
+```
+#-------------------------------------------------------
+#Limma function for all differences & pairwise comparisons
+#--------------------------------------------------------
 ```{r}
 mat1 <- t(dat_imp2)
+mat1<- mat1[, meta3$record_id]
+
+stopifnot(all(colnames(mat1) == meta3$record_id))
 
 run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
   
@@ -734,28 +986,57 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
   message("Design columns for ", model_label, ":")
   print(colnames(design))
   
+  fit <- lmFit(mat, design)
+  
+ 
+  #global f-test
+  fit_global <- eBayes(fit)
+  
+  group_cols <- grep("^group_bmi", colnames(design))
+  
+  global_results <- topTable(
+    fit_global,
+    coef = group_cols,
+    number = Inf,
+    adjust.method = "BH",
+    sort.by = "F"
+  ) %>%
+    rownames_to_column("protein_id") %>%
+    mutate(
+      model = model_label,
+      contrast = "Global_group_bmi",
+      direction = case_when(
+        adj.P.Val < 0.05 ~ "Globally significant",
+        TRUE ~ "Not significant"
+      )
+    )
+  
+ 
+  #pairwise comparison
   contrast_matrix <- makeContrasts(
     T1DNormal_vs_LCNormal =
       group_bmiT1D_Normal - group_bmiLC_Normal,
+    
     T1DOverObese_vs_LCOverObese =
-      ((group_bmiT1D_Overweight + group_bmiT1D_Obese)/2) - #should I be averaging this group? 
+      ((group_bmiT1D_Overweight + group_bmiT1D_Obese) / 2) -
       group_bmiLC_Overweight_Obese,
+    
     T1DNormal_vs_T1DOverweight =
       group_bmiT1D_Normal - group_bmiT1D_Overweight,
+    
     T1DNormal_vs_T1DObese =
       group_bmiT1D_Normal - group_bmiT1D_Obese,
+    
     T1DObese_vs_T1DOverweight =
       group_bmiT1D_Obese - group_bmiT1D_Overweight,
     
     levels = design
   )
   
-  fit <- lmFit(mat, design)
   fit2 <- contrasts.fit(fit, contrast_matrix)
   fit2 <- eBayes(fit2)
   
-  
-  results <- lapply(colnames(contrast_matrix), function(cn) {
+  pairwise_results <- lapply(colnames(contrast_matrix), function(cn) {
     topTable(
       fit2,
       coef = cn,
@@ -775,12 +1056,12 @@ run_group_bmi_limma <- function(mat, meta_df, design_formula, model_label) {
   }) %>%
     bind_rows()
   
-  return(results)
+  bind_rows(global_results, pairwise_results)
 }
 ```
-
-
-
+#---------------------------------
+#results for all models pairwise
+#---------------------------------
 ```{r}
 # Model 0: group_bmi only / no covariate adjustment
 res_m0 <- run_group_bmi_limma(
@@ -820,6 +1101,26 @@ res_m3 <- run_group_bmi_limma(
 ```
 
 ```{r}
+clean_contrast_names <- function(df) {
+  df %>%
+    mutate(
+      contrast = case_when(
+        contrast == "Global_group_bmi" ~ "Global_group_bmi",
+        contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
+        contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
+        contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
+        contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
+        contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
+        TRUE ~ contrast
+      )
+    )
+}
+
+res_m0 <- clean_contrast_names(res_m0)
+res_m1 <- clean_contrast_names(res_m1)
+res_m2 <- clean_contrast_names(res_m2)
+res_m3 <- clean_contrast_names(res_m3)
+
 results_all_models <- bind_rows(
   res_m0,
   res_m1,
@@ -827,65 +1128,19 @@ results_all_models <- bind_rows(
   res_m3
 )
 
-res_m0 <- res_m0 %>%
-  mutate(
-    contrast = case_when(
-      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
-      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
-      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
-      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
-      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
-      TRUE ~ contrast
-    )
-  )
 
-res_m1 <- res_m1 %>%
-  mutate(
-    contrast = case_when(
-      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
-      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
-      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
-      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
-      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
-      TRUE ~ contrast
-    )
-  )
-
-res_m2 <- res_m2 %>%
-  mutate(
-    contrast = case_when(
-      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
-      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
-      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
-      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
-      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
-      TRUE ~ contrast
-    )
-  )
-
-res_m3 <- res_m3 %>%
-  mutate(
-    contrast = case_when(
-      contrast == "T1DNormal_vs_LCNormal" ~ "T1D_Normal_vs_LC_Normal",
-      contrast == "T1DOverObese_vs_LCOverObese" ~ "T1D_OverObese_vs_LC_OverObese",
-      contrast == "T1DNormal_vs_T1DOverweight" ~ "T1D_Normal_vs_T1D_Overweight",
-      contrast == "T1DNormal_vs_T1DObese" ~ "T1D_Normal_vs_T1D_Obese",
-      contrast == "T1DObese_vs_T1DOverweight" ~ "T1D_Obese_vs_T1D_Overweight",
-      TRUE ~ contrast
-    )
-  )
 sig_all_models <- results_all_models %>% filter(adj.P.Val < 0.05)
 sig_all_models_fc <- results_all_models %>% filter(adj.P.Val < 0.05, abs(logFC) >= 0.5)
 sig_counts <- sig_all_models %>% 
   filter((adj.P.Val < 0.05 & abs(logFC) >= 0.5)) %>%
   count(model, contrast)
-sig_all_models_fc %>% filter(contrast == "T1D_Normal_vs_T1D_Overweight")
+
 sig_counts %>% filter(model == "M2: group_bmi + age + sex + study")
 
-write_csv(sig_counts, 
-          file = file.path(dir.results, "sig_counts_by_model.csv"))
-write_csv(sig_all_models_fc, 
-          file = file.path(dir.results, "limma_results_all_models.csv"))
+#write_csv(sig_counts, 
+ #         file = file.path(dir.results, "sig_counts_by_model.csv"))
+#write_csv(sig_all_models_fc, 
+ #         file = file.path(dir.results, "limma_results_all_models.csv"))
 ```
 ```{r}
 map_tbl <- analytes %>%
@@ -903,6 +1158,131 @@ map_tbl <- analytes %>%
   dplyr::distinct()
 
 
+```
+
+```{r}
+make_global_group_bmi_heatmap <- function(results_df,
+                                          expr_mat,
+                                          meta_df,
+                                          model_name,
+                                          sample_id_col,
+                                          padj_cutoff = 0.05,
+                                          top_n = 50) {
+  
+  sig_prots <- results_df %>%
+    filter(
+      model == model_name,
+      contrast == "Global_group_bmi",
+      adj.P.Val < padj_cutoff
+    ) %>%
+    arrange(adj.P.Val) %>%
+    slice_head(n = top_n) %>%
+    pull(protein_id)
+  
+  heat_mat <- expr_mat[sig_prots, , drop = FALSE]
+  
+  heat_mat <- t(scale(t(heat_mat)))
+  heat_mat <- heat_mat[complete.cases(heat_mat), , drop = FALSE]
+  
+  annot_df <- meta_df %>%
+    dplyr::select(all_of(sample_id_col), group_bmi) %>%
+    mutate(
+      group_bmi = factor(
+        group_bmi,
+        levels = c(
+          "LC_Normal",
+          "LC_Overweight_Obese",
+          "T1D_Normal",
+          "T1D_Overweight",
+          "T1D_Obese"
+        )
+      )
+    ) %>%
+    as.data.frame()
+  
+  rownames(annot_df) <- annot_df[[sample_id_col]]
+  annot_df[[sample_id_col]] <- NULL
+  
+  shared_samples <- intersect(colnames(heat_mat), rownames(annot_df))
+  
+  heat_mat <- heat_mat[, shared_samples, drop = FALSE]
+  annot_df <- annot_df[shared_samples, , drop = FALSE]
+  
+  stopifnot(ncol(heat_mat) > 0)
+  stopifnot(nrow(annot_df) > 0)
+  stopifnot(all(colnames(heat_mat) == rownames(annot_df)))
+  
+  row_labels <- map_tbl %>%
+    filter(protein_id %in% rownames(heat_mat)) %>%
+    distinct(protein_id, .keep_all = TRUE)
+  
+  gene_labels <- row_labels$gene_symbol
+  names(gene_labels) <- row_labels$protein_id
+  
+  rownames(heat_mat) <- ifelse(
+    is.na(gene_labels[rownames(heat_mat)]),
+    rownames(heat_mat),
+    gene_labels[rownames(heat_mat)]
+  )
+  
+  group_colors <- setNames(
+  viridisLite::viridis(5),
+  c(
+    "LC_Normal",
+    "LC_Overweight_Obese",
+    "T1D_Normal",
+    "T1D_Overweight",
+    "T1D_Obese"
+  )
+)
+
+ann_colors <- list(
+  group_bmi = group_colors
+)
+
+pheatmap::pheatmap(
+  heat_mat,
+  annotation_col = annot_df,
+  annotation_colors = ann_colors,
+  show_colnames = FALSE,
+  fontsize_row = 9,
+  fontsize_col = 10,
+  cluster_cols = TRUE,
+  cluster_rows = TRUE,
+  border_color = NA,
+  main = paste0(
+    "Top ",
+    nrow(heat_mat),
+    " globally different proteins across group-BMI strata"
+  )
+)
+}
+```
+
+```{r}
+hm <- make_global_group_bmi_heatmap(
+  results_df = results_all_models,
+  expr_mat = mat1,
+  meta_df = meta3,
+  model_name = "M2: group_bmi + age + sex + study",
+  sample_id_col = "record_id",
+  padj_cutoff = 0.05,
+  top_n = 50
+)
+
+
+png(
+  filename = file.path(dir.results, "Plots", "Global_Heatmap.png"),
+  width = 10,
+  height = 8,
+  units = "in",
+  res = 300
+)
+
+grid::grid.newpage()
+grid::grid.draw(hm$gtable)
+
+dev.off()
 ```
 
 ```{r}
@@ -1037,8 +1417,8 @@ plots_m0 <- make_volcano_list(
   label_n = 5
 )
 
-top_row <- plots_m0[[1]] + plots_m0[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m0[[3]] + plots_m0[[4]] + plots_m0[[5]]
+top_row <- plots_m0[[2]] + plots_m0[[3]] + patchwork::plot_spacer()
+bottom_row <- plots_m0[[4]] + plots_m0[[5]] + plots_m0[[6]]
 
 panel_m0_5 <- top_row / bottom_row
 
@@ -1063,8 +1443,8 @@ plots_m1 <- make_volcano_list(
   label_n = 5
 )
 
-top_row <- plots_m1[[1]] + plots_m1[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m1[[3]] + plots_m1[[4]] + plots_m1[[5]]
+top_row <- plots_m1[[2]] + plots_m1[[3]] + patchwork::plot_spacer()
+bottom_row <- plots_m1[[4]] + plots_m1[[5]] + plots_m1[[6]]
 
 panel_m1_5 <- top_row / bottom_row
 
@@ -1090,8 +1470,8 @@ plots_m2 <- make_volcano_list(
   label_n = 10
 )
 
-top_row <- plots_m2[[1]] + plots_m2[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m2[[3]] + plots_m2[[4]] + plots_m2[[5]]
+top_row <- plots_m2[[2]] + plots_m2[[3]] + patchwork::plot_spacer()
+bottom_row <- plots_m2[[4]] + plots_m2[[5]] + plots_m2[[6]]
 
 panel_m2_5 <- top_row / bottom_row
 panel_m2_5
@@ -1109,6 +1489,12 @@ ggsave("M2_volcano_plots.png",
  #      width = 8,
   #     height =6,
    #    dpi = 300)
+
+plots_m2[[3]]
+ggsave(filename = file.path(dir.results, "Plots", "T1D_OO_LC_OO_volcano.png"),
+       width = 8,
+       height =6,
+       dpi = 300)
 
 #plots_m2[[3]]
 #ggsave(filename = file.path(dir.results, "Plots", "T1DNormal_T1DOverweight_volcano.png"),
@@ -1138,8 +1524,8 @@ plots_m3 <- make_volcano_list(
   label_n = 5
 )
 
-top_row <- plots_m3[[1]] + plots_m3[[2]] + patchwork::plot_spacer()
-bottom_row <- plots_m3[[3]] + plots_m3[[4]] + plots_m3[[5]]
+top_row <- plots_m3[[2]] + plots_m3[[3]] + patchwork::plot_spacer()
+bottom_row <- plots_m3[[4]] + plots_m3[[5]] + plots_m3[[6]]
 
 panel_m3_5 <- top_row / bottom_row
 
@@ -1347,6 +1733,7 @@ fgsea_CC_m2 <- fgsea_CC_m2 %>%
 
 fgsea_CC_m2
 ```
+
 ```{r}
 fgsea_all_m2 <- dplyr::bind_rows(
   fgsea_kegg_m2,
@@ -1363,9 +1750,9 @@ fgsea_all_m2 <- dplyr::bind_rows(
   )
 ```
 
-#-----------------
-#plotting function
-#-----------------
+#----------------------------------
+#plotting function for GSEA pathways
+#----------------------------------
 ```{r}
 plot_fgsea_top20 <- function(fgsea_df,
                              model_name,
@@ -1395,7 +1782,7 @@ plot_fgsea_top20 <- function(fgsea_df,
         str_replace_all("_", " ") %>%
         str_replace("^GO ", "") %>%
         str_to_sentence() %>%
-        stringr::str_wrap(width = 45),
+        stringr::str_wrap(width = 60),
       
       pathway_clean = forcats::fct_reorder(pathway_clean, NES),
       
@@ -1635,7 +2022,6 @@ fgsea_kegg_plots <- fgsea_kegg_m2 %>%
       )
     )
   )
-
 fgsea_kegg_plots$plot[[1]]
 ggsave(filename = file.path(dir.results,"Plots", "GSEA_T1D.NW_LC.NW.png"), 
        width = 10,
@@ -1645,7 +2031,7 @@ ggsave(filename = file.path(dir.results,"Plots", "GSEA_T1D.NW_LC.NW.png"),
 fgsea_kegg_plots$plot[[2]]
 ggsave(filename = file.path(dir.results,"Plots", "GSEA_T1D_NW_OB.png"), 
        width = 10,
-       height =12,
+       height =16,
        dpi = 300)
 
 
@@ -2271,7 +2657,7 @@ net2_stability_plot
 ```
 ```{r fig.width=24}
 net4_stability_plot <- net4$stability_tbl %>%
-  filter(selection_percent >= 75) %>%
+  filter(selection_percent >= 50) %>%
   mutate(
     feature_label = ifelse(
       !is.na(gene_symbol) & gene_symbol != "",
@@ -2342,22 +2728,22 @@ net5_stability_plot
 enet_prots <- list(
   T1D_Normal_vs_LC_Normal =
     net1$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
 
   T1D_OverObese_vs_LC_OverObese =
     net2$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
 
   T1D_Normal_vs_T1D_Obese =
     net4$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
   
   T1D_Obese_vs_T1D_Overweight = 
     net5$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id)
 )
 
@@ -2396,6 +2782,11 @@ final_protein_tbl <- dplyr::bind_rows(
   dplyr::distinct(contrast, protein_id, .keep_all = TRUE) %>%
   dplyr::left_join(map_tbl, by = "protein_id")
 
+final_protein_tbl
+readr::write_csv(
+  final_protein_tbl,
+  file = file.path(dir.results, "final_protein_tbl.csv")
+)
 sig_prots <- final_protein_tbl %>%
   dplyr::pull(protein_id) %>%
   unique()
@@ -2853,9 +3244,9 @@ plots_cor_p3 <- make_volcano_cor_list(
  # (plots_cor_p3[[2]] | plots_cor_p3[[4]] | patchwork::plot_spacer())/
 #  (plots_cor_p3[[3]] | plots_cor_p3[[5]] | patchwork:: plot_spacer())
 
-panel_cor_p3 <- (plots_cor_p3[[1]] | plots_cor_p3[[6]])/ 
+panel_cor_p3 <- (plots_cor_p3[[5]] | plots_cor_p3[[6]])/ 
                 (plots_cor_p3[[2]] |plots_cor_p3[[4]]) /
-                (plots_cor_p3[[3]]  |plots_cor_p3[[5]]) 
+                (plots_cor_p3[[1]]  |plots_cor_p3[[3]]) 
 panel_cor_p3
 
 ggsave(
@@ -2881,9 +3272,9 @@ plots_cor_p4 <- make_volcano_cor_list(
  #               (plots_cor_p4[[2]] |plots_cor_p4[[4]] | patchwork::plot_spacer()) /
   #              (plots_cor_p4[[3]]  |plots_cor_p4[[5]] | patchwork:: plot_spacer())
 
-panel_cor_p4 <- (plots_cor_p4[[1]] | plots_cor_p4[[2]])/ 
-                (plots_cor_p4[[3]] |plots_cor_p4[[4]]) /
-                (plots_cor_p4[[5]]  |plots_cor_p4[[6]]) 
+panel_cor_p4 <- (plots_cor_p4[[5]] | plots_cor_p4[[6]])/ 
+                (plots_cor_p4[[2]] |plots_cor_p4[[4]]) /
+                (plots_cor_p4[[1]]  |plots_cor_p4[[3]]) 
 panel_cor_p4
 
 ggsave(
@@ -2909,9 +3300,9 @@ plots_cor_p5 <- make_volcano_cor_list(
 #                (plots_cor_p5[[2]] |plots_cor_p5[[4]] | patchwork::plot_spacer()) /
 #                (plots_cor_p5[[3]]  |plots_cor_p5[[5]] | patchwork:: plot_spacer())
 
-panel_cor_p5 <- (plots_cor_p5[[1]] | plots_cor_p5[[6]])/ 
+panel_cor_p5 <- (plots_cor_p5[[5]] | plots_cor_p5[[6]])/ 
                 (plots_cor_p5[[2]] |plots_cor_p5[[4]]) /
-                (plots_cor_p5[[3]]  |plots_cor_p5[[5]]) 
+                (plots_cor_p5[[1]]  |plots_cor_p5[[3]]) 
 panel_cor_p5
 
 ggsave(
@@ -2931,7 +3322,6 @@ ggsave(
 library(broom)
 
 vars_interest <- c("HbA1c", "uACR", "BMI", "eGFR", "avg_k_r2", "avg_c_r2") #"wthr",
-
 protein_ids <- colnames(expr_mat)
 
 run_partial_spearman <- function(data, protein, outcome,
@@ -3169,11 +3559,12 @@ selected_corr_plot_t1d <- selected_protein_correlations_t1d %>%
     y = "-log10(raw p-value)",
     color = NULL
   ) +
-  theme_bw(base_size = 14) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    panel.grid = element_blank()
-  )
+  theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
 
 selected_corr_plot_t1d
 
@@ -3205,121 +3596,8 @@ corr_table_t1d <- selected_protein_correlations_t1d %>%
 
 corr_table_t1d
 ```
-#--------------------------------------
-#summary table for correlations n/group
-#--------------------------------------
-```{r}
-# function to get N per group per contrast
-get_contrast_n <- function(contrast_name, corr_df) {
-  
-  groups <- get_groups_from_contrast(contrast_name)
-  
-  corr_df %>%
-    filter(group_bmi %in% c(groups$group1, groups$group2)) %>%
-    group_by(contrast = contrast_name, group_bmi) %>%
-    summarise(
-      n_total = n(),
-      n_complete = sum(
-        !is.na(HbA1c) & !is.na(uACR) & !is.na(eGFR)
-      ),
-      .groups = "drop"
-    )
-}
-
-# apply across all contrasts
-contrast_n_table <- purrr::map_dfr(
-  contrast_list,
-  ~get_contrast_n(.x, corr_df)
-)
-
-contrast_n_table
-
-contrast_n_table_wide <- contrast_n_table %>%
-  select(contrast, group_bmi, n_complete) %>%
-  pivot_wider(
-    names_from = group_bmi,
-    values_from = n_complete
-  )
-
-contrast_n_table_wide
-
-#write_csv()
-```
-
-```{r}
-clinical_summary <- corr_df %>%
-  group_by(group_bmi) %>%
-  summarise(
-    N = n(),
-    
-    age_mean = mean(age, na.rm = TRUE),
-    age_sd   = sd(age, na.rm = TRUE),
-    
-    HbA1c_mean = mean(HbA1c, na.rm = TRUE),
-    HbA1c_sd   = sd(HbA1c, na.rm = TRUE),
-    
-    uACR_median = median(uACR, na.rm = TRUE),
-    uACR_IQR    = IQR(uACR, na.rm = TRUE),
-    
-    eGFR_mean = mean(eGFR, na.rm = TRUE),
-    eGFR_sd   = sd(eGFR, na.rm = TRUE),
-   
-    cortical_mean = mean(avg_c_r2, na.rm = TRUE),
-    cortical_sd   = sd(avg_c_r2, na.rm = TRUE),
-    
-    medullary_mean = mean(avg_k_r2, na.rm = TRUE),
-    medullary_sd   = sd(avg_k_r2, na.rm = TRUE),
-   #wthr_mean = mean(wthr, na.rm = TRUE),
-    #wthr_sd   = sd(wthr, na.rm = TRUE),
-    
-    BMI_mean = mean(BMI, na.rm = TRUE),
-    BMI_sd   = sd(BMI, na.rm = TRUE),
-    
-    male_n = sum(sex == "Male", na.rm = TRUE),
-    female_n = sum(sex == "Female", na.rm = TRUE),
-    
-    .groups = "drop"
-)
-
-clinical_summary
-```
-
-```{r}
-clinical_table_pretty <- corr_df %>%
-  group_by(group_bmi) %>%
-  summarise(
-    N = n(),
-    
-    Age = sprintf("%.1f (%.1f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
-    HbA1c = sprintf("%.2f (%.2f)", mean(HbA1c, na.rm = TRUE), sd(HbA1c, na.rm = TRUE)),
-    eGFR = sprintf("%.1f (%.1f)", mean(eGFR, na.rm = TRUE), sd(eGFR, na.rm = TRUE)),
-    BMI = sprintf("%.1f (%.1f)", mean(BMI, na.rm = TRUE), sd(BMI, na.rm = TRUE)),
-    #WHtR = sprintf("%.2f (%.2f)", mean(wthr, na.rm = TRUE), sd(wthr, na.rm = TRUE)),
-    
-    uACR = sprintf("%.1f [%0.1f]", median(uACR, na.rm = TRUE), IQR(uACR, na.rm = TRUE)),
-    
-    Sex = sprintf(
-      "M: %d, F: %d",
-      sum(sex == "Male", na.rm = TRUE),
-      sum(sex == "Female", na.rm = TRUE)
-    ),
-    
-    .groups = "drop"
-)
-
-clinical_table_pretty
-```
-
-```{r}
-clinical_table_pretty %>%
-  kable(caption = "Clinical characteristics by group") %>%
-  kable_styling(full_width = FALSE)
-```
-
 
 #trying contrast specific prots correlations
-
-
 ```{r}
 library(ppcor)
 library(dplyr)
@@ -3363,22 +3641,22 @@ corr_df <- bind_cols(
 enet_prots <- list(
   T1D_Normal_vs_LC_Normal =
     net1$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
 
   T1D_OverObese_vs_LC_OverObese =
     net2$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
 
   T1D_Normal_vs_T1D_Obese =
     net4$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id),
 
   T1D_Obese_vs_T1D_Overweight =
     net5$stability_tbl %>%
-    filter(selection_percent >= 75) %>%
+    filter(selection_percent >= 50) %>%
     pull(protein_id)
 )
 
@@ -3643,15 +3921,15 @@ make_partial_cor_volcano <- function(cor_df,
     ) +
     scale_color_manual(
       values = c(
-        "Positive" = "darkred",
-        "Negative" = "cyan4",
+        "Positive" = "orange3",
+        "Negative" = "purple4",
         "Not significant" = "grey70"
       ),
       labels = legend_labs
     ) +
     coord_cartesian(xlim = c(-1, 1)) +
     labs(
-      title = paste(title_prefix, contrast_name, outcome_name, sep = "\n"),
+      title = paste(contrast_name, outcome_name, sep = "\n"),
       x = "Partial Spearman rho",
       y = "-log10 FDR",
       color = NULL
@@ -3677,17 +3955,16 @@ make_contrast_volcano_panel <- function(cor_df,
       cor_df = cor_df,
       analysis_name = "Contrast-specific",
       contrast_name = contrast_name,
-      outcome_name = .x,
-      title_prefix = "Contrast-specific partial Spearman"
+      outcome_name = .x
     )
   )
 
   names(plot_list) <- outcomes
 
   panel <-
-    (plot_list[["HbA1c"]] | plot_list[["uACR"]] | plot_list[["eGFR"]]) /
-    (plot_list[["avg_c_r2"]] | plot_list[["avg_k_r2"]] | plot_list[["BMI"]]) /
-    (plot_list[["WHtR"]] | patchwork::plot_spacer() | patchwork::plot_spacer())
+    (plot_list[["BMI"]] | plot_list[["eGFR"]]) /
+    (plot_list[["avg_c_r2"]] | plot_list[["avg_k_r2"]])
+    
 
   panel
 }
@@ -3706,6 +3983,120 @@ names(contrast_volcano_panels) <- names(contrast_protein_list)
 #contrast_volcano_panels[["T1D_OverObese_vs_LC_OverObese"]]
 contrast_volcano_panels[["T1D_Normal_vs_T1D_Overweight"]]
 contrast_volcano_panels[["T1D_Normal_vs_T1D_Obese"]]
+ggsave(filename = file.path(dir.results, "Plots", "T1D_normal_obese_correlations.png"),
+       height = 8,
+       width = 12,
+       dpi = 300)
 contrast_volcano_panels[["T1D_Obese_vs_T1D_Overweight"]]
+```
+#--------------------------------------
+#summary table for correlations n/group
+#--------------------------------------
+```{r}
+# function to get N per group per contrast
+get_contrast_n <- function(contrast_name, corr_df) {
+  
+  groups <- get_groups_from_contrast(contrast_name)
+  
+  corr_df %>%
+    filter(group_bmi %in% c(groups$group1, groups$group2)) %>%
+    group_by(contrast = contrast_name, group_bmi) %>%
+    summarise(
+      n_total = n(),
+      n_complete = sum(
+        !is.na(HbA1c) & !is.na(uACR) & !is.na(eGFR)
+      ),
+      .groups = "drop"
+    )
+}
+
+# apply across all contrasts
+contrast_n_table <- purrr::map_dfr(
+  contrast_list,
+  ~get_contrast_n(.x, corr_df)
+)
+
+contrast_n_table
+
+contrast_n_table_wide <- contrast_n_table %>%
+  select(contrast, group_bmi, n_complete) %>%
+  pivot_wider(
+    names_from = group_bmi,
+    values_from = n_complete
+  )
+
+contrast_n_table_wide
+
+#write_csv()
+```
+
+```{r}
+clinical_summary <- corr_df %>%
+  group_by(group_bmi) %>%
+  summarise(
+    N = n(),
+    
+    age_mean = mean(age, na.rm = TRUE),
+    age_sd   = sd(age, na.rm = TRUE),
+    
+    HbA1c_mean = mean(HbA1c, na.rm = TRUE),
+    HbA1c_sd   = sd(HbA1c, na.rm = TRUE),
+    
+    uACR_median = median(uACR, na.rm = TRUE),
+    uACR_IQR    = IQR(uACR, na.rm = TRUE),
+    
+    eGFR_mean = mean(eGFR, na.rm = TRUE),
+    eGFR_sd   = sd(eGFR, na.rm = TRUE),
+   
+    cortical_mean = mean(avg_c_r2, na.rm = TRUE),
+    cortical_sd   = sd(avg_c_r2, na.rm = TRUE),
+    
+    medullary_mean = mean(avg_k_r2, na.rm = TRUE),
+    medullary_sd   = sd(avg_k_r2, na.rm = TRUE),
+   #wthr_mean = mean(wthr, na.rm = TRUE),
+    #wthr_sd   = sd(wthr, na.rm = TRUE),
+    
+    BMI_mean = mean(BMI, na.rm = TRUE),
+    BMI_sd   = sd(BMI, na.rm = TRUE),
+    
+    male_n = sum(sex == "Male", na.rm = TRUE),
+    female_n = sum(sex == "Female", na.rm = TRUE),
+    
+    .groups = "drop"
+)
+
+clinical_summary
+```
+
+```{r}
+clinical_table_pretty <- corr_df %>%
+  group_by(group_bmi) %>%
+  summarise(
+    N = n(),
+    
+    Age = sprintf("%.1f (%.1f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
+    HbA1c = sprintf("%.2f (%.2f)", mean(HbA1c, na.rm = TRUE), sd(HbA1c, na.rm = TRUE)),
+    eGFR = sprintf("%.1f (%.1f)", mean(eGFR, na.rm = TRUE), sd(eGFR, na.rm = TRUE)),
+    BMI = sprintf("%.1f (%.1f)", mean(BMI, na.rm = TRUE), sd(BMI, na.rm = TRUE)),
+    #WHtR = sprintf("%.2f (%.2f)", mean(wthr, na.rm = TRUE), sd(wthr, na.rm = TRUE)),
+    
+    uACR = sprintf("%.1f [%0.1f]", median(uACR, na.rm = TRUE), IQR(uACR, na.rm = TRUE)),
+    
+    Sex = sprintf(
+      "M: %d, F: %d",
+      sum(sex == "Male", na.rm = TRUE),
+      sum(sex == "Female", na.rm = TRUE)
+    ),
+    
+    .groups = "drop"
+)
+
+clinical_table_pretty
+```
+
+```{r}
+clinical_table_pretty %>%
+  kable(caption = "Clinical characteristics by group") %>%
+  kable_styling(full_width = FALSE)
 ```
 
