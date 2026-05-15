@@ -96,3 +96,67 @@ plot_clinical_boxplot <- function(data, outcome_var, outcome_label) {
       panel.grid = ggplot2::element_blank()
     )
 }
+
+#-------------------------------------
+#PCA plotting function for group_bmi
+#-------------------------------------
+make_pca <- function(mat, meta_df, title_str, add_ellipses = TRUE) {
+  stopifnot(identical(rownames(mat), meta_df$record_id))
+  
+  pca <- prcomp(mat, center = TRUE, scale. = TRUE)
+  vexp <- round(100 * (pca$sdev^2) / sum(pca$sdev^2), 1)
+  
+  pca_df <- tibble(
+    PC1 = pca$x[, 1],
+    PC2 = pca$x[, 2],
+    group_bmi = meta_df$group_bmi,
+    study = meta_df$study
+  )
+  
+  p <- ggplot(
+    pca_df,
+    aes(
+      x = PC1,
+      y = PC2,
+      color = group_bmi
+    )
+  ) +
+    {
+      if (add_ellipses) {
+        stat_ellipse(
+          aes(group = group_bmi, color = group_bmi),
+          type = "norm",
+          level = 0.68,
+          linewidth = 1,
+          linetype = "solid",
+          alpha = 0.8
+        )
+      }
+    } +
+    geom_point(aes(shape = study), size = 3, alpha = 0.85) +
+    scale_color_manual(
+      values = c(
+        LC_Normal  = "cyan4",
+        LC_Overweight_Obese = "darkred",
+        T1D_Normal = "gold",
+        T1D_Overweight = "plum3",
+        T1D_Obese = "black"
+      ),
+      name = "Disease-adiposity group"
+    ) +
+    labs(
+      title = title_str,
+      x = paste0("PC1 (", vexp[1], "%)"),
+      y = paste0("PC2 (", vexp[2], "%)"),
+      color = "Disease-adiposity group",
+      shape = "Study"
+    ) +
+    theme_bw(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  
+  return(p)
+}
+
