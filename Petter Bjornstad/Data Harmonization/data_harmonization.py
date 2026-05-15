@@ -57,6 +57,7 @@ def harmonize_data():
     from rpc2 import clean_rpc2_redcap
     from ultra import clean_ultra
     from sweetheart import clean_sweetheart
+    from t1disco import clean_t1disco
     from harmonization_functions import calc_egfr, create_study_id_columns, biopsy_merge
     import getpass
     import boto3
@@ -76,6 +77,7 @@ def harmonize_data():
     rpc2 = clean_rpc2_redcap()
     ultra = clean_ultra()
     sweetheart = clean_sweetheart()
+    t1disco = clean_t1disco()
     # Merge
     harmonized = pd.concat([casper, coffee], join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, crocodile],
@@ -102,6 +104,9 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, sweetheart],
                            join='outer', ignore_index=True)
+    harmonized = pd.concat([harmonized, t1disco],
+                           join='outer', ignore_index=True)
+
 
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
@@ -114,7 +119,7 @@ def harmonize_data():
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
                                    'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy",
                                    "treatment_period_1", "treatment_period_2", "treatment_period_3", 
-                                   "treatment_period_4", "post_treatment"], ordered=True)
+                                   "treatment_period_4", "post_treatment", "2_month", "4_month", "6_month", "9_month"], ordered=True)
     print("Final number of rows with CGM data:  ", harmonized['cgm_avg_glucose'].notnull().sum())
 
     harmonized["race"] = harmonized["race"].replace(
@@ -416,7 +421,8 @@ def harmonize_data():
         pd.to_numeric(harmonized["creatinine_u"], errors="coerce")
     uacr_vars = ['acr_u']
     dictionary.loc[dictionary['variable_name'].isin(uacr_vars), 'form_name'] = 'UACR'
-    
+
+ 
     
     # Albuminuria
     alb = []
@@ -540,7 +546,6 @@ def harmonize_data():
 
 
     harmonized = biopsy_merge(harmonized)
-
 
 
 
