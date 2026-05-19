@@ -1960,3 +1960,266 @@ make_boxplot(bp_base, "gfr_bsa_plasma", "GFR (mL/min/1.73 m²)",
 make_boxplot(bp_base, "avg_c_r2", "Avg Cortical R2* (s⁻¹)",
              filename = "box_r2star.png")
 ```
+
+# Data inventory
+```{r}
+# ── Libraries ───────────────────────────────────────────────────────────────
+library(openxlsx)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+summary_dir   <- file.path(root_path,
+                           "Data Harmonization/Report_files/Summary Report")
+logistics_csv <- file.path(summary_dir, "inventory_logistics.csv")
+sharing_csv   <- file.path(summary_dir, "inventory_sharing_log.csv")
+
+dir.create(summary_dir, showWarnings = FALSE, recursive = TRUE)
+
+inv_date     <- format(Sys.Date(), "%m%d%y")
+inv_xlsx     <- file.path(summary_dir, paste0("data_inventory_", inv_date, ".xlsx"))
+
+# ── Specimen taxonomy ────────────────────────────────────────────────────────
+# Clinical categories — these are pooled into ONE "Harmonized clinical CSV"
+# row per study. Their per-category Ns become columns on that row.
+clinical_procs <- c("vitals", "blood_labs", "urine_labs", "cgm", "sphyg")
+
+# Specimen procs — each becomes ONE inventory row per study where flag = TRUE.
+# Labels match the values you'd use in the analysis log (Specimen/Modality).
+specimen_info <- list(
+  clamp              = c("Clamp",   "CSV"),
+  ivgtt              = c("IVGTT",                                "CSV"),
+  oroboros           = c("Oroboros respirometry",                "CSV"),
+  renal_clear        = c("Renal clearance (iohexol/PAH)",        "CSV"),
+  kidney_mri         = c("Kidney MRI (BOLD + multiparametric)",  "CSV"),
+  kidney_pet         = c("Kidney PET",                           "CSV"),
+  cardiac_mri        = c("Cardiac MRI",                          "CSV"),
+  echo               = c("Echocardiography",                     ""),
+  fmd                = c("Flow-mediated dilation (FMD)",         ""),
+  kidney_bx          = c("Kidney biopsy (scRNA-seq + histology)","Seurat object (.rds)"),
+  muscle_bx          = c("Muscle biopsy",                        ""),
+  liver_bx           = c("Liver biopsy (snRNA-seq)",             "Seurat object (.rds)"),
+  jwire              = c("Renal vein J-wire catheterization",    ""),
+  lipidomics         = c("Lipidomics",                           "CSV"),
+  blood_proteomics   = c("Plasma proteomics (SomaScan)",         "Normalized RFU CSV"),
+  urine_proteomics   = c("Urine proteomics (SomaScan)",          "Normalized RFU CSV"),
+  blood_metabolomics = c("Plasma metabolomics",                  "CSV"),
+  urine_metabolomics = c("Urine metabolomics",                   "CSV"),
+  dxa                = c("DXA",                                  "CSV")
+)
+
+specimen_procs <- names(specimen_info)
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+# Pull baseline N (string) from display_n_table for (study, proc)
+get_n <- function(study_name, proc_name) {
+  if (!proc_name %in% names(display_n_table)) return("")
+  val <- display_n_table[[proc_name]][display_n_table$study == study_name]
+  if (length(val) == 0) return("")
+  val
+}
+
+# Pretty-format cohort and visit strings for a study
+get_cohorts_str <- function(study_name) {
+  g <- groups_list[[study_name]]
+  if (is.null(g) || length(g) == 0) return("")
+  paste(sort(unique(abbrev_group(g))), collapse = "; ")
+}
+
+get_visits_str <- function(study_name) {
+  v <- visits_list[[study_name]]
+  if (is.null(v) || length(v) == 0) return("")
+  vv <- sort(unique(abbrev_visit(v[!is.na(v)])))
+  paste(vv, collapse = ", ")
+}
+
+# Pull a single metadata field for a study from proc_harm_dat_recid
+get_meta <- function(study_name, field) {
+  val <- proc_harm_dat_recid[[field]][proc_harm_dat_recid$study == study_name]
+  if (length(val) == 0) return("")
+  val
+}
+
+# ── Build inventory: harmonized clinical CSV rows (one per study) ────────────
+clinical_rows <- lapply(proc_harm_dat_recid$study, function(s) {
+  flags <- proc_harm_dat_recid[proc_harm_dat_recid$study == s, clinical_procs, drop = TRUE]
+  flags <- unlist(flags)
+
+  # Skip if study has none of the clinical categories
+  if (!any(flags)) return(NULL)
+
+  included <- clinical_procs[flags]
+  included_pretty <- c(
+    vitals     = "vitals",
+    blood_labs = "blood labs",
+    urine_labs = "urine labs",
+    cgm        = "CGM",
+    sphyg      = "sphygmocor (PWV)"
+  )[included]
+
+  data.frame(
+    Study              = s,
+    Cohorts            = get_cohorts_str(s),
+    `Specimen/Modality` = "Harmonized clinical CSV",
+    `Data type/format` = "Long-format CSV (clinical + vitals + labs + CGM/sphyg where available)",
+    `Categories included` = paste(included_pretty, collapse = "; "),
+    `N (vitals)`       = get_n(s, "vitals"),
+    `N (blood labs)`   = get_n(s, "blood_labs"),
+    `N (urine labs)`   = get_n(s, "urine_labs"),
+    `N (CGM)`          = get_n(s, "cgm"),
+    `N (sphygmocor)`   = get_n(s, "sphyg"),
+    `N (specimen)`     = "",
+    Timepoints         = get_meta(s, "design_struc"),
+    `Follow-up visits` = get_visits_str(s),
+    `Study design`     = get_meta(s, "study_design_sub"),
+    `Exposure`         = get_meta(s, "intervention"),
+    `DECODE`           = get_meta(s, "decode"),
+    check.names      = FALSE,
+    stringsAsFactors = FALSE
+  )
+})
+clinical_df <- dplyr::bind_rows(clinical_rows)
+
+# ── Build inventory: specimen rows (one per study × specimen where TRUE) ────
+specimen_rows <- lapply(proc_harm_dat_recid$study, function(s) {
+  flags <- proc_harm_dat_recid[proc_harm_dat_recid$study == s, specimen_procs, drop = TRUE]
+  flags <- unlist(flags)
+  active <- specimen_procs[flags]
+  if (length(active) == 0) return(NULL)
+
+  dplyr::bind_rows(lapply(active, function(p) {
+    data.frame(
+      Study              = s,
+      Cohorts            = get_cohorts_str(s),
+      `Specimen/Modality` = specimen_info[[p]][1],
+      `Data type/format` = specimen_info[[p]][2],
+      `Categories included` = "",
+      `N (vitals)`       = "",
+      `N (blood labs)`   = "",
+      `N (urine labs)`   = "",
+      `N (CGM)`          = "",
+      `N (sphygmocor)`   = "",
+      `N (specimen)`     = get_n(s, p),
+      Timepoints         = get_meta(s, "design_struc"),
+      `Follow-up visits` = get_visits_str(s),
+      `Study design`     = get_meta(s, "study_design_sub"),
+      `Exposure`         = get_meta(s, "intervention"),
+      `DECODE`           = get_meta(s, "decode"),
+      check.names      = FALSE,
+      stringsAsFactors = FALSE
+    )
+  }))
+})
+specimen_df <- dplyr::bind_rows(specimen_rows)
+
+# ── Combine ──────────────────────────────────────────────────────────────────
+inventory_df <- dplyr::bind_rows(clinical_df, specimen_df) %>%
+  dplyr::arrange(Study, `Specimen/Modality`)
+
+# ── Logistics: read existing maintained CSV, or create on first run ──────────
+logistics_cols <- c("Study", "Specimen/Modality",
+                    "File name / object",
+                    "Access mechanism", "Sharing status",
+                    "Owner", "Notes")
+
+if (file.exists(logistics_csv)) {
+  logistics_df <- read.csv(logistics_csv, stringsAsFactors = FALSE,
+                           check.names = FALSE, na.strings = "",
+                           colClasses = "character")
+  # Make sure all required columns exist
+  missing_cols <- setdiff(logistics_cols, names(logistics_df))
+  for (mc in missing_cols) logistics_df[[mc]] <- NA_character_
+  logistics_df <- logistics_df[, logistics_cols]
+  # Defensive: force all columns to character (handles empty CSV edge case)
+  logistics_df[] <- lapply(logistics_df, as.character)
+} else {
+  logistics_df <- data.frame(matrix(NA_character_,
+                                    ncol = length(logistics_cols), nrow = 0),
+                             stringsAsFactors = FALSE)
+  names(logistics_df) <- logistics_cols
+}
+
+# Detect new (Study, Specimen/Modality) pairs and append with "NEW — fill in" flag
+current_keys  <- inventory_df %>% dplyr::select(Study, `Specimen/Modality`)
+existing_keys <- logistics_df %>% dplyr::select(Study, `Specimen/Modality`)
+new_keys <- dplyr::anti_join(current_keys, existing_keys,
+                             by = c("Study", "Specimen/Modality"))
+
+if (nrow(new_keys) > 0) {
+  new_rows <- new_keys %>%
+    dplyr::mutate(
+      `File name / object` = NA_character_,
+      `Access mechanism`   = NA_character_,
+      `Sharing status`     = NA_character_,
+      `Owner`              = NA_character_,
+      `Notes`              = "NEW \u2014 fill in"
+    )
+  logistics_df <- dplyr::bind_rows(logistics_df, new_rows)
+  # Write back so user sees the new rows on next edit
+  write.csv(logistics_df, logistics_csv, row.names = FALSE, na = "")
+  message(sprintf("Added %d new row(s) to logistics CSV: %s",
+                  nrow(new_keys), logistics_csv))
+} else if (!file.exists(logistics_csv)) {
+  # First run: write empty template
+  write.csv(logistics_df, logistics_csv, row.names = FALSE, na = "")
+  message("Created logistics CSV: ", logistics_csv)
+}
+
+# ── Join logistics onto inventory ────────────────────────────────────────────
+inventory_full <- inventory_df %>%
+  dplyr::left_join(logistics_df, by = c("Study", "Specimen/Modality")) %>%
+  # If Data type/format is in logistics, use it; otherwise keep inventory_df version
+  dplyr::mutate(
+    `Data type/format` = dplyr::coalesce(
+      dplyr::na_if(`File name / object`, ""), `Data type/format`
+    )
+  ) %>%
+  dplyr::select(
+    Study, Cohorts, `Specimen/Modality`, `Data type/format`,
+    `File name / object`,
+    `Categories included`,
+    `N (vitals)`, `N (blood labs)`, `N (urine labs)`,
+    `N (CGM)`, `N (sphygmocor)`, `N (specimen)`,
+    Timepoints, `Follow-up visits`,
+    `Study design`, Exposure, DECODE,
+    `Access mechanism`, `Sharing status`, Owner, Notes
+  ) %>%
+  dplyr::mutate(`Last updated` = as.character(Sys.Date()))
+
+# ── Sharing log: scaffold a separate CSV the first time only ─────────────────
+# This script does NOT modify the sharing log on subsequent runs.
+if (!file.exists(sharing_csv)) {
+  sharing_template <- data.frame(
+    Date                      = character(0),
+    `Dataset (Study + Specimen + File)` = character(0),
+    Recipient                 = character(0),
+    `Recipient affiliation`   = character(0),
+    Mechanism                 = character(0),
+    Purpose                   = character(0),
+    `Initiated by`            = character(0),
+    `DUA/IRB reference`       = character(0),
+    Notes                     = character(0),
+    check.names = FALSE
+  )
+  write.csv(sharing_template, sharing_csv, row.names = FALSE, na = "")
+  message("Created sharing log template: ", sharing_csv)
+}
+
+# ── Write xlsx ───────────────────────────────────────────────────────────────
+inventory_out <- inventory_full %>%
+  dplyr::select(
+    Study, Cohorts, `Specimen/Modality`, `Data type/format`,
+    `Categories included`,
+    `N (vitals)`, `N (blood labs)`, `N (urine labs)`,
+    `N (CGM)`, `N (sphygmocor)`, `N (specimen)`,
+    Timepoints, `Follow-up visits`,
+    `Study design`, Exposure, DECODE,
+    `Last updated`
+  )
+
+inventory_out[is.na(inventory_out)] <- ""
+
+openxlsx::write.xlsx(inventory_out, inv_xlsx)
+message("Wrote inventory: ", inv_xlsx)
+```
