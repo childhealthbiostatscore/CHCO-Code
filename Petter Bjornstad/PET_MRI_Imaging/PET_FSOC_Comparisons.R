@@ -199,17 +199,17 @@ pet_labels <- c(
 
 # Group levels and colors - MATCHING FSOC ANALYSIS
 group_levels <- c("Lean Control", "Obese Control", "Type 1 Diabetes", 
-                  "Type 2 Diabetes", "PKD")
+                  "Type 2 Diabetes")
 
 # Colors matching your FSOC analysis exactly
 group_colors <- c("Lean Control" = "#3182BD",
                   "Obese Control" = "#9ECAE1",
                   "Type 1 Diabetes" = "#FDAE6B",
-                  "Type 2 Diabetes" = "#E6550D",
-                  "PKD" = "#9E9AC8")
+                  "Type 2 Diabetes" = "#E6550D")
 
 # Prepare the data - set up group and sex factors
 dat_results <- dat_results %>%
+  filter(group != "PKD") %>%
   mutate(group = factor(group, levels = group_levels),
          sex = factor(sex, levels = c("Female", "Male")))
 
@@ -274,6 +274,37 @@ plot_pet_by_group <- function(dat, endpoint, label) {
       panel.grid.minor = element_blank()
     )
   
+  # After creating `p` in plot_pet_by_group(), add:
+  if (endpoint %in% c("avg_c_k2", "avg_m_k2", "avg_c_k2_f", "avg_m_k2_f")) {
+    sig_pairs <- stat_test %>% filter(p.adj < 0.05)
+    
+    if (nrow(sig_pairs) > 0) {
+      group_levels_present <- levels(dat_plot$group)
+      y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+      y_range <- max(dat_plot[[endpoint]], na.rm = TRUE) - min(dat_plot[[endpoint]], na.rm = TRUE)
+      
+      for (k in seq_len(nrow(sig_pairs))) {
+        x1 <- which(group_levels_present == sig_pairs$group1[k])
+        x2 <- which(group_levels_present == sig_pairs$group2[k])
+        y_pos <- y_max + (0.15 * k) * y_range
+        p_lab <- ifelse(sig_pairs$p.adj[k] < 0.001, "p<0.001",
+                        paste0("p=", formatC(sig_pairs$p.adj[k], format = "f", digits = 3)))
+        
+        p <- p +
+          annotate("segment", x = x1, xend = x2, y = y_pos, yend = y_pos) +
+          annotate("segment", x = x1, xend = x1, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("segment", x = x2, xend = x2, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("text", x = (x1 + x2) / 2, y = y_pos + 0.06 * y_range,
+                   label = p_lab, size = 3)
+      }
+      
+      p <- p + coord_cartesian(ylim = c(
+        min(dat_plot[[endpoint]], na.rm = TRUE) - 0.05 * y_range,
+        y_max + (0.15 * (nrow(sig_pairs) + 1)) * y_range
+      ))
+    }
+  }
+  
   return(list(plot = p, model = model, pairwise = pairs_df, stat_test = stat_test))
 }
 
@@ -298,22 +329,6 @@ generate_group_boxplots <- function(dat) {
   }
   
   # Add raw p-values above each group if we have them
-  if (!is.null(stat_test) && nrow(stat_test) > 0) {
-    groups_in_plot <- levels(dat_plot$group)
-    for (i in seq_along(groups_in_plot)) {
-      grp <- groups_in_plot[i]
-      p_row <- stat_test %>% filter(group == grp)
-      if (nrow(p_row) > 0) {
-        p <- p + annotate("text", 
-                          x = i, 
-                          y = y_max + 0.08 * y_range,
-                          label = p_row$p_label[1],
-                          size = 2.5)
-      }
-    }
-    # Expand y-axis to fit p-values
-    p <- p + coord_cartesian(ylim = c(y_min - 0.02 * y_range, y_max + 0.18 * y_range))
-  }
   
   
   # Combine plots
@@ -951,8 +966,7 @@ create_significant_associations_panel <- function(dat) {
   group_colors <- c("Lean Control" = "#3182BD",
                     "Obese Control" = "#9ECAE1",
                     "Type 1 Diabetes" = "#FDAE6B",
-                    "Type 2 Diabetes" = "#E6550D",
-                    "PKD" = "#9E9AC8")
+                    "Type 2 Diabetes" = "#E6550D")
   
   # Function to create individual scatterplot
   create_scatter <- function(pet_var, clinical_var, pet_label, clinical_label) {

@@ -60,6 +60,7 @@ load("./Clinical data/TODAY/baserisk.Rdata")
 # load CKM outcomes
 dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
+# use only baseline metabolite data for this analysis: 
 plasma_all$Date.Drawn <- as.Date(plasma_all$Date.Drawn,format = "%m/%d/%Y")
 base <- plasma_all %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 base <- base %>% arrange(Date.Drawn)
@@ -83,10 +84,10 @@ base <- merge(base, dat.ckm[,c("releaseid",
 is_seq <- function(.x) grepl("uM", .x)
 seq <- is_seq(names(base))
 
-# convert to numeric
+# convert protein variables to numeric
 base[,seq] <- apply(base[,seq],2,as.numeric)
 metabolites<-base[,seq]
-# are there proteins with low variability?
+# remove proteins with low variability
 no_var = caret::nearZeroVar(metabolites)
 if (length(no_var)>0){
   no_var_names<-names(metabolites[,no_var])
@@ -104,7 +105,7 @@ for (i in 1:length(predictors)) {
   base_log_scale[predictors[i]] <- base_log_scale[predictors[i]]/sd(base_log[,paste0(predictors[i])],na.rm=T)
 }
 
-# now we need to change the format of the variable names
+# change the format of the variable names so they can be read into coxph formula
 temp <- str_replace_all(colnames(base_log_scale[,seq]),"/","_")
 colnames(base_log_scale)[seq] <- temp
 temp <- str_replace_all(colnames(base_log_scale[,seq]),"-","_")
@@ -118,6 +119,7 @@ colnames(base_log_scale)[seq] <- temp
 ```
 
 ```{r, include=FALSE}
+#### Cox PH models for comorbidity outcomes:
 # Macroalbuminuria
 result_MAC <- NULL
 predictors <- colnames(base_log_scale[seq])
@@ -250,44 +252,45 @@ for (i in 1:length(predictors)) {
 results_glyc_a1c$adj.p.value <- p.adjust(results_glyc_a1c$p.value, "fdr")
 results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$p.value),] 
 
+#### commented out for now, pending updates from Laura on CKM dataset
 # CKM progression
-results_ckm_prog <- NULL
-predictors <- colnames(base_log_scale[seq])
-for (i in 1:length(predictors)) {
-  form <- paste0("Surv(days_to_first_ckm_prog, progress_CKM)~",predictors[i],"+sex")
-  mod <- coxph(data = base_log_scale, formula = as.formula(form))
-  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
-  tidymod <- tidymod[1,]
-  results_ckm_prog <- rbind(results_ckm_prog,tidymod)
-}
-results_ckm_prog$adj.p.value <- p.adjust(results_ckm_prog$p.value, "fdr")
-results_ckm_prog <- results_ckm_prog[order(results_ckm_prog$p.value),] 
-
-# CKM progression stage 3
-results_ckm_prog3 <- NULL
-predictors <- colnames(base_log_scale[seq])
-for (i in 1:length(predictors)) {
-  form <- paste0("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",predictors[i],"+sex")
-  mod <- coxph(data = base_log_scale, formula = as.formula(form))
-  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
-  tidymod <- tidymod[1,]
-  results_ckm_prog3 <- rbind(results_ckm_prog3,tidymod)
-}
-results_ckm_prog3$adj.p.value <- p.adjust(results_ckm_prog3$p.value, "fdr")
-results_ckm_prog3 <- results_ckm_prog3[order(results_ckm_prog3$p.value),] 
-
-# CKM progression stage 4
-results_ckm_prog4 <- NULL
-predictors <- colnames(base_log_scale[seq])
-for (i in 1:length(predictors)) {
-  form <- paste0("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",predictors[i],"+sex")
-  mod <- coxph(data = base_log_scale, formula = as.formula(form))
-  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
-  tidymod <- tidymod[1,]
-  results_ckm_prog4 <- rbind(results_ckm_prog4,tidymod)
-}
-results_ckm_prog4$adj.p.value <- p.adjust(results_ckm_prog4$p.value, "fdr")
-results_ckm_prog4 <- results_ckm_prog4[order(results_ckm_prog4$p.value),] 
+# results_ckm_prog <- NULL
+# predictors <- colnames(base_log_scale[seq])
+# for (i in 1:length(predictors)) {
+#   form <- paste0("Surv(days_to_first_ckm_prog, progress_CKM)~",predictors[i],"+sex")
+#   mod <- coxph(data = base_log_scale, formula = as.formula(form))
+#   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+#   tidymod <- tidymod[1,]
+#   results_ckm_prog <- rbind(results_ckm_prog,tidymod)
+# }
+# results_ckm_prog$adj.p.value <- p.adjust(results_ckm_prog$p.value, "fdr")
+# results_ckm_prog <- results_ckm_prog[order(results_ckm_prog$p.value),] 
+# 
+# # CKM progression stage 3
+# results_ckm_prog3 <- NULL
+# predictors <- colnames(base_log_scale[seq])
+# for (i in 1:length(predictors)) {
+#   form <- paste0("Surv(days_to_first_ckm_stage3_prog, progress_CKM_stage3)~",predictors[i],"+sex")
+#   mod <- coxph(data = base_log_scale, formula = as.formula(form))
+#   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+#   tidymod <- tidymod[1,]
+#   results_ckm_prog3 <- rbind(results_ckm_prog3,tidymod)
+# }
+# results_ckm_prog3$adj.p.value <- p.adjust(results_ckm_prog3$p.value, "fdr")
+# results_ckm_prog3 <- results_ckm_prog3[order(results_ckm_prog3$p.value),] 
+# 
+# # CKM progression stage 4
+# results_ckm_prog4 <- NULL
+# predictors <- colnames(base_log_scale[seq])
+# for (i in 1:length(predictors)) {
+#   form <- paste0("Surv(days_to_first_ckm_stage4_prog, progress_CKM_stage4)~",predictors[i],"+sex")
+#   mod <- coxph(data = base_log_scale, formula = as.formula(form))
+#   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+#   tidymod <- tidymod[1,]
+#   results_ckm_prog4 <- rbind(results_ckm_prog4,tidymod)
+# }
+# results_ckm_prog4$adj.p.value <- p.adjust(results_ckm_prog4$p.value, "fdr")
+# results_ckm_prog4 <- results_ckm_prog4[order(results_ckm_prog4$p.value),] 
 
 # write all results to file
 wb <- createWorkbook()
@@ -311,12 +314,12 @@ addWorksheet(wb,"GLYC CPH")
 writeData(wb,"GLYC CPH",result_GLYC,rowNames = F)
 addWorksheet(wb,"GLYC with A1c CPH")
 writeData(wb,"GLYC with A1c CPH",results_glyc_a1c,rowNames = F)
-addWorksheet(wb,"CKM progression")
-writeData(wb,"CKM progression",results_ckm_prog,rowNames = F)
-addWorksheet(wb,"CKM progression stage 3")
-writeData(wb,"CKM progression stage 3",results_ckm_prog3,rowNames = F)
-addWorksheet(wb,"CKM progression stage 4")
-writeData(wb,"CKM progression stage 4",results_ckm_prog4,rowNames = F)
+#addWorksheet(wb,"CKM progression")
+#writeData(wb,"CKM progression",results_ckm_prog,rowNames = F)
+#addWorksheet(wb,"CKM progression stage 3")
+#writeData(wb,"CKM progression stage 3",results_ckm_prog3,rowNames = F)
+#addWorksheet(wb,"CKM progression stage 4")
+#writeData(wb,"CKM progression stage 4",results_ckm_prog4,rowNames = F)
 saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_march2026.xlsx",overwrite = TRUE)
 
 

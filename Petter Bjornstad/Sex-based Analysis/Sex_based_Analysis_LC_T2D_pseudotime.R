@@ -3273,6 +3273,657 @@ cat("===========================================================================
 
 
 
+########## T2D-ONLY Pseudotime Analysis - Sex Differences in PT Cells
+########## Slingshot trajectory on T2D cells only, compared between Male and Female
+
+library(slingshot)
+library(ggplot2)
+library(viridis)
+library(ggridges)
+library(patchwork)
+library(dplyr)
+library(ggpubr)
+library(rstatix)
+library(Seurat)
+library(emmeans)
+library(effsize)
+library(car)
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only_Pseudotime/'
+dir.create(dir.results, recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================================
+# STEP 1: Load T2D Seurat Object
+# (Skip if so_t2d is already in your environment)
+# ============================================================================
+
+# Option A: Load from the merged object if already in memory
+# so_t2d_pt <- subset(so_merged, subset = group == 'Type_2_Diabetes' & celltype2 == 'PT')
+
+# Option B: Load fresh from the original T2D RData file
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
+so_t2d <- so_kpmp_sc
+remove(so_kpmp_sc)
+
+# Apply celltype classifications
+so_t2d$celltype1 <- case_when(
+  grepl("PT-",  so_t2d$celltype_rpca) ~ "PT",
+  grepl("TAL-", so_t2d$celltype_rpca) ~ "TAL",
+  grepl("EC-",  so_t2d$celltype_rpca) ~ "EC",
+  grepl("POD",  so_t2d$celltype_rpca) ~ "POD",
+  grepl("MAC",  so_t2d$celltype_rpca) ~ "MAC",
+  grepl("MON",  so_t2d$celltype_rpca) ~ "MON",
+  grepl("PC-",  so_t2d$celltype_rpca) ~ "PC",
+  grepl("FIB",  so_t2d$celltype_rpca) ~ "FIB_MC_VSMC",
+  grepl("DTL",  so_t2d$celltype_rpca) ~ "DTL",
+  so_t2d$celltype_rpca == "DCT"       ~ "DCT",
+  so_t2d$celltype_rpca == "ATL"       ~ "ATL",
+  so_t2d$celltype_rpca == "B"         ~ "B",
+  so_t2d$celltype_rpca == "T"         ~ "T"
+)
+so_t2d$celltype1 <- as.character(so_t2d$celltype1)
+
+so_t2d$KPMP_celltype2 <- as.character(so_t2d$KPMP_celltype)
+so_t2d$celltype2 <- ifelse(
+  so_t2d$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"), "PT",
+  ifelse(grepl("TAL", so_t2d$KPMP_celltype), "TAL",
+         ifelse(grepl("EC-", so_t2d$KPMP_celltype), "EC", so_t2d$KPMP_celltype2))
+)
+
+# Filter to T2D samples only (exclude CRC-55)
+so_t2d <- subset(so_t2d, subset = record_id != 'CRC-55')
+so_t2d <- subset(so_t2d, subset = group == 'Type_2_Diabetes')
+
+cat("T2D object loaded:\n")
+cat("  Cells:", ncol(so_t2d), "\n")
+cat("  Samples:", length(unique(so_t2d$record_id)), "\n")
+cat("  Sex distribution:\n")
+print(table(so_t2d$sex))
+
+# ============================================================================
+# STEP 2: Subset to PT Cells
+# ============================================================================
+
+so_t2d_pt <- subset(so_t2d, subset = celltype2 == 'PT')
+
+cat("\nT2D PT cells:\n")
+cat("  Total cells:", ncol(so_t2d_pt), "\n")
+cat("  By sex:\n")
+print(table(so_t2d_pt$sex))
+cat("  By PT subtype:\n")
+print(table(so_t2d_pt$KPMP_celltype))
+cat("  By sex and sample:\n")
+print(table(so_t2d_pt$record_id, so_t2d_pt$sex))
+
+# ============================================================================
+# STEP 3: Normalize, Scale, PCA, UMAP (T2D PT cells only)
+# ============================================================================
+
+# Join layers if Seurat v5
+if ("layers" %in% slotNames(so_t2d_pt[["RNA"]])) {
+  cat("\nJoining Seurat v5 layers...\n")
+  so_t2d_pt[["RNA"]] <- JoinLayers(so_t2d_pt[["RNA"]])
+}
+
+cat("Normalizing data...\n")
+so_t2d_pt <- NormalizeData(so_t2d_pt)
+so_t2d_pt <- FindVariableFeatures(so_t2d_pt, selection.method = "vst", nfeatures = 2000)
+so_t2d_pt <- ScaleData(so_t2d_pt)
+
+cat("Running PCA...\n")
+so_t2d_pt <- RunPCA(so_t2d_pt, features = VariableFeatures(object = so_t2d_pt))
+
+# Elbow plot to decide number of PCs
+p_elbow <- ElbowPlot(so_t2d_pt, ndims = 50)
+ggsave(paste0(dir.results, "Elbow_Plot.pdf"), plot = p_elbow, width = 8, height = 5)
+
+cat("Running UMAP...\n")
+so_t2d_pt <- RunUMAP(so_t2d_pt, dims = 1:30)
+
+cat("\nPCA and UMAP complete.\n")
+
+# ============================================================================
+# STEP 4: Run Slingshot on T2D PT Cells Only
+# ============================================================================
+
+cat("Running Slingshot pseudotime (T2D only)...\n")
+
+sling_res_t2d <- slingshot(
+  as.SingleCellExperiment(so_t2d_pt),
+  clusterLabels = 'KPMP_celltype',
+  start.clus  = 'PT-S1/S2',
+  end.clus    = 'aPT',
+  reducedDim  = 'UMAP'
+)
+
+so_t2d_pt$pseudotime <- slingPseudotime(sling_res_t2d)[, 1]
+
+cat("Pseudotime calculated.\n")
+cat("  NA values:", sum(is.na(so_t2d_pt$pseudotime)), "\n")
+cat("  Range:", round(range(so_t2d_pt$pseudotime, na.rm = TRUE), 3), "\n")
+
+# ============================================================================
+# STEP 5: Prepare Plotting Data
+# ============================================================================
+
+umap_coords  <- Embeddings(so_t2d_pt, reduction = "umap")
+sling_curves <- slingCurves(sling_res_t2d)
+
+plot_df <- data.frame(
+  UMAP_1     = umap_coords[, 1],
+  UMAP_2     = umap_coords[, 2],
+  pseudotime = so_t2d_pt$pseudotime,
+  celltype   = so_t2d_pt$KPMP_celltype,
+  sex        = so_t2d_pt$sex,
+  sample     = so_t2d_pt$record_id
+)
+
+plot_df_clean <- plot_df %>% filter(!is.na(pseudotime))
+
+cat("\nPlotting data ready. Total cells with pseudotime:", nrow(plot_df_clean), "\n")
+cat("By sex:\n")
+print(table(plot_df_clean$sex))
+
+# ============================================================================
+# STEP 6: UMAP PLOTS
+# ============================================================================
+
+cat("\nCreating UMAP plots...\n")
+
+# Helper to add slingshot curves to a ggplot
+add_curves <- function(p, size = 1.5) {
+  for (i in seq_along(sling_curves)) {
+    coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+    p <- p + geom_path(
+      data        = data.frame(UMAP_1 = coords[, 1], UMAP_2 = coords[, 2]),
+      aes(x = UMAP_1, y = UMAP_2),
+      color       = "black",
+      linewidth   = size,
+      inherit.aes = FALSE
+    )
+  }
+  return(p)
+}
+
+# Plot 1: UMAP colored by pseudotime
+p1 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+  geom_point(size = 0.5, alpha = 0.6) +
+  scale_color_viridis(option = "plasma", na.value = "grey80") +
+  theme_classic() +
+  labs(title  = "Slingshot Pseudotime - T2D PT Cells",
+       color  = "Pseudotime")
+p1 <- add_curves(p1, size = 2)
+ggsave(paste0(dir.results, "UMAP_Pseudotime_T2D.pdf"), plot = p1, width = 8, height = 6)
+
+# Plot 2: UMAP colored by sex
+p2 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = sex)) +
+  geom_point(size = 0.5, alpha = 0.6) +
+  scale_color_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  theme_classic() +
+  labs(title = "UMAP Colored by Sex - T2D PT Cells",
+       color = "Sex")
+p2 <- add_curves(p2, size = 2)
+ggsave(paste0(dir.results, "UMAP_by_Sex_T2D.pdf"), plot = p2, width = 8, height = 6)
+
+# Plot 3: UMAP colored by PT subtype
+p3 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = celltype)) +
+  geom_point(size = 0.5, alpha = 0.6) +
+  theme_classic() +
+  labs(title = "UMAP Colored by PT Subtype - T2D",
+       color = "Subtype")
+p3 <- add_curves(p3, size = 2)
+ggsave(paste0(dir.results, "UMAP_by_Subtype_T2D.pdf"), plot = p3, width = 8, height = 6)
+
+# Plot 4: UMAP faceted by sex with pseudotime color
+p4 <- ggplot(plot_df_clean, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+  geom_point(size = 0.5, alpha = 0.6) +
+  scale_color_viridis(option = "plasma") +
+  facet_wrap(~sex) +
+  theme_classic() +
+  labs(title = "Pseudotime Faceted by Sex - T2D PT Cells",
+       color = "Pseudotime")
+p4 <- add_curves(p4, size = 1.5)
+ggsave(paste0(dir.results, "UMAP_Facet_by_Sex_T2D.pdf"), plot = p4, width = 12, height = 5)
+
+print(p1); print(p2); print(p3); print(p4)
+
+# ============================================================================
+# STEP 7: PSEUDOTIME DISTRIBUTION COMPARISONS BY SEX
+# ============================================================================
+
+cat("Creating pseudotime distribution plots...\n")
+
+# Violin plot: Sex comparison
+stat_test_sex <- plot_df_clean %>%
+  wilcox_test(pseudotime ~ sex) %>%
+  add_significance()
+cat("\nWilcoxon test (Male vs Female pseudotime):\n")
+print(stat_test_sex)
+
+p_violin_sex <- ggplot(plot_df_clean, aes(x = sex, y = pseudotime, fill = sex)) +
+  geom_violin(alpha = 0.6, trim = FALSE) +
+  geom_boxplot(width = 0.2, alpha = 0.8, outlier.shape = NA) +
+  scale_fill_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none") +
+  labs(title    = "Pseudotime by Sex - T2D PT Cells",
+       subtitle = "Wilcoxon rank-sum test",
+       x = "Sex", y = "Pseudotime")
+
+print(p_violin_sex)
+ggsave(paste0(dir.results, "Violin_Pseudotime_by_Sex_T2D.pdf"),
+       plot = p_violin_sex, width = 6, height = 6)
+
+# Density plot: Sex comparison
+p_density_sex <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  theme_classic() +
+  theme(text = element_text(size = 14)) +
+  labs(title = "Pseudotime Density by Sex - T2D PT Cells",
+       x = "Pseudotime", y = "Density", fill = "Sex")
+
+print(p_density_sex)
+ggsave(paste0(dir.results, "Density_Pseudotime_by_Sex_T2D.pdf"),
+       plot = p_density_sex, width = 8, height = 5)
+
+# Ridgeline plot: PT subtype by sex
+p_ridge_sex <- ggplot(plot_df_clean, aes(x = pseudotime, y = celltype, fill = sex)) +
+  geom_density_ridges(alpha = 0.6, scale = 2, rel_min_height = 0.01) +
+  scale_fill_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  theme_ridges() +
+  theme(text = element_text(size = 12)) +
+  labs(title = "PT Subtype Distribution Along Pseudotime by Sex (T2D)",
+       x = "Pseudotime", y = "PT Subtype", fill = "Sex")
+
+print(p_ridge_sex)
+ggsave(paste0(dir.results, "Ridgeline_PT_Subtype_by_Sex_T2D.pdf"),
+       plot = p_ridge_sex, width = 10, height = 7)
+
+# Density faceted by PT subtype
+p_density_subtype_sex <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex)) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  facet_wrap(~celltype, scales = "free_y", ncol = 2) +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        strip.background = element_rect(fill = "lightgray"),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom") +
+  labs(title = "Pseudotime by Sex Across PT Subtypes (T2D)",
+       x = "Pseudotime", y = "Density", fill = "Sex")
+
+print(p_density_subtype_sex)
+ggsave(paste0(dir.results, "Density_by_Subtype_and_Sex_T2D.pdf"),
+       plot = p_density_subtype_sex, width = 12, height = 10)
+
+# ============================================================================
+# STEP 8: STATISTICAL MODELING
+# ============================================================================
+
+cat("\n=== Statistical Analysis ===\n")
+
+model_data <- plot_df_clean %>%
+  mutate(sex = factor(sex))
+
+# Linear model
+lm_t2d <- lm(pseudotime ~ sex, data = model_data)
+cat("\nLinear model: pseudotime ~ sex (T2D only)\n")
+print(summary(lm_t2d))
+
+# ANOVA
+anova_t2d <- anova(lm_t2d)
+cat("\nANOVA table:\n")
+print(anova_t2d)
+
+# Save model results
+sink(paste0(dir.results, "Linear_Model_T2D_Sex.txt"))
+cat("Linear Model: pseudotime ~ sex (T2D Only)\n")
+cat("==========================================\n\n")
+print(summary(lm_t2d))
+cat("\n\nANOVA:\n")
+print(anova_t2d)
+sink()
+
+# Cohen's d effect size
+cohens_d_sex_t2d <- cohen.d(model_data$pseudotime, model_data$sex)
+cat("\nCohen's d (Male vs Female, T2D):\n")
+print(cohens_d_sex_t2d)
+
+effect_size_df <- data.frame(
+  Comparison   = "Male vs Female (T2D only)",
+  Cohens_d     = cohens_d_sex_t2d$estimate,
+  CI_lower     = cohens_d_sex_t2d$conf.int[1],
+  CI_upper     = cohens_d_sex_t2d$conf.int[2],
+  Magnitude    = cohens_d_sex_t2d$magnitude
+)
+write.csv(effect_size_df, paste0(dir.results, "Effect_Size_Sex_T2D.csv"), row.names = FALSE)
+
+# Levene's test for homogeneity of variance
+levene_t2d <- leveneTest(pseudotime ~ sex, data = model_data)
+cat("\nLevene's test:\n")
+print(levene_t2d)
+
+# ============================================================================
+# STEP 9: STATISTICAL ANALYSIS BY PT SUBTYPE
+# ============================================================================
+
+cat("\n--- Sex differences by PT subtype ---\n")
+
+subtype_stats <- plot_df_clean %>%
+  group_by(celltype) %>%
+  filter(n_distinct(sex) == 2) %>%        # Only subtypes with both sexes present
+  summarise(
+    n_cells      = n(),
+    n_female     = sum(sex == "Female"),
+    n_male       = sum(sex == "Male"),
+    mean_female  = mean(pseudotime[sex == "Female"]),
+    mean_male    = mean(pseudotime[sex == "Male"]),
+    sex_p_value  = wilcox.test(pseudotime ~ sex)$p.value,
+    .groups      = 'drop'
+  ) %>%
+  mutate(
+    sex_p_adj      = p.adjust(sex_p_value, method = "BH"),
+    significant    = sex_p_adj < 0.05,
+    direction      = ifelse(mean_male > mean_female,
+                            "Male higher pseudotime",
+                            "Female higher pseudotime")
+  ) %>%
+  arrange(sex_p_value)
+
+cat("\nSex differences by PT subtype:\n")
+print(subtype_stats)
+write.csv(subtype_stats, paste0(dir.results, "Sex_Differences_by_PT_Subtype_T2D.csv"),
+          row.names = FALSE)
+
+# Violin plots per PT subtype
+p_violin_subtype <- ggplot(plot_df_clean, aes(x = sex, y = pseudotime, fill = sex)) +
+  geom_violin(alpha = 0.6, trim = FALSE) +
+  geom_boxplot(width = 0.2, alpha = 0.8, outlier.shape = NA) +
+  scale_fill_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  facet_wrap(~celltype) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 3.5) +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        strip.background = element_rect(fill = "lightgray"),
+        strip.text = element_text(face = "bold"),
+        legend.position = "none") +
+  labs(title    = "Pseudotime by Sex Across PT Subtypes (T2D Only)",
+       x = "Sex", y = "Pseudotime")
+
+print(p_violin_subtype)
+ggsave(paste0(dir.results, "Violin_by_Subtype_Sex_T2D.pdf"),
+       plot = p_violin_subtype, width = 12, height = 9)
+
+# ============================================================================
+# STEP 10: INTERACTION PLOT (mean pseudotime per sex per subtype)
+# ============================================================================
+
+subtype_summary <- plot_df_clean %>%
+  group_by(celltype, sex) %>%
+  summarise(
+    n          = n(),
+    mean_pt    = mean(pseudotime),
+    se_pt      = sd(pseudotime) / sqrt(n()),
+    ci_lower   = mean_pt - 1.96 * se_pt,
+    ci_upper   = mean_pt + 1.96 * se_pt,
+    .groups    = 'drop'
+  )
+
+p_interaction <- ggplot(subtype_summary,
+                        aes(x = celltype, y = mean_pt, color = sex, group = sex)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2, linewidth = 0.8) +
+  scale_color_manual(values = c("Female" = "#E64B35", "Male" = "#4DBBD5")) +
+  theme_classic() +
+  theme(text = element_text(size = 13),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title    = "Mean Pseudotime by Sex and PT Subtype (T2D Only)",
+       subtitle = "Error bars = 95% CI",
+       x = "PT Subtype", y = "Mean Pseudotime", color = "Sex")
+
+print(p_interaction)
+ggsave(paste0(dir.results, "Interaction_Subtype_Sex_T2D.pdf"),
+       plot = p_interaction, width = 9, height = 6)
+
+# ============================================================================
+# STEP 11: HEATMAP - Mean pseudotime by sex and PT subtype
+# ============================================================================
+
+heatmap_data <- plot_df_clean %>%
+  group_by(celltype, sex) %>%
+  summarise(mean_pseudotime = mean(pseudotime), .groups = 'drop')
+
+p_heatmap <- ggplot(heatmap_data, aes(x = sex, y = celltype, fill = mean_pseudotime)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(mean_pseudotime, 1)),
+            color = "white", size = 4.5, fontface = "bold") +
+  scale_fill_viridis_c(option = "plasma") +
+  theme_minimal() +
+  theme(text = element_text(size = 13),
+        panel.grid = element_blank()) +
+  labs(title = "Mean Pseudotime by Sex and PT Subtype (T2D Only)",
+       x = "", y = "PT Subtype", fill = "Mean\nPseudotime")
+
+print(p_heatmap)
+ggsave(paste0(dir.results, "Heatmap_Pseudotime_Sex_Subtype_T2D.pdf"),
+       plot = p_heatmap, width = 7, height = 6)
+
+# ============================================================================
+# STEP 12: SUMMARY STATISTICS TABLE
+# ============================================================================
+
+summary_table <- model_data %>%
+  group_by(sex) %>%
+  summarise(
+    N               = n(),
+    Mean            = mean(pseudotime),
+    SD              = sd(pseudotime),
+    Median          = median(pseudotime),
+    IQR             = IQR(pseudotime),
+    Min             = min(pseudotime),
+    Max             = max(pseudotime),
+    .groups         = 'drop'
+  )
+
+cat("\nSummary statistics:\n")
+print(summary_table)
+write.csv(summary_table, paste0(dir.results, "Summary_Statistics_T2D_Sex.csv"),
+          row.names = FALSE)
+
+# Write Wilcoxon result to CSV
+write.csv(as.data.frame(stat_test_sex),
+          paste0(dir.results, "Wilcoxon_Test_T2D_Sex.csv"),
+          row.names = FALSE)
+
+# ============================================================================
+# STEP 13: COMBINED PANEL FIGURE
+# ============================================================================
+
+cat("Creating combined panel figure...\n")
+
+combined_panel <- (p1 | p2 | p4) /
+  (p_violin_sex | p_density_sex | p_ridge_sex)
+
+ggsave(paste0(dir.results, "Combined_Panel_T2D_Sex_Pseudotime.pdf"),
+       plot = combined_panel, width = 18, height = 12)
+
+# ============================================================================
+# STEP 14: SAVE SEURAT OBJECT AND SLINGSHOT RESULT
+# ============================================================================
+
+cat("Saving Seurat object and Slingshot result...\n")
+save(so_t2d_pt, sling_res_t2d,
+     file = paste0(dir.results, "T2D_PT_Cells_Pseudotime.RData"))
+
+cat("\n=== T2D-Only Sex Pseudotime Analysis Complete ===\n")
+cat("Results saved to:", dir.results, "\n\n")
+cat("Key output files:\n")
+cat("  - UMAP_Pseudotime_T2D.pdf\n")
+cat("  - UMAP_Facet_by_Sex_T2D.pdf\n")
+cat("  - Violin_Pseudotime_by_Sex_T2D.pdf\n")
+cat("  - Density_by_Subtype_and_Sex_T2D.pdf\n")
+cat("  - Violin_by_Subtype_Sex_T2D.pdf\n")
+cat("  - Interaction_Subtype_Sex_T2D.pdf\n")
+cat("  - Heatmap_Pseudotime_Sex_Subtype_T2D.pdf\n")
+cat("  - Sex_Differences_by_PT_Subtype_T2D.csv\n")
+cat("  - Summary_Statistics_T2D_Sex.csv\n")
+cat("  - Linear_Model_T2D_Sex.txt\n")
+cat("  - T2D_PT_Cells_Pseudotime.RData\n")
+
+
+
+
+
+
+
+
+
+##### T2D Plotting
+########### Combined Volcano plots for 4 cell types
+
+library(ggplot2)
+library(ggbreak)
+library(dplyr)
+library(patchwork)
+library(ggrepel)
+
+# Define the 4 cell types we want
+variable_names <- c('All', 'PT', 'TAL', 'EC')
+
+# Store plots in a list
+plot_list <- list()
+
+# First pass: collect all data to determine common axis limits
+all_logfc <- c()
+all_pval <- c()
+
+for(i in 1:length(variable_names)){
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/Full_NEBULA_', 
+                                          variable_names[i], '_cells__T2D_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers %>% filter(abs(LogFC) < 10)
+  all_logfc <- c(all_logfc, tmp_df$LogFC)
+  all_pval <- c(all_pval, -log10(tmp_df$Pvalue))
+}
+
+# Calculate common axis limits
+x_limit <- max(abs(all_logfc), na.rm = TRUE) * 1.05
+y_limit <- max(all_pval, na.rm = TRUE) * 1.05
+
+# Second pass: create plots with common limits
+for(i in 1:length(variable_names)){
+  
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/Full_NEBULA_', 
+                                          variable_names[i], '_cells__T2D_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers
+  tmp_df$diffexp <- 'No'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC > 0] <- 'Up'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC < 0] <- 'Down'
+  
+  tmp_df <- tmp_df %>% arrange(Pvalue)
+  tmp_df$label <- NA
+  tmp_df$label[1:10] <- tmp_df$Gene[1:10]
+  
+  tmp_df <- tmp_df %>% filter(abs(LogFC) < 10)
+  
+  # Making graph with updated labels and common limits
+  if(length(unique(tmp_df$diffexp)) > 1){
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point(size = 1.5, alpha = 0.8)+
+      geom_text_repel(size=3, vjust = 2, color='black')+
+      scale_color_manual(values = c('#FF8C42', 'grey', '#8B5CF6'),  # Orange for Down, Purple for Up
+                         labels = c('Higher Expression in\nWomen vs. Men', 
+                                    'Not significant', 
+                                    'Higher Expression in\nMen vs. Women'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed', linewidth = 0.5)+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed', linewidth = 0.5)+
+      theme_classic()+
+      coord_cartesian(xlim = c(-x_limit, x_limit), ylim = c(0, y_limit)) +  # Common limits
+      labs(x='LogFC (Men vs. Women)', 
+           y='-log10 P-value', 
+           col ='Differential Expression', 
+           title = paste0(variable_names[i], ' Cells'),
+           tag = LETTERS[i])+
+      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+            plot.tag = element_text(size = 16, face = "bold"),
+            legend.title = element_text(size = 10, face = "bold"),
+            legend.text = element_text(size = 9),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            aspect.ratio = 1)  # Square aspect ratio for better alignment
+    
+  } else {
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point(size = 1.5, alpha = 0.8)+
+      geom_text(size=3, vjust = 2, color='black')+
+      scale_color_manual(values = c('grey'),
+                         labels = c('Not significant'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed', linewidth = 0.5)+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed', linewidth = 0.5)+
+      theme_classic()+
+      coord_cartesian(xlim = c(-x_limit, x_limit), ylim = c(0, y_limit)) +  # Common limits
+      labs(x='LogFC (Men vs. Women)', 
+           y='-log10 P-value', 
+           col ='Differential Expression', 
+           title = paste0(variable_names[i], ' Cells'),
+           tag = LETTERS[i])+
+      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+            plot.tag = element_text(size = 16, face = "bold"),
+            legend.title = element_text(size = 10, face = "bold"),
+            legend.text = element_text(size = 9),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            aspect.ratio = 1)  # Square aspect ratio for better alignment
+  }
+  
+  # Store plot in list
+  plot_list[[i]] <- tmp_graph
+  
+  print(paste0('Plot created for ', variable_names[i]))
+}
+
+# ============================================================================
+# COMBINE ALL 4 PLOTS INTO ONE FIGURE (2x2 grid)
+# ============================================================================
+
+combined_volcano <- (plot_list[[1]] | plot_list[[2]]) / 
+  (plot_list[[3]] | plot_list[[4]]) +
+  plot_layout(guides = 'collect')  # Collect legends together
+
+# Save combined figure
+pdf('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/VolcanoPlots_Combined_4Panels.pdf',
+    width = 14, height = 12)
+print(combined_volcano)
+dev.off()
+
+png('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/VolcanoPlots_Combined_4Panels.png',
+    width = 4200, height = 3600, res = 300)
+print(combined_volcano)
+dev.off()
+
+cat("\n✓ Combined 4-panel volcano plot created and saved!\n")
+cat("  Panel A: All Cells\n")
+cat("  Panel B: PT Cells\n")
+cat("  Panel C: TAL Cells\n")
+cat("  Panel D: EC Cells\n")
+
+
 
 
 

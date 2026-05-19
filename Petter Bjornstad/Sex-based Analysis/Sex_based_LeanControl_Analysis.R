@@ -975,9 +975,9 @@ for(i in c(1:length(variable_names))){
   if(length(unique(tmp_df$diffexp)) > 1){
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
-      geom_text(size=2, vjust = 2, color='black')+
+      geom_text(size=10, vjust = 2, color='black')+
       scale_color_manual(values = c('orange', 'grey', 'purple'),
-                         labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+                         labels = c('Higher in Women', 'Not significant', 'Higher in Men'))+
       geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+
@@ -1029,6 +1029,7 @@ library(ggplot2)
 library(ggbreak)
 library(dplyr)
 library(patchwork)
+library(ggrepel)
 
 # Define the 4 cell types we want
 variable_names <- c('All', 'PT', 'TAL', 'EC')
@@ -1082,7 +1083,7 @@ for(i in 1:length(variable_names)){
   if(length(unique(tmp_df$diffexp)) > 1){
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point(size = 1.5, alpha = 0.8)+
-      geom_text(size=3, vjust = 2, color='black')+
+      geom_text_repel(size=3, vjust = 2, color='black')+
       scale_color_manual(values = c('#FF8C42', 'grey', '#8B5CF6'),  # Orange for Down, Purple for Up
                          labels = c('Higher Expression in\nWomen vs. Men', 
                                     'Not significant', 
@@ -6930,10 +6931,10 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      scale_x_continuous(limits = x_limits, expand = c(0, 0)) +
      theme_minimal() +
      theme(
-       axis.text.y = element_text(size = 7, lineheight = 0.9),
-       axis.text.x = element_text(size = 9),
-       axis.title = element_text(size = 10, face = "bold"),
-       plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+       axis.text.y = element_text(size = 15, lineheight = 0.9),
+       axis.text.x = element_text(size = 17),
+       axis.title = element_text(size = 20, face = "bold"),
+       plot.title = element_text(size = 25, face = "bold", hjust = 0.5),
        legend.position = "none",  # Hide legend on individual plots
        legend.title = element_blank(),
        legend.text = element_text(size = 9),
@@ -7012,7 +7013,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      theme_minimal() +
      theme(legend.position = "bottom",
            legend.title = element_blank(),
-           legend.text = element_text(size = 10),
+           text = element_text(size = 20),
+           legend.text = element_text(size = 15),
            legend.box.margin = margin(0, 0, 0, 0))
    
    # Extract the legend as a grob

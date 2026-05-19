@@ -47,22 +47,26 @@ create_demo_table <- function(data, stratify_var, title,
   available_vars <- vars_to_include[vars_to_include %in% names(data)]
   
   # Default labels
+  # ── No set_variable_labels() needed ───────────────────────────────────
+  
+  # In your create_demo_table function, update default_labels to include:
   default_labels <- list(
-    age = "Age (years)",
-    sex = "Sex",
-    race = "Race",
-    ethnicity = "Ethnicity", 
-    bmi = "BMI (kg/m²)",
-    hba1c = "HbA1c (%)",
-    egfr_ckd_epi = "eGFR (mL/min/1.73m²)",
-    acr_u = "UACR (mg/g)",
-    diabetes_duration = "Diabetes Duration (years)",
-    sbp = "Systolic BP (mmHg)",
-    dbp = "Diastolic BP (mmHg)",
-    gfr_bsa_plasma = "mGFR (mL/min/1.73m²)",
-    avg_c_k2 = "Cortical K2",
-    avg_c_f = "Cortical F",
-    avg_c_k2_f = "Cortical K2/F"
+    age                 = "Age (years)",
+    sex                 = "Sex",
+    race                = "Race",
+    ethnicity           = "Ethnicity",
+    bmi                 = "BMI (kg/m²)",
+    hba1c               = "HbA1c (%)",          # ← updated
+    egfr_ckd_epi        = "eGFR (mL/min/1.73m²)",
+    acr_u               = "Albuminuria",         # ← updated (was Microalbuminuria)
+    sbp                 = "Systolic BP (mmHg)",
+    dbp                 = "Diastolic BP (mmHg)",
+    epic_ever_sglt2i_1  = "SGLT2i Use",          # ← new
+    epic_glp1ra_1       = "GLP-1 RA Use",        # ← new
+    avg_c_k2            = "Cortical K2 (mL/min/g)",
+    avg_c_f             = "Cortical F",
+    avg_c_k2_f          = "Cortical K2/F"
+    # ... keep any other existing entries
   )
   
   if (!is.null(var_labels)) {
@@ -125,9 +129,6 @@ table1 <- dat_scrnaseq %>%
 ########################################################################
 # TABLE 2: PET/CT Cohorts (18 T2D + 11 HC)
 ########################################################################
-
-# Use dat2 from your existing code (after SGLT2i filtering)
-# Recreate dat2 or use the filtered version
 PET_avg <- function(data){
   tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2, lc_f, rc_f, lm_f, rm_f)
   avg_c_k2 <- tmp_df %>% dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
@@ -155,12 +156,22 @@ dat_pet <- dat_results %>%
     )
   )
 
+# ── Label updates ─────────────────────────────────────────────────────
+dat_pet <- dat_pet %>%
+  labelled::set_variable_labels(
+    hba1c             = "HbA1c (%)",
+    acr_u             = "Albuminuria",
+    epic_ever_sglt2i_1 = "SGLT2i Use",
+    epic_glp1ra_1      = "GLP-1 RA Use"
+  )
+
 table2 <- dat_pet %>%
   create_demo_table(
     stratify_var = "Cohort",
     title = "Table 2. Participant Characteristics for PET/CT Cohorts",
-    vars_to_include = c("age", "sex", "race", "ethnicity", "bmi", 
+    vars_to_include = c("age", "sex", "race", "ethnicity", "bmi",
                         "hba1c", "egfr_ckd_epi", "acr_u", "sbp", "dbp",
+                        "epic_ever_sglt2i_1", "epic_glp1ra_1",   # ← added
                         "avg_c_k2", "avg_c_f", "avg_c_k2_f")
   )
 
@@ -402,22 +413,26 @@ create_demo_table <- function(data, stratify_var, title,
   available_vars <- vars_to_include[vars_to_include %in% names(data)]
   
   # Default labels
+  # ── No set_variable_labels() needed ───────────────────────────────────
+  
+  # In your create_demo_table function, update default_labels to include:
   default_labels <- list(
-    age = "Age (years)",
-    sex = "Sex",
-    race = "Race",
-    ethnicity = "Ethnicity", 
-    bmi = "BMI (kg/m²)",
-    hba1c = "HbA1c (%)",
-    egfr_ckd_epi = "eGFR (mL/min/1.73m²)",
-    acr_u = "UACR (mg/g)",
-    diabetes_duration = "Diabetes Duration (years)",
-    sbp = "Systolic BP (mmHg)",
-    dbp = "Diastolic BP (mmHg)",
-    gfr_bsa_plasma = "mGFR (mL/min/1.73m²)",
-    avg_c_k2 = "Cortical K2",
-    avg_c_f = "Cortical F",
-    avg_c_k2_f = "Cortical K2/F"
+    age                 = "Age (years)",
+    sex                 = "Sex",
+    race                = "Race",
+    ethnicity           = "Ethnicity",
+    bmi                 = "BMI (kg/m²)",
+    hba1c               = "HbA1c (%)",          # ← updated
+    egfr_ckd_epi        = "eGFR (mL/min/1.73m²)",
+    acr_u               = "Albuminuria",         # ← updated (was Microalbuminuria)
+    sbp                 = "Systolic BP (mmHg)",
+    dbp                 = "Diastolic BP (mmHg)",
+    epic_ever_sglt2i_1  = "SGLT2i Use",          # ← new
+    epic_glp1ra_1       = "GLP-1 RA Use",        # ← new
+    avg_c_k2            = "Cortical K2 (mL/min/g)",
+    avg_c_f             = "Cortical F",
+    avg_c_k2_f          = "Cortical K2/F"
+    # ... keep any other existing entries
   )
   
   if (!is.null(var_labels)) {
