@@ -7,14 +7,11 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-.libPaths("~/leidholt/R")
+#.libPaths("/mmfs1/gscratch/togo/leidholt/R")
 ```
 
 ```{r}
-library(Seurat)
-library(tidyverse)
 library(arsenal)
-library(dplyr)
 library(ggplot2)
 library(ggrepel)
 library(ggpubr)
@@ -42,6 +39,7 @@ library(stringr)
 library(patchwork)
 library(msigdbr)
 library(fgsea)
+library(Seurat)
 ```
 
 ```{r}
@@ -102,15 +100,17 @@ pb90_multiomics_subset <- s3readRDS(
 
 ```{r}
 my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
-# Read Seurat object and run UMAP, obtain cell numbers, etc
-#pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
- # cbind(pb90_multiomics_subset@reductions$umap.harmony@cell.embeddings)
 
-#s3saveRDS(pb90_multiomics_subset_meta, 
-# object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
-# bucket = "scrna", 
-# region = "", 
-# multipart = T)
+pb90_multiomics_subset@reductions$
+# Read Seurat object and run UMAP, obtain cell numbers, etc
+pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
+  cbind(pb90_multiomics_subset@reductions$pca@cell.embeddings)
+
+s3saveRDS(pb90_multiomics_subset_meta, 
+ object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
+ bucket = "scrna", 
+ region = "", 
+ multipart = T)
 ```
 
 ```{r}
@@ -123,19 +123,19 @@ pb90_multiomics_subset_meta <- s3readRDS(
 centers <- pb90_multiomics_subset_meta %>%
   group_by(KPMP_celltype) %>%
   summarise(
-    x = median(umapharmony_1),
-    y = median(umapharmony_2),
+    x = median(umapTRIAD_1),
+    y = median(umapTRIAD_2),
     .groups = "drop"
   )
 
 umap_p <- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype)) +
+                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = KPMP_celltype)) +
   geom_point(alpha = 0.2, shape = 16) +
   geom_text_repel(
     data = centers,
     aes(x = x, y = y, label = KPMP_celltype),
     inherit.aes = FALSE,
-    size = 5,                 # slightly larger for readability
+    size = 5,                 
     fontface = "bold",
     color = "black"
   ) +
@@ -144,12 +144,11 @@ umap_p <- ggplot(pb90_multiomics_subset_meta,
   theme(
     panel.grid = element_blank(),
     
-    # axis titles + tick labels (match previous plots)
+    
     axis.title.x = element_text(size = 16, hjust = 0),
     axis.title.y = element_text(size = 16, hjust = 0),
     axis.text = element_text(size = 14),
     
-    # no legend
     legend.position = "none"
   ) +
   labs(x = "UMAP1", y = "UMAP2")
@@ -160,9 +159,10 @@ umap_p
 ```{r}
 pb90_multiomics_subset_meta%>%
   distinct(record_id, group)
+
 # UMAP by source
 umap_p_study<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = study)) +
+                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = study)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("RENAL-HEIR" = "darkcyan",
                                 "RENAL-HEIRitage"= "gold4",
@@ -191,7 +191,7 @@ table((pb90_multiomics_subset_meta%>%
   distinct(record_id, visit, .keep_all = T))$group)
 # UMAP by source
 umap_p_group<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = group)) +
+                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = group)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("Obese Control" = "darkcyan",
                                 "Lean Control"= "plum4",
