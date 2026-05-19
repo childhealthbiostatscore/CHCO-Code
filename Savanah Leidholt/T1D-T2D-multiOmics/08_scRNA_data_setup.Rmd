@@ -7,7 +7,7 @@ output: html_document
 
 ```{r}
 knitr::opts_chunk$set(echo = TRUE)
-.libPaths("~/leidholt/R")
+#.libPaths("~/leidholt/R")
 ```
 
 ```{r}
@@ -27,7 +27,7 @@ library(jsonlite)
 library(Seurat)
 library(harmony)
 library(readr)
-
+library(parallel)
 ```
 
 ```{r}
@@ -46,27 +46,16 @@ if (user == "leidholt") {
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #laptop
     dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
-} else if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-} else if (user == "yejichoi") {
-  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
-} else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-} else if (user == "hhampson") {
-  root_path <- "/Volumes/Peds Endo"
-} else if (user == "sleidholt") {
-  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
 ```
 
+```{r}
+#detectCores()
+#plan("multisession", workers = 5)
+plan("sequential")
+```
 
 
 ```{r}
@@ -100,16 +89,6 @@ Assays(pb90_multiomics)
 
 slotNames(pb90_multiomics[["RNA"]])
 ```
-```{r}
-GetAssayData(pb90_multiomics, layer  = "counts")[1:5,1:5]
-GetAssayData(pb90_multiomics, layer = "data")[1:5,1:5]
-Layers(pb90_multiomics[["RNA"]])
-
-dim(pb90_multiomics)
-Reductions(pb90_multiomics)
-head(pb90_multiomics@meta.data)
-```
-
 
 #-----------------------------------------------
 #reacreating UMAPS for TRIAD subset
@@ -121,53 +100,53 @@ head(pb90_multiomics@meta.data)
 ```{r}
 set.seed(1835)
 
-pb90_multiomics2 <- pb90_multiomics 
-DefaultAssay(pb90_multiomics2) <- "RNA"
+pb90_multiomics <- pb90_multiomics 
+DefaultAssay(pb90_multiomics) <- "RNA"
 
 # Remove old reductions from larger dataset
-pb90_multiomics2@reductions <- list()
+pb90_multiomics@reductions <- list()
 
 #remove old cluster columns from larger dataset
-pb90_multiomics2$seurat_clusters <- NULL
-pb90_multiomics2$harmony_clusters <- NULL
+pb90_multiomics$seurat_clusters <- NULL
+pb90_multiomics$harmony_clusters <- NULL
 
-pb90_multiomics2[["RNA"]]$scale.data <- NULL
-pb90_multiomics2[["RNA"]]@layers$scale.data <- NULL
-Layers(pb90_multiomics2[["RNA"]])
+pb90_multiomics[["RNA"]]$scale.data <- NULL
+pb90_multiomics[["RNA"]]@layers$scale.data <- NULL
 Layers(pb90_multiomics[["RNA"]])
+#Layers(pb90_multiomics[["RNA"]])
 
 
 # Re-identify variable genes within this subset
-pb90_multiomics2 <- FindVariableFeatures(
-  pb90_multiomics2)
+pb90_multiomics <- FindVariableFeatures(
+  pb90_multiomics)
 
 # Scale only variable genes to save memory
-pb90_multiomics2 <- ScaleData(
-  pb90_multiomics2)
+pb90_multiomics <- ScaleData(
+  pb90_multiomics)
 
 
 # PCA on subset
-pb90_multiomics2 <- RunPCA(
-  pb90_multiomics2)
+pb90_multiomics <- RunPCA(
+  pb90_multiomics)
 
-ElbowPlot(pb90_multiomics2, ndims = 50)
+ElbowPlot(pb90_multiomics, ndims = 50)
 ```
 
 ```{r}
-pb90_multiomics2 <- FindNeighbors(
-  pb90_multiomics2,
+pb90_multiomics <- FindNeighbors(
+  pb90_multiomics,
   reduction = "pca",
   dims = 1:30
 )
 
-pb90_multiomics2 <- FindClusters(
-  pb90_multiomics2,
+pb90_multiomics <- FindClusters(
+  pb90_multiomics,
   resolution = 1.5,
   cluster.name = "unintegrated_clusters"
 )
 
-pb90_multiomics2 <- RunUMAP(
-  pb90_multiomics2,
+pb90_multiomics <- RunUMAP(
+  pb90_multiomics,
   dims = 1:30,
   reduction = "pca",
   reduction.name = "umap.unintegrated"
@@ -175,30 +154,30 @@ pb90_multiomics2 <- RunUMAP(
 ```
 
 ```{r}
-pb90_multiomics2_integrated <- RunHarmony(
-  object = pb90_multiomics2,
+pb90_multiomics_integrated <- RunHarmony(
+  object = pb90_multiomics,
   group.by.vars = "orig.ident",
   reduction.use = "pca",
-  assay.use = DefaultAssay(pb90_multiomics2),
+  assay.use = DefaultAssay(pb90_multiomics),
   reduction.save = "harmony"
 )
-
-
+```
+```{r}
 # neighbors/clusters/UMAP using Harmony
-pb90_multiomics2_integrated <- FindNeighbors(
-  pb90_multiomics2_integrated,
+pb90_multiomics_integrated <- FindNeighbors(
+  pb90_multiomics_integrated,
   reduction = "harmony",
   dims = 1:30
 )
 
-pb90_multiomics2_integrated <- FindClusters(
-  pb90_multiomics2_integrated,
+pb90_multiomics_integrated <- FindClusters(
+  pb90_multiomics_integrated,
   resolution = 1.5,
   cluster.name = "TRIAD_clusters"
 )
 
-pb90_multiomics2_integrated <- RunUMAP(
-  pb90_multiomics2_integrated,
+pb90_multiomics_integrated <- RunUMAP(
+  pb90_multiomics_integrated,
   reduction = "harmony",
   dims = 1:30,
   reduction.name = "umap.TRIAD"
@@ -206,29 +185,43 @@ pb90_multiomics2_integrated <- RunUMAP(
 ```
 
 ```{r}
-#s3saveRDS(pb90_multiomics2_integrated, 
- #         object = "data_clean/pb90_multiomics_subset_savanah_20260420", 
-  #        bucket = "scrna",
-   #       region = "",
-    #multipart = T)
+# Extract UMAP coordinates from the TRIAD reduction
+umap_coords <- Embeddings(
+  pb90_multiomics_integrated,
+  reduction = "umap.TRIAD"
+)
 
-pb90_multiomics2_integrated <- s3readRDS(
-          object = "data_clean/pb90_multiomics_subset_savanah_20260406.rds", 
-          bucket = "scrna",
-          region = "")
+# Add as metadata columns
+pb90_multiomics_integrated$umapTRIAD_1 <- umap_coords[,1]
+pb90_multiomics_integrated$umapTRIAD_2 <- umap_coords[,2]
 ```
 
+#save file so I don't have to repeat above steps
+```{r}
+#s3saveRDS(pb90_multiomics_integrated, 
+ #         object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
+  #        bucket = "scrna",
+   #       region = "",
+  #  multipart = T)
+```
 
+#start here post cleaning steps
+```{r}
+#pb90_multiomics_integrated <- s3readRDS(
+ #         object = "data_clean/pb90_multiomics_subset_savanah_20260406.rds", 
+  #        bucket = "scrna",
+   #       region = "")
+```
 
 ```{r}
 p1 <- DimPlot(
-  pb90_multiomics2,
+  pb90_multiomics_integrated,
   reduction = "umap.unintegrated",
   group.by = "study"
 )
 
 p2 <- DimPlot(
-  pb90_multiomics2_integrated,
+  pb90_multiomics_integrated,
   reduction = "umap.TRIAD",
   group.by = "study"
 )
@@ -310,8 +303,9 @@ meta_scrna <- harm_meta_data %>%
 ```
 
 ```{r}
-pb90_multiomics_meta_subset <- pb90_multiomics2_integrated@meta.data %>%
-  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype) %>%
+meta <- pb90_multiomics_integrated@meta.data
+pb90_multiomics_meta_subset <- pb90_multiomics_integrated@meta.data %>%
+  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype, unintegrated_clusters, TRIAD_clusters, umapTRIAD_1, umapTRIAD_2) %>%
   dplyr::mutate(kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)),
                 visit = case_when(visit == "screening" ~ "baseline",
                                   T ~ visit)) %>%
@@ -364,11 +358,15 @@ table((pb90_multiomics_meta_subset %>%
 
 pb90_multiomics_subset <- pb90_multiomics[, colnames(pb90_multiomics) %in% rownames(pb90_multiomics_meta_subset)]
 pb90_multiomics_subset@meta.data <- pb90_multiomics_meta_subset
+```
 
+```{r}
 s3saveRDS(pb90_multiomics_subset, 
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420", 
+          object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
           bucket = "scrna",
           region = "",
           multipart = T)
 ```
+
+
 
