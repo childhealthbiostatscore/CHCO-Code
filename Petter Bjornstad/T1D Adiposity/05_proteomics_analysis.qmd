@@ -191,6 +191,9 @@ meta2 <- meta %>%
   )
 
 table(meta2$group_bmi, useNA = "ifany")
+
+
+#add in to check for what was filtered out from the covariate filtering step. 
 ```
 #----------------------------------
 #checking out clinical outcome data
@@ -376,6 +379,7 @@ stopifnot(identical(rownames(dat_log_filt), meta2$record_id))
 ```
 #-------------------------
 #imputing the missing data
+#check sensitivity analysis
 #-------------------------
 ```{r}
 set.seed(1835)
@@ -404,10 +408,16 @@ dat_imp <- dat_imp[, keep_cols, drop = FALSE]
 
 stopifnot(identical(rownames(dat_imp), meta2$record_id))
 stopifnot(sum(is.na(dat_imp)) == 0)
+
+
+#add in check to see how much many proteins are imputed
 ```
 
 #--------------------------
 #checking for outliers
+#check if they have any differences cinically (medication or paritcularly unhealthy)
+#do sensitivity anlaysis
+#check CRC-42 if it's lean control or T1D
 #--------------------------
 ```{r}
 pca0 <- prcomp(dat_imp, center = TRUE, scale. = TRUE)
@@ -520,6 +530,9 @@ clinical_summary_table <- clinical_df %>%
   bold_labels()
 
 clinical_summary_table
+
+
+#check why these numbers are different than above
 ```
 #----------------------------------------
 #pretty clincial table with t1d group only
@@ -595,6 +608,7 @@ clinical_summary_table_t1d
 ```
 
 ```{r}
+#cohort vs study in pca plots
 stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 design <- model.matrix(~ group_bmi, data = meta3)
 
@@ -631,7 +645,7 @@ stopifnot(nrow(design) == nrow(cov_hba1c_age_study))
 stopifnot(nrow(design) == nrow(dat_imp2))
 
 prot_hba1c_age_study <- t(removeBatchEffect(t(dat_imp2), covariates = cov_hba1c_age_study, design = design))
-p3b <- make_pca(prot_hba1c_age_study, meta3,"Adjusted for age * HbA1c + sex + study")
+p3b <- make_pca(prot_hba1c_age_study, meta3,"Adjusted for age * HbA1c + sex + cohort")
 
 #model 3a
 cov_hba1c_age <- model.matrix(as.formula(paste0("~ age * ", hba1c_var, " + sex")), data = meta3)[, -1, drop = FALSE]
@@ -643,10 +657,10 @@ p3a <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex ")
 pca_group_bmi_all <- (p0 | p1 | p3a) / (p2 | p3b | patchwork::plot_spacer())
 pca_group_bmi_all
 
-ggsave(filename = file.path(dir.results, "Plots", "pca_m2.png"),
-       width = 7,
-       height = 5,
-       dpi = 300)
+#ggsave(filename = file.path(dir.results, "Plots", "pca_m2.png"),
+ #      width = 7,
+  #     height = 5,
+   #    dpi = 300)
 ```
 ```{r}
 #-----------------------------------------
@@ -677,6 +691,8 @@ set.seed(1835)
 
 permutest(beta_m2, permutations = 999)
 TukeyHSD(beta_m2)
+
+#check with bmi group
 ```
 #--------------------------------------------------
 #running limma for global T1D proteomic differences
@@ -838,6 +854,10 @@ sig_counts %>% filter(model == "M2: group_bmi + age + sex + study")
  #         file = file.path(dir.results, "sig_counts_by_model.csv"))
 #write_csv(sig_all_models_fc, 
  #         file = file.path(dir.results, "limma_results_all_models.csv"))
+
+
+
+#check against hba1c models to see if there are significant differences in DEPs
 ```
 
 ```{r}
@@ -1016,6 +1036,8 @@ ggsave("M3_pca_plots.png",
        height =12,
        dpi = 300
        )
+
+#these are the ones to double check the model on
 ```
 #-----------------
 #pathway anlaysis
@@ -1155,6 +1177,8 @@ fgsea_CC_m2 <- fgsea_CC_m2 %>%
   dplyr::arrange(model, contrast, pathway_type, padj)
 
 fgsea_CC_m2
+
+#check and make sure to filter out the pvalues with inf or NA
 ```
 
 ```{r}
@@ -1652,6 +1676,8 @@ run_elastic_net <- function(
 #boostrapping T1D vs LC
 #----------------------
 ```{r}
+#change to the top 100 even without significance so it's more comparable
+
 net1 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_Normal_vs_LC_Normal",
   limma_df = res_m2,
