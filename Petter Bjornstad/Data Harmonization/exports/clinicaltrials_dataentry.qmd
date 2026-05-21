@@ -1,0 +1,110 @@
+---
+title: "Clinicaltrials.gov data entry"
+format: html
+---
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
+
+dat <- harm_dat %>%
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+
+
+```
+
+```{r}
+# IMPROVE
+improve_dat <- dat %>%
+  filter(study == "IMPROVE")
+followup_ids <- subset(improve_dat, visit == "12_months_post_surgery")$record_id
+improve_dat <- improve_dat %>%
+  filter(record_id %in% followup_ids)
+  
+summary(arsenal::tableby(visit ~ bmi + di + erpf_raw_plasma + gfr_raw_plasma +
+                           avg_pcascl + avg_c_r2 + af_meanwss,  data = improve_dat))
+```
+
+```{r}
+# PENGUIN
+penguin_dat <- dat %>%
+  filter(study %in%  c("PENGUIN", "CROCODILE"))
+
+summary(arsenal::tableby(study ~ avg_c_k2 + erpf_raw_plasma + gfr_raw_plasma,  data = subset(penguin_dat, group != "Type 1 Diabetes")))
+```
+
+
+```{r}
+# ULTRA
+ultra_dat <- dat %>%
+  filter(study == "ULTRA")
+
+summary(arsenal::tableby(visit ~ age + sex + race + ethnicity + sbp + dbp + map +
+                           af_pwv + af_meanwss + eGFR_CKD_epi, data = ultra_dat))
+```
+
+```{r}
+# RH
+rh_dat <- dat %>%
+  filter(study == "RENAL-HEIR")
+
+summary(arsenal::tableby(group ~ erpf_raw_plasma + gfr_raw_plasma, data = rh_dat))
+```
+
+```{r}
+# CROC
+croc_dat <- dat %>%
+  filter(study == "CROCODILE")
+
+summary(arsenal::tableby(group ~ avg_c_r2, data = croc_dat))
+```
+
+```{r}
+# RH2
+rh2_dat <- dat %>%
+  filter(!is.na(rh2_id)) %>%
+  filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage"))
+
+summary(arsenal::tableby(group ~ age + sex + race + ethnicity + avg_c_r2, data = rh2_dat))
+
+rh2_dat <- dat %>%
+  filter(study %in% c("RENAL-HEIRitage"))
+
+summary(arsenal::tableby(group ~ age + sex + race + ethnicity + avg_c_r2, data = rh2_dat))
+```
