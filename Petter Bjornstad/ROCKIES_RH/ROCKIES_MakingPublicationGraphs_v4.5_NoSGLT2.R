@@ -630,7 +630,7 @@ cat("Figure 2 saved!\n")
 
 dat_fig3 <- dat_with_pet %>%
   filter(!is.na(avg_c_k2) & is.finite(avg_c_k2)) %>%
-  filter(group %in% c("Lean Control", "Type 2 Diabetes")) %>%
+  filter(group %in% c("Lean Control", 'Obese Control', "Type 2 Diabetes")) %>%
   filter(!is.na(acr_u)) %>%
   mutate(log10_uacr = log10(acr_u)) %>% 
   filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
