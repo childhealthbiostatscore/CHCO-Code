@@ -108,8 +108,6 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 # Get scRNAseq participants from Seurat metadata
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-# Get scRNAseq participants from Seurat metadata
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 tmp_meta <- so_kpmp_sc@meta.data
 scrnaseq_ids <- tmp_meta %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
 
@@ -121,7 +119,8 @@ remove(so_kpmp_sc)
 dat_scrnaseq <- dat %>% 
   semi_join(scrnaseq_ids, by='record_id') %>% 
   filter(visit == 'baseline') %>%
-  filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+  filter(group %in% c('Lean Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55')
 
 cat("scRNAseq cohort N:", nrow(dat_scrnaseq), "\n")
 
@@ -250,7 +249,8 @@ dat_results <- dat %>% bind_cols(tmp_results)
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
   filter(record_id != 'CRC-55') %>% 
-  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes') %>%
+  filter(!is.na(acr_u))
 
 cat("UACR-PET cohort N:", nrow(dat_results), "\n")
 print(table(dat_results$group))
