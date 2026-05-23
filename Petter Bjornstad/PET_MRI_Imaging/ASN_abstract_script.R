@@ -62,7 +62,7 @@ dat_results <- dat %>%
                           "avg_m_f",  "avg_c_k2_f", "avg_m_k2_f"))) %>%
   bind_cols(PET_avg(dat)) %>%
   filter(!is.na(avg_c_k2)) %>%
-  mutate(group = if_else(record_id == "RH2-39-O", "Obese Control", group))
+  mutate(group = if_else(record_id == "RH2-39-O", "Type 2 Diabetes", group))
 
 # Filter to 4-group comparison (exclude PKD)
 dat_results <- dat_results %>%
