@@ -165,6 +165,116 @@ cat("\nMerge complete! Use 'so_merged' for your sex and T2D status analysis.\n")
 
 
 
+# ============================================================================
+# STEP 7: Normalize, Scale, and Run UMAP on Merged Object
+# ============================================================================
+
+# Normalize and find variable features
+so_merged <- NormalizeData(so_merged)
+so_merged <- FindVariableFeatures(so_merged, selection.method = "vst", nfeatures = 2000)
+
+# Scale data
+so_merged <- ScaleData(so_merged, verbose = FALSE)
+
+# PCA
+so_merged <- RunPCA(so_merged, npcs = 30, verbose = FALSE)
+
+# Harmony integration (recommended since you're merging two datasets)
+# install.packages("harmony") if needed
+library(harmony)
+so_merged <- RunHarmony(so_merged, 
+                        group.by.vars = "record_id",  # correct for sample-level batch effects
+                        reduction = "pca",
+                        reduction.save = "harmony")
+
+# UMAP using Harmony embeddings
+so_merged <- RunUMAP(so_merged, 
+                     reduction = "harmony", 
+                     dims = 1:30,
+                     reduction.name = "umap")
+
+# Find neighbors and clusters (optional but useful)
+so_merged <- FindNeighbors(so_merged, reduction = "harmony", dims = 1:30)
+so_merged <- FindClusters(so_merged, resolution = 0.5)
+
+# ============================================================================
+# STEP 8: UMAP Plots Using KPMP_celltype
+# ============================================================================
+
+library(ggplot2)
+
+# --- Plot 1: Colored by KPMP_celltype ---
+p1 <- DimPlot(so_merged, 
+              reduction = "umap",
+              group.by = "KPMP_celltype",
+              label = TRUE,
+              label.size = 3,
+              repel = TRUE,
+              pt.size = 0.3) +
+  ggtitle("UMAP: KPMP Cell Types (T2D + Lean Control)") +
+  theme(legend.text = element_text(size = 8),
+        legend.key.size = unit(0.4, "cm"),
+        plot.title = element_text(hjust = 0.5)) +
+  guides(color = guide_legend(ncol = 2, override.aes = list(size = 3)))
+
+# --- Plot 2: Split by group (T2D vs Lean Control) ---
+p2 <- DimPlot(so_merged, 
+              reduction = "umap",
+              group.by = "KPMP_celltype",
+              split.by = "group",
+              label = TRUE,
+              label.size = 3,
+              repel = TRUE,
+              pt.size = 0.3) +
+  ggtitle("UMAP by Group: KPMP Cell Types") +
+  theme(legend.text = element_text(size = 8),
+        legend.key.size = unit(0.4, "cm"),
+        plot.title = element_text(hjust = 0.5)) +
+  guides(color = guide_legend(ncol = 2, override.aes = list(size = 3)))
+
+# --- Plot 3: Colored by group (T2D vs LC) to see integration ---
+p3 <- DimPlot(so_merged, 
+              reduction = "umap",
+              group.by = "group",
+              pt.size = 0.3,
+              cols = c("Type_2_Diabetes" = "#E63946", "Lean_Control" = "#457B9D")) +
+  ggtitle("UMAP: T2D vs Lean Control") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# --- Plot 4: Colored by sex ---
+p4 <- DimPlot(so_merged, 
+              reduction = "umap",
+              group.by = "sex",   # adjust to "Sex" if needed
+              pt.size = 0.3) +
+  ggtitle("UMAP: Sex") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# ============================================================================
+# STEP 9: Save Plots
+# ============================================================================
+
+ggsave(paste0(dir.results, "UMAP_KPMP_celltype.pdf"), 
+       plot = p1, width = 14, height = 10)
+
+ggsave(paste0(dir.results, "UMAP_KPMP_celltype_split_group.pdf"), 
+       plot = p2, width = 20, height = 10)
+
+ggsave(paste0(dir.results, "UMAP_group.pdf"), 
+       plot = p3, width = 10, height = 8)
+
+ggsave(paste0(dir.results, "UMAP_sex.pdf"), 
+       plot = p4, width = 10, height = 8)
+
+# Combine p1 and p3 side-by-side for a quick QC overview
+library(patchwork)
+p_combined <- p1 | p3
+ggsave(paste0(dir.results, "UMAP_combined_overview.pdf"),
+       plot = p_combined, width = 22, height = 9)
+
+cat("UMAP plots saved to:", dir.results, "\n")
+
+# Save updated object with UMAP embeddings
+save(so_merged, file = paste0(dir.results, 'T2D_Lean_Merged_Seurat_UMAP.RData'))
 
 
 
