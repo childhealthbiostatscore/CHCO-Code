@@ -445,7 +445,7 @@ for (i in seq_along(pet_vars)) {
     d <- rockies_baseline[, c(pet_vars[i], clin_vars[j])]
     d <- d[complete.cases(d), ]
     if (nrow(d) >= 5) {
-      res           <- cor.test(d[[1]], d[[2]], method = "spearman", exact = FALSE)
+      res           <- cor.test(d[[1]], d[[2]], method = "pearson", exact = FALSE)
       rho_mat[i, j] <- res$estimate
       p_mat[i, j]   <- res$p.value
     }
@@ -468,7 +468,7 @@ fig1d <- ggplot(fig1d_long, aes(x = clin, y = pet, fill = rho)) +
   geom_tile(color = "white", linewidth = 1) +
   geom_text(aes(label = label), size = 3.5, fontface = "bold") +
   scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
-                       midpoint = 0, limits = c(-1, 1), name = "Spearman\nrho") +
+                       midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_y_discrete(labels = pet_md_labels) +
   labs(x = NULL, y = NULL, tag = "D") +
   theme_rockies +
@@ -543,7 +543,7 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
   geom_tile(color = "white", linewidth = 1) +
   geom_text(aes(label = cell), size = 3.5, fontface = "bold") +
   scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
-                       midpoint = 0, limits = c(-1, 1), name = "Pearson\nr") +
+                       midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_x_discrete(labels = delta_col_labels) +
   scale_y_discrete(labels = pet_delta_md_labels) +
   labs(x = NULL, y = NULL, tag = "J") +
@@ -578,7 +578,8 @@ dat_fig2_base <- dat_with_pet %>%
     group == "Lean Control"    ~ "Healthy Control",
     group == "Obese Control"   ~ "Obese Control",
     group == "Type 2 Diabetes" ~ "T2D"
-  ))
+  )) %>%
+  filter(record_id != 'CRC-55')
 
 cohort_ns <- dat_fig2_base %>% filter(!is.na(avg_c_k2)) %>% count(Cohort)
 get_n     <- function(grp) cohort_ns$n[cohort_ns$Cohort == grp]
