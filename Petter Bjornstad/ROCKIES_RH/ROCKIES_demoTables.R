@@ -108,8 +108,6 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 # Get scRNAseq participants from Seurat metadata
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-# Get scRNAseq participants from Seurat metadata
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 tmp_meta <- so_kpmp_sc@meta.data
 scrnaseq_ids <- tmp_meta %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
 
@@ -121,7 +119,8 @@ remove(so_kpmp_sc)
 dat_scrnaseq <- dat %>% 
   semi_join(scrnaseq_ids, by='record_id') %>% 
   filter(visit == 'baseline') %>%
-  filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+  filter(group %in% c('Lean Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55')
 
 cat("scRNAseq cohort N:", nrow(dat_scrnaseq), "\n")
 
@@ -182,7 +181,9 @@ dat <- dat %>% dplyr::select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m
 tmp_results <- PET_avg(dat)
 dat_results <- dat %>% bind_cols(tmp_results)
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55') %>% 
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
 
 dat2 <- get_sglt2_filtered_data(dat_results)
 
@@ -221,7 +222,7 @@ table2 <- dat2 %>%
     ),
     missing_text = "Missing"
   ) %>%
-  add_p(test = list(all_continuous() ~ "wilcox.test", all_categorical() ~ "fisher.test")) %>%
+  add_p(test = list(all_continuous() ~ "kruskal.test", all_categorical() ~ "fisher.test")) %>% 
   add_overall() %>%
   modify_header(label ~ "**Characteristic**") %>%
   modify_footnote(all_stat_cols() ~ "Mean (SD); Median (Q1, Q3); n (%)")
@@ -246,7 +247,10 @@ dat <- dat %>% dplyr::select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m
 tmp_results <- PET_avg(dat)
 dat_results <- dat %>% bind_cols(tmp_results)
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55') %>% 
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes') %>%
+  filter(!is.na(acr_u))
 
 cat("UACR-PET cohort N:", nrow(dat_results), "\n")
 print(table(dat_results$group))

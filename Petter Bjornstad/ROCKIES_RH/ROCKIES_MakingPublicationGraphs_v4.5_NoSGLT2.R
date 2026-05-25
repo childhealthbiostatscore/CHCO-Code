@@ -498,13 +498,13 @@ pv_h <- pval_raw("K2_medulla_mean_Sherbrook_PLB",   "K2_medulla_mean_Sherbrook_S
 pv_i <- pval_raw("K2_F_medulla_mean_Sherbrook_PLB", "K2_F_medulla_mean_Sherbrook_SGLT2")
 
 fig1f <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2",
-                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "F", p_override = pv_f)
+                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "G", p_override = pv_f)
 fig1g <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2f",
-                          expression(bold("Cortical k"[2]*"/F")), "G", p_override = pv_g)
+                          expression(bold("Cortical k"[2]*"/F")), "H", p_override = pv_g)
 fig1h <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2",
-                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "H", p_override = pv_h)
+                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "I", p_override = pv_h)
 fig1i <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2f",
-                          expression(bold("Medullary k"[2]*"/F")), "I", p_override = pv_i)
+                          expression(bold("Medullary k"[2]*"/F")), "J", p_override = pv_i)
 
 # Panel J: Delta-delta heatmap — Δ on both axes, k2 subscripts via element_markdown
 dd_rho <- matrix(
@@ -546,7 +546,7 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
                        midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_x_discrete(labels = delta_col_labels) +
   scale_y_discrete(labels = pet_delta_md_labels) +
-  labs(x = NULL, y = NULL, tag = "J") +
+  labs(x = NULL, y = NULL, tag = "F") +
   theme_rockies +
   theme(legend.position = "right",
         axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
@@ -579,7 +579,8 @@ dat_fig2_base <- dat_with_pet %>%
     group == "Obese Control"   ~ "Obese Control",
     group == "Type 2 Diabetes" ~ "T2D"
   )) %>%
-  filter(record_id != 'CRC-55')
+  filter(record_id != 'CRC-55') %>% 
+  filter(Cohort == "Healthy Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
 
 cohort_ns <- dat_fig2_base %>% filter(!is.na(avg_c_k2)) %>% count(Cohort)
 get_n     <- function(grp) cohort_ns$n[cohort_ns$Cohort == grp]
@@ -629,9 +630,10 @@ cat("Figure 2 saved!\n")
 
 dat_fig3 <- dat_with_pet %>%
   filter(!is.na(avg_c_k2) & is.finite(avg_c_k2)) %>%
-  filter(group %in% c("Lean Control", "Type 2 Diabetes")) %>%
+  filter(group %in% c("Lean Control", 'Obese Control', "Type 2 Diabetes")) %>%
   filter(!is.na(acr_u)) %>%
-  mutate(log10_uacr = log10(acr_u))
+  mutate(log10_uacr = log10(acr_u)) %>% 
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
 
 vars_to_test <- list(
   list(var = "avg_c_k2",   label = "Cortical k2"),
@@ -680,7 +682,6 @@ fig3d <- plot_corr_log(dat_fig3, "acr_u", "log10_uacr", "avg_c_k2_f",
 fig3 <- (fig3a | fig3b) / (fig3c | fig3d) +
   plot_annotation(
     title    = "Figure 3. Kidney Oxidative Metabolism Correlates with Albuminuria",
-    subtitle = "Spearman correlations in 40 participants (CROCODILE + RENAL-HEIRitage)",
     theme = theme(
       plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
       plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
@@ -834,7 +835,7 @@ for (fig_obj in list(fig6, fig7)) {
   pages <- c(pages, tmp)
 }
 
-combined_path <- paste0(base_path, "ROCKIES_All_Figures_Combined.pdf")
+combined_path <- paste0(base_path, "ROCKIES_All_Figures_Combined_noSGLT2i.pdf")
 qpdf::pdf_combine(pages, output = combined_path)
 file.remove(pages)
 
