@@ -28,8 +28,8 @@ library(caret)
 
 ```{r}
 #Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+#computer <- "mac laptop"
 
 user <- Sys.info()[["user"]]
 
@@ -261,6 +261,7 @@ length(nzv_idx)   #comes out as zero
 ```
 
 ```{r}
+#only use imputed data for visualizations
 set.seed(1835)
 prot_imp <- prot_log
 meds <- apply(prot_imp, 2, function(x) {
@@ -311,17 +312,6 @@ stopifnot(!any(outliers %in% meta_common2$record_id))
 stopifnot(!any(outliers %in% rownames(prot_imp2)))
 stopifnot(identical(rownames(prot_imp2), meta_common2$record_id))
 
-
-##checking for low variance prots--none exist
-nzv_idx2 <- nearZeroVar(prot_imp2)
-length(nzv_idx2)   
-colnames(prot_imp2)[nzv_idx2]
-
-
-write.csv(
-  prot_imp2,
-  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "prot_imp")
-)
 ```
 
 #---------------
@@ -361,19 +351,20 @@ make_pca_plot <- function(prot_mat, meta_df, title_str) {
 ## PCAs
 ##-----------
 ```{r}
+design <- model.matrix(~ group, data = meta_common2)
 p  <- make_pca_plot(prot_imp2, meta_common2, "No adjustment")
 
 cov_m1 <- model.matrix(~ age + sex, data = meta_common2)[, -1, drop = FALSE]
-prot_m1 <- t(removeBatchEffect(t(prot_imp2), covariates = cov_m1))
+prot_m1 <- t(removeBatchEffect(t(prot_imp2), covariates = cov_m1, design = design))
 p1 <- make_pca_plot(prot_m1, meta_common2, "Age + Sex")
 
 
 cov_m2 <- model.matrix(~ age + sex + study6, data = meta_common2)[, -1, drop = FALSE]
-prot_m2 <- t(removeBatchEffect(t(prot_imp2), covariates = cov_m2))
+prot_m2 <- t(removeBatchEffect(t(prot_imp2), covariates = cov_m2, design = design))
 p2 <- make_pca_plot(prot_m2, meta_common2, "Age + Sex + Study")
 
 pca_combined <- (p | p1 | p2)
-
+pca_combined
 ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","pca_plots.pdf"),
                             plot = pca_combined,
                             width = 16, height = 14)
@@ -416,7 +407,7 @@ summarise_sig <- function(out_list, model_label, n_samp) {
 }
 
 # response matrix (proteins x samples) base
-Y_m0 <- t(prot_imp2)
+Y_m0 <- t(prot_log)
 ```
 
 ```{r}
@@ -536,8 +527,15 @@ prot_imp_sens <- prot_imp2[
   drop = FALSE
 ]
 
+prot_log_sens <- prot_log[
+  meta3$record_id,
+  ,
+  drop = FALSE
+]
+
 # Confirm alignment
 stopifnot(identical(rownames(prot_imp_sens), meta3$record_id))
+stopifnot(identical(rownames(prot_log_sens), meta3$record_id))
 
 cat("Primary analysis N:", nrow(meta_common2), "\n")
 cat("Sensitivity analysis N:", nrow(meta3), "\n")
@@ -563,14 +561,15 @@ table(meta3$group4)
 # matching primary PCA workflow
 # -----------------------------
 
+design <- model.matrix(~ group, data = meta3)
 p_sens0 <- make_pca_plot(prot_imp_sens,meta3,"Sensitivity: No adjustment")
 
 cov_sens_m1 <- model.matrix(~ age + sex,data = meta3)[, -1, drop = FALSE]
-prot_sens_m1 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m1))
+prot_sens_m1 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m1, design = design))
 p_sens1 <- make_pca_plot(prot_sens_m1,meta3,"Sensitivity: Age + Sex")
 
 cov_sens_m2 <- model.matrix( ~ age + sex + study6,data = meta3)[, -1, drop = FALSE]
-prot_sens_m2 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m2))
+prot_sens_m2 <- t(limma::removeBatchEffect(t(prot_imp_sens),covariates = cov_sens_m2, design = design))
 p_sens2 <- make_pca_plot(prot_sens_m2,meta3,"Sensitivity: Age + Sex + Study")
 
 pca_sens_combined <- p_sens0 | p_sens1 | p_sens2
@@ -585,7 +584,7 @@ ggsave(
 ```
 
 # -----------------------------
-#limma sensitivity data
+#limma adiposity sensitivity data
 # -----------------------------
 ```{r}
 meta3$sex    <- factor(meta3$sex)
@@ -594,7 +593,7 @@ meta3$group4 <- factor(
   levels = c("LC", "OC", "T1D", "T2D")
 )
 
-Y_sens <- t(prot_imp_sens)
+Y_sens <- t(prot_log_sens)
 
 
 
@@ -766,6 +765,7 @@ print(table(meta_noATT$study, useNA = "ifany"))
 ```
 ##--------------------------------------------------
 ## PCA using no-ATTEMPT dataset + transform + imputing
+## imputing for visualization only
 ##--------------------------------------------------
 ```{r}
 meta_pca_noATT <- meta_noATT
@@ -779,6 +779,7 @@ prot_log_noATT <- log2(prot_pca_noATT + 1)
 prot_log_noATT[!is.finite(prot_log_noATT)] <- NA_real_
 
 prot_imp_noATT <- prot_log_noATT
+
 meds_noATT <- apply(prot_imp_noATT, 2, function(x) {
   m <- median(x, na.rm = TRUE)
   if (is.finite(m)) m else NA_real_
@@ -832,17 +833,18 @@ colnames(prot_imp_noATT)[nzv_idx2]
 ##PCA no ATTEMPt
 ##--------------
 ```{r}
+design <- model.matrix(~ group, data = meta_pca_noATT2)
 p_noATT <- make_pca_plot(prot_imp_noATT2, meta_pca_noATT2, "No adjustment (excluding ATTEMPT)")
 
 cov_m1_noATT <- model.matrix(~ age + sex, data = meta_pca_noATT2)[, -1, drop = FALSE]
-prot_m1_noATT <- t(removeBatchEffect(t(prot_imp_noATT2), covariates = cov_m1_noATT))
+prot_m1_noATT <- t(removeBatchEffect(t(prot_imp_noATT2), covariates = cov_m1_noATT, design = design))
 p1_noATT <- make_pca_plot(prot_m1_noATT, meta_pca_noATT2, "Age + Sex (excluding ATTEMPT)")
 
 keep_m2_noATT <- !is.na(meta_pca_noATT2$study6)
 meta_m2p_noATT <- meta_pca_noATT2[keep_m2_noATT, ]
 prot_m2p_noATT <- prot_imp_noATT2[keep_m2_noATT, , drop = FALSE]
 cov_m2_noATT <- model.matrix(~ age + sex + study6, data = meta_m2p_noATT)[, -1, drop = FALSE]
-prot_m2_adj_noATT <- t(removeBatchEffect(t(prot_m2p_noATT), covariates = cov_m2_noATT))
+prot_m2_adj_noATT <- t(removeBatchEffect(t(prot_m2p_noATT), covariates = cov_m2_noATT, design = ))
 p2_noATT <- make_pca_plot(prot_m2_adj_noATT, meta_m2p_noATT, "Age + Sex + Study (excluding ATTEMPT)")
 
 # Render no-ATTEMPT PCA panel
@@ -856,7 +858,8 @@ pca_plot2 <- (p_noATT | p1_noATT | p2_noATT) +
     )
   )
   
-ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","pca_noATTEMPT.pdf"),
+pca_plot2
+ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","pca_noATTEMPT.pdf") ,
                             plot = pca_plot2,
                             width = 16, height = 14)
 ```
@@ -864,9 +867,10 @@ ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","p
 ## limma using no-ATTEMPT dataset
 ## model 1: age + sex
 ## model 2: age + sex + study
+## use log data not imputed data here
 ## ---------------------------------
 ```{r}
-Y_all_noATT <- t(prot_imp_noATT2)
+Y_all_noATT <- t(prot_log_noATT)
 
 
 # Model 1: age + sex
@@ -1139,7 +1143,7 @@ ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","p
 ## model2: age + sex + study
 ##--------------------------------------------------
 ```{r}
-Y_all_all3 <- t(prot_imp_all3b)
+Y_all_all3 <- t(prot_log_all3)
 
 
 # Model 1: age + sex
