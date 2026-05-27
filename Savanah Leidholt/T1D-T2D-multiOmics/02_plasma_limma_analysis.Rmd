@@ -24,6 +24,7 @@ library(purrr)
 library(haven)
 library(ggVennDiagram)
 library(caret)
+library(jsonlite)
 ```
 
 ```{r}
@@ -33,10 +34,12 @@ if (user == "sleidholt") {
     dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
     dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
     git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Savanah Leidholt/"
+    keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "savanahleidholt") {
     dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
     dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Savanah Leidholt/"
+    keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
 } else if (user == "leidholt") {
   root_path <- c("/mmfs1/gscratch/togo/leidholt/")
   git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
@@ -891,8 +894,20 @@ sig_overlap_noATT_study
 #fix to have scRNA and not lipidomic data
 #------------------------------------------------------------------------
 ```{r}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+pb90_multiomics_meta <- s3readRDS(
+          object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
+          bucket = "scrna",
+          region = "")
+
 # Identify participants with all three omics types
-omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects_clean.rds"))
 
 
 # HELPER: count non-NA samples in a matrix for a given metadata
@@ -918,151 +933,74 @@ make_count_table <- function(meta_df, mat_df, omics_label) {
     mutate(Omics = omics_label, .before = 1)
 }
 
-tbl_metabolites <- make_count_table(omics_objects$meta_metab, omics_objects$metabolites,  "Metabolomics")
-tbl_lipids      <- make_count_table(omics_objects$meta_lips,  omics_objects$lipids,        "Lipidomics")
-tbl_proteins    <- make_count_table(omics_objects$meta_prot,  omics_objects$prot_plasma,   "Proteomics (Plasma)")
+prot_plasma <- obj$prot_plasma
+meta_prot <- obj$meta_prot
+meta_metab <- obj$meta_metab
+metabolites <- obj$metabolites
 
-cat("\n===== METABOLOMICS: Samples per Study x Group =====\n")
-print(tbl_metabolites)
 
-cat("\n===== LIPIDOMICS: Samples per Study x Group =====\n")
-print(tbl_lipids)
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_prot  <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_scrna <- pb90_multiomics_meta %>%
+  dplyr::pull(record_id) %>%
+  unique()
 
-cat("\n===== PROTEOMICS (Plasma): Samples per Study x Group =====\n")
-print(tbl_proteins)
-```
-
-```{r}
-#A sample "has data" if it has at least one non-missing value in that matrix
-ids_metab <- rownames(omics_objects$metabolites)[rowSums(!is.na(omics_objects$metabolites)) > 0]
-ids_lipids <- rownames(omics_objects$lipids)[rowSums(!is.na(omics_objects$lipids)) > 0]
-ids_prot <- rownames(omics_objects$prot_plasma)[rowSums(!is.na(omics_objects$prot_plasma)) > 0]
-
+# clean IDs
 ids_metab <- trimws(as.character(ids_metab))
-ids_lipids <- trimws(as.character(ids_lipids))
-ids_prot <- trimws(as.character(ids_prot))
+ids_prot  <- trimws(as.character(ids_prot))
+ids_scrna <- trimws(as.character(ids_scrna))
 
-ids_all_three <- Reduce(intersect, list(ids_metab, ids_lipids, ids_prot))
-
-cat("Total participants with all 3 omics:", length(ids_all_three), "\n")
-```
-
-##--------------------------------------------------
-## Restrict the proteomics analysis-ready dataset
-##--------------------------------------------------
-```{r}
-meta_all3 <- meta_common %>%
-  mutate(record_id = trimws(as.character(record_id))) %>%
-  filter(record_id %in% ids_all_three)
-
-prot_all3 <- prot_plasma_common[meta_all3$record_id, , drop = FALSE]
-
-stopifnot(identical(rownames(prot_all3), meta_all3$record_id))
-
-cat("Original proteomics analysis N:", nrow(meta_common), "\n")
-cat("Proteomics analysis N with all 3 omics:", nrow(meta_all3), "\n")
-cat("Excluded because not all 3 omics:",
-    nrow(meta_common) - nrow(meta_all3), "\n")
-
-cat("Group counts in all-3-omics subset:\n")
-print(table(meta_all3$group4, useNA = "ifany"))
-
-cat("Study counts in all-3-omics subset:\n")
-print(table(meta_all3$study, useNA = "ifany"))
-```
-##--------------------------------------------------
-##data cleaning for data subset with all 3 Omics
-##--------------------------------------------------
-```{r}
-meta_pca_all3 <- meta_all3
-prot_pca_all3 <- prot_all3[meta_pca_all3$record_id, , drop = FALSE]
-stopifnot(identical(rownames(prot_pca_all3), meta_pca_all3$record_id))
-
-prot_pca_all3 <- as.matrix(prot_pca_all3)
-
-# ---- log2 transform + median impute ----
-prot_log_all3 <- log2(prot_pca_all3 + 1)
-prot_log_all3[!is.finite(prot_log_all3)] <- NA_real_
-
-prot_imp_all3 <- prot_log_all3
-meds_all3 <- apply(prot_imp_all3, 2, function(x) {
-  m <- median(x, na.rm = TRUE)
-  if (is.finite(m)) m else NA_real_
-})
-
-for (j in seq_len(ncol(prot_imp_all3))) {
-  if (!is.na(meds_all3[j])) prot_imp_all3[is.na(prot_imp_all3[, j]), j] <- meds_all3[j]
-}
-
-keep_cols_all3 <- colSums(is.na(prot_imp_all3)) == 0 &
-  apply(prot_imp_all3, 2, var) > 0 &
-  is.finite(apply(prot_imp_all3, 2, var))
-
-prot_imp_all3 <- prot_imp_all3[, keep_cols_all3, drop = FALSE]
-
-cat("Proteins kept for all-3-omics PCA:", ncol(prot_imp_all3), "\n")
-```
-##---------------------------
-##outlier check and removal
-##---------------------------
-```{r}
-pca0_all3 <- prcomp(prot_imp_all3, center = TRUE, scale. = TRUE)
-scores3 <- as.data.frame(pca0_all3$x[, 1:2])  # PC1 + PC2 (or use more PCs)
-scores3$dist <- sqrt(scores3$PC1^2 + scores3$PC2^2)
-
-# identify outliers > 3 SD
-threshold3 <- mean(scores3$dist) + 3 * sd(scores3$dist)
-outliers_all3 <- rownames(scores3)[scores3$dist > threshold3]
-outliers_all3
-
-meta_pca_all3b<- meta_pca_all3 %>%
-  filter(!record_id %in% outliers_all3)
-
-prot_imp_all3b <- prot_imp_all3[
-  !rownames(prot_imp_all3) %in% outliers_all3, , drop = FALSE
-]
-
-cat("Still present in metadata? ", any(outliers_all3 %in% meta_pca_all3b$record_id), "\n")
-cat("Still present in matrix? ", any(outliers_all3 %in% rownames(prot_imp_all3b)), "\n")
-
-stopifnot(!any(outliers_all3 %in% meta_pca_all3b$record_id))
-stopifnot(!any(outliers_all3 %in% rownames(prot_imp_all3b)))
-stopifnot(identical(rownames(prot_imp_all3b), meta_pca_all3b$record_id))
-
-##checking for low variance prots--none exist
-nzv_idx2 <- nearZeroVar(prot_imp_all3b)
-length(nzv_idx2)   
-colnames(prot_imp_all3b)[nzv_idx2]
+ids_all <- Reduce(intersect, list(ids_metab, ids_scrna, ids_prot))
 ```
 
 ```{r}
-# ---- PCA panels ----
-p_all3 <- make_pca_plot(prot_imp_all3b, meta_pca_all3b, "No adjustment (all 3 omics subset)")
+meta8 <- meta4 %>%
+  filter(record_id %in% ids_all) %>%
+  droplevels()
 
-cov_m1_all3 <- model.matrix(~ age + sex, data = meta_pca_all3b)[, -1, drop = FALSE]
-prot_m1_all3 <- t(removeBatchEffect(t(prot_imp_all3b), covariates = cov_m1_all3))
-p1_all3 <- make_pca_plot(prot_m1_all3, meta_pca_all3b, "Age + Sex (all 3 omics subset)")
+prot_log6 <- prot_log2[meta8$record_id, , drop = FALSE]
 
-keep_m2_all3 <- !is.na(meta_pca_all3b$bmi)
-meta_m2p_all3 <- meta_pca_all3b[keep_m2_all3, ]
-prot_m2p_all3 <- prot_imp_all3b[keep_m2_all3, , drop = FALSE]
-cov_m2_all3 <- model.matrix(~ age + sex + study6, data = meta_m2p_all3)[, -1, drop = FALSE]
-prot_m2_adj_all3 <- t(removeBatchEffect(t(prot_m2p_all3), covariates = cov_m2_all3))
-p2_all3 <- make_pca_plot(prot_m2_adj_all3, meta_m2p_all3, "Age + Sex + Study (all 3 omics subset)")
+stopifnot(identical(rownames(prot_log6), meta8$record_id))
 
-pca_plot3 <- (p_all3 | p1_all3 | p2_all3)+
-  plot_annotation(
-    title = "PCA: Proteomics Sensitivity Analysis in Participants with All 3 Omics Types",
-    subtitle = "Color = group | Shape = study | Restricted to shared metabolomics + proteomics participants",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
-    )
-  )
+cat("Primary analysis N:", nrow(meta4), "\n")
+cat("All-omics sensitivity N:", nrow(meta8), "\n")
+```
 
-ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","pca_allOmics.pdf"),
-                            plot = pca_plot3,
-                            width = 16, height = 14)
+```{r}
+meta8 %>%
+  count(group4) %>%
+  arrange(group4)
+```
+#-------------------
+#sensitivty 3: PCAs 
+#-------------------
+```{r}
+design_allomics <- model.matrix(~ group4, data = meta8)
+
+p_all0 <- make_pca_plot(prot_log6,meta8,"Sensitivity: No adjustment, all omics")
+cov_all1 <- model.matrix(~ age + sex,data = meta8)[, -1, drop = FALSE]
+prot_all1 <- t(limma::removeBatchEffect(t(prot_log6),covariates = cov_all1, design = design_allomics))
+
+p_all1 <- make_pca_plot(prot_all1,meta8,"Sensitivity: Age + Sex, all omics")
+cov_all2 <- model.matrix(~ age + sex + study6,data = meta8)[, -1, drop = FALSE]
+prot_all2 <- t(limma::removeBatchEffect( t(prot_log6),covariates = cov_all2,design = design_allomics))
+
+p_all2 <- make_pca_plot(prot_all2,meta8,"Sensitivity: Age + Sex + Study, all omics")
+pca_allomics <- p_all0 | p_all1 | p_all2
+pca_allomics
+
+ggsave(
+  filename = file.path(
+    dir.dat,
+    "Savanah Leidholt",
+    "T1D-T2D",
+    "Results",
+    "pca_allomics_sensitivity.pdf"
+  ),
+  plot = pca_allomics,
+  width = 16,
+  height = 14
+)
 ```
 ##--------------------------------------------------
 ##limma using all-3-omics subset
@@ -1070,153 +1008,109 @@ ggsave(filename = file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Results","p
 ## model2: age + sex + study
 ##--------------------------------------------------
 ```{r}
-Y_all_all3 <- t(prot_log_all3)
-
+Y_allomics <- t(prot_log6)
+stopifnot(identical(colnames(Y_allomics), meta8$record_id))
 
 # Model 1: age + sex
-meta_m1_all3 <- meta_pca_all3b
-Y_m1_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+meta_m8 <- meta8
+Y_m8 <- Y_allomics[, meta_m8$record_id, drop = FALSE]
 
-design_m1_all3 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1_all3)
-colnames(design_m1_all3) <- sub("^group4", "", colnames(design_m1_all3))
-colnames(design_m1_all3) <- make.names(colnames(design_m1_all3))
+design_m8 <- model.matrix(~ 0 + group4 + age + sex,data = meta_m8)
+colnames(design_m8) <- sub("^group4", "", colnames(design_m8))
+colnames(design_m8) <- make.names(colnames(design_m8))
 
-contr_m1_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
+contr_m8 <- limma::makeContrasts(
+  T1D_vs_LC = T1D - LC,
+  T2D_vs_LC = T2D - LC,
   T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m1_all3
+  OC_vs_LC = OC - LC,
+  T1D_vs_OC = T1D - OC,
+  T2D_vs_OC = T2D - OC,
+  levels = design_m8
 )
 
-res_m1_all3 <- run_limma_contrasts(Y_m1_all3, design_m1_all3, contr_m1_all3)
-fit_m1_all3 <- res_m1_all3$fit
-out_m1_all3 <- res_m1_all3$out
+res_m8 <- run_limma_contrasts(Y_m8, design_m8, contr_m8)
+fit_m8 <- res_m8$fit
+out_m8 <- res_m8$out
 
-sig_m1_all3 <- tibble(
-  contrast = colnames(contr_m1_all3),
-  n_FDR05 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.05, na.rm = TRUE)),
-  n_FDR01 = sapply(out_m1_all3, \(tt) sum(tt$adj.P.Val < 0.01, na.rm = TRUE))
-) %>% mutate(model = "age_sex_all3", n_samples = nrow(meta_m1_all3))
-
+sig_m8 <- summarise_sig(out_m8,"sensitivity: age + sex, all omics",nrow(meta_m8))
+sig_m8
 
 
 # Model 2: age + sex + study
-Y_m2_all3 <- Y_all_all3[, meta_m1_all3$record_id, drop = FALSE]
+Y_m9 <- Y_allomics[, meta_m8$record_id, drop = FALSE]
 
-design_m2_all3 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m1_all3)
-colnames(design_m2_all3) <- sub("^group4", "", colnames(design_m2_all3))
-colnames(design_m2_all3) <- make.names(colnames(design_m2_all3))
+design_m9 <- model.matrix(~ 0 + group4 + age + sex + study6,data = meta_m8)
+colnames(design_m9) <- sub("^group4", "", colnames(design_m9))
+colnames(design_m9) <- make.names(colnames(design_m9))
 
-contr_m2_all3 <- makeContrasts(
-  T1D_vs_LC  = T1D - LC,
-  T2D_vs_LC  = T2D - LC,
+contr_m9 <- limma::makeContrasts(
+  T1D_vs_LC = T1D - LC,
+  T2D_vs_LC = T2D - LC,
   T1D_vs_T2D = T1D - T2D,
-  OC_vs_LC   = OC - LC,
-  T1D_vs_OC  = T1D - OC,
-  T2D_vs_OC  = T2D - OC,
-  levels = design_m2_all3
+  OC_vs_LC = OC - LC,
+  T1D_vs_OC = T1D - OC,
+  T2D_vs_OC = T2D - OC,
+  levels = design_m9
 )
 
-res_m2_all3 <- run_limma_contrasts(Y_m2_all3, design_m2_all3, contr_m2_all3)
-fit_m2_all3 <- res_m2_all3$fit
-out_m2_all3 <- res_m2_all3$out
-sig_m2_all3 <- summarise_sig(out_m2_all3, "age_sex_study_all3", nrow(meta_m1_all3))
-sig_m2_all3
+res_m9 <- run_limma_contrasts(Y_m9, design_m9, contr_m9)
+fit_m9 <- res_m9$fit
+out_m9 <- res_m9$out
+
+sig_m9 <- summarise_sig( out_m9,"sensitivity: age + sex + study, all omics",nrow(meta_m8))
+sig_m9
 ```
 ## --------------------------------------------------
-## Summarize all-3-omics results
+## Summarize all-3-omics results compared to total
 ##--------------------------------------------------
 ```{r}
-summary_all_all3 <- bind_rows(
-  sig_m1_all3,
-  sig_m2_all3
+summary_allomics <- bind_rows(
+  sig_m1 %>% mutate(model = "primary: age + sex"),
+  sig_m3 %>% mutate(model = "primary: age + sex + study"),
+  sig_m8,
+  sig_m9
 ) %>%
-  dplyr::select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
+  select(model, n_samples, contrast, n_FDR05, n_FDR01) %>%
   arrange(contrast, model)
 
-print(summary_all_all3)
+summary_allomics
 
-summary_wide_all3 <- summary_all_all3 %>%
-  dplyr::select(model, contrast, n_FDR05) %>%
-  pivot_wider(names_from = model, values_from = n_FDR05)
-
-print(summary_wide_all3)
-
-summary_compare_all3 <- bind_rows(
-  summary_all %>% mutate(dataset = "original"),
-  summary_all_all3 %>% mutate(dataset = "all_3_omics_subset")
-) %>%
-  arrange(contrast, dataset, model)
-
-print(summary_compare_all3)
-
-```
-
-```{r}
-FDR_THRESH <- 0.05
-
-contrasts <- c("T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
-               "OC_vs_LC",  "T1D_vs_OC", "T2D_vs_OC")
-
-get_sig <- function(out_list, contrast, fdr = FDR_THRESH) {
-  tt <- out_list[[contrast]]
-  if (is.null(tt)) return(character(0))
-  tt %>%
-    dplyr::filter(!is.na(adj.P.Val), adj.P.Val < fdr) %>%
-    dplyr::pull(feature_id) %>%
-    unique()
-}
-
-overlap_results <- lapply(contrasts, function(cc) {
-  
-  all_studies <- get_sig(out_m2, cc)
-  noATT       <- get_sig(out_m2_noATT, cc)
-  all3        <- get_sig(out_m2_all3, cc)
-  
-  tibble::tibble(
-    contrast = cc,
-    
-    n_all_studies = length(all_studies),
-    n_noATT       = length(noATT),
-    n_all3        = length(all3),
-    
-    overlap_all_vs_noATT = length(intersect(all_studies, noATT)),
-    overlap_all_vs_all3  = length(intersect(all_studies, all3)),
-    overlap_noATT_vs_all3 = length(intersect(noATT, all3)),
-    
-    overlap_all_three = length(Reduce(intersect, list(all_studies, noATT, all3))),
-    
-    union_all_vs_noATT = length(union(all_studies, noATT)),
-    union_all_vs_all3  = length(union(all_studies, all3)),
-    union_noATT_vs_all3 = length(union(noATT, all3)),
-    union_all_three    = length(Reduce(union, list(all_studies, noATT, all3))),
-    
-    jaccard_all_vs_noATT = ifelse(length(union(all_studies, noATT)) > 0,
-                                  length(intersect(all_studies, noATT)) / length(union(all_studies, noATT)),
-                                  NA_real_),
-    
-    jaccard_all_vs_all3 = ifelse(length(union(all_studies, all3)) > 0,
-                                 length(intersect(all_studies, all3)) / length(union(all_studies, all3)),
-                                 NA_real_),
-    
-    jaccard_noATT_vs_all3 = ifelse(length(union(noATT, all3)) > 0,
-                                   length(intersect(noATT, all3)) / length(union(noATT, all3)),
-                                   NA_real_),
-    
-    jaccard_all_three = ifelse(length(Reduce(union, list(all_studies, noATT, all3))) > 0,
-                               length(Reduce(intersect, list(all_studies, noATT, all3))) /
-                                 length(Reduce(union, list(all_studies, noATT, all3))),
-                               NA_real_)
+summary_allomics_wide <- summary_allomics %>%
+  select(model, contrast, n_FDR05) %>%
+  pivot_wider(
+    names_from = model,
+    values_from = n_FDR05
   )
-})
 
-overlap_summary <- dplyr::bind_rows(overlap_results)
-print(overlap_summary)
+summary_allomics_wide
+
+sig_overlap_allomics_study <- bind_rows(
+  lapply(names(out_m3), function(cc) {
+
+    primary_ids <- out_m3[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    allomics_ids <- out_m9[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    n_primary <- length(primary_ids)
+    n_overlap <- length(intersect(primary_ids, allomics_ids))
+
+    tibble(
+      contrast = cc,
+      n_primary = n_primary,
+      n_allomics = length(allomics_ids),
+      n_overlap = n_overlap,
+      pct_overlap = round(100 * n_overlap / n_primary, 1)
+    )
+  })
+)
+
+sig_overlap_allomics_study
 ```
-
 #---------------------------------------------------
 # saving limma outputs
 # Three analyses, all using age + sex + study model
@@ -1225,23 +1119,28 @@ print(overlap_summary)
 prep_gsea_tables <- function(out_list) {
   lapply(out_list, function(tt) {
     tt %>%
-      dplyr::select(feature_id, logFC, AveExpr, t, P.Value, adj.P.Val, B, contrast) %>%
-      dplyr::arrange(desc(t)) 
+      dplyr::select(feature_id,logFC,AveExpr,t,P.Value,adj.P.Val,B,contrast) %>%
+      dplyr::arrange(desc(t))
   })
 }
 
-out_m2 <- prep_gsea_tables(out_m2)
-out_m2_noATT <- prep_gsea_tables(out_m2_noATT)
-out_m2_all3 <- prep_gsea_tables(out_m2_all3)
-
+## prepare ranked tables
+out_m3_gsea <- prep_gsea_tables(out_m3)
+out_m7_gsea <- prep_gsea_tables(out_m7)
+out_m9_gsea <- prep_gsea_tables(out_m9)
+#out_m5_gsea <- prep_gsea_tables(out_m5)
 
 contrast_order <- c(
-  "T1D_vs_LC", "T2D_vs_LC", "T1D_vs_T2D",
-  "OC_vs_LC", "T1D_vs_OC", "T2D_vs_OC"
+  "T1D_vs_LC",
+  "T2D_vs_LC",
+  "T1D_vs_T2D",
+  "OC_vs_LC",
+  "T1D_vs_OC",
+  "T2D_vs_OC"
 )
 
 limma_gsea_inputs <- list(
-  
+
   metadata = list(
     created = Sys.time(),
     response = "plasma proteomics",
@@ -1249,39 +1148,42 @@ limma_gsea_inputs <- list(
     model_formula = "0 + group4 + age + sex + study6",
     contrasts = contrast_order
   ),
-  
-  all_studies = list(
-    model_name = "age_sex_study6",
-    samples = meta_m2,
-    design = design_m2,
-    fit = fit_m2,
-    out = out_m2,
-    gsea_tables = out_m2
+
+  primary = list(
+    model_name = "primary_age_sex_study",
+    samples = meta_m3,
+    design = design_m3,
+    fit = fit_m3,
+    out = out_m3,
+    gsea_tables = out_m3_gsea
   ),
-  
-  no_attempt = list(
-    model_name = "age_sex_study_noATT",
-    samples = meta_m2_noATT,
-    design = design_m2_noATT,
-    fit = fit_m2_noATT,
-    out = out_m2_noATT,
-    gsea_tables = out_m2_noATT
+
+  no_ATTEMPT = list(
+    model_name = "sensitivity_age_sex_study_noATT",
+    samples = meta_m7,
+    design = design_m7,
+    fit = fit_m7,
+    out = out_m7,
+    gsea_tables = out_m7_gsea
   ),
-  
-  all3_omics = list(
-    model_name = "age_sex_study4",
-    samples = meta_all3,
-    design = design_m2_all3,
-    fit = fit_m2_all3,
-    out = out_m2_all3,
-    gsea_tables = out_m2_all3
+
+  all_omics = list(
+    model_name = "sensitivity_age_sex_study_allomics",
+    samples = meta_m8,
+    design = design_m9,
+    fit = fit_m9,
+    out = out_m9,
+    gsea_tables = out_m9_gsea
   )
 )
 
 saveRDS(
   limma_gsea_inputs,
   file = file.path(
-    dir.dat, "Savanah Leidholt", "T1D-T2D", "Data",
+    dir.dat,
+    "Savanah Leidholt",
+    "T1D-T2D",
+    "Data",
     "limma_gsea_inputs_age_sex_study.rds"
   )
 )
@@ -1293,9 +1195,13 @@ cat("Saved: limma_gsea_inputs_age_sex_study.rds\n")
 # Three analyses with reduced model
 #---------------------------------------------------
 ```{r}
+out_m1_gsea <- prep_gsea_tables(out_m1)
+out_m6_gsea <- prep_gsea_tables(out_m6)
+out_m8_gsea <- prep_gsea_tables(out_m8)
 
-limma_gsea_inputs <- list(
-  
+
+limma_gsea_inputs_m1 <- list(
+
   metadata = list(
     created = Sys.time(),
     response = "plasma proteomics",
@@ -1303,30 +1209,42 @@ limma_gsea_inputs <- list(
     model_formula = "0 + group4 + age + sex",
     contrasts = contrast_order
   ),
-  
-  no_attempt_m1 = list(
-    model_name = "age_sex_noATT",
-    samples = meta_m1_noATT,
-    design = design_m1_noATT,
-    fit = fit_m1_noATT,
-    out = out_m1_noATT,
-    gsea_tables = prep_gsea_tables(out_m1_noATT)
+
+  primary = list(
+    model_name = "primary_age_sex",
+    samples = meta_m1,
+    design = design_m1,
+    fit = fit_m1,
+    out = out_m1,
+    gsea_tables = out_m1_gsea
   ),
-  
-  all3_omics_m1 = list(
-    model_name = "age_sex_multiOmics",
-    samples = meta_all3,
-    design = design_m1_all3,
-    fit = fit_m1_all3,
-    out = out_m1_all3,
-    gsea_tables = prep_gsea_tables(out_m1_all3)
+
+  no_ATTEMPT = list(
+    model_name = "sensitivity_age_sex_noATT",
+    samples = meta_m6,
+    design = design_m6,
+    fit = fit_m6,
+    out = out_m6,
+    gsea_tables = out_m6_gsea
+  ),
+
+  all_omics = list(
+    model_name = "sensitivity_age_sex_allomics",
+    samples = meta_m8,
+    design = design_m8,
+    fit = fit_m8,
+    out = out_m8,
+    gsea_tables = out_m8_gsea
   )
 )
 
 saveRDS(
-  limma_gsea_inputs,
+  limma_gsea_inputs_m1,
   file = file.path(
-    dir.dat, "Savanah Leidholt", "T1D-T2D", "Data",
+    dir.dat,
+    "Savanah Leidholt",
+    "T1D-T2D",
+    "Data",
     "limma_gsea_inputs_age_sex.rds"
   )
 )
