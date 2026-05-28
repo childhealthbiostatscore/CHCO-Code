@@ -352,19 +352,21 @@ run_elastic_net <- function(
   }
   
   list(
-    contrast = cc,
-    positive = g_pos,
-    negative = g_neg,
-    best_alpha = best$alpha,
-    lambda_1se = best$cvfit$lambda.1se,
-    lambda_min = best$cvfit$lambda.min,
-    auc_train = auc_val,
-    n_input_proteins = length(top_feats),
-    coef_df = coef_df,
-    protein_terms = protein_terms,
-    cvfit = best$cvfit,
-    top_feats = top_feats
-  )
+  contrast = cc,
+  positive = g_pos,
+  negative = g_neg,
+  best_alpha = best$alpha,
+  lambda_1se = best$cvfit$lambda.1se,
+  lambda_min = best$cvfit$lambda.min,
+  auc_train = auc_val,
+  y = y,
+  p_hat = p_hat,
+  n_input_proteins = length(top_feats),
+  coef_df = coef_df,
+  protein_terms = protein_terms,
+  cvfit = best$cvfit,
+  top_feats = top_feats
+)
 }
 ```
 
@@ -774,13 +776,6 @@ ggsave(filename = file.path(dir.results, "stability_plots.png"),
        height = 18)
 ```
 
-
-
-
-
-
-
-
 ```{r}
 plot_boot_auc <- function(boot_obj) {
   
@@ -805,31 +800,102 @@ plot_boot_auc <- function(boot_obj) {
 ```{r}
 p_auc_T1D_LC <- plot_boot_auc(boot_T1D_LC)
 p_auc_T1D_LC
-```
 
-```{r}
 p_auc_T1D_OC <- plot_boot_auc(boot_T1D_OC)
 p_auc_T1D_OC
-```
 
-```{r}
 p_auc_T1D_T2D <- plot_boot_auc(boot_T1D_T2D)
 p_auc_T1D_T2D
-```
-```{r}
+
 p_auc_T2D_LC <- plot_boot_auc(boot_T2D_LC)
 p_auc_T2D_LC
-```
 
-```{r}
 p_auc_T2D_OC <- plot_boot_auc(boot_T2D_OC)
 p_auc_T2D_OC
+
+p_auc_OC_LC <- plot_boot_auc(boot_OC_LC)
+p_auc_OC_LC
+
+AUC_dist_plots <- (p_auc_T1D_LC | p_auc_T1D_OC | p_auc_T1D_T2D)/
+  (p_auc_T2D_LC| p_auc_T2D_OC | p_auc_OC_LC)
+
+AUC_dist_plots
+ggsave(filename = file.path(dir.results, "AUC_distribution_plots.png"),
+       plot = AUC_dist_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
+```
+```{r}
+plot_boot_roc <- function(boot_obj) {
+  
+  roc_df <- purrr::map_dfr(seq_along(boot_obj$boot_res), function(i) {
+    
+    res <- boot_obj$boot_res[[i]]
+    
+    roc_obj <- pROC::roc(
+      response = res$y,
+      predictor = res$p_hat,
+      quiet = TRUE
+    )
+    
+    tibble::tibble(
+      bootstrap = i,
+      specificity = roc_obj$specificities,
+      sensitivity = roc_obj$sensitivities,
+      auc = as.numeric(pROC::auc(roc_obj))
+    )
+  })
+  
+  median_auc <- median(
+    sapply(boot_obj$boot_res, function(x) x$auc_train),
+    na.rm = TRUE
+  )
+  
+  ggplot(roc_df, aes(x = 1 - specificity, y = sensitivity, group = bootstrap)) +
+    geom_line(alpha = 0.15) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(
+      title = paste0("Bootstrap ROC curves: ", boot_obj$contrast),
+      subtitle = paste0("Median training AUC = ", round(median_auc, 3)),
+      x = "False positive rate (1 - specificity)",
+      y = "True positive rate (sensitivity)"
+    ) +
+    theme_bw()
+}
 ```
 
 ```{r}
-p_auc_OC_LC <- plot_boot_auc(boot_OC_LC)
-p_auc_OC_LC
+p_roc_T1D_LC <- plot_boot_roc(boot_T1D_LC)
+p_roc_T1D_LC
+
+p_roc_T1D_OC <- plot_boot_roc(boot_T1D_OC)
+p_roc_T1D_OC
+
+p_roc_T1D_T2D <- plot_boot_roc(boot_T1D_T2D)
+p_roc_T1D_T2D
+
+p_roc_T2D_LC <- plot_boot_roc(boot_T2D_LC)
+p_roc_T2D_LC
+
+p_roc_T2D_OC <- plot_boot_roc(boot_T2D_OC)
+p_roc_T2D_OC
+
+p_roc_OC_LC <- plot_boot_roc(boot_OC_LC)
+p_roc_OC_LC
+
+ROC_plots <- (p_roc_T1D_LC | p_roc_T1D_OC | p_roc_T1D_T2D)/
+  (p_roc_T2D_LC| p_roc_T2D_OC | p_roc_OC_LC)
+
+ROC_plots
+
+ggsave(filename = file.path(dir.results, "ROC_plots.png"),
+       plot = ROC_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
 ```
+
 
 ```{r}
 plot_alpha_distribution <- function(boot_obj) {
@@ -854,29 +920,27 @@ plot_alpha_distribution <- function(boot_obj) {
 ```{r}
 p_alpha_T1D_LC <- plot_alpha_distribution(boot_T1D_LC)
 p_alpha_T1D_LC
-```
-
-```{r}
 p_alpha_T1D_OC <- plot_alpha_distribution(boot_T1D_OC)
 p_alpha_T1D_OC
-```
-
-```{r}
 p_alpha_T1D_T2D <- plot_alpha_distribution(boot_T1D_T2D)
 p_alpha_T1D_T2D
-```
-
-```{r}
 p_alpha_T2D_LC <- plot_alpha_distribution(boot_T2D_LC)
 p_alpha_T2D_LC
-```
-
-```{r}
 p_alpha_T2D_OC <- plot_alpha_distribution(boot_T2D_OC)
 p_alpha_T2D_OC
-```
-
-```{r}
 p_alpha_OC_LC <- plot_alpha_distribution(boot_OC_LC)
 p_alpha_OC_LC
+
+alpha_plots <- (p_alpha_T1D_LC | p_alpha_T1D_OC | p_alpha_T1D_T2D)/
+  (p_alpha_T2D_LC| p_alpha_T2D_OC | p_alpha_OC_LC)
+
+alpha_plots
+ggsave(filename = file.path(dir.results, "alpha_plots.png"),
+       plot = alpha_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
 ```
+
+
+
