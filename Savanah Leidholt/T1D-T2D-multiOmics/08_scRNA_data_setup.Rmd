@@ -52,13 +52,6 @@ if (user == "leidholt") {
 ```
 
 ```{r}
-#detectCores()
-#plan("multisession", workers = 5)
-plan("sequential")
-```
-
-
-```{r}
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
   "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
@@ -68,7 +61,7 @@ Sys.setenv(
 )
 ```
 
-```{r echo = F, eval = T}
+```{r}
 pb90_multiomics<- s3readRDS(
           object = "data_clean/pb90_multiomics_savanah_baseline_20260406.rds", 
           bucket = "scrna",
@@ -120,7 +113,7 @@ Layers(pb90_multiomics[["RNA"]])
 pb90_multiomics <- FindVariableFeatures(
   pb90_multiomics)
 
-# Scale only variable genes to save memory
+# Scale genes 
 pb90_multiomics <- ScaleData(
   pb90_multiomics)
 
@@ -191,26 +184,28 @@ umap_coords <- Embeddings(
   reduction = "umap.TRIAD"
 )
 
+
 # Add as metadata columns
-pb90_multiomics_integrated$umapTRIAD_1 <- umap_coords[,1]
-pb90_multiomics_integrated$umapTRIAD_2 <- umap_coords[,2]
+pb90_multiomics_integrated$TRIAD_UMAP1 <- umap_coords[,1]
+pb90_multiomics_integrated$TRIAD_UMAP2 <- umap_coords[,2]
+
 ```
 
 #save file so I don't have to repeat above steps
 ```{r}
 #s3saveRDS(pb90_multiomics_integrated, 
- #         object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
-  #        bucket = "scrna",
-   #       region = "",
-  #  multipart = T)
+ #         object = "data_clean/pb90_multiomics_savanah_bl_cleaned_20260527.rds", 
+ #         bucket = "scrna",
+#          region = "",
+ #   multipart = T)
 ```
 
 #start here post cleaning steps
 ```{r}
-#pb90_multiomics_integrated <- s3readRDS(
- #         object = "data_clean/pb90_multiomics_subset_savanah_20260406.rds", 
-  #        bucket = "scrna",
-   #       region = "")
+pb90_multiomics_integrated <- s3readRDS(
+         object = "data_clean/pb90_multiomics_savanah_bl_cleaned_20260527.rds", 
+          bucket = "scrna",
+          region = "")
 ```
 
 ```{r}
@@ -266,8 +261,8 @@ id_cols <- as.character(c(
 
 #clinical numeric data I want to keep stored in a list
 clin_cols <- c(
-  "age","bmi","eGFR_CKiD_U25_avg", "avg_c_r2", "avg_k_r2","acr_u"
-)
+  "age","bmi","eGFR_CKiD_U25_avg", "avg_c_r2", "avg_k_r2","acr_u", "hba1c")
+
 #filtering the same way as metabolomic and proteomic metadata
  # for non-numeric: keep value only if it's consistent within record_id+visit
  # for numeric: mean within record_id+visit (not counting NAs within the mean)
@@ -305,12 +300,13 @@ meta_scrna <- harm_meta_data %>%
 ```{r}
 meta <- pb90_multiomics_integrated@meta.data
 pb90_multiomics_meta_subset <- pb90_multiomics_integrated@meta.data %>%
-  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype, unintegrated_clusters, TRIAD_clusters, umapTRIAD_1, umapTRIAD_2) %>%
+  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype, unintegrated_clusters, TRIAD_clusters, TRIAD_UMAP1, TRIAD_UMAP2) %>%
   dplyr::mutate(kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)),
                 visit = case_when(visit == "screening" ~ "baseline",
                                   T ~ visit)) %>%
   left_join(meta_scrna) %>%
   dplyr::mutate(rownames = paste0(source, "_", barcode)) 
+
 ```
 
 #-----------------------------------------------------------------
@@ -356,13 +352,15 @@ rownames(pb90_multiomics_meta_subset) <- pb90_multiomics_meta_subset$rownames
 table((pb90_multiomics_meta_subset %>%
   distinct(record_id, visit, .keep_all = T))$study) 
 
-pb90_multiomics_subset <- pb90_multiomics[, colnames(pb90_multiomics) %in% rownames(pb90_multiomics_meta_subset)]
+pb90_multiomics_subset <- pb90_multiomics_integrated[, colnames(pb90_multiomics_integrated) %in% rownames(pb90_multiomics_meta_subset)]
 pb90_multiomics_subset@meta.data <- pb90_multiomics_meta_subset
+
+pb90_multiomics_subset@reductions
 ```
 
 ```{r}
 s3saveRDS(pb90_multiomics_subset, 
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
+          object = "data_clean/pb90_multiomics_SLL_subset_20260527.rds", 
           bucket = "scrna",
           region = "",
           multipart = T)

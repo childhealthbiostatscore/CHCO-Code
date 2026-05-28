@@ -27,7 +27,7 @@ library(ggtrace)
 library(kableExtra)
 library(data.table)
 library(table1)
-library(speckle)
+#library(speckle)
 library(GSA)
 library(emmeans)
 library(pheatmap)
@@ -49,6 +49,7 @@ user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
   root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  dir.results <- ("/mmfs1/gscratch/togo/leidholt/TRIAD/Results")
   git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
   
@@ -81,43 +82,33 @@ Sys.setenv(
 ```
 
 ```{r}
-
 pb90_multiomics_subset <- s3readRDS(
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
+          object = "data_clean/pb90_multiomics_SLL_subset_20260527.rds", 
           bucket = "scrna",
           region = "")
+
+
 ```
 
 ```{r}
 my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
 # Read Seurat object and run UMAP, obtain cell numbers, etc
 pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
-  cbind(pb90_multiomics_subset@reductions$umap.harmony@cell.embeddings)
+  cbind(pb90_multiomics_subset@reductions$umap.TRIAD@cell.embeddings)
 
-s3saveRDS(pb90_multiomics_subset_meta, 
- object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
- bucket = "scrna", 
- region = "", 
- multipart = T)
 ```
 
 ```{r}
-# start from here if file already saved
-pb90_multiomics_subset_meta <- s3readRDS(
-  object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
-  bucket = "scrna", 
-  region = "")
-
 centers <- pb90_multiomics_subset_meta %>%
   group_by(KPMP_celltype) %>%
   summarise(
-    x = median(umapharmony_1),
-    y = median(umapharmony_2),
+    x = median(TRIAD_UMAP1),
+    y = median(TRIAD_UMAP2),
     .groups = "drop"
   )
 
 umap_p <- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = KPMP_celltype)) +
   geom_point(alpha = 0.2, shape = 16) +
   geom_text_repel(
     data = centers,
@@ -148,9 +139,9 @@ umap_p
 ```{r}
 pb90_multiomics_subset_meta%>%
   distinct(record_id, group)
-# UMAP by source
+
 umap_p_study<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = study)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = study)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("RENAL-HEIR" = "darkcyan",
                                 "RENAL-HEIRitage"= "gold4",
@@ -179,7 +170,7 @@ table((pb90_multiomics_subset_meta%>%
   distinct(record_id, visit, .keep_all = T))$group)
 # UMAP by source
 umap_p_group<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapharmony_1, y = umapharmony_2, color = group)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = group)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("Obese Control" = "darkcyan",
                                 "Lean Control"= "plum4",
@@ -206,7 +197,7 @@ umap_cells_group <- umap_p + umap_p_group
 
 ggsave("Umap_cells_study.png",
        plot = umap_cells_study,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 20,
        height =16,
        dpi = 300
@@ -214,7 +205,7 @@ ggsave("Umap_cells_study.png",
 
 ggsave("Umap_cells_group.png",
        plot = umap_cells_group,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 20,
        height =16,
        dpi = 300
@@ -230,14 +221,14 @@ label(pb90_multiomics_subset_meta$age) <- "Age (years)"
 label(pb90_multiomics_subset_meta$sex) <- "Sex"
 label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
 label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
-label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
+#label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
 label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
-label(pb90_multiomics_subset_meta$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(pb90_multiomics_subset_meta$eGFR_CKiD_U25_avg) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
 label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
 
-table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr + group| group, data= pb90_multiomics_subset_meta)
+table1(~ age + sex + race_ethnicity_condensed + bmi  + acr_u + eGFR_fas_cr + group| group, data= pb90_multiomics_subset_meta) #+ hba1c
 
-continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
+continuous_vars <- c("age", "bmi","acr_u", "eGFR_CKiD_U25_avg") #"hba1c", 
 
 #uneven groups so using kruskal wallis
 for (var in continuous_vars) {
@@ -356,7 +347,7 @@ cells <- cell_count_bar + cell_group_bar
 cells
 ggsave("cell_counts.pdf",
        plot = cells,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 16,
        height = 10,
        dpi = 600)
@@ -425,12 +416,11 @@ for (pair in group_pairs) {
   res$comparison <- pair_name
   propeller_results[[pair_name]] <- res
   
- # write.csv(
-  #  x    = res,
-   # file = file.path(dir.results, "T1D-T2D", "Results",
-    #                 paste0("propeller_", pair_name, ".csv")),
-    #row.names = TRUE
-  #)
+  write.csv(
+    x    = res,
+    file = dir.results, paste0("propeller_", pair_name, ".csv"),
+    row.names = TRUE
+  )
 }
 ```
 #-----------------------------------------------------
