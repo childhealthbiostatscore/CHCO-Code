@@ -27,7 +27,8 @@ library(ggtrace)
 library(kableExtra)
 library(data.table)
 library(table1)
-#library(speckle)
+#BiocManager::install("speckle")
+library(speckle)
 library(GSA)
 library(emmeans)
 library(pheatmap)
@@ -41,6 +42,7 @@ library(stringr)
 library(patchwork)
 library(msigdbr)
 library(fgsea)
+
 ```
 
 ```{r}
@@ -215,36 +217,128 @@ ggsave("Umap_cells_group.png",
 
 ## b. Descriptive Statistics
 ```{r}
+meta_table1 <- pb90_multiomics_subset_meta %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(
+    group = factor(group)
+  ) %>%
+  filter(!is.na(group)) %>%
+  droplevels()
+
+table(meta_table1$group, useNA = "ifany")
+```
+
+```{r}
 #Load Metadata cleaned
 #Table 1
-label(pb90_multiomics_subset_meta$age) <- "Age (years)"
-label(pb90_multiomics_subset_meta$sex) <- "Sex"
-label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
-label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
-#label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
-label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
-label(pb90_multiomics_subset_meta$eGFR_CKiD_U25_avg) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
-label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
+label(meta_table1$age) <- "Age (years)"
+label(meta_table1$sex) <- "Sex"
+label(meta_table1$race_ethnicity_condensed) <- "Ethnicity"
+label(meta_table1$bmi) <- "BMI (kg/m^2)"
+label(meta_table1$hba1c) <- "HbA1c (%)"
+label(meta_table1$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
+label(meta_table1$eGFR_CKiD_U25_avg) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(meta_table1$group) <- "Diabetes Status"
 
-table1(~ age + sex + race_ethnicity_condensed + bmi  + acr_u + eGFR_fas_cr + group| group, data= pb90_multiomics_subset_meta) #+ hba1c
 
-continuous_vars <- c("age", "bmi","acr_u", "eGFR_CKiD_U25_avg") #"hba1c", 
-
-#uneven groups so using kruskal wallis
-for (var in continuous_vars) {
-  formula <- as.formula(paste(var, "~ group"))
-  kw <- kruskal.test(formula, data = pb90_multiomics_subset_meta)
-  cat(var, "Kruskal-Wallis p-value:", round(kw$p.value, 4), "\n")
+pvalue_table1 <- function(x, ...) {
+  
+  y <- unlist(x)
+  g <- factor(rep(names(x), times = sapply(x, length)))
+  
+  keep <- !is.na(y) & !is.na(g)
+  y <- y[keep]
+  g <- g[keep]
+  
+  if (is.numeric(y)) {
+    if (length(unique(g)) < 2) return(c("", NA))
+    p <- kruskal.test(y ~ g)$p.value
+    test <- "Kruskal-Wallis"
+  } else {
+    tab <- table(y, g)
+    if (nrow(tab) < 2 || ncol(tab) < 2) return(c("", NA))
+    chi <- suppressWarnings(chisq.test(tab))
+    if (any(chi$expected < 5)) {
+      chi <- chisq.test(tab, simulate.p.value = TRUE, B = 10000)
+      test <- "Chi-square simulated"
+    } else {
+      test <- "Chi-square"
+    }
+    p <- chi$p.value
+  }
+  c("", format.pval(p, digits = 3, eps = 0.001))
 }
 
-# Categorical variables - chi-square tests
-categorical_vars <- c("sex", "race_ethnicity_condensed")
+table1(
+  ~ age + sex + race_ethnicity_condensed + hba1c + bmi + acr_u + eGFR_CKiD_U25_avg | group,
+  data = meta_table1,
+  extra.col = list(`Overall p-value` = pvalue_table1)
+)
+```
 
-for (var in categorical_vars) {
-  chi_test <- chisq.test(table(pb90_multiomics_subset_meta[[var]], pb90_multiomics_subset_meta$group))
-  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
-}
+```{r}
+contrasts <- list(
+  LC_vs_OC    = c("Lean Control", "Obese Control"),
+  T1D_vs_T2D  = c("Type 1 Diabetes", "Type 2 Diabetes"),
+  T1D_vs_LC   = c("Type 1 Diabetes", "Lean Control"),
+  T2D_vs_LC   = c("Type 2 Diabetes", "Lean Control"),
+  T1D_vs_OC   = c("Type 1 Diabetes", "Obese Control"),
+  T2D_vs_OC   = c("Type 2 Diabetes", "Obese Control")
+)
 
+pairwise_results <- map_dfr(names(contrasts), function(comp) {
+  
+  groups_keep <- contrasts[[comp]]
+  
+  map_dfr(continuous_vars, function(var) {
+    
+    dat_test <- meta_table1 %>%
+      filter(group %in% groups_keep) %>%
+      select(group, value = all_of(var)) %>%
+      filter(!is.na(group), !is.na(value)) %>%
+      mutate(group = droplevels(factor(group, levels = groups_keep)))
+    
+    n_group1 <- sum(dat_test$group == groups_keep[1], na.rm = TRUE)
+    n_group2 <- sum(dat_test$group == groups_keep[2], na.rm = TRUE)
+    
+    if (nlevels(dat_test$group) < 2 || n_group1 == 0 || n_group2 == 0) {
+      return(tibble(
+        contrast = comp,
+        variable = var,
+        group1 = groups_keep[1],
+        group2 = groups_keep[2],
+        n_group1 = n_group1,
+        n_group2 = n_group2,
+        p_value = NA_real_,
+        note = "Skipped: fewer than 2 groups with non-missing data"
+      ))
+    }
+    
+    test <- wilcox.test(value ~ group, data = dat_test, exact = FALSE)
+    
+    tibble(
+      contrast = comp,
+      variable = var,
+      group1 = groups_keep[1],
+      group2 = groups_keep[2],
+      n_group1 = n_group1,
+      n_group2 = n_group2,
+      p_value = test$p.value,
+      note = NA_character_
+    )
+  })
+})
+
+pairwise_results <- pairwise_results %>%
+  group_by(variable) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "BH"),
+    p_value_fmt = format.pval(p_value, digits = 3, eps = 0.001),
+    p_adj_fmt = format.pval(p_adj, digits = 3, eps = 0.001)
+  ) %>%
+  ungroup()
+
+pairwise_results
 ```
 
 ```{r}
@@ -380,6 +474,7 @@ pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
 nrow(pb90_multiomics_subset) # genes 31974
 ncol(pb90_multiomics_subset) # cells 307386
 ```
+
 ```{r}
 # Check your metadata
 table(pb90_multiomics_subset$group)
