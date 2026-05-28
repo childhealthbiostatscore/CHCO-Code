@@ -2,7 +2,6 @@
 library(dplyr)
 library(purrr)
 
-
 dat<-read.csv("/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
 
 # for IT_19, only want baseline:
@@ -34,9 +33,16 @@ dat.harm.matteo <- dat %>% filter(record_id %in%c("RH2-21-T", #
   arrange(record_id) %>%
   select(-mrn)
 
-#questions for Ye Ji:
-#record_ids:
-## RH-91 -> is RH-91-T? (yes, RH id 91, t2d group)
-## RH-93 -> is RH-93-T? (yes, RH id 93, t2d group)
-#IT2D_19_BL -> is IT_19? (I assume this is just baseline for ID 19)
-#RH-67-T is the same as RH2-19-T? 
+write.csv(dat.harm.matteo,"/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Exports/matteo_n15_05282026.csv")
+
+#RH-67-T is the same as RH2-19-T: 
+# I would only include RH2-19-T unless there's aspects of the data that's missing in RH but is available in RH2 
+# (for example, if RH didn't collect MRI but RH2 did).. but I think he's mostly interested in the clinical stuff 
+#   that would all be available as part of RH. If not, I would start by looking at the date of visit for RH-67-T 
+#   and RH2-19-T to see if they are the same visit, 
+# and if they're not the same visit, RH2-19-T is probably a follow up visit from RH-67-T, so their data would 
+# not be the same and would probably be ~ 3 years apart
+
+#RH-67-T date: 2019-12-16
+#RH2-19-T date: 2023-03-13
+
