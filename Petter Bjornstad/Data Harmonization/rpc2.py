@@ -293,7 +293,7 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
     # Renal Clearance testing
     # --------------------------------------------------------------------------
-    var = ["subject_id", "totprot_base", "map"] + [v for v in meta.loc[meta["form_name"]
+    var = ["subject_id", "totprot_base", "map", "hematocrit"] + [v for v in meta.loc[meta["form_name"]
                                                == "study_visit_renal_clearance_testing", "field_name"]]
     rct = pd.DataFrame(proj.export_records(fields=var))
     rct.replace(rep, np.nan, inplace=True)
@@ -305,14 +305,13 @@ def clean_rpc2_redcap():
               "pahcl_12_8mgmin": "pah_clear_abs"}
     rct.rename(rename, axis=1, inplace=True)
 
-
     rct.drop([col for col in rct.columns if '_time' in col] +
               [col for col in rct.columns if '_yn' in col],
               axis=1, inplace=True)
 
     # # Calculate variables
     rct_vars = ["gfr_raw_plasma", "erpf_raw_plasma",
-                "totprot_base", "map"]
+                "totprot_base", "map", "hematocrit"]
     rct[rct_vars] = rct[rct_vars].apply(pd.to_numeric, errors='coerce')
     rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"] / 60
     rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"] / 60
@@ -329,22 +328,22 @@ def clean_rpc2_redcap():
     rct["pg"] = 5 * (rct["cm"] - 2)
     # Glomerular Pressure
     rct["glomerular_pressure"] = rct["pg"] + rct["deltapf"] + 10
-    # # Renal Blood Flow
-    # rct["rbf"] = (rct["erpf_raw_plasma"]) / (1 - rct["hct_210"] / 100)
-    # rct["rbf_seconds"] = (rct["erpf_raw_plasma_seconds"]
-    #                       ) / (1 - rct["hct_210"] / 100)
-    # # Renal Vascular Resistance (mmHg*l^-1*min^-1)
-    # rct["rvr"] = rct["map"] / rct["rbf"]
-    # # Efferent Arteriolar Resistance
-    # rct["re"] = (rct["gfr_raw_plasma_seconds"]) / (rct["kfg"] *
-    #                                                (rct["rbf_seconds"] - (rct["gfr_raw_plasma_seconds"]))) * 1328
-    # # Afferent Arteriolar Resistance
-    # rct["ra"] = ((rct["map"] - rct["glomerular_pressure"]) /
-    #              rct["rbf_seconds"]) * 1328
-    # rct.loc[~(rct['ra'] > 0), 'ra'] = np.nan
+    # Renal Blood Flow
+    rct["rbf"] = (rct["erpf_raw_plasma"]) / (1 - rct["hematocrit"] / 100)
+    rct["rbf_seconds"] = (rct["erpf_raw_plasma_seconds"]
+                          ) / (1 - rct["hematocrit"] / 100)
+    # Renal Vascular Resistance (mmHg*l^-1*min^-1)
+    rct["rvr"] = rct["map"] / rct["rbf"]
+    # Efferent Arteriolar Resistance
+    rct["re"] = (rct["gfr_raw_plasma_seconds"]) / (rct["kfg"] *
+                                                   (rct["rbf_seconds"] - (rct["gfr_raw_plasma_seconds"]))) * 1328
+    # Afferent Arteriolar Resistance
+    rct["ra"] = ((rct["map"] - rct["glomerular_pressure"]) /
+                 rct["rbf_seconds"]) * 1328
+    rct.loc[~(rct['ra'] > 0), 'ra'] = np.nan
     # Reduce rct dataset
-    rct = rct[["subject_id", "redcap_event_name", "ff", "kfg", "deltapf", "cm", "pg",
-               "glomerular_pressure",
+    rct = rct[["subject_id", "redcap_event_name", "ff", "deltapf", "cm", "pg",
+               "glomerular_pressure", "rvr", "re", "ra", 
                "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
     rct["procedure"] = "renal_clearance_testing"
     rct["date"] = phys["date"]

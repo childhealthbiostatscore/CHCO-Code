@@ -21,6 +21,14 @@ library(ggpubr)
 library(readxl)
 library(aws.s3)
 library(jsonlite)
+library(skimr)
+library(naniar)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(broom.mixed)
+library(purrr)
+
 source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
 ```
 
@@ -120,7 +128,44 @@ summary(arsenal::paired(visit ~ age  + weight + height + bmi +
                            avg_pcascl + avg_c_adc + total_kidney_volume_ml + avg_c_r2 + bold_l_bl_cortex + bold_r_bl_cortex + avg_k_r2, 
                          data = rpc_bx_dat, id = record_id),
         digits = 1)
+```
 
+## Missingness and outliers
+```{r echo = F}
+vars <- c("age","weight","height","bmi","sbp","dbp","map","chol_base","ldl","hdl",
+          "hba1c","triglycerides","eGFR_CKD_epi","acr_u","gfr_raw_plasma",
+          "gfr_bsa_plasma","erpf_raw_plasma","erpf_bsa_plasma","avg_pcascl",
+          "avg_c_adc","total_kidney_volume_ml","avg_c_r2","bold_l_bl_cortex",
+          "bold_r_bl_cortex","avg_k_r2")
+
+gg_miss_var(rpc_bx_dat[, c(vars, "visit")], facet = visit)
+
+rpc_bx_dat %>%
+  select(record_id, visit, all_of(vars)) %>%
+  pivot_longer(-c(record_id, visit)) %>%
+  ggplot(aes(visit, value, group = record_id)) +
+  geom_line(alpha = 0.3) + geom_point() +
+  facet_wrap(~name, scales = "free_y")
+
+outliers_3sd <- rpc_bx_dat %>%
+  select(record_id, visit, all_of(vars)) %>%
+  pivot_longer(-c(record_id, visit), names_to = "variable", values_to = "value") %>%
+  group_by(variable) %>%
+  mutate(
+    mean_val = mean(value, na.rm = TRUE),
+    sd_val   = sd(value,   na.rm = TRUE),
+    z        = (value - mean_val) / sd_val
+  ) %>%
+  filter(!is.na(value), abs(z) > 3) %>%
+  ungroup() %>%
+  arrange(variable, desc(abs(z))) %>%
+  select(record_id, visit, variable, value, mean_val, sd_val, z) %>%
+  arrange(record_id, visit)
+
+outliers_3sd
+```
+
+```{r echo = F}
 rpc_bx_dat_hc <- rpc2_dat %>%
   filter(visit %in% c("baseline", "post_treatment")) %>%
   rbind(hc_dat) %>%
@@ -130,76 +175,98 @@ rpc_bx_dat_hc <- rpc2_dat %>%
 rpc_bx_dat_hc$rpc2_group = factor(rpc_bx_dat_hc$rpc2_group, levels = c("PRE", "POST", "HC"))
 ```
 
+```{r echo = F}
+# helper functions
+plot_rpc_box <- function(data, 
+                         y_var, 
+                         y_label) {
+  ggplot(data, aes(x = rpc2_group, y = .data[[y_var]], fill = rpc2_group)) +
+    geom_boxplot(size = 1.4, outliers = FALSE) +
+    geom_line(aes(group = record_id), color = "#595758", size = 0.3) +
+    geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+    theme_minimal(base_size = 15) +
+    theme(panel.grid = element_blank(),
+          legend.position = "none",
+          text = element_text(size = 20)) +
+    labs(x = NULL, y = y_label) +
+    scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9")) +
+    geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+}
+
+fit_rpc_lmm <- function(data, 
+                        y_var, 
+                        fixed = "visit", 
+                        random = "record_id",
+                        contrast_order = NULL,
+                        contrast_method = "revpairwise",
+                        adjust = "tukey") {
+  if (!is.null(contrast_order)) {
+    data[[fixed]] <- factor(data[[fixed]], levels = contrast_order)
+  }
+  
+  f <- as.formula(paste0(y_var, " ~ ", fixed, " + (1|", random, ")"))
+  mod <- lmer(f, data = data)
+  
+  # Fixed-effect coefficients with p-values
+  fe <- broom.mixed::tidy(mod, effects = "fixed", conf.int = TRUE) %>%
+    mutate(outcome = y_var, .before = 1)
+  
+  # Estimated marginal means + pairwise contrasts
+  emm <- emmeans(mod, as.formula(paste0("~ ", fixed)))
+  emm_df <- as.data.frame(emm) %>% mutate(outcome = y_var, .before = 1)
+  pairs_df <- as.data.frame(
+    contrast(emm, method = contrast_method, adjust = adjust)
+  ) %>% mutate(outcome = y_var, .before = 1)
+  
+  # ICC (between-subject variance / total) — sanity check for the random effect
+  vc <- as.data.frame(VarCorr(mod))
+  icc <- vc$vcov[vc$grp == random] / sum(vc$vcov)
+  
+  list(
+    model    = mod,
+    fixed    = fe,
+    emmeans  = emm_df,
+    contrasts = pairs_df,
+    icc      = icc
+  )
+}
+```
+
 ```{r echo = F, warning = F, results='asis'}
-rpc_bx_dat_hc %>%
-  ggplot(aes(x = rpc2_group, y = avg_pcascl, fill = rpc2_group)) +
-  geom_boxplot(size = 1.4, outliers = F) + 
-  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
-  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
-  theme_minimal(base_size = 15) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 20)) +
-  labs(x = NULL, y = "pCASL") +
-  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
-  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
-  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+vars <- list(
+  avg_pcascl            = "pCASL",
+  pcasl3d_left = "pCASL (L)", 
+  pcasl3d_right = "pCASL (R)",
+  avg_c_adc             = "Cortical ADC",
+  adc_left = "Cortical ADC (L)", 
+  adc_right = "Cortical ADC (R)",
+  total_kidney_volume_ml = "TKV",
+  left_kidney_volume_ml = "LKV", 
+  right_kidney_volume_ml = "RKV",
+  avg_c_r2              = "Cortical R2*",
+  bold_l_bl_cortex = "Cortical R2* (L)",
+  bold_r_bl_cortex = "Cortical R2* (R)",
+  avg_k_r2              = "Kidney R2*",
+  bold_l_bl_kidney = "Kidney R2* (L)",
+  bold_r_bl_kidney = "Kidney R2 (R)*"
+)
 
-rpc_bx_dat_hc %>%
-  ggplot(aes(x = rpc2_group, y = avg_c_adc, fill = rpc2_group)) +
-  geom_boxplot(size = 1.4, outliers = F) + 
-  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
-  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
-  theme_minimal(base_size = 15) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 20)) +
-  labs(x = NULL, y = "Cortical ADC") +
-  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
-  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
-  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+plots <- purrr::imap(vars, ~ plot_rpc_box(rpc_bx_dat_hc, .y, .x))
 
-rpc_bx_dat_hc %>%
-  ggplot(aes(x = rpc2_group, y = total_kidney_volume_ml, fill = rpc2_group)) +
-  geom_boxplot(size = 1.4, outliers = F) + 
-  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
-  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
-  theme_minimal(base_size = 15) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 20)) +
-  labs(x = NULL, y = "TKV") +
-  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
-  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
-  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+purrr::walk(plots, print)
+```
 
-rpc_bx_dat_hc %>%
-  ggplot(aes(x = rpc2_group, y = avg_c_r2, fill = rpc2_group)) +
-  geom_boxplot(size = 1.4, outliers = F) + 
-  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
-  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
-  theme_minimal(base_size = 15) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 20)) +
-  labs(x = NULL, y = "Cortical R2*") +
-  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
-  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
-  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+```{r echo = F}
+mm_results <- map(names(vars), 
+                  ~ fit_rpc_lmm(subset(rpc_bx_dat_hc, rpc2_group != "HC"), .x))
+names(mm_results) <- names(vars)
 
-rpc_bx_dat_hc %>%
-  ggplot(aes(x = rpc2_group, y = avg_k_r2, fill = rpc2_group)) +
-  geom_boxplot(size = 1.4, outliers = F) + 
-  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
-  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
-  theme_minimal(base_size = 15) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        text = element_text(size = 20)) +
-  labs(x = NULL, y = "Kidney R2*") +
-  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
-  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
-  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+fixed_all     <- map_dfr(mm_results, "fixed") %>%
+  filter(term == "visitpost_treatment")
+emmeans_all   <- map_dfr(mm_results, "emmeans")
+contrasts_all <- map_dfr(mm_results, "contrasts")
+icc_all       <- tibble(outcome = names(mm_results),
+                        icc = map_dbl(mm_results, "icc"))
 ```
 
 ```{r echo = F, warning = F, results='asis'}
@@ -312,6 +379,10 @@ summary(arsenal::paired(visit ~ age  + weight + height + bmi +
 # subset(rpc_nonbx_dat, record_id %in% missing_uacr, 
 #        select = c(record_id, visit, mrn, date))
 
+missing_egfr <- subset(rpc_nonbx_dat, is.na(eGFR_CKD_epi))$record_id
+subset(rpc_nonbx_dat, record_id %in% missing_egfr,
+       select = c(record_id, visit, mrn, date))
+
 # those with baseline >= 30mg/g UACR vs. follow up
 uacr_30_bl <- subset(rpc_nonbx_dat, acr_u > 30 & visit == "baseline")$record_id
 
@@ -324,6 +395,41 @@ summary(arsenal::paired(visit ~ age  + weight + height + bmi +
                            avg_pcascl + avg_c_adc + total_kidney_volume_ml + 
                           avg_c_r2 + bold_l_bl_cortex + bold_r_bl_cortex  +avg_k_r2, 
                          data = subset(rpc_nonbx_dat, record_id %in% uacr_30_bl), id = record_id), digits = 1)
+```
+
+## Missingness and outliers
+```{r echo = F}
+vars <- c("age","weight","height","bmi","sbp","dbp","map","chol_base","ldl","hdl",
+          "hba1c","triglycerides","eGFR_CKD_epi","acr_u","gfr_raw_plasma",
+          "gfr_bsa_plasma","erpf_raw_plasma","erpf_bsa_plasma","avg_pcascl",
+          "avg_c_adc","total_kidney_volume_ml","avg_c_r2","bold_l_bl_cortex",
+          "bold_r_bl_cortex","avg_k_r2")
+
+gg_miss_var(rpc_nonbx_dat[, c(vars, "visit")], facet = visit)
+
+rpc_nonbx_dat %>%
+  select(record_id, visit, all_of(vars)) %>%
+  pivot_longer(-c(record_id, visit)) %>%
+  ggplot(aes(visit, value, group = record_id)) +
+  geom_line(alpha = 0.3) + geom_point() +
+  facet_wrap(~name, scales = "free_y")
+
+outliers_3sd <- rpc_nonbx_dat %>%
+  select(record_id, visit, all_of(vars)) %>%
+  pivot_longer(-c(record_id, visit), names_to = "variable", values_to = "value") %>%
+  group_by(variable) %>%
+  mutate(
+    mean_val = mean(value, na.rm = TRUE),
+    sd_val   = sd(value,   na.rm = TRUE),
+    z        = (value - mean_val) / sd_val
+  ) %>%
+  filter(!is.na(value), abs(z) > 3) %>%
+  ungroup() %>%
+  arrange(variable, desc(abs(z))) %>%
+  select(record_id, visit, variable, value, mean_val, sd_val, z) %>%
+  arrange(record_id, visit)
+
+outliers_3sd
 ```
 
 ```{r echo = F, warning = F, results='asis'}
