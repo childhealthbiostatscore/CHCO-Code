@@ -7,6 +7,30 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+.libPaths("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/")
+```
+
+```{r}
+install_if_missing_cran <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(
+      pkg,
+      lib = ("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/"),
+      dependencies = TRUE
+    )
+  }
+}
+
+install_if_missing_bioc <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    BiocManager::install(
+      pkg,
+      lib = ("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/"),
+      update = FALSE,
+      ask = FALSE
+    )
+  }
+}
 ```
 
 ```{r}
@@ -27,8 +51,7 @@ library(ggtrace)
 library(kableExtra)
 library(data.table)
 library(table1)
-#BiocManager::install("speckle")
-library(speckle)
+library(BiocManager)
 library(GSA)
 library(emmeans)
 library(pheatmap)
@@ -43,6 +66,11 @@ library(patchwork)
 library(msigdbr)
 library(fgsea)
 
+
+#install_if_missing_bioc("speckle")
+library(speckle)
+#install_if_missing_bioc("DESeq2")
+library(DESeq2)
 ```
 
 ```{r}
@@ -51,7 +79,6 @@ user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
   root_path <- c("/mmfs1/gscratch/togo/leidholt/")
-  dir.results <- ("/mmfs1/gscratch/togo/leidholt/TRIAD/Results")
   git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
   
@@ -83,10 +110,13 @@ Sys.setenv(
 )
 ```
 
+
+
+
 ```{r}
 pb90_multiomics_subset <- s3readRDS(
-          object = "data_clean/pb90_multiomics_SLL_subset_20260527.rds", 
-          bucket = "scrna",
+          object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
+          bucket = "triad",
           region = "")
 
 
@@ -194,25 +224,56 @@ umap_p_group<- ggplot(pb90_multiomics_subset_meta,
 umap_p_group
 ```
 ```{r}
-umap_cells_study <- umap_p + umap_p_study 
+aws.s3::s3HTTP(
+  verb = "GET",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  path = "/"
+)
+```
+
+```{r}
+umap_cells_study <- umap_p + umap_p_study
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  tmp,
+  plot = umap_cells_study,
+  width = 20,
+  height = 16,
+  dpi = 300
+)
+
+httr::set_config(httr::config(ssl_verifypeer = FALSE))
+put_object(
+  file = tmp,
+  object = "figures/metadata/Umap_cells_study.png",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
+)
+
+
 umap_cells_group <- umap_p + umap_p_group
+tmp <- tempfile(fileext = ".png")
 
-ggsave("Umap_cells_study.png",
-       plot = umap_cells_study,
-       path = dir.results,
-       width = 20,
-       height =16,
-       dpi = 300
-       )
-
-ggsave("Umap_cells_group.png",
+ggsave(tmp,
        plot = umap_cells_group,
-       path = dir.results,
        width = 20,
        height =16,
        dpi = 300
        )
 
+put_object(
+  file = tmp,
+  object = "figures/metadata/Umap_cells_group.png",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
+)
 ```
 
 ## b. Descriptive Statistics
@@ -269,10 +330,26 @@ pvalue_table1 <- function(x, ...) {
   c("", format.pval(p, digits = 3, eps = 0.001))
 }
 
-table1(
+tble1 <- table1(
   ~ age + sex + race_ethnicity_condensed + hba1c + bmi + acr_u + eGFR_CKiD_U25_avg | group,
   data = meta_table1,
   extra.col = list(`Overall p-value` = pvalue_table1)
+)
+
+tmp <- tempfile(fileext = ".html")
+
+htmltools::save_html(
+  htmltools::HTML(as.character(tble1)),
+  file = tmp
+)
+
+put_object(
+  file = tmp,
+  object = "tables/metadata_table.html",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
 )
 ```
 
@@ -286,6 +363,7 @@ contrasts <- list(
   T2D_vs_OC   = c("Type 2 Diabetes", "Obese Control")
 )
 
+continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_CKiD_U25_avg") 
 pairwise_results <- map_dfr(names(contrasts), function(comp) {
   
   groups_keep <- contrasts[[comp]]
@@ -339,6 +417,23 @@ pairwise_results <- pairwise_results %>%
   ungroup()
 
 pairwise_results
+tmp <- tempfile(fileext = ".csv")
+
+write.csv(
+  pairwise_results,
+  tmp,
+  row.names = FALSE
+)
+
+httr::set_config(httr::config(ssl_verifypeer = FALSE))
+put_object(
+  file = tmp,
+  object = "tables/pairwise_results.csv",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
+)
 ```
 
 ```{r}
@@ -438,13 +533,21 @@ cell_group_bar
 
 ```{r}
 cells <- cell_count_bar + cell_group_bar 
-cells
-ggsave("cell_counts.pdf",
+tmp <- tempfile(fileext = ".png")
+ggsave(tmp,
        plot = cells,
-       path = dir.results,
        width = 16,
        height = 10,
        dpi = 600)
+
+put_object(
+  file = tmp,
+  object = "figures/cell_counts.png",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
+)
 
 ```
 
@@ -488,17 +591,24 @@ head(pb90_multiomics_subset@meta.data[, c("group", "kit_id", "record_id", "KPMP_
 #propeller analysis
 #------------------
 ```{r}
-groups      <- unique(pb90_multiomics_subset_meta$group)
-group_pairs <- combn(groups, 2, simplify = FALSE)  # all pairwise combos
+groups <- unique(pb90_multiomics_subset_meta$group)
+groups <- groups[!is.na(groups)]
+
+group_pairs <- combn(groups, 2, simplify = FALSE)
 
 propeller_results <- list()
 
 for (pair in group_pairs) {
+  
   pair_name <- paste(pair, collapse = "_vs_")
+  pair_name_clean <- gsub("[^A-Za-z0-9_]+", "_", pair_name)
+  
   cat("\n=== Propeller:", pair_name, "===\n")
   
-  # Subset metadata to just these two groups
-  meta_sub <- pb90_multiomics_subset_meta[pb90_multiomics_subset_meta$group %in% pair, ]
+  meta_sub <- pb90_multiomics_subset_meta[
+    pb90_multiomics_subset_meta$group %in% pair,
+  ]
+  
   meta_sub$group <- droplevels(factor(meta_sub$group))
   
   res <- propeller(
@@ -509,32 +619,62 @@ for (pair in group_pairs) {
   )
   
   res$comparison <- pair_name
-  propeller_results[[pair_name]] <- res
+  propeller_results[[pair_name_clean]] <- res
+  
+  tmp <- tempfile(fileext = ".csv")
   
   write.csv(
-    x    = res,
-    file = dir.results, paste0("propeller_", pair_name, ".csv"),
+    res,
+    tmp,
     row.names = TRUE
   )
+  
+  put_object(
+    file = tmp,
+    object = paste0("results/propeller/propeller_", pair_name_clean,".csv"),
+    bucket = "triad",
+    base_url = "s3.kopah.uw.edu",
+    region = "",
+    use_https = TRUE
+  )
+  
+  unlink(tmp)
 }
+
+  #write.csv(
+  #  x    = res,
+  #  file = dir.results, paste0("propeller_", pair_name, ".csv"),
+  #  row.names = TRUE
+  #)
+
 ```
 #-----------------------------------------------------
-#psuedobulk analysis since OC only have 3 particpants
+#psuedobulk analysis with edgeR & Deseq2
 #-----------------------------------------------------
 ```{r}
-min_cells_per_sample <- 20     # minimum cells contributing to a pseudobulk sample
-min_donors_per_group <- 3      # minimum donors per group required to run DE
-min_total_count <- 10          # edgeR gene filter helper
-min_samples_expr <- 2          # edgeR gene filter helper
+#setting up save function to kopah
+bucket <- "triad"
 
-# output directory
-pb_out_dir <- file.path(dir.results, "T1D-T2D", "Results", "pseudobulk_1")
-dir.create(pb_out_dir, recursive = TRUE, showWarnings = FALSE)
+upload_to_kopah <- function(file, object, bucket = "triad") {
+  put_object(
+    file = file,
+    object = object,
+    bucket = bucket,
+    base_url = "s3.kopah.uw.edu",
+    region = "",
+    use_https = TRUE
+  )
+}
+
+min_cells_per_sample <- 20
+min_donors_per_group <- 3
+
 ```
 
-#----------------------------
-# prepping metadata for edgeR
-#----------------------------
+#-------------------------------------------------------
+# metadata and building pseudobulk counts
+# one pseudobulk sample = one donor within one cell type
+#-------------------------------------------------------
 ```{r}
 meta <- pb90_multiomics_subset@meta.data %>%
   mutate(
@@ -544,10 +684,7 @@ meta <- pb90_multiomics_subset@meta.data %>%
     sex = as.character(sex),
     study = as.character(study),
     celltype = as.character(KPMP_celltype_general)
-  )
-
-#keeping only complete metadata for modeling
-meta <- meta %>%
+  ) %>%
   filter(
     !is.na(record_id),
     !is.na(group),
@@ -555,56 +692,30 @@ meta <- meta %>%
     !is.na(sex),
     !is.na(study),
     !is.na(celltype)
+  ) %>%
+  mutate(
+    sample_celltype_id = paste(record_id, celltype, sep = "__")
   )
 
-counts <- GetAssayData(pb90_multiomics_subset, layer = "counts")
+counts <- GetAssayData(pb90_multiomics_subset, assay = "RNA", layer = "counts")
 counts <- counts[, meta$cell_barcode, drop = FALSE]
-
-# Number of cells by sample and celltype
-bulk <- AggregateExpression(
-            pb90_multiomics_subset,
-            return.seurat = TRUE,
-            assays = "RNA",
-            group.by = c("KPMP_celltype_general", "record_id", "group"))
-
-n_cells <- pb90_multiomics_subset@meta.data %>% 
-  dplyr::count(record_id, KPMP_celltype_general) %>% 
-  dplyr::rename(n_cells = n)
-
-n_cells$record_id <- str_replace(n_cells$record_id, "_", "-")
-
-meta_bulk <- left_join(bulk@meta.data, n_cells)
-rownames(meta_bulk) <- meta_bulk$orig.ident
-bulk@meta.data <- meta_bulk
-```
-
-#----------------------------------------------------------
-# building pseudobulk cell counts
-# one pseudobulk sample = one donor within one cell type
-#---------------------------------------------------------
-```{r}
-meta <- meta %>%
-  mutate(sample_celltype_id = paste(record_id, celltype, sep = "__"))
 
 pb_ids <- unique(meta$sample_celltype_id)
 
-pb_count_list <- vector("list", length(pb_ids))
-pb_meta_list  <- vector("list", length(pb_ids))
+pb_count_list <- list()
+pb_meta_list <- list()
 
-for (i in seq_along(pb_ids)) {
-  sid <- pb_ids[i]
+for (sid in pb_ids) {
+  
   idx <- which(meta$sample_celltype_id == sid)
   
-  # skip tiny pseudobulks
   if (length(idx) < min_cells_per_sample) next
-  
-  sub_counts <- counts[, idx, drop = FALSE]
-  agg_counts <- Matrix::rowSums(sub_counts)
   
   meta_sub <- meta[idx, ]
   
-  pb_count_list[[i]] <- agg_counts
-  pb_meta_list[[i]] <- data.frame(
+  pb_count_list[[sid]] <- Matrix::rowSums(counts[, idx, drop = FALSE])
+  
+  pb_meta_list[[sid]] <- data.frame(
     pseudobulk_id = sid,
     record_id = meta_sub$record_id[1],
     group = meta_sub$group[1],
@@ -617,183 +728,347 @@ for (i in seq_along(pb_ids)) {
   )
 }
 
-# remove NULL entries
-keep_idx <- which(!sapply(pb_count_list, is.null))
-pb_count_list <- pb_count_list[keep_idx]
-pb_meta_list  <- pb_meta_list[keep_idx]
-
-#combine into matrix + metadata
 pb_counts <- do.call(cbind, pb_count_list)
-colnames(pb_counts) <- sapply(pb_meta_list, function(x) x$pseudobulk_id)
 pb_meta <- bind_rows(pb_meta_list)
 
+pb_meta <- pb_meta %>%
+  dplyr::slice(match(colnames(pb_counts), pseudobulk_id))
 
-pb_meta <- pb_meta %>% slice(match(colnames(pb_counts), pseudobulk_id))
 stopifnot(identical(colnames(pb_counts), pb_meta$pseudobulk_id))
 ```
 
-#------------------------
-#running edgeR/cell type
+#-----------------------
+#volcano plot function
 #-----------------------
 ```{r}
-#be careful how I compute the mean as this can be sensitive to outliers (less so with normalized data)
-#not sure if I should aggregate by mean or by the sum of the cells. 
-#setting up pairwise comparisons
-groups <- sort(unique(pb_meta$group))
-group_pairs <- combn(groups, 2, simplify = FALSE)
-
-celltypes <- sort(unique(pb_meta$celltype))
-
-for (cell_name in celltypes) {
-  
-  cat("\n============================\n")
-  cat("Cell type:", cell_name, "\n")
-  cat("============================\n")
-  
-  cell_idx <- which(pb_meta$celltype == cell_name)
-  
-  if (length(cell_idx) == 0) next
-  
-  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
-  meta_ct   <- pb_meta[cell_idx, , drop = FALSE]
-  
-  for (pair in group_pairs) {
-    
-    pair_name <- paste(pair, collapse = "_vs_")
-    cat("\n--- Comparison:", pair_name, "---\n")
-    
-    keep_pair <- meta_ct$group %in% pair
-    counts_sub <- counts_ct[, keep_pair, drop = FALSE]
-    meta_sub   <- meta_ct[keep_pair, , drop = FALSE]
-    
-    meta_sub$group <- factor(meta_sub$group, levels = pair)
-    meta_sub$sex   <- factor(meta_sub$sex)
-    meta_sub$study <- factor(meta_sub$study)
-    
-    # donor counts per group
-    donor_tab <- table(meta_sub$group)
-    print(donor_tab)
-    
-    if (any(donor_tab < min_donors_per_group)) {
-      cat("Skipping", pair_name, "for", cell_name, "- too few donors in at least one group\n")
-      next
-    }
-    
-    #design matrix
-    design <- model.matrix(~ group + age + sex, data = meta_sub)
-    
-    #edgeR object
-    y <- DGEList(counts = counts_sub)
-    
-    #filter low-expression genes
-    keep_genes <- filterByExpr(y, design = design)
-    y <- y[keep_genes, , keep.lib.sizes = FALSE]
-    
-    if (nrow(y) == 0) {
-      cat("Skipping", pair_name, "for", cell_name, "- no genes passed filtering\n")
-      next
-    }
-    
-    #normalization
-    y <- calcNormFactors(y)
-    
-    #estimate dispersion
-    y <- estimateDisp(y, design)
-    
-    # fit the model
-    fit <- glmQLFit(y, design, robust = TRUE)
-    
-    coef_name <- grep("^group", colnames(design), value = TRUE)
-    
-    if (length(coef_name) != 1) {
-      cat("Skipping", pair_name, "for", cell_name, "- could not identify unique group coefficient\n")
-      next
-    }
-    
-    qlf <- glmQLFTest(fit, coef = which(colnames(design) == coef_name))
-    tt <- topTags(qlf, n = Inf)$table
-    tt$gene <- rownames(tt)
-    tt$comparison <- pair_name
-    tt$celltype <- cell_name
-    tt$n_donors_group1 <- as.numeric(donor_tab[1])
-    tt$n_donors_group2 <- as.numeric(donor_tab[2])
-    tt$coef_tested <- coef_name
-    
-    #add average CPM
-    logcpm <- cpm(y, log = TRUE)
-    tt$mean_logCPM_check <- rowMeans(logcpm[tt$gene, , drop = FALSE])
-    
-    # save
-    cell_name_file <- gsub("[[:space:]/-]+", "_", cell_name)
-    out_file <- file.path(
-      pb_out_dir,
-      paste0("pseudobulk_edgeR_", pair_name, "_", cell_name_file, ".csv")
-    )
-    
-    write.csv(tt, out_file, row.names = FALSE)
-    cat("Saved:", out_file, "\n")
-  
-    
-  plot_volcano <- function(tt, title = "", fdr_cutoff = 0.05, lfc_cutoff = 0.5, n_labels = 10) {
+plot_volcano <- function(tt, title = "", fdr_col = "FDR",
+                         lfc_col = "logFC",
+                         stat_col = NULL,
+                         fdr_cutoff = 0.05,
+                         lfc_cutoff = 0.5,
+                         n_labels = 10) {
   
   tt <- tt %>%
-    mutate(
-      neg_log10_fdr = -log10(FDR),
-      sig = case_when(
-        FDR < fdr_cutoff & logFC > lfc_cutoff  ~ "Up",
-        FDR < fdr_cutoff & logFC < -lfc_cutoff ~ "Down",
+    dplyr::mutate(
+      neg_log10_fdr = -log10(.data[[fdr_col]]),
+      sig = dplyr::case_when(
+        .data[[fdr_col]] < fdr_cutoff & .data[[lfc_col]] > lfc_cutoff  ~ "Up",
+        .data[[fdr_col]] < fdr_cutoff & .data[[lfc_col]] < -lfc_cutoff ~ "Down",
         TRUE ~ "NS"
       )
     )
- 
-  label_df <- tt %>%
-    filter(FDR < fdr_cutoff) %>%
-    arrange(FDR) %>%
-    slice_head(n = n_labels)
   
-  ggplot(tt, aes(x = logFC, y = neg_log10_fdr, color = sig)) +
+  if (!is.null(stat_col) && stat_col %in% colnames(tt)) {
+    
+    label_df <- tt %>%
+      dplyr::filter(.data[[fdr_col]] < fdr_cutoff) %>%
+      dplyr::arrange(dplyr::desc(abs(.data[[stat_col]]))) %>%
+      dplyr::slice_head(n = n_labels)
+    
+  } else {
+    
+    label_df <- tt %>%
+      dplyr::filter(.data[[fdr_col]] < fdr_cutoff) %>%
+      dplyr::arrange(.data[[fdr_col]]) %>%
+      dplyr::slice_head(n = n_labels)
+  }
+  
+  ggplot(tt, aes(x = .data[[lfc_col]], y = neg_log10_fdr, color = sig)) +
     geom_point(alpha = 0.6, size = 1.5) +
     geom_text_repel(
       data = label_df,
       aes(label = gene),
       size = 3,
-      max.overlaps = Inf,
-      box.padding = 0.4,
-      point.padding = 0.3
+      max.overlaps = Inf
     ) +
-    scale_color_manual(values = c("Up" = "red", "Down" = "blue", "NS" = "grey")) +
+    scale_color_manual(values = c("Up" = "orange3", "Down" = "purple4", "NS" = "grey")) +
     geom_vline(xintercept = c(-lfc_cutoff, lfc_cutoff), linetype = "dashed") +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
-    labs(
-      title = title,
-      x = "log2 Fold Change",
-      y = "-log10(FDR)",
-      color = ""
-    ) +
+    geom_hline(yintercept = -log10(fdr_cutoff), linetype = "dashed") +
+    labs(title = title, x = "log2 Fold Change", y = "-log10(FDR)") +
     theme_classic()
 }
+```
 
-    volcano_plot <- plot_volcano(
-      tt,
-      title = paste(cell_name, pair_name),
-      fdr_cutoff = 0.05,
-      lfc_cutoff = 0.5
+#------------------------
+#running edgeR pseudobulk
+#-----------------------
+```{r}
+groups <- sort(unique(pb_meta$group))
+group_pairs <- combn(groups, 2, simplify = FALSE)
+
+celltypes <- sort(unique(pb_meta$celltype))
+
+edgeR_results <- list()
+
+for (cell_name in celltypes) {
+  
+  cell_idx <- which(pb_meta$celltype == cell_name)
+  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
+  meta_ct <- pb_meta[cell_idx, , drop = FALSE]
+  
+  for (pair in group_pairs) {
+    
+    pair_name <- paste(pair, collapse = "_vs_")
+    pair_name_clean <- gsub("[^A-Za-z0-9_]+", "_", pair_name)
+    cell_name_clean <- gsub("[^A-Za-z0-9_]+", "_", cell_name)
+    
+    cat("\n=== edgeR:", cell_name, pair_name, "===\n")
+    
+    keep_pair <- meta_ct$group %in% pair
+    counts_sub <- counts_ct[, keep_pair, drop = FALSE]
+    meta_sub <- meta_ct[keep_pair, , drop = FALSE]
+    
+    meta_sub$group <- factor(meta_sub$group, levels = pair)
+    meta_sub$sex <- factor(meta_sub$sex)
+    
+    donor_tab <- table(meta_sub$group)
+    
+    if (any(donor_tab < min_donors_per_group)) {
+      cat("Skipping: too few donors\n")
+      next
+    }
+    
+    design <- model.matrix(~ group + age + sex, data = meta_sub)
+    
+    y <- DGEList(counts = counts_sub)
+    keep_genes <- filterByExpr(y, design = design)
+    y <- y[keep_genes, , keep.lib.sizes = FALSE]
+    
+    if (nrow(y) == 0) next
+    
+    y <- calcNormFactors(y)
+    y <- estimateDisp(y, design)
+    
+    fit <- glmQLFit(y, design, robust = TRUE)
+    
+    coef_name <- grep("^group", colnames(design), value = TRUE)
+    
+    qlf <- glmQLFTest(fit, coef = coef_name)
+    tt <- topTags(qlf, n = Inf)$table
+    
+    tt$gene <- rownames(tt)
+    tt$comparison <- pair_name
+    tt$celltype <- cell_name
+    tt$n_donors_group1 <- as.numeric(donor_tab[1])
+    tt$n_donors_group2 <- as.numeric(donor_tab[2])
+    
+    edgeR_results[[paste(cell_name_clean, pair_name_clean, sep = "__")]] <- tt
+    
+    tmp_csv <- tempfile(fileext = ".csv")
+    write.csv(tt, tmp_csv, row.names = FALSE)
+    
+    upload_to_kopah(
+      file = tmp_csv,
+      object = paste0(
+        "results/pseudobulk/edgeR/all_cells/pseudo_all_edgeR_",
+        pair_name_clean, "_", cell_name_clean, ".csv"
+      )
     )
     
+    volcano_plot <- plot_volcano(
+      tt,
+      title = paste("edgeR", cell_name, pair_name),
+      fdr_col = "FDR",
+      lfc_col = "logFC"
+    )
+    
+    tmp_png <- tempfile(fileext = ".png")
+    
     ggsave(
-      filename = file.path(pb_out_dir, paste0("volcano_", pair_name, "_", cell_name_file, ".png")),
+      tmp_png,
       plot = volcano_plot,
       width = 6,
       height = 5,
       dpi = 300
     )
     
-    cat("Saved volcano:", pair_name, cell_name, "\n")
+    upload_to_kopah(
+      file = tmp_png,
+      object = paste0(
+        "figures/pseudobulk/edgeR/all_cells/volcano_all_edgeR_",
+        pair_name_clean, "_", cell_name_clean, ".png"
+      )
+    )
+    
+    unlink(c(tmp_csv, tmp_png))
   }
 }
 
 ```
+#-------------------
+#DESeq2 pseudobulk
+#-------------------
+```{r}
+deseq2_results <- list()
 
+for (cell_name in celltypes) {
+  
+  cell_idx <- which(pb_meta$celltype == cell_name)
+  counts_ct <- pb_counts[, cell_idx, drop = FALSE]
+  meta_ct <- pb_meta[cell_idx, , drop = FALSE]
+  
+  for (pair in group_pairs) {
+    
+    pair_name <- paste(pair, collapse = "_vs_")
+    pair_name_clean <- gsub("[^A-Za-z0-9_]+", "_", pair_name)
+    cell_name_clean <- gsub("[^A-Za-z0-9_]+", "_", cell_name)
+    
+    cat("\n=== DESeq2:", cell_name, pair_name, "===\n")
+    
+    keep_pair <- meta_ct$group %in% pair
+    counts_sub <- round(counts_ct[, keep_pair, drop = FALSE])
+    meta_sub <- meta_ct[keep_pair, , drop = FALSE]
+    
+    meta_sub$group <- factor(meta_sub$group, levels = pair)
+    meta_sub$sex <- factor(meta_sub$sex)
+    rownames(meta_sub) <- colnames(counts_sub)
+    
+    donor_tab <- table(meta_sub$group)
+    
+    if (any(donor_tab < min_donors_per_group)) {
+      cat("Skipping: too few donors\n")
+      next
+    }
+    
+    # Use the same expression filtering strategy as edgeR
+    filter_design <- model.matrix(~ group + age + sex, data = meta_sub)
+    
+    y_tmp <- DGEList(counts = counts_sub)
+    
+    keep_genes <- filterByExpr(
+      y_tmp,
+      design = filter_design
+    )
+    
+    counts_sub <- counts_sub[keep_genes, , drop = FALSE]
+    
+    if (nrow(counts_sub) == 0) next
+    
+    dds <- DESeqDataSetFromMatrix(
+      countData = counts_sub,
+      colData = meta_sub,
+      design = ~ age + sex + group
+    )
+    
+    dds <- DESeq(dds)
+    
+    res <- results(
+      dds,
+      contrast = c("group", pair[2], pair[1])
+    )
+    
+    tt <- as.data.frame(res)
+    
+    cat("\nColumns returned:\n")
+    print(colnames(tt))
+    
+    tt$gene <- rownames(tt)
+    tt$comparison <- pair_name
+    tt$celltype <- cell_name
+    tt$n_donors_group1 <- as.numeric(donor_tab[1])
+    tt$n_donors_group2 <- as.numeric(donor_tab[2])
+    
+    tt <- tt %>%
+      dplyr::rename(
+        logFC = log2FoldChange,
+        FDR = padj,
+        PValue = pvalue
+      )
+    
+    deseq2_results[[paste(cell_name_clean, pair_name_clean, sep = "__")]] <- tt
+    
+    tmp_csv <- tempfile(fileext = ".csv")
+    write.csv(tt, tmp_csv, row.names = FALSE)
+    
+    upload_to_kopah(
+      file = tmp_csv,
+      object = paste0(
+        "results/pseudobulk/DESeq2/all_cells/pseudo_all_DESeq2_",
+        pair_name_clean, "_", cell_name_clean, ".csv"
+      )
+    )
+    
+    volcano_plot <- plot_volcano(
+      tt,
+      title = paste("DESeq2", cell_name, pair_name),
+      fdr_col = "FDR",
+      lfc_col = "logFC"
+    )
+    
+    tmp_png <- tempfile(fileext = ".png")
+    
+    ggsave(
+      tmp_png,
+      plot = volcano_plot,
+      width = 6,
+      height = 5,
+      dpi = 300
+    )
+    
+    upload_to_kopah(
+      file = tmp_png,
+      object = paste0(
+        "figures/pseudobulk/DESeq2/all_cells/volcano_all_DESeq2_",
+        pair_name_clean, "_", cell_name_clean, ".png"
+      )
+    )
+    
+    unlink(c(tmp_csv, tmp_png))
+  }
+}
+```
+
+
+```{r}
+method_compare_summary <- purrr::map_dfr(
+  intersect(names(edgeR_results), names(deseq2_results)),
+  function(nm) {
+    
+    edgeR_tt <- edgeR_results[[nm]]
+    deseq2_tt <- deseq2_results[[nm]]
+    
+    merged_de <- dplyr::inner_join(
+      edgeR_tt %>%
+        dplyr::select(gene, edgeR_logFC = logFC, edgeR_FDR = FDR),
+      deseq2_tt %>%
+        dplyr::select(gene, DESeq2_logFC = logFC, DESeq2_FDR = FDR),
+      by = "gene"
+    )
+    
+    tibble::tibble(
+      result = nm,
+      n_genes = nrow(merged_de),
+      edgeR_sig = sum(merged_de$edgeR_FDR < 0.05, na.rm = TRUE),
+      DESeq2_sig = sum(merged_de$DESeq2_FDR < 0.05, na.rm = TRUE),
+      both_sig = sum(
+        merged_de$edgeR_FDR < 0.05 &
+          merged_de$DESeq2_FDR < 0.05,
+        na.rm = TRUE
+      ),
+      logFC_cor = cor(
+        merged_de$edgeR_logFC,
+        merged_de$DESeq2_logFC,
+        use = "complete.obs"
+      )
+    )
+  }
+)
+
+method_compare_summary
+method_compare_summary <- method_compare_summary %>%
+  dplyr::rename(
+    `Correlation of LFC effect size` = logFC_cor
+  )
+
+method_compare_summary
+tmp <- tempfile(fileext = ".csv")
+write.csv(method_compare_summary, tmp, row.names = FALSE)
+
+upload_to_kopah(
+  file = tmp,
+  object = "results/pseudobulk/method_compare_edgeR_vs_DESeq2.csv"
+)
+```
 #------------------------------------------------------------
 #plotting cell type specific expression patterns per contrast
 #------------------------------------------------------------
