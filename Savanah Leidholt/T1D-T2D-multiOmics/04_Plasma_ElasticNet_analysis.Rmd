@@ -23,45 +23,24 @@ library(ggtext)
 ```
 
 ```{r}
-#Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
-
 user <- Sys.info()[["user"]]
 
-if (computer == "mac studio") {
-  
-  if (user == "sleidholt") {
-    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
-    
-  } else if (user == "shivaniramesh") {
-    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
-    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
-    
-  } else if (user == "choiyej") {
-    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
-    dir.results <- paste0(dir.dat, "/PANTHER/Results")
-    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "pylell") {
-    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-    dir.results <- paste0(dir.dat, "/PANTHER/Results")
-    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-  }
-
-} else if (computer == "mac laptop") {
-
-  if (user == "savanahleidholt") {
-    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/T1D-T2D/Results/ElasticNet"
-    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "shivaniramesh") {
-    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
-    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
-  }
+if (user == "leidholt") {
+  root_path <- "/mmfs1/gscratch/togo/leidholt/"
+  git_path  <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys      <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+  root_path <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
 }
 ```
 
@@ -70,14 +49,14 @@ if (computer == "mac studio") {
 #---------------------------
 ```{r}
 limma_inputs <- readRDS(
-  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "limma_gsea_inputs_age_sex_study.rds")
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "limma_gsea_inputs_age_sex_study.rds")
 )
 dat1 <- limma_inputs$primary
 meta1 <- dat1$samples
 out1 <- dat1$out
 
 prot_log <- readRDS(
-  file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "prot_log2.rds")
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "prot_log2.rds")
 )
 
 meta1$record_id <- trimws(as.character(meta1$record_id))
@@ -115,7 +94,7 @@ dim(prot_resid_t)
 #---------------------------------------------
 ```{r}
 analytes <- read.csv(
-  file.path(dir.dat, "Data Harmonization", "Combined SomaScan", "analytes.csv")
+  file.path(root_path, "Data Harmonization", "Combined SomaScan", "analytes.csv")
 )
 
 protein2symbol <- analytes %>%
@@ -352,19 +331,21 @@ run_elastic_net <- function(
   }
   
   list(
-    contrast = cc,
-    positive = g_pos,
-    negative = g_neg,
-    best_alpha = best$alpha,
-    lambda_1se = best$cvfit$lambda.1se,
-    lambda_min = best$cvfit$lambda.min,
-    auc_train = auc_val,
-    n_input_proteins = length(top_feats),
-    coef_df = coef_df,
-    protein_terms = protein_terms,
-    cvfit = best$cvfit,
-    top_feats = top_feats
-  )
+  contrast = cc,
+  positive = g_pos,
+  negative = g_neg,
+  best_alpha = best$alpha,
+  lambda_1se = best$cvfit$lambda.1se,
+  lambda_min = best$cvfit$lambda.min,
+  auc_train = auc_val,
+  y = y,
+  p_hat = p_hat,
+  n_input_proteins = length(top_feats),
+  coef_df = coef_df,
+  protein_terms = protein_terms,
+  cvfit = best$cvfit,
+  top_feats = top_feats
+)
 }
 ```
 
@@ -768,18 +749,11 @@ stability_plots <- (p_stability_T2D_LC | p_stability_T1D_OC | p_stability_T1D_T2
 (p_stability_T2D_LC | p_stability_T1D_OC | p_stability_OC_LC)
 
 stability_plots
-ggsave(filename = file.path(dir.results, "stability_plots.png"),
+ggsave(filename = file.path(dir.results, "Proteomics Figures", "stability_plots.png"),
        plot = stability_plots,
        width = 20,
        height = 18)
 ```
-
-
-
-
-
-
-
 
 ```{r}
 plot_boot_auc <- function(boot_obj) {
@@ -805,31 +779,102 @@ plot_boot_auc <- function(boot_obj) {
 ```{r}
 p_auc_T1D_LC <- plot_boot_auc(boot_T1D_LC)
 p_auc_T1D_LC
-```
 
-```{r}
 p_auc_T1D_OC <- plot_boot_auc(boot_T1D_OC)
 p_auc_T1D_OC
-```
 
-```{r}
 p_auc_T1D_T2D <- plot_boot_auc(boot_T1D_T2D)
 p_auc_T1D_T2D
-```
-```{r}
+
 p_auc_T2D_LC <- plot_boot_auc(boot_T2D_LC)
 p_auc_T2D_LC
-```
 
-```{r}
 p_auc_T2D_OC <- plot_boot_auc(boot_T2D_OC)
 p_auc_T2D_OC
+
+p_auc_OC_LC <- plot_boot_auc(boot_OC_LC)
+p_auc_OC_LC
+
+AUC_dist_plots <- (p_auc_T1D_LC | p_auc_T1D_OC | p_auc_T1D_T2D)/
+  (p_auc_T2D_LC| p_auc_T2D_OC | p_auc_OC_LC)
+
+AUC_dist_plots
+ggsave(filename = file.path(dir.results, "Proteomics Figures", "AUC_distribution_plots.png"),
+       plot = AUC_dist_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
+```
+```{r}
+plot_boot_roc <- function(boot_obj) {
+  
+  roc_df <- purrr::map_dfr(seq_along(boot_obj$boot_res), function(i) {
+    
+    res <- boot_obj$boot_res[[i]]
+    
+    roc_obj <- pROC::roc(
+      response = res$y,
+      predictor = res$p_hat,
+      quiet = TRUE
+    )
+    
+    tibble::tibble(
+      bootstrap = i,
+      specificity = roc_obj$specificities,
+      sensitivity = roc_obj$sensitivities,
+      auc = as.numeric(pROC::auc(roc_obj))
+    )
+  })
+  
+  median_auc <- median(
+    sapply(boot_obj$boot_res, function(x) x$auc_train),
+    na.rm = TRUE
+  )
+  
+  ggplot(roc_df, aes(x = 1 - specificity, y = sensitivity, group = bootstrap)) +
+    geom_line(alpha = 0.15) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(
+      title = paste0("Bootstrap ROC curves: ", boot_obj$contrast),
+      subtitle = paste0("Median training AUC = ", round(median_auc, 3)),
+      x = "False positive rate (1 - specificity)",
+      y = "True positive rate (sensitivity)"
+    ) +
+    theme_bw()
+}
 ```
 
 ```{r}
-p_auc_OC_LC <- plot_boot_auc(boot_OC_LC)
-p_auc_OC_LC
+p_roc_T1D_LC <- plot_boot_roc(boot_T1D_LC)
+p_roc_T1D_LC
+
+p_roc_T1D_OC <- plot_boot_roc(boot_T1D_OC)
+p_roc_T1D_OC
+
+p_roc_T1D_T2D <- plot_boot_roc(boot_T1D_T2D)
+p_roc_T1D_T2D
+
+p_roc_T2D_LC <- plot_boot_roc(boot_T2D_LC)
+p_roc_T2D_LC
+
+p_roc_T2D_OC <- plot_boot_roc(boot_T2D_OC)
+p_roc_T2D_OC
+
+p_roc_OC_LC <- plot_boot_roc(boot_OC_LC)
+p_roc_OC_LC
+
+ROC_plots <- (p_roc_T1D_LC | p_roc_T1D_OC | p_roc_T1D_T2D)/
+  (p_roc_T2D_LC| p_roc_T2D_OC | p_roc_OC_LC)
+
+ROC_plots
+
+ggsave(filename = file.path(dir.results, "Proteomics Figures", "ROC_plots.png"),
+       plot = ROC_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
 ```
+
 
 ```{r}
 plot_alpha_distribution <- function(boot_obj) {
@@ -854,29 +899,27 @@ plot_alpha_distribution <- function(boot_obj) {
 ```{r}
 p_alpha_T1D_LC <- plot_alpha_distribution(boot_T1D_LC)
 p_alpha_T1D_LC
-```
-
-```{r}
 p_alpha_T1D_OC <- plot_alpha_distribution(boot_T1D_OC)
 p_alpha_T1D_OC
-```
-
-```{r}
 p_alpha_T1D_T2D <- plot_alpha_distribution(boot_T1D_T2D)
 p_alpha_T1D_T2D
-```
-
-```{r}
 p_alpha_T2D_LC <- plot_alpha_distribution(boot_T2D_LC)
 p_alpha_T2D_LC
-```
-
-```{r}
 p_alpha_T2D_OC <- plot_alpha_distribution(boot_T2D_OC)
 p_alpha_T2D_OC
-```
-
-```{r}
 p_alpha_OC_LC <- plot_alpha_distribution(boot_OC_LC)
 p_alpha_OC_LC
+
+alpha_plots <- (p_alpha_T1D_LC | p_alpha_T1D_OC | p_alpha_T1D_T2D)/
+  (p_alpha_T2D_LC| p_alpha_T2D_OC | p_alpha_OC_LC)
+
+alpha_plots
+ggsave(filename = file.path(dir.results, "Proteomics Figures", "alpha_plots.png"),
+       plot = alpha_plots,
+       width = 18,
+       height = 16,
+       dpi = 300)
 ```
+
+
+

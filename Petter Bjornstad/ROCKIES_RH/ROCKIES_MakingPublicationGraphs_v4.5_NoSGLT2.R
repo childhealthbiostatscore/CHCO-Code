@@ -405,19 +405,55 @@ dat_pet_slim <- dat_with_pet[!is.na(dat_with_pet$avg_c_k2) & is.finite(dat_with_
 # FIGURE 1
 ########################################################################
 
-fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan_v5.png", "A")
-fig1b <- load_image_panel("C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram (3).png", "B")
+library(png)
 
-# Panel C: PET k2 maps (coord_fixed preserved)
-pet_map_img <- readPNG("C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
-fig1c <- ggplot() +
-  annotation_raster(pet_map_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+# Read images to get their dimensions
+img_top <- readPNG("C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram (3).png")
+img_bot <- readPNG("C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
+
+# Get heights (rows) of each image
+h_top <- dim(img_top)[1]
+h_bot <- dim(img_bot)[1]
+
+fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan_v5.png", "A")
+
+library(png)
+
+img_top <- readPNG("C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram (3).png")
+img_bot <- readPNG("C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
+
+# Aspect ratios (height / width) for each image
+ar_top <- dim(img_top)[1] / dim(img_top)[2]
+ar_bot <- dim(img_bot)[1] / dim(img_bot)[2]
+
+fig1b_top <- ggplot() +
+  annotation_raster(img_top, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
   xlim(0, 1) + ylim(0, 1) +
-  coord_fixed(ratio = dim(pet_map_img)[1] / dim(pet_map_img)[2]) +
-  theme_void() + labs(tag = "C") +
+  coord_fixed(ratio = ar_top) +
+  theme_void() + labs(tag = "B") +
   theme(plot.tag = element_text(size = 14, face = "bold"),
         plot.tag.position = "topleft",
-        plot.margin = margin(5, 5, 5, 5))
+        plot.margin = margin(0, 0, 0, 0))  # no gap below
+
+fig1b_bot <- ggplot() +
+  annotation_raster(img_bot, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  xlim(0, 1) + ylim(0, 1) +
+  coord_fixed(ratio = ar_bot) +
+  theme_void() +
+  theme(plot.margin = margin(0, 0, 0, 0))  # no gap above
+
+fig1b <- fig1b_top / fig1b_bot +
+  plot_layout(heights = c(ar_top, ar_bot))
+# Panel C: PET k2 maps (coord_fixed preserved)
+#pet_map_img <- readPNG("C:/Users/netio/Downloads/Re_ ROCKIES_RH2_ Representative plots/k2-maps.png")
+#fig1c <- ggplot() +
+#  annotation_raster(pet_map_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+#  xlim(0, 1) + ylim(0, 1) +
+#  coord_fixed(ratio = dim(pet_map_img)[1] / dim(pet_map_img)[2]) +
+#  theme_void() + labs(tag = "C") +
+#  theme(plot.tag = element_text(size = 14, face = "bold"),
+#        plot.tag.position = "topleft",
+#        plot.margin = margin(5, 5, 5, 5))
 
 # Panel D: Baseline correlation heatmap
 clin_labels <- c("HOMA-IR", "OGIS", "Body Weight")
@@ -470,7 +506,7 @@ fig1d <- ggplot(fig1d_long, aes(x = clin, y = pet, fill = rho)) +
   scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
                        midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_y_discrete(labels = pet_md_labels) +
-  labs(x = NULL, y = NULL, tag = "D") +
+  labs(x = NULL, y = NULL, tag = "C") +
   theme_rockies +
   theme(legend.position = "right",
         axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
@@ -483,7 +519,7 @@ fig1e <- ggplot() +
   annotation_raster(urine_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
   xlim(0, 1) + ylim(0, 1) +
   coord_fixed(ratio = dim(urine_img)[1] / dim(urine_img)[2]) +
-  theme_void() + labs(tag = "E") +
+  theme_void() + labs(tag = "D") +
   theme(plot.tag = element_text(size = 14, face = "bold"),
         plot.tag.position = "topleft",
         plot.margin = margin(5, 5, 5, 5))
@@ -498,13 +534,13 @@ pv_h <- pval_raw("K2_medulla_mean_Sherbrook_PLB",   "K2_medulla_mean_Sherbrook_S
 pv_i <- pval_raw("K2_F_medulla_mean_Sherbrook_PLB", "K2_F_medulla_mean_Sherbrook_SGLT2")
 
 fig1f <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2",
-                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "G", p_override = pv_f)
+                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "F", p_override = pv_f)
 fig1g <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2f",
-                          expression(bold("Cortical k"[2]*"/F")), "H", p_override = pv_g)
+                          expression(bold("Cortical k"[2]*"/F")), "G", p_override = pv_g)
 fig1h <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2",
-                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "I", p_override = pv_h)
+                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "H", p_override = pv_h)
 fig1i <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2f",
-                          expression(bold("Medullary k"[2]*"/F")), "J", p_override = pv_i)
+                          expression(bold("Medullary k"[2]*"/F")), "I", p_override = pv_i)
 
 # Panel J: Delta-delta heatmap — Δ on both axes, k2 subscripts via element_markdown
 dd_rho <- matrix(
@@ -546,7 +582,7 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
                        midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_x_discrete(labels = delta_col_labels) +
   scale_y_discrete(labels = pet_delta_md_labels) +
-  labs(x = NULL, y = NULL, tag = "F") +
+  labs(x = NULL, y = NULL, tag = "E") +
   theme_rockies +
   theme(legend.position = "right",
         axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
@@ -555,7 +591,7 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
 # Assemble Figure 1
 fig1_full <-
   (fig1a + fig1b + plot_layout(widths = c(1, 1))) /
-  (fig1c + fig1d + plot_layout(widths = c(1.8, 1.2))) /
+  (plot_spacer() + fig1d + plot_spacer() + plot_layout(widths = c(1, 1.8, 1))) /
   (fig1e + fig1j + plot_layout(widths = c(1.4, 1.0))) /
   (fig1f + fig1g + fig1h + fig1i + plot_layout(widths = c(1, 1, 1, 1))) +
   plot_layout(heights = c(3.5, 3.5, 3.0, 2.5)) +
@@ -563,9 +599,6 @@ fig1_full <-
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
     theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
   )
-
-save_fig(fig1_full, "Figure1_ROCKIES", width = 16, height = 22)
-cat("Figure 1 saved!\n")
 
 ########################################################################
 # FIGURE 2
