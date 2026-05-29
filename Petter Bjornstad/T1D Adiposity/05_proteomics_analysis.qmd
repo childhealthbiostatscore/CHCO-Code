@@ -191,6 +191,9 @@ meta2 <- meta %>%
   )
 
 table(meta2$group_bmi, useNA = "ifany")
+
+
+#add in to check for what was filtered out from the covariate filtering step. 
 ```
 #----------------------------------
 #checking out clinical outcome data
@@ -376,41 +379,48 @@ stopifnot(identical(rownames(dat_log_filt), meta2$record_id))
 ```
 #-------------------------
 #imputing the missing data
+#check sensitivity analysis
 #-------------------------
 ```{r}
-#set.seed(1835)
+set.seed(1835)
 
-#dat_imp <- dat_log_filt
+dat_imp <- dat_log_filt
 
-#meds <- apply(dat_imp, 2, function(x) {
- # m <- median(x, na.rm = TRUE)
-#  if (is.finite(m)) m else NA_real_
-#})
+meds <- apply(dat_imp, 2, function(x) {
+  m <- median(x, na.rm = TRUE)
+  if (is.finite(m)) m else NA_real_
+})
 
-#for (j in seq_len(ncol(dat_imp))) {
- # miss_j <- is.na(dat_imp[, j])
-  #if (!is.na(meds[j]) && any(miss_j)) {
-  #  dat_imp[miss_j, j] <- meds[j]
-  #}
-#}
+for (j in seq_len(ncol(dat_imp))) {
+  miss_j <- is.na(dat_imp[, j])
+  if (!is.na(meds[j]) && any(miss_j)) {
+    dat_imp[miss_j, j] <- meds[j]
+  }
+}
 
-#vars <- apply(dat_imp, 2, var)
+vars <- apply(dat_imp, 2, var)
 
-#keep_cols <- colSums(is.na(dat_imp)) == 0 &
- # is.finite(vars) &
-  #vars > 0
+keep_cols <- colSums(is.na(dat_imp)) == 0 &
+  is.finite(vars) &
+  vars > 0
 
-#dat_imp <- dat_imp[, keep_cols, drop = FALSE]
+dat_imp <- dat_imp[, keep_cols, drop = FALSE]
 
-#stopifnot(identical(rownames(dat_imp), meta2$record_id))
-#stopifnot(sum(is.na(dat_imp)) == 0)
+stopifnot(identical(rownames(dat_imp), meta2$record_id))
+stopifnot(sum(is.na(dat_imp)) == 0)
+
+
+#add in check to see how much many proteins are imputed
 ```
 
 #--------------------------
 #checking for outliers
+#check if they have any differences cinically (medication or paritcularly unhealthy)
+#do sensitivity anlaysis
+#check CRC-42 if it's lean control or T1D
 #--------------------------
 ```{r}
-pca0 <- prcomp(dat_log_filt, center = TRUE, scale. = TRUE)
+pca0 <- prcomp(dat_imp, center = TRUE, scale. = TRUE)
 
 scores <- as.data.frame(pca0$x[, 1:2, drop = FALSE])
 scores$record_id <- rownames(scores)
@@ -419,16 +429,16 @@ scores$dist <- sqrt(scores$PC1^2 + scores$PC2^2)
 threshold <- mean(scores$dist, na.rm = TRUE) +
   3 * sd(scores$dist, na.rm = TRUE)
 
-outliers <- scores$record_id[scores$dist > threshold] #2 outliers CRC-42 & 10424 (with log or with imp)
+outliers <- scores$record_id[scores$dist > threshold] #2 outliers CRC-42 & 10424
 outliers
-dat_log_filt2 <- dat_log_filt[!rownames(dat_log_filt) %in% outliers, , drop = FALSE]
+dat_imp2 <- dat_imp[!rownames(dat_imp) %in% outliers, , drop = FALSE]
 
 meta3 <- meta2 %>%
   dplyr::filter(!record_id %in% outliers)
 
-meta3 <- meta3[match(rownames(dat_log_filt2), meta3$record_id), ]
+meta3 <- meta3[match(rownames(dat_imp2), meta3$record_id), ]
 
-stopifnot(identical(rownames(dat_log_filt2), meta3$record_id))
+stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 ```
 #----------------------------
 #Data table: study x group_bmi
@@ -520,6 +530,9 @@ clinical_summary_table <- clinical_df %>%
   bold_labels()
 
 clinical_summary_table
+
+
+#check why these numbers are different than above
 ```
 #----------------------------------------
 #pretty clincial table with t1d group only
@@ -595,15 +608,16 @@ clinical_summary_table_t1d
 ```
 
 ```{r}
-stopifnot(identical(rownames(dat_log_filt2), meta3$record_id))
+#cohort vs study in pca plots
+stopifnot(identical(rownames(dat_imp2), meta3$record_id))
 design <- model.matrix(~ group_bmi, data = meta3)
 
 #model 0 ~ no adjustment
-p0 <- make_pca(dat_log_filt2,meta3,"No adjustment")
+p0 <- make_pca(dat_imp2,meta3,"No adjustment")
 
 #model 1 ~ age + sex adjustment
 cov_age_sex <- model.matrix(~ age + sex, data = meta3)[, -1, drop = FALSE]
-prot_age_sex <- t(removeBatchEffect(t(dat_log_filt2),
+prot_age_sex <- t(removeBatchEffect(t(dat_imp2),
   covariates = cov_age_sex,
   design = design
 ))
@@ -611,7 +625,7 @@ p1 <- make_pca(prot_age_sex,meta3,"Adjusted for age + sex")
 
 #model 2 ~ age + sex + study adjustment
 cov_age_sex_study <- model.matrix(~ age + sex + study, data = meta3)[, -1, drop = FALSE]
-prot_age_sex_study <- t(removeBatchEffect(t(dat_log_filt2),
+prot_age_sex_study <- t(removeBatchEffect(t(dat_imp2),
   covariates = cov_age_sex_study,
   design = design
 ))
@@ -628,14 +642,14 @@ cov_hba1c_age_study <- model.matrix(
 nrow(design)
 nrow(cov_hba1c_age_study)
 stopifnot(nrow(design) == nrow(cov_hba1c_age_study))
-stopifnot(nrow(design) == nrow(dat_log_filt2))
+stopifnot(nrow(design) == nrow(dat_imp2))
 
-prot_hba1c_age_study <- t(removeBatchEffect(t(dat_log_filt2), covariates = cov_hba1c_age_study, design = design))
-p3b <- make_pca(prot_hba1c_age_study, meta3,"Adjusted for age * HbA1c + sex + study")
+prot_hba1c_age_study <- t(removeBatchEffect(t(dat_imp2), covariates = cov_hba1c_age_study, design = design))
+p3b <- make_pca(prot_hba1c_age_study, meta3,"Adjusted for age * HbA1c + sex + cohort")
 
 #model 3a
 cov_hba1c_age <- model.matrix(as.formula(paste0("~ age * ", hba1c_var, " + sex")), data = meta3)[, -1, drop = FALSE]
-prot_hba1c_age <- t(removeBatchEffect(t(dat_log_filt2), covariates = cov_hba1c_age, design = design))
+prot_hba1c_age <- t(removeBatchEffect(t(dat_imp2), covariates = cov_hba1c_age, design = design))
 p3a <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex ")
 
 
@@ -643,10 +657,10 @@ p3a <- make_pca(prot_hba1c_age, meta3,"Adjusted for age * HbA1c + sex ")
 pca_group_bmi_all <- (p0 | p1 | p3a) / (p2 | p3b | patchwork::plot_spacer())
 pca_group_bmi_all
 
-ggsave(filename = file.path(dir.results, "Plots", "pca_m2.png"),
-       width = 7,
-       height = 5,
-       dpi = 300)
+#ggsave(filename = file.path(dir.results, "Plots", "pca_m2.png"),
+ #      width = 7,
+  #     height = 5,
+   #    dpi = 300)
 ```
 ```{r}
 #-----------------------------------------
@@ -677,6 +691,8 @@ set.seed(1835)
 
 permutest(beta_m2, permutations = 999)
 TukeyHSD(beta_m2)
+
+#check with bmi group
 ```
 #--------------------------------------------------
 #running limma for global T1D proteomic differences
@@ -686,7 +702,7 @@ meta_t1d <- meta3 %>%
   filter(group == "T1D") %>%
   droplevels()
 
-mat_t1d <- t(dat_log_filt2)
+mat_t1d <- t(dat_imp2)
 mat_t1d <- mat_t1d[, meta_t1d$record_id]
 
 stopifnot(all(colnames(mat_t1d) == meta_t1d$record_id))
@@ -749,7 +765,7 @@ sig_t1d_global_fc <- res_t1d_global_all %>%
 #setting up mats for global and pairwise DEP anlaysis
 #--------------------------------------------------------
 ```{r}
-mat1 <- t(dat_log_filt2)
+mat1 <- t(dat_imp2)
 mat1<- mat1[, meta3$record_id]
 
 stopifnot(all(colnames(mat1) == meta3$record_id))
@@ -818,7 +834,6 @@ res_m1 <- clean_contrast_names(res_m1)
 res_m2 <- clean_contrast_names(res_m2)
 res_m3 <- clean_contrast_names(res_m3)
 
-
 results_all_models <- bind_rows(
   res_m0,
   res_m1,
@@ -839,9 +854,10 @@ sig_counts %>% filter(model == "M2: group_bmi + age + sex + study")
  #         file = file.path(dir.results, "sig_counts_by_model.csv"))
 #write_csv(sig_all_models_fc, 
  #         file = file.path(dir.results, "limma_results_all_models.csv"))
-```
-```{r}
-sig_counts %>% filter(model == "M3: group_bmi + age * HbA1c + sex + study")
+
+
+
+#check against hba1c models to see if there are significant differences in DEPs
 ```
 
 ```{r}
@@ -1020,6 +1036,8 @@ ggsave("M3_pca_plots.png",
        height =12,
        dpi = 300
        )
+
+#these are the ones to double check the model on
 ```
 #-----------------
 #pathway anlaysis
@@ -1159,6 +1177,8 @@ fgsea_CC_m2 <- fgsea_CC_m2 %>%
   dplyr::arrange(model, contrast, pathway_type, padj)
 
 fgsea_CC_m2
+
+#check and make sure to filter out the pvalues with inf or NA
 ```
 
 ```{r}
@@ -1656,6 +1676,8 @@ run_elastic_net <- function(
 #boostrapping T1D vs LC
 #----------------------
 ```{r}
+#change to the top 100 even without significance so it's more comparable
+
 net1 <- run_elastic_net_bootstrap(
   contrast_name = "T1D_Normal_vs_LC_Normal",
   limma_df = res_m2,
@@ -1930,7 +1952,7 @@ contrast_protein_list <- c(
 global_proteins <- contrast_protein_list %>%
   unlist(use.names = FALSE) %>%
   unique() %>%
-  intersect(colnames(dat_log_filt2))
+  intersect(colnames(dat_imp2))
 
 length(global_proteins)
 global_proteins
@@ -1969,7 +1991,7 @@ corr_df <- bind_cols(
       avg_k_r2 = as.numeric(avg_k_r2),
       BMI   = as.numeric(bmi)
     ),
-  as.data.frame(dat_filt_log2)
+  as.data.frame(dat_imp2)
 )
 
 

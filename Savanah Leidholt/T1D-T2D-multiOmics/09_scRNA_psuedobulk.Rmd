@@ -7,11 +7,13 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-#.libPaths("/mmfs1/gscratch/togo/leidholt/R")
 ```
 
 ```{r}
+library(Seurat)
+library(tidyverse)
 library(arsenal)
+library(dplyr)
 library(ggplot2)
 library(ggrepel)
 library(ggpubr)
@@ -25,6 +27,7 @@ library(ggtrace)
 library(kableExtra)
 library(data.table)
 library(table1)
+#BiocManager::install("speckle")
 library(speckle)
 library(GSA)
 library(emmeans)
@@ -39,7 +42,7 @@ library(stringr)
 library(patchwork)
 library(msigdbr)
 library(fgsea)
-library(Seurat)
+
 ```
 
 ```{r}
@@ -48,34 +51,22 @@ user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
   root_path <- c("/mmfs1/gscratch/togo/leidholt/")
+  dir.results <- ("/mmfs1/gscratch/togo/leidholt/TRIAD/Results")
   git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+  
 } else if (user == "sleidholt") {
     root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/TRIAD/Results")
     git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
     keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+    
 } else if (user == "savanahleidholt") {
     root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/TRIAD/Results")
     git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
     keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
-} else if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-} else if (user == "yejichoi") {
-  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
-} else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-} else if (user == "hhampson") {
-  root_path <- "/Volumes/Peds Endo"
-} else if (user == "sleidholt") {
-  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+    
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -90,52 +81,42 @@ Sys.setenv(
   "AWS_REGION" = "",
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
+```
 
-
+```{r}
 pb90_multiomics_subset <- s3readRDS(
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420.rds", 
+          object = "data_clean/pb90_multiomics_SLL_subset_20260527.rds", 
           bucket = "scrna",
           region = "")
+
+
 ```
 
 ```{r}
 my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
-
-pb90_multiomics_subset@reductions$
 # Read Seurat object and run UMAP, obtain cell numbers, etc
 pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
-  cbind(pb90_multiomics_subset@reductions$pca@cell.embeddings)
+  cbind(pb90_multiomics_subset@reductions$umap.TRIAD@cell.embeddings)
 
-s3saveRDS(pb90_multiomics_subset_meta, 
- object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
- bucket = "scrna", 
- region = "", 
- multipart = T)
 ```
 
 ```{r}
-# start from here if file already saved
-pb90_multiomics_subset_meta <- s3readRDS(
-  object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
-  bucket = "scrna", 
-  region = "")
-
 centers <- pb90_multiomics_subset_meta %>%
   group_by(KPMP_celltype) %>%
   summarise(
-    x = median(umapTRIAD_1),
-    y = median(umapTRIAD_2),
+    x = median(TRIAD_UMAP1),
+    y = median(TRIAD_UMAP2),
     .groups = "drop"
   )
 
 umap_p <- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = KPMP_celltype)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = KPMP_celltype)) +
   geom_point(alpha = 0.2, shape = 16) +
   geom_text_repel(
     data = centers,
     aes(x = x, y = y, label = KPMP_celltype),
     inherit.aes = FALSE,
-    size = 5,                 
+    size = 5,                
     fontface = "bold",
     color = "black"
   ) +
@@ -144,11 +125,12 @@ umap_p <- ggplot(pb90_multiomics_subset_meta,
   theme(
     panel.grid = element_blank(),
     
-    
+    # axis titles + tick labels (match previous plots)
     axis.title.x = element_text(size = 16, hjust = 0),
     axis.title.y = element_text(size = 16, hjust = 0),
     axis.text = element_text(size = 14),
     
+    # no legend
     legend.position = "none"
   ) +
   labs(x = "UMAP1", y = "UMAP2")
@@ -160,9 +142,8 @@ umap_p
 pb90_multiomics_subset_meta%>%
   distinct(record_id, group)
 
-# UMAP by source
 umap_p_study<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = study)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = study)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("RENAL-HEIR" = "darkcyan",
                                 "RENAL-HEIRitage"= "gold4",
@@ -191,7 +172,7 @@ table((pb90_multiomics_subset_meta%>%
   distinct(record_id, visit, .keep_all = T))$group)
 # UMAP by source
 umap_p_group<- ggplot(pb90_multiomics_subset_meta,
-                 aes(x = umapTRIAD_1, y = umapTRIAD_2, color = group)) +
+                 aes(x = TRIAD_UMAP1, y = TRIAD_UMAP2, color = group)) +
   geom_point(alpha = 0.05, shape = 16) +
   scale_color_manual(values = c("Obese Control" = "darkcyan",
                                 "Lean Control"= "plum4",
@@ -218,7 +199,7 @@ umap_cells_group <- umap_p + umap_p_group
 
 ggsave("Umap_cells_study.png",
        plot = umap_cells_study,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 20,
        height =16,
        dpi = 300
@@ -226,7 +207,7 @@ ggsave("Umap_cells_study.png",
 
 ggsave("Umap_cells_group.png",
        plot = umap_cells_group,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 20,
        height =16,
        dpi = 300
@@ -236,36 +217,128 @@ ggsave("Umap_cells_group.png",
 
 ## b. Descriptive Statistics
 ```{r}
+meta_table1 <- pb90_multiomics_subset_meta %>%
+  distinct(record_id, .keep_all = TRUE) %>%
+  mutate(
+    group = factor(group)
+  ) %>%
+  filter(!is.na(group)) %>%
+  droplevels()
+
+table(meta_table1$group, useNA = "ifany")
+```
+
+```{r}
 #Load Metadata cleaned
 #Table 1
-label(pb90_multiomics_subset_meta$age) <- "Age (years)"
-label(pb90_multiomics_subset_meta$sex) <- "Sex"
-label(pb90_multiomics_subset_meta$race_ethnicity_condensed) <- "Ethnicity"
-label(pb90_multiomics_subset_meta$bmi) <- "BMI (kg/m^2)"
-label(pb90_multiomics_subset_meta$hba1c) <- "HbA1c (%)"
-label(pb90_multiomics_subset_meta$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
-label(pb90_multiomics_subset_meta$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
-label(pb90_multiomics_subset_meta$group) <- "Diabetes Status (T1D, T2D, OC, LC)"
+label(meta_table1$age) <- "Age (years)"
+label(meta_table1$sex) <- "Sex"
+label(meta_table1$race_ethnicity_condensed) <- "Ethnicity"
+label(meta_table1$bmi) <- "BMI (kg/m^2)"
+label(meta_table1$hba1c) <- "HbA1c (%)"
+label(meta_table1$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
+label(meta_table1$eGFR_CKiD_U25_avg) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(meta_table1$group) <- "Diabetes Status"
 
-table1(~ age + sex + race_ethnicity_condensed + bmi  + hba1c + acr_u + eGFR_fas_cr + group| group, data= pb90_multiomics_subset_meta)
 
-continuous_vars <- c("age", "bmi", "hba1c", "acr_u", "eGFR_fas_cr")
-
-#uneven groups so using kruskal wallis
-for (var in continuous_vars) {
-  formula <- as.formula(paste(var, "~ group"))
-  kw <- kruskal.test(formula, data = pb90_multiomics_subset_meta)
-  cat(var, "Kruskal-Wallis p-value:", round(kw$p.value, 4), "\n")
+pvalue_table1 <- function(x, ...) {
+  
+  y <- unlist(x)
+  g <- factor(rep(names(x), times = sapply(x, length)))
+  
+  keep <- !is.na(y) & !is.na(g)
+  y <- y[keep]
+  g <- g[keep]
+  
+  if (is.numeric(y)) {
+    if (length(unique(g)) < 2) return(c("", NA))
+    p <- kruskal.test(y ~ g)$p.value
+    test <- "Kruskal-Wallis"
+  } else {
+    tab <- table(y, g)
+    if (nrow(tab) < 2 || ncol(tab) < 2) return(c("", NA))
+    chi <- suppressWarnings(chisq.test(tab))
+    if (any(chi$expected < 5)) {
+      chi <- chisq.test(tab, simulate.p.value = TRUE, B = 10000)
+      test <- "Chi-square simulated"
+    } else {
+      test <- "Chi-square"
+    }
+    p <- chi$p.value
+  }
+  c("", format.pval(p, digits = 3, eps = 0.001))
 }
 
-# Categorical variables - chi-square tests
-categorical_vars <- c("sex", "race_ethnicity_condensed")
+table1(
+  ~ age + sex + race_ethnicity_condensed + hba1c + bmi + acr_u + eGFR_CKiD_U25_avg | group,
+  data = meta_table1,
+  extra.col = list(`Overall p-value` = pvalue_table1)
+)
+```
 
-for (var in categorical_vars) {
-  chi_test <- chisq.test(table(pb90_multiomics_subset_meta[[var]], pb90_multiomics_subset_meta$group))
-  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
-}
+```{r}
+contrasts <- list(
+  LC_vs_OC    = c("Lean Control", "Obese Control"),
+  T1D_vs_T2D  = c("Type 1 Diabetes", "Type 2 Diabetes"),
+  T1D_vs_LC   = c("Type 1 Diabetes", "Lean Control"),
+  T2D_vs_LC   = c("Type 2 Diabetes", "Lean Control"),
+  T1D_vs_OC   = c("Type 1 Diabetes", "Obese Control"),
+  T2D_vs_OC   = c("Type 2 Diabetes", "Obese Control")
+)
 
+pairwise_results <- map_dfr(names(contrasts), function(comp) {
+  
+  groups_keep <- contrasts[[comp]]
+  
+  map_dfr(continuous_vars, function(var) {
+    
+    dat_test <- meta_table1 %>%
+      filter(group %in% groups_keep) %>%
+      select(group, value = all_of(var)) %>%
+      filter(!is.na(group), !is.na(value)) %>%
+      mutate(group = droplevels(factor(group, levels = groups_keep)))
+    
+    n_group1 <- sum(dat_test$group == groups_keep[1], na.rm = TRUE)
+    n_group2 <- sum(dat_test$group == groups_keep[2], na.rm = TRUE)
+    
+    if (nlevels(dat_test$group) < 2 || n_group1 == 0 || n_group2 == 0) {
+      return(tibble(
+        contrast = comp,
+        variable = var,
+        group1 = groups_keep[1],
+        group2 = groups_keep[2],
+        n_group1 = n_group1,
+        n_group2 = n_group2,
+        p_value = NA_real_,
+        note = "Skipped: fewer than 2 groups with non-missing data"
+      ))
+    }
+    
+    test <- wilcox.test(value ~ group, data = dat_test, exact = FALSE)
+    
+    tibble(
+      contrast = comp,
+      variable = var,
+      group1 = groups_keep[1],
+      group2 = groups_keep[2],
+      n_group1 = n_group1,
+      n_group2 = n_group2,
+      p_value = test$p.value,
+      note = NA_character_
+    )
+  })
+})
+
+pairwise_results <- pairwise_results %>%
+  group_by(variable) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "BH"),
+    p_value_fmt = format.pval(p_value, digits = 3, eps = 0.001),
+    p_adj_fmt = format.pval(p_adj, digits = 3, eps = 0.001)
+  ) %>%
+  ungroup()
+
+pairwise_results
 ```
 
 ```{r}
@@ -368,7 +441,7 @@ cells <- cell_count_bar + cell_group_bar
 cells
 ggsave("cell_counts.pdf",
        plot = cells,
-       path = file.path(dir.results, "T1D-T2D", "Results"),
+       path = dir.results,
        width = 16,
        height = 10,
        dpi = 600)
@@ -401,6 +474,7 @@ pb90_multiomics_subset@meta.data$cell_type_legend <- paste0(
 nrow(pb90_multiomics_subset) # genes 31974
 ncol(pb90_multiomics_subset) # cells 307386
 ```
+
 ```{r}
 # Check your metadata
 table(pb90_multiomics_subset$group)
@@ -437,12 +511,11 @@ for (pair in group_pairs) {
   res$comparison <- pair_name
   propeller_results[[pair_name]] <- res
   
- # write.csv(
-  #  x    = res,
-   # file = file.path(dir.results, "T1D-T2D", "Results",
-    #                 paste0("propeller_", pair_name, ".csv")),
-    #row.names = TRUE
-  #)
+  write.csv(
+    x    = res,
+    file = dir.results, paste0("propeller_", pair_name, ".csv"),
+    row.names = TRUE
+  )
 }
 ```
 #-----------------------------------------------------

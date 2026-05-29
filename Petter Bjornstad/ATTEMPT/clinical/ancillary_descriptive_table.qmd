@@ -38,16 +38,55 @@ library(slingshot); library(SingleCellExperiment)
 library(REDCapR)
 library(edgeR)
 library(data.table)
+library(aws.s3)
+library(jsonlite)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
 ```
 
 ```{r load-data, echo = F, include = F}
 # Load dictionary function and file
-source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/home/choiyej/Documents/CHCO-Code/Petter Bjornstad/CROCODILE/crocodile_functions.R")
-dat <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_clinical_data.RDS")
-so_attempt_pt <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_so_pt.RDS")
-all_data <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/ATTEMPT/Data Clean/attempt_pb.RDS") %>%
+source(file.path(git_path, "Resources/YC/R Functions/label_harmonized_function.R"))
+source(file.path(git_path, "CROCODILE/crocodile_functions.R"))
+dat <- s3readRDS("attempt_clinical_data.RDS",
+                 bucket = "harmonized.dataset", region = "")
+so_attempt_pt <- readRDS(file = file.path(root_path, "ATTEMPT/Data Clean/attempt_so_pt.RDS"))
+all_data <- readRDS(file = file.path(root_path, "ATTEMPT/Data Clean/attempt_pb.RDS")) %>%
   arrange(treatment, visit)
+load(file.path(root_path, "ATTEMPT/Data Clean/ATTEMPT_AC.Rdata"))
 ```
 
 ## Descriptive Table
@@ -56,7 +95,10 @@ all_data <- readRDS(file = "/run/user/778527649/gvfs/smb-share:server=ucdenver.p
 summary(tableby(visit ~ age + sex + race + ethnicity + diabetes_duration + vitals_height + vitals_weight + vitals_bmi + vitals_sbp + vitals_dbp + vitals_pulse + vitals_rr + vitals_temp +  pt + inr + ptt + bun + abo + abo_rh + hgb + hct + plt + creat , data = dat, strata = treatment), test = F, total = F)
 
 summary(tableby(treatment ~ age + sex + race + ethnicity + diabetes_duration + vitals_height + vitals_weight + vitals_bmi + vitals_sbp + vitals_dbp + vitals_pulse + vitals_rr + vitals_temp +  pt + inr + ptt + bun + abo + abo_rh + hgb + hct + plt + creat , data = dat, strata = visit), test = F, total = F)
+
+summary(tableby(treatment_arm ~  race + ethnicity , data = subset(merged_data, visit == "baseline")), test = F, total = F)
 ```
+
 
 ## scRNA Data
 
