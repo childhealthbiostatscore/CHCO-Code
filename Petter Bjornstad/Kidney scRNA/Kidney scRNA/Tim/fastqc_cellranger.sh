@@ -3,10 +3,13 @@
 # QC
 #-------------------------------------------------------------------------------
 # Define input and output directories
+alias s3togo='s3cmd -c ~/.s3cfg_togo'
 INPUT_DIR="/home/tvigers/Documents/Data/UWMDI/kidney_organoids/data_raw/organoids"
 OUTPUT_DIR="/home/tvigers/Documents/Data/UWMDI/kidney_organoids/data_clean/organoids"
 S3_BUCKET="s3://scrna/Kidney organoids"
 # Sync from S3 - faster if you only run once
+s3togo() { s3cmd -c ~/.s3cfg_togo "$@"; }
+export -f s3togo
 mkdir -p "${INPUT_DIR}"
 s3togo sync "${S3_BUCKET}/" "${INPUT_DIR}/" -v --check-md5 --exclude="data_clean/*"
 # Create the output directory if it doesn't already exist
