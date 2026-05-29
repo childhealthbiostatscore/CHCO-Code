@@ -9,6 +9,7 @@ library(Seurat)
 library(dplyr)
 library(harmony)
 library(aws.s3)
+library(jsonlite)
 ```
 
 ```{r}
@@ -41,88 +42,171 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 ```
-```
-
-
-```{r}
-clean_trajectory_object <- function(obj,
-                                    object_name,
-                                    dims_use = 1:20,
-                                    harmony_var = "study",
-                                    resolution = 0.4) {
-  
-  message("Processing: ", object_name)
-  
-  print(table(obj$group, useNA = "ifany"))
-  print(table(obj$study, useNA = "ifany"))
-  
-  DefaultAssay(obj) <- "RNA"
-  
-  obj@reductions <- list()
-  obj@graphs <- list()
-  
-  obj$trajectory_object <- object_name
-  
-  obj <- FindVariableFeatures(
-    obj,
-    selection.method = "vst",
-    nfeatures = 3000,
-    verbose = FALSE
-  )
-  
-  obj <- ScaleData(
-    obj,
-    features = VariableFeatures(obj),
-    verbose = FALSE
-  )
-  
-  obj <- RunPCA(
-    obj,
-    features = VariableFeatures(obj),
-    npcs = max(dims_use),
-    verbose = FALSE
-  )
-  
-  obj <- RunHarmony(
-    object = obj,
-    group.by.vars = harmony_var,
-    reduction = "pca",
-    dims.use = dims_use,
-    verbose = FALSE
-  )
-  
-  obj <- RunUMAP(
-    obj,
-    reduction = "harmony",
-    dims = dims_use,
-    reduction.name = "umap_harmony",
-    reduction.key = "UMAPH_",
-    verbose = FALSE
-  )
-  
-  obj <- FindNeighbors(
-    obj,
-    reduction = "harmony",
-    dims = dims_use,
-    verbose = FALSE
-  )
-  
-  obj <- FindClusters(
-    obj,
-    resolution = resolution,
-    verbose = FALSE
-  )
-  
-  return(obj)
-}
-```
 
 ```{r}
 pb90_PT <- s3readRDS(
-  object = "data/pb90_multiomics_PT_trajectory_20260529.rds",
-  bucket = bucket_name,
-  region = "",
-  endpoint = s3_endpoint
+  object = "data/disease trajectory/pb90_multiomics_PT_20260529.rds",
+  bucket = "triad",
+  region = ""
+)
+
+pb90_TAL <- s3readRDS(
+  object = "data/disease trajectory/pb90_multiomics_TAL_20260529.rds",
+  bucket = "triad",
+  region = ""
 )
 ```
+
+```{r}
+pb90_PT@reductions
+DimPlot(
+  pb90_PT,
+  group.by = "group"
+)
+
+DimPlot(
+  pb90_PT,
+  group.by = "KPMP_celltype"
+)
+
+DimPlot(
+  pb90_PT,
+  split.by = "group",
+  group.by = "KPMP_celltype",
+  ncol = 2
+)
+
+ DimPlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  group.by = "group"
+)
+
+p1 <-DimPlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype"
+)
+
+p3 <- DimPlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  split.by = "group",
+  group.by = "KPMP_celltype",
+  ncol = 2
+)
+```
+```{r}
+cells_outlier <- WhichCells(
+  pb90_PT,
+  expression = umapTRIAD_1 < -4
+)
+```
+
+```{r fig.width=20, fig.height=10}
+p2 <- FeaturePlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  features = c(
+    "HAVCR1",
+    "VCAM1",
+    "LCN2",
+    "KRT8",
+    "KRT18",
+    "VIM"
+  )
+)
+
+p1 + p2
+
+library(patchwork )
+p3|p2
+```
+
+
+```{r}
+pb90_PT <- AddModuleScore(
+  pb90_PT,
+  features = list(
+    c("VCAM1", "KRT8", "KRT18", "VIM")
+  ),
+  name = "PT_injury"
+)
+```
+
+```{r}
+VlnPlot(
+  pb90_PT,
+  features = "PT_injury1",
+  group.by = "group"
+)
+```
+
+```{r}
+injury_df <- FetchData(
+  pb90_PT,
+  vars = c(
+    "PT_injury1",
+    "group",
+    "record_id"
+  )
+)
+
+injury_donor <- injury_df %>%
+  group_by(record_id, group) %>%
+  summarise(
+    injury_score = mean(PT_injury1),
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+DimPlot(
+  pb90_TAL,
+  split.by = "group",
+  group.by = "KPMP_celltype",
+  ncol = 2
+)
+
+ DimPlot(
+  pb90_TAL,
+  reduction = "umap.TRIAD",
+  group.by = "group"
+)
+
+p1 <-DimPlot(
+  pb90_TAL,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype"
+)
+
+p3 <- DimPlot(
+  pb90_TAL,
+  reduction = "umap.TRIAD",
+  split.by = "group",
+  group.by = "KPMP_celltype",
+  ncol = 2
+)
+```
+
+```{r fig.width=18}
+p4 <- FeaturePlot(
+  pb90_TAL,
+  reduction = "umap.TRIAD",
+  features = c(
+    "UMOD",
+    "SLC12A1",
+    "KCNJ1",
+    "CLDN16",
+    "VCAM1",
+    "KRT18"),
+  ncol = 2
+)
+
+p1 | p4
+p3 | p4
+```
+
+
 
