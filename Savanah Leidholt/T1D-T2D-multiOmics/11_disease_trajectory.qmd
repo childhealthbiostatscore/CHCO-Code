@@ -1,0 +1,129 @@
+---
+title: "11_disease_trajectory"
+format: html
+editor: visual
+---
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(harmony)
+library(aws.s3)
+```
+
+```{r}
+```{r}
+#directores
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/") #hyak
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #mac studio
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
+} else if (user == "savanahleidholt") {
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #laptop
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+```
+
+
+```{r}
+clean_trajectory_object <- function(obj,
+                                    object_name,
+                                    dims_use = 1:20,
+                                    harmony_var = "study",
+                                    resolution = 0.4) {
+  
+  message("Processing: ", object_name)
+  
+  print(table(obj$group, useNA = "ifany"))
+  print(table(obj$study, useNA = "ifany"))
+  
+  DefaultAssay(obj) <- "RNA"
+  
+  obj@reductions <- list()
+  obj@graphs <- list()
+  
+  obj$trajectory_object <- object_name
+  
+  obj <- FindVariableFeatures(
+    obj,
+    selection.method = "vst",
+    nfeatures = 3000,
+    verbose = FALSE
+  )
+  
+  obj <- ScaleData(
+    obj,
+    features = VariableFeatures(obj),
+    verbose = FALSE
+  )
+  
+  obj <- RunPCA(
+    obj,
+    features = VariableFeatures(obj),
+    npcs = max(dims_use),
+    verbose = FALSE
+  )
+  
+  obj <- RunHarmony(
+    object = obj,
+    group.by.vars = harmony_var,
+    reduction = "pca",
+    dims.use = dims_use,
+    verbose = FALSE
+  )
+  
+  obj <- RunUMAP(
+    obj,
+    reduction = "harmony",
+    dims = dims_use,
+    reduction.name = "umap_harmony",
+    reduction.key = "UMAPH_",
+    verbose = FALSE
+  )
+  
+  obj <- FindNeighbors(
+    obj,
+    reduction = "harmony",
+    dims = dims_use,
+    verbose = FALSE
+  )
+  
+  obj <- FindClusters(
+    obj,
+    resolution = resolution,
+    verbose = FALSE
+  )
+  
+  return(obj)
+}
+```
+
+```{r}
+pb90_PT <- s3readRDS(
+  object = "data/pb90_multiomics_PT_trajectory_20260529.rds",
+  bucket = bucket_name,
+  region = "",
+  endpoint = s3_endpoint
+)
+```
+
