@@ -1073,57 +1073,181 @@ upload_to_kopah(
 #plotting cell type specific expression patterns per contrast
 #------------------------------------------------------------
 ```{r}
-pb_files <- list.files(
-  file.path(dir.results,"T1D-T2D", "Results", "pseudobulk_1"),
-  pattern = "^pseudobulk_edgeR_.*\\.csv$",
-  full.names = TRUE
+kopah_opts <- list(
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
 )
 
-de_all <- map_dfr(pb_files, read.csv)
-de_all
+read_kopah_csvs <- function(prefix, method_name) {
+  
+  objs <- get_bucket(
+    bucket = "triad",
+    prefix = prefix,
+    base_url = kopah_opts$base_url,
+    region = kopah_opts$region,
+    use_https = kopah_opts$use_https
+  )
+  
+  csv_keys <- purrr::map_chr(objs, "Key") %>%
+    stringr::str_subset("\\.csv$")
+  
+  if (length(csv_keys) == 0) {
+    stop("No CSV files found for prefix: ", prefix)
+  }
+  
+  purrr::map_dfr(csv_keys, function(key) {
+    
+    message("Reading: ", key)
+    
+    dat <- aws.s3::s3read_using(
+      FUN = function(x) readr::read_csv(x, show_col_types = FALSE),
+      object = key,
+      bucket = "triad",
+      opts = kopah_opts
+    )
+    
+    dat %>%
+      dplyr::mutate(
+        method = method_name,
+        source_file = key
+      )
+  })
+}
+```
 
+```{r}
+edgeR_all <- read_kopah_csvs(
+  prefix = "results/pseudobulk/edgeR/all_cells/",
+  method_name = "edgeR"
+)
+
+deseq2_all <- read_kopah_csvs(
+  prefix = "results/pseudobulk/DESeq2/all_cells/",
+  method_name = "DESeq2"
+)
+
+de_all <- bind_rows(edgeR_all, deseq2_all)
+```
+#---------------------------------
+#count significant genes/cell type
+#--------------------------------
+```{r}
 de_counts <- de_all %>%
   mutate(
-    direction = dplyr::case_when(
-      FDR < 0.05 & logFC > 0  ~ "Positive",
-      FDR < 0.05 & logFC < 0  ~ "Negative",
+    direction = case_when(
+      FDR < 0.05 & logFC > 0 ~ "Positive",
+      FDR < 0.05 & logFC < 0 ~ "Negative",
       TRUE ~ "NS"
     )
   ) %>%
   filter(direction != "NS") %>%
-  group_by(comparison, celltype, direction) %>%
+  group_by(method, comparison, celltype, direction) %>%
   summarise(n_de = n(), .groups = "drop") %>%
   mutate(
     n_plot = ifelse(direction == "Negative", -n_de, n_de)
   )
+
+#save back to kopha
+tmp_counts <- tempfile(fileext = ".csv")
+
+write.csv(de_counts, tmp_counts, row.names = FALSE)
+
+upload_to_kopah(
+  file = tmp_counts,
+  object = "results/pseudobulk/celltype_DE_counts_edgeR_DESeq2.csv"
+)
+
+unlink(tmp_counts)
 ```
 
 ```{r}
-ggplot(de_counts, aes(x = n_plot, y = celltype, fill = direction)) +
-  geom_col(width = 0.75) +
-  geom_vline(xintercept = 0, color = "gray40") +
-  facet_wrap(~ comparison, scales = "free_x") +
-  scale_x_continuous(labels = abs) +
-  scale_fill_manual(
-    values = c("Negative" = "purple4", "Positive" = "orange2")
-  ) +
-  labs(
-    x = "Number of DE genes (FDR < 0.05)",
-    y = NULL,
-    fill = NULL
-  ) +
-  theme_classic() +
-  theme(
-    strip.text = element_text(face = "bold", size = 10),
-    axis.text.y = element_text(size = 10),
-    axis.text.x = element_text(size = 9),
-    legend.position = "top"
-  )
+plot_celltype_panel <- function(dat, method_name) {
+  
+  dat %>%
+    dplyr::filter(method == method_name) %>%
+    ggplot(
+      aes(
+        x = n_plot,
+        y = reorder(celltype, n_plot),
+        fill = direction
+      )
+    ) +
+    geom_col(width = 0.75) +
+    geom_vline(xintercept = 0, color = "gray40") +
+    facet_wrap(~ comparison, scales = "free_x") +
+    scale_x_continuous(labels = abs) +
+    scale_fill_manual(
+      values = c(
+        "Negative" = "purple4",
+        "Positive" = "orange3"
+      )
+    ) +
+    labs(
+      title = paste0(method_name, ": cell type-specific DE genes by contrast"),
+      x = "Number of DE genes (FDR < 0.05)",
+      y = NULL,
+      fill = NULL
+    ) +
+    theme_classic() +
+    theme(
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text.y = element_text(size = 9),
+      axis.text.x = element_text(size = 9),
+      legend.position = "top"
+    )
+}
+```
 
-ggsave("cell_type_exrpession.png",
-       path = file.path(dir.results, "T1D-T2D", "Results"),
-       width = 10,
-       height = 6)
+```{r fig.width=14, fig.height=8}
+# edgeR panel plot
+p_edgeR_panel <- plot_celltype_panel(
+  dat = de_counts,
+  method_name = "edgeR"
+)
+
+p_edgeR_panel
+```
+```{r fig.width=14, fig.height=8}
+# DESeq2 panel plot
+p_DESeq2_panel <- plot_celltype_panel(
+  dat = de_counts,
+  method_name = "DESeq2"
+)
+
+p_DESeq2_panel
+```
+```{r}
+tmp_edgeR <- tempfile(fileext = ".png")
+tmp_DESeq2 <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp_edgeR,
+  plot = p_edgeR_panel,
+  width = 14,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = tmp_DESeq2,
+  plot = p_DESeq2_panel,
+  width = 14,
+  height = 8,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp_edgeR,
+  object = "figures/pseudobulk/edgeR/all_cells/celltype_expression_patterns.png"
+)
+
+upload_to_kopah(
+  file = tmp_DESeq2,
+  object = "figures/pseudobulk/DESeq2/all_cells/celltype_expression_patterns.png"
+)
+
+unlink(c(tmp_edgeR, tmp_DESeq2))
 ```
 
 #------------------------------------------------------------------
