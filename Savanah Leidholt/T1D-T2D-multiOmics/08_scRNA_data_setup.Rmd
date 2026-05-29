@@ -382,10 +382,148 @@ pb90_multiomics_subset@reductions
 ```
 
 ```{r}
-#pb90_multiomics_subset <- readRDS(pb90_multiomics_subset, 
-#          object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
-#          bucket = "triad",
-#          region = "",
-#          multipart = T)
+pb90_multiomics_subset <- s3readRDS(
+  object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
+  bucket = "triad",
+  region = "",
+  multipart = T)
+```
+#--------------------------------------------------------------------------------------
+#subsetting by specific celltypes for pseudtime disease trajectories--see file 11
+#--------------------------------------------------------------------------------------
+```{r}
+#PT trajectory object
+pb90_PT <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "PT"
+)
+
+#all endothelial cells together
+pb90_EC_all <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "EC"
+)
+
+#all TAL cells together
+pb90_TAL <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "TAL"
+)
+
+
+# EC subtype-specific objects
+ec_subtypes <- c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC")
+
+pb90_EC_subtypes <- lapply(ec_subtypes, function(x) {
+  subset(
+    pb90_multiomics_subset,
+    subset = KPMP_celltype == x
+  )
+})
+
+names(pb90_EC_subtypes) <- ec_subtypes
+```
+
+```{r}
+# donor/sample coverage by broad trajectory cell type
+trajectory_donor_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general %in% c("PT", "EC", "TAL")) %>%
+  dplyr::distinct(record_id, group, KPMP_celltype_general) %>%
+  dplyr::count(KPMP_celltype_general, group, name = "n_record_ids") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_record_ids,
+    values_fill = 0
+  )
+
+trajectory_donor_table
+```
+```{r}
+trajectory_cell_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general %in% c("PT", "EC", "TAL")) %>%
+  dplyr::count(KPMP_celltype_general, group, name = "n_cells") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_cells,
+    values_fill = 0
+  )
+
+trajectory_cell_table
+```
+```{r}
+ec_subtype_donor_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general == "EC") %>%
+  dplyr::distinct(record_id, group, KPMP_celltype) %>%
+  dplyr::count(KPMP_celltype, group, name = "n_record_ids") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_record_ids,
+    values_fill = 0
+  )
+
+ec_subtype_donor_table
+```
+```{r}
+ec_subtype_cell_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general == "EC") %>%
+  dplyr::count(KPMP_celltype, group, name = "n_cells") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_cells,
+    values_fill = 0
+  )
+
+ec_subtype_cell_table
+```
+
+```{r}
+#------------------------------------------------------------
+# Save objects to Kopah / S3
+#------------------------------------------------------------
+
+s3saveRDS(
+  pb90_PT,
+  object = "data/disease trajectory/pb90_multiomics_PT_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+s3saveRDS(
+  pb90_EC_all,
+  object = "data/disease trajectory/pb90_multiomics_EC_all_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+s3saveRDS(
+  pb90_TAL,
+  object = "data/disease trajectory/pb90_multiomics_TAL_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+for (ct in names(pb90_EC_subtypes)) {
+  
+  ct_clean <- gsub("[^A-Za-z0-9]+", "_", ct)
+  
+  s3saveRDS(
+    pb90_EC_subtypes[[ct]],
+    object = paste0(
+      "data/disease trajectory/pb90_multiomics_",
+      ct_clean,
+      "_20260529.rds"
+    ),
+    bucket = "triad",
+    region = "",
+    endpoint = "s3.kopah.uw.edu",
+    multipart = TRUE
+  )
+}
 ```
 
