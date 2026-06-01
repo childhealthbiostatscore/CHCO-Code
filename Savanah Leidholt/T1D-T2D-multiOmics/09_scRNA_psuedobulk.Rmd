@@ -70,11 +70,11 @@ library(fgsea)
 #install_if_missing_bioc("speckle")
 library(speckle)
 #install_if_missing_bioc("DESeq2")
+#BiocManager::install("DESeq2")
 library(DESeq2)
 ```
-
-```{r}
 #directories
+```{r}
 user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
@@ -98,9 +98,10 @@ if (user == "leidholt") {
   stop("Unknown user: please specify root path for this user.")
 }
 ```
-
+#-------------------
+#Create an S3 client
+#-------------------
 ```{r}
-## Create an S3 client
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
   "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
@@ -110,9 +111,9 @@ Sys.setenv(
 )
 ```
 
-
-
-
+#--------------------------
+#reading in cleaned subset
+#--------------------------
 ```{r}
 pb90_multiomics_subset <- s3readRDS(
           object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
@@ -129,7 +130,9 @@ pb90_multiomics_subset_meta <- pb90_multiomics_subset@meta.data %>%
   cbind(pb90_multiomics_subset@reductions$umap.TRIAD@cell.embeddings)
 
 ```
-
+#------------
+#making umaps
+#------------
 ```{r}
 centers <- pb90_multiomics_subset_meta %>%
   group_by(KPMP_celltype) %>%
@@ -275,8 +278,9 @@ put_object(
   use_https = TRUE
 )
 ```
-
-## b. Descriptive Statistics
+#----------------------
+#Descriptive Statistics
+#----------------------
 ```{r}
 meta_table1 <- pb90_multiomics_subset_meta %>%
   distinct(record_id, .keep_all = TRUE) %>%
@@ -1070,6 +1074,7 @@ upload_to_kopah(
 )
 ```
 #------------------------------------------------------------
+#START HERE IF YOU'VE ALREADY DONE DE ANLAYSIS
 #plotting cell type specific expression patterns per contrast
 #------------------------------------------------------------
 ```{r}
@@ -1149,16 +1154,16 @@ de_counts <- de_all %>%
   )
 
 #save back to kopha
-tmp_counts <- tempfile(fileext = ".csv")
+#tmp_counts <- tempfile(fileext = ".csv")
 
-write.csv(de_counts, tmp_counts, row.names = FALSE)
+#write.csv(de_counts, tmp_counts, row.names = FALSE)
 
-upload_to_kopah(
-  file = tmp_counts,
-  object = "results/pseudobulk/celltype_DE_counts_edgeR_DESeq2.csv"
-)
+#upload_to_kopah(
+#  file = tmp_counts,
+#  object = "results/pseudobulk/celltype_DE_counts_edgeR_DESeq2.csv"
+#)
 
-unlink(tmp_counts)
+#unlink(tmp_counts)
 ```
 
 ```{r}
@@ -1217,278 +1222,415 @@ p_DESeq2_panel <- plot_celltype_panel(
 
 p_DESeq2_panel
 ```
+
 ```{r}
-tmp_edgeR <- tempfile(fileext = ".png")
-tmp_DESeq2 <- tempfile(fileext = ".png")
+#tmp_edgeR <- tempfile(fileext = ".png")
+#tmp_DESeq2 <- tempfile(fileext = ".png")
 
-ggsave(
-  filename = tmp_edgeR,
-  plot = p_edgeR_panel,
-  width = 14,
-  height = 8,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp_edgeR,
+#  plot = p_edgeR_panel,
+#  width = 14,
+#  height = 8,
+#  dpi = 300
+#)
 
-ggsave(
-  filename = tmp_DESeq2,
-  plot = p_DESeq2_panel,
-  width = 14,
-  height = 8,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp_DESeq2,
+#  plot = p_DESeq2_panel,
+#  width = 14,
+#  height = 8,
+#  dpi = 300
+#)
 
-upload_to_kopah(
-  file = tmp_edgeR,
-  object = "figures/pseudobulk/edgeR/all_cells/celltype_expression_patterns.png"
-)
+#upload_to_kopah(
+#  file = tmp_edgeR,
+#  object = "figures/pseudobulk/edgeR/all_cells/celltype_expression_patterns.png"
+#)
 
-upload_to_kopah(
-  file = tmp_DESeq2,
-  object = "figures/pseudobulk/DESeq2/all_cells/celltype_expression_patterns.png"
-)
+#upload_to_kopah(
+#  file = tmp_DESeq2,
+#  object = "figures/pseudobulk/DESeq2/all_cells/celltype_expression_patterns.png"
+#)
 
-unlink(c(tmp_edgeR, tmp_DESeq2))
+#unlink(c(tmp_edgeR, tmp_DESeq2))
 ```
 
-#------------------------------------------------------------------
-#plot to create panel volcanos for a specific cell type of interest
-#-------------------------------------------------------------------
-```{r}
-celltype_of_interest <- "PT"  # <-- change this
-
-de_ct <- de_all %>%
-  filter(celltype == celltype_of_interest) %>%
-  mutate(
-    neg_log10_fdr = -log10(FDR),
-    sig = case_when(
-      FDR < 0.05 & logFC > 0.5  ~ "Up",
-      FDR < 0.05 & logFC < -0.5 ~ "Down",
-      TRUE ~ "NS"
-    )
-  )
-
-label_df <- de_ct %>%
-  filter(FDR < 0.05) %>%
-  group_by(comparison) %>%
-  arrange(FDR, .by_group = TRUE) %>%
-  slice_head(n = 5) %>%
-  ungroup()
-
-volcano_celltype_panel <- ggplot(de_ct, aes(x = logFC, y = neg_log10_fdr, color = sig)) +
-  geom_point(alpha = 0.6, size = 1.3) +
-  geom_text_repel(
-    data = label_df,
-    aes(label = gene),
-    size = 5,
-    max.overlaps = Inf
-  ) +
-  geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
-  facet_wrap(~ comparison) +
-  scale_color_manual(values = c("Up" = "orange2", "Down" = "purple4", "NS" = "grey")) +
-  labs(
-    title = paste("Volcano plots for", celltype_of_interest),
-    x = "log2 Fold Change",
-    y = "-log10(FDR)",
-    color = NULL
-  ) +
-  theme_classic() +
-  theme(
-    strip.text = element_text(face = "bold", size = 14),
-    legend.position = "top" + 
-  theme(axis.title = element_text(size = 12))
-  )
-
-volcano_celltype_panel
-  
-#ggsave(filename = "TAL_volcano_plots.png",
- #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
-  #      width = 12,
-   #     height = 10)
-
-#ggsave(filename = "EC_volcano_plots.png",
- #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
-  #      width = 12,
-   #     height = 10)
-
-#ggsave(filename = "Immune_volcano_plots.png",
- #       path = file.path(dir.results, "T1D-T2D", "RESULTS"),
-  #      width = 12,
-   #     height = 10)
-
-ggsave(filename = "PT_volcano_plots.png",
-        path = file.path(dir.results, "T1D-T2D", "RESULTS"),
-        width = 12,
-        height = 10)
-```
-
+#-------------
 #GSEA anlaysis
+#-------------
 ```{r}
-# choose cell type
-celltype_of_interest <- "TAL"  # <-- change this
-
-# choose MSigDB gene sets
-msig_reactome <- msigdbr(species = "Homo sapiens", collection = "C2", subcollection = "CP:REACTOME")
-msig_go_bp <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:BP")
-msig_go_mf <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:MF")
-msig_go_cc <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:CC")
-
-msig_all <- bind_rows(
-  msig_reactome,
-  msig_go_bp,
-  msig_go_mf,
-  msig_go_cc
-)
-
-pathways <- msig_all %>%
-  split(x = .$gene_symbol, f = .$gs_name)
-```
-
-# -----------------------------
-# fgsea function for one celltype
-# -----------------------------
-```{r}
-run_fgsea_one <- function(tt, pathways, minSize = 15, maxSize = 500) {
-  
-  ranks <- tt %>%
-    filter(!is.na(gene), !is.na(logFC), !is.na(PValue)) %>%
-    mutate(rank_metric = sign(logFC) * -log10(PValue)) %>%
-    group_by(gene) %>%
-    slice_max(order_by = abs(rank_metric), n = 1, with_ties = FALSE) %>%
-    ungroup() %>%
-    arrange(desc(rank_metric)) %>%
-    select(gene, rank_metric)
-  
-  stats <- ranks$rank_metric
-  names(stats) <- ranks$gene
-  
-  fgsea(
-    pathways = pathways,
-    stats = stats,
-    minSize = minSize,
-    maxSize = maxSize
-  ) %>%
-    as_tibble() %>%
-    arrange(padj)
-}
-```
-
-```{r}
-de_ct <- de_all %>%
-  filter(celltype == celltype_of_interest)
-
-gsea_results <- list()
-
-for (comp in unique(de_ct$comparison)) {
-  
-  message("Running GSEA: ", celltype_of_interest, " | ", comp)
-  
-  tt_sub <- de_ct %>%
-    filter(comparison == comp)
-  
-  gsea_results[[comp]] <- run_fgsea_one(
-    tt = tt_sub,
-    pathways = pathways
-  ) %>%
-    mutate(
-      comparison = comp,
-      celltype = celltype_of_interest
-    )
-}
-```
-
-```{r}
-gsea_table <- bind_rows(gsea_results)
-
-gsea_table %>%
-  select(celltype, comparison, pathway, NES, pval, padj, size) %>%
-  arrange(padj)
-```
-```{r}
-#a lot of ribosomal & mRNA processing check for contamination 
-gsea_plot_sig <- gsea_table %>%
-  filter(comparison == "Type 1 Diabetes_vs_Type 2 Diabetes", padj < 0.05) %>% 
-  filter(celltype == celltype_of_interest)
-gsea_plot_sig
-```
-
-```{r}
-# choose one contrast
-contrast_of_interest <- unique(gsea_table$comparison)[1]
-```
-
-```{r}
+library(msigdbr)
+library(fgsea)
+library(dplyr)
+library(purrr)
 library(forcats)
 
-celltype_of_interest <- "TAL"  # change this
-gene_set_to_plot <- "REACTOME"     # options: , "REACTOME", "GO:..."
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    category = "H")
 
-gsea_plot_df <- gsea_table %>%
-  filter(celltype == celltype_of_interest) %>%
-  mutate(
-    gene_set = case_when(
-      str_detect(pathway, "REACTOME") ~ "REACTOME",
-      str_detect(pathway, "GOBP|GOMF|GOCC|GO_") ~ "GO",
-      TRUE ~ "Other"
-    )
-  ) %>%
-  filter(gene_set == gene_set_to_plot) %>%
-  filter(padj < 0.05) %>%
-  mutate(
-    Direction = ifelse(NES > 0, "Up", "Down"),
-    neg_log10_fdr = -log10(padj),
-    pathway_clean = pathway %>%
-      str_replace_all("_", " ") %>%
-      str_replace("^REACTOME ", "Reactome ") %>%
-      str_replace("^GOBP ", "GO BP ") %>%
-      str_to_sentence()
-  ) %>%
-  group_by(comparison) %>%
-  arrange(desc(abs(NES)), .by_group = TRUE) %>%
-  slice_head(n = 10) %>%
-  ungroup()
+hallmark <- hallmark %>%
+  mutate(gs_name = str_remove(gs_name, "^HALLMARK_"),
+  gs_name = str_replace_all(gs_name, "_", " "),
+  gs_name = str_to_title(gs_name)
+)
 
-gsea_lollipop <- ggplot(
-  gsea_plot_df,
-  aes(x = NES, y = fct_reorder(pathway_clean, NES))
-) +
-  geom_segment(
-    aes(x = 0, xend = NES, yend = pathway_clean),
-    color = "grey70",
-    linewidth = 0.5
-  ) +
-  geom_point(
-    aes(color = Direction, size = neg_log10_fdr),
-    alpha = 0.95
-  ) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  facet_wrap(~ comparison, scales = "free_y", ncol = 3) +
-  scale_color_manual(
-    values = c("Up" = "orange2", "Down" = "purple4")
-  ) +
-  scale_size_continuous(name = "-log10(FDR)") +
-  labs(
-    title = paste0(celltype_of_interest, "\n", gene_set_to_plot),
-    x = "Normalized enrichment score",
-    y = NULL,
-    color = "Direction"
-  ) +
-  theme_classic() +
-  theme(
-    plot.title = element_text(face = "bold", size = 12),
-    strip.text = element_text(face = "bold", size = 10),
-    axis.text.y = element_text(size = 7),
-    axis.text.x = element_text(size = 9),
-    legend.position = "right"
+
+reactome<-  msigdbr(
+    species = "Homo sapiens",
+    category = "C2",
+    subcategory = "CP:REACTOME"
   )
 
-gsea_lollipop
+reactome <- reactome %>%
+  mutate(gs_name = str_remove(gs_name, "^REACTOME_"),
+  gs_name = str_replace_all(gs_name, "_", " "),
+  gs_name = str_to_title(gs_name)
+)
 
+go <- bind_rows(
+   msigdbr(
+    species = "Homo sapiens",
+    category = "C5",
+    subcategory = "GO:BP"
+    ),
+   msigdbr(
+    species = "Homo sapiens",
+    category = "C5",
+    subcategory = "GO:BP"
+    ),
+   msigdbr(
+    species = "Homo sapiens",
+    category = "C5",
+    subcategory = "GO:BP")
+)
 
-ggsave(filename = "GSEA_TAL.png",
-       path = file.path(dir.results, "T1D-T2D", "Results"),
-       width = 26,
-       height = 18)
+hallmark_list <- split(
+  hallmark$gene_symbol,
+  hallmark$gs_name)
+
+reactome_list <- split(
+  reactome$gene_symbol,
+  reactome$gs_name)
+
+go_list <- split(
+  go$gene_symbol,
+  go$gs_name)
 ```
 
-#do endothelial cell subpopulation DEPs
+```{r}
+make_rank_vector <- function(dat){
+
+  ranks <- dat %>%
+    filter(
+      !is.na(gene),
+      !is.na(F),
+      !is.na(logFC)
+    ) %>%
+    mutate(
+      rank_metric = sign(logFC) * sqrt(F)
+    ) %>%
+    group_by(gene) %>%
+    slice_max(
+      abs(rank_metric),
+      n = 1,
+      with_ties = FALSE
+    ) %>%
+    ungroup()
+
+  stats <- ranks$rank_metric
+  names(stats) <- ranks$gene
+
+  sort(stats, decreasing = TRUE)
+}
+```
+
+```{r}
+gsea_results_edgeR <- edgeR_all %>%
+  group_by(celltype, comparison) %>%
+  nest() %>%
+  dplyr::mutate(
+    stats = map(data, make_rank_vector),
+
+    fgsea = map(
+      stats,
+      ~ fgsea(
+        pathways = reactome_list,
+        stats = .x,
+        minSize = 15,
+        maxSize = 500
+      )
+    )
+  ) %>%
+  dplyr::select(-data, -stats) %>%
+  unnest(fgsea)
+
+```
+
+```{r}
+plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
+  
+  plot_dat <- dat %>%
+    filter(celltype == celltype_name) %>%
+    { 
+      if (!is.null(contrast_name)) {
+        filter(., comparison == contrast_name)
+      } else {
+        .
+      }
+    } %>%
+    mutate(
+      Direction = ifelse(NES > 0, "Positive", "Negative"),
+      pathway = stringr::str_trunc(pathway, 60),
+      pathway = forcats::fct_reorder(pathway, NES)
+    )
+  
+  p <- ggplot(plot_dat, aes(x = NES, y = pathway)) +
+    geom_segment(
+      aes(x = 0, xend = NES, yend = pathway),
+      linewidth = 0.7,
+      color = "grey70"
+    ) +
+    geom_point(aes(color = Direction), size = 3) +
+    geom_text(
+      data = ~ dplyr::filter(.x, NES > 0),
+      aes(x = 0, label = pathway),
+      hjust = 1.02,
+      size = 3,
+      fontface = "bold",
+      color = "black"
+    ) +
+    geom_text(
+      data = ~ dplyr::filter(.x, NES < 0),
+      aes(x = 0, label = pathway),
+      hjust = -0.02,
+      size = 3,
+      fontface = "bold",
+      color = "black"
+    ) +
+    geom_vline(xintercept = 0, linewidth = 0.8, color = "black") +
+    scale_color_manual(
+      values = c(
+        "Positive" = "orange3",
+        "Negative" = "purple4"
+      )
+    ) +
+    scale_x_continuous(
+  limits = c(-4, 4),
+  breaks = c(-4, -2, 0, 2, 4)
+  )+
+    labs(
+      title = paste(
+        celltype_name,
+        ifelse(is.null(contrast_name), "all contrasts", contrast_name)
+      ),
+      x = "Normalized enrichment score",
+      y = NULL,
+      color = NULL
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.position = "top"
+    )
+  
+  if (is.null(contrast_name)) {
+    p <- p +
+      facet_wrap(~ comparison, scales = "free_y")
+  }
+  
+  p
+}
+```
+
+```{r}
+gsea_results_edgeR %>%
+  distinct(celltype)
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "PT"
+)
+
+pt_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "PT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "PT",
+      contrast_name = .x
+    )
+  )
+
+pt_individual_plots[[1]] #lean vs obese
+pt_individual_plots[[2]] #lean vs T1d
+pt_individual_plots[[3]] #lean vs T2d
+pt_individual_plots[[4]] #OC vs t1d
+pt_individual_plots[[5]] #oc vs t2d
+pt_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "PC"
+)
+
+pc_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "PC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "PC",
+      contrast_name = .x
+    )
+  )
+
+pc_individual_plots[[1]] #lean vs obese
+pc_individual_plots[[2]] #lean vs T1d
+pc_individual_plots[[3]] #lean vs T2d
+pc_individual_plots[[4]] #OC vs t1d
+pc_individual_plots[[5]] #oc vs t2d
+pc_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "EC"
+)
+
+ec_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "EC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "EC",
+      contrast_name = .x
+    )
+  )
+
+ec_individual_plots[[1]] #lc vs oc
+ec_individual_plots[[2]] #lc vs t2d
+ec_individual_plots[[3]] #oc vs t1d
+ec_individual_plots[[4]] #oc vs t2d
+ec_individual_plots[[5]] #t1d vs t2d
+#ec_individual_plots[[6]] #no t1d vs lc
+```
+
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "TAL"
+)
+
+tal_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "TAL") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "TAL",
+      contrast_name = .x
+    )
+  )
+
+tal_individual_plots[[1]] #lc vs oc
+tal_individual_plots[[2]] #lc vs t1d
+tal_individual_plots[[3]] #lc vs t2d
+tal_individual_plots[[4]] #oc vs t1d
+tal_individual_plots[[5]] #oc vs t2d
+tal_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "Immune"
+)
+
+immune_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "Immune") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "Immune",
+      contrast_name = .x
+    )
+  )
+
+immune_individual_plots[[1]] #lc vs oc
+immune_individual_plots[[2]] #lc vs t2d
+immune_individual_plots[[3]] #oc vs t1d
+immune_individual_plots[[4]] #oc vs t2d
+immune_individual_plots[[5]] #t1d vs t2d
+immune_individual_plots[[6]] #t1d vs lc
+```
+
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "POD"
+)
+
+pod_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "POD") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "POD",
+      contrast_name = .x
+    )
+  )
+
+#pod_individual_plots[[1]] #lc vs oc not sig
+#pod_individual_plots[[2]] #lc vs t1d not sig
+#pod_individual_plots[[3]] #lc vs t2d not sig
+#pod_individual_plots[[4]] #oc vs t1d not sig
+#pod_individual_plots[[5]] #oc vs t2d not sig
+pod_individual_plots[[1]] #t1d vs t2d
+```
+```{r}
+plot_gsea_lollipop(
+  dat = gsea_top_edgeR,
+  celltype_name = "DCT_CNT"
+)
+
+dctCNT_individual_plots <- gsea_top_edgeR %>%
+  filter(celltype == "DCT_CNT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_edgeR,
+      celltype_name = "DCT_CNT",
+      contrast_name = .x
+    )
+  )
+
+dctCNT_individual_plots[[1]] #lc vs oc
+dctCNT_individual_plots[[2]] #lc vs t1d
+dctCNT_individual_plots[[3]] #lc vs t2d
+dctCNT_individual_plots[[4]] #oc vs t1d
+dctCNT_individual_plots[[5]] #oc vs t2d
+dctCNT_individual_plots[[6]] #t1d vs t2d
+```
