@@ -1,6 +1,6 @@
 ---
-title: "TODAY plasma metabolomics baseline analyses - adjusted Cox models"
-author: "Laura Pyle"
+title: "TODAY Metabolomics Combined Analysis"
+author: "Laura Pyle and Kristen Miller"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output:
   word_document:
@@ -49,39 +49,63 @@ knitr::opts_knit$set(root.dir = root_path)
 
 ```{r, include=FALSE}
 # load plasma data
-load("./Metabolomic data/plasma_all.Rdata")
-
+load("./Metabolomic data/plasma.Rdata")
+# load urine data
+load("./Metabolomic data/urine.Rdata")
+# load ceramides
+load("./Metabolomic data/plasma_ceramides.Rdata")
+# load mta data'
+load("./Metabolomic data/mta.Rdata")
 # load comorbidity data
 load("./Clinical data/comorb.Rdata")
-
 # load baseline risk factors
 load("./Clinical data/TODAY/baserisk.Rdata")
 
 # load CKM outcomes
-dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
+#dat.ckm<-read.csv("./CKM/Results/CKM stage summary.csv")
 
 # use only baseline metabolite data for this analysis: 
-plasma_all$Date.Drawn <- as.Date(plasma_all$Date.Drawn,format = "%m/%d/%Y")
-base <- plasma_all %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
-base <- base %>% arrange(Date.Drawn)
-base<-data.frame(base)
+base_plasma <- plasma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base_plasma <- base_plasma %>% arrange(Date.Drawn)
+base_plasma<-data.frame(base_plasma)
+# use only urine metabolites that have "nM/mM":
+urine$Date.Drawn <- as.Date(urine$Date.Drawn,format = "%m/%d/%Y")
+base_urine <- urine %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base_urine <- base_urine %>% arrange(Date.Drawn)
+# create kyurenine/tryptophan ratio
+base_urine <- base_urine %>% mutate(`kyu.tryp.ratio.in.nM/mM` = `Kynurenine.in.nM/mM.Creatinine`/`Tryptophan.in.nM/mM.Creatinine`)
+base_urine_subset <- base_urine[, grepl("releaseid|nM/mM", names(base_urine))]
+
+# use only baseline ceramides:
+base_ceramides <- plasma_ceramides %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base_ceramides <- base_ceramides %>% arrange(Date.Drawn)
+base_ceramides<-data.frame(base_ceramides)
+
+mta$Date.Drawn <- as.Date(mta$Date.Drawn,format = "%m/%d/%Y")
+base_mta <- mta %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+base_mta <- base_mta %>% arrange(Date.Drawn)
+
+# merge all metabolites:
+base_metabolites<-merge(base_plasma, base_ceramides, by="releaseid",all=T)
+base_metabolites<-merge(base_metabolites, base_urine_subset, by="releaseid",all=T)
+base_metabolites<-merge(base_metabolites, base_mta, by="releaseid",all=T)
 
 # merge in complication data
-base <- merge(base, comorb, by="releaseid",all.x=T, all.y=F)
+base <- merge(base_metabolites, comorb, by="releaseid",all.x=T, all.y=F)
 
 # merge in baseline risk factors
 base <- merge(base, baserisk, by="releaseid",all.x=T, all.y=F)
 
 # merge in CKM outcomes
-dat.ckm$releaseid<-dat.ckm$RELEASEID
-base <- merge(base, dat.ckm[,c("releaseid",
-                               "CKM_syn_base","CKM_max",
-                               "progress_CKM","days_to_first_ckm_prog",
-                               "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
-                               "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
+# dat.ckm$releaseid<-dat.ckm$RELEASEID
+# base <- merge(base, dat.ckm[,c("releaseid",
+#                                "CKM_syn_base","CKM_max",
+#                                "progress_CKM","days_to_first_ckm_prog",
+#                                "progress_CKM_stage3","days_to_first_ckm_stage3_prog",
+#                                "progress_CKM_stage4","days_to_first_ckm_stage4_prog")], by="releaseid",all.x=T, all.y=F)
 
 # identify columns corresponding to proteins
-is_seq <- function(.x) grepl("uM", .x)
+is_seq <- function(.x) grepl("uM|nM/mM|Adenine|MTA", .x)
 seq <- is_seq(names(base))
 
 # convert protein variables to numeric
@@ -116,6 +140,8 @@ temp <- str_replace_all(colnames(base_log_scale[,seq]),"2_","Two_")
 colnames(base_log_scale)[seq] <- temp
 temp <- str_replace_all(colnames(base_log_scale[,seq]),"\\(s\\)","s")
 colnames(base_log_scale)[seq] <- temp
+temp <- str_replace_all(colnames(base_log_scale[,seq]),"5","Five")
+colnames(base_log_scale)[seq] <- temp
 ```
 
 ```{r, include=FALSE}
@@ -124,15 +150,20 @@ colnames(base_log_scale)[seq] <- temp
 result_MAC <- NULL
 predictors <- colnames(base_log_scale[seq])
 for (i in 1:length(predictors)) {
-  print(predictors[i])
   form <- paste0("Surv(DAYSTOMAC, MAC)~",predictors[i],"+HbA1c+log_trig+sbp+si_1_ins0+sex")
   mod <- coxph(data = base_log_scale, formula = as.formula(form))
   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
   tidymod <- tidymod[1,]
   result_MAC <- rbind(result_MAC,tidymod)
 }
-result_MAC$adj.p.value <- p.adjust(result_MAC$p.value, "fdr")
-result_MAC <- result_MAC[order(result_MAC$p.value),] 
+# perform FDR adjustment separately for urine vs. plasma metabolites:
+result_MAC$metabolite_type<-"plasma"
+result_MAC$metabolite_type[grepl("nM_mM|Adenine|MTA", result_MAC$term)]<-"urine"
+result_MAC$adj.p.value<-NA
+result_MAC$adj.p.value[result_MAC$metabolite_type=="plasma"] <- p.adjust(result_MAC$p.value[result_MAC$metabolite_type=="plasma"], "fdr")
+result_MAC$adj.p.value[result_MAC$metabolite_type=="urine"] <- p.adjust(result_MAC$p.value[result_MAC$metabolite_type=="urine"], "fdr")
+
+result_MAC <- result_MAC[order(result_MAC$adj.p.value),] 
 
 # Microalbuminuria
 result_MIC <- NULL
@@ -144,8 +175,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_MIC <- rbind(result_MIC,tidymod)
 }
-result_MIC$adj.p.value <- p.adjust(result_MIC$p.value, "fdr")
-result_MIC <- result_MIC[order(result_MIC$p.value),] 
+result_MIC$metabolite_type<-"plasma"
+result_MIC$metabolite_type[grepl("nM_mM|Adenine|MTA", result_MIC$term)]<-"urine"
+result_MIC$adj.p.value<-NA
+result_MIC$adj.p.value[result_MIC$metabolite_type=="plasma"] <- p.adjust(result_MIC$p.value[result_MIC$metabolite_type=="plasma"], "fdr")
+result_MIC$adj.p.value[result_MIC$metabolite_type=="urine"] <- p.adjust(result_MIC$p.value[result_MIC$metabolite_type=="urine"], "fdr")
+
+result_MIC <- result_MIC[order(result_MIC$adj.p.value),] 
 
 # hyperfiltration
 result_HYP <- NULL
@@ -157,8 +193,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_HYP <- rbind(result_HYP,tidymod)
 }
-result_HYP$adj.p.value <- p.adjust(result_HYP$p.value, "fdr")
-result_HYP <- result_HYP[order(result_HYP$p.value),] 
+result_HYP$metabolite_type<-"plasma"
+result_HYP$metabolite_type[grepl("nM_mM|Adenine|MTA", result_HYP$term)]<-"urine"
+result_HYP$adj.p.value<-NA
+result_HYP$adj.p.value[result_HYP$metabolite_type=="plasma"] <- p.adjust(result_HYP$p.value[result_HYP$metabolite_type=="plasma"], "fdr")
+result_HYP$adj.p.value[result_HYP$metabolite_type=="urine"] <- p.adjust(result_HYP$p.value[result_HYP$metabolite_type=="urine"], "fdr")
+
+result_HYP <- result_HYP[order(result_HYP$adj.p.value),] 
 
 # rapid eGFR decline
 result_RAPID <- NULL
@@ -170,9 +211,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_RAPID <- rbind(result_RAPID,tidymod)
 }
-result_RAPID$adj.p.value <- p.adjust(result_RAPID$p.value, "fdr")
-result_RAPID <- result_RAPID[order(result_RAPID$p.value),] 
+result_RAPID$metabolite_type<-"plasma"
+result_RAPID$metabolite_type[grepl("nM_mM|Adenine|MTA", result_RAPID$term)]<-"urine"
+result_RAPID$adj.p.value<-NA
+result_RAPID$adj.p.value[result_RAPID$metabolite_type=="plasma"] <- p.adjust(result_RAPID$p.value[result_RAPID$metabolite_type=="plasma"], "fdr")
+result_RAPID$adj.p.value[result_RAPID$metabolite_type=="urine"] <- p.adjust(result_RAPID$p.value[result_RAPID$metabolite_type=="urine"], "fdr")
 
+result_RAPID <- result_RAPID[order(result_RAPID$adj.p.value),] 
 # hypertension
 # omit SBP
 result_HTN <- NULL
@@ -184,8 +229,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_HTN <- rbind(result_HTN,tidymod)
 }
-result_HTN$adj.p.value <- p.adjust(result_HTN$p.value, "fdr")
-result_HTN <- result_HTN[order(result_HTN$p.value),] 
+result_HTN$metabolite_type<-"plasma"
+result_HTN$metabolite_type[grepl("nM_mM|Adenine|MTA", result_HTN$term)]<-"urine"
+result_HTN$adj.p.value<-NA
+result_HTN$adj.p.value[result_HTN$metabolite_type=="plasma"] <- p.adjust(result_HTN$p.value[result_HTN$metabolite_type=="plasma"], "fdr")
+result_HTN$adj.p.value[result_HTN$metabolite_type=="urine"] <- p.adjust(result_HTN$p.value[result_HTN$metabolite_type=="urine"], "fdr")
+
+result_HTN <- result_HTN[order(result_HTN$adj.p.value),] 
 
 # hypertension with SBP
 results_htn_bp <- NULL
@@ -197,8 +247,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   results_htn_bp <- rbind(results_htn_bp,tidymod)
 }
-results_htn_bp$adj.p.value <- p.adjust(results_htn_bp$p.value, "fdr")
-results_htn_bp <- results_htn_bp[order(results_htn_bp$p.value),] 
+results_htn_bp$metabolite_type<-"plasma"
+results_htn_bp$metabolite_type[grepl("nM_mM|Adenine|MTA", results_htn_bp$term)]<-"urine"
+results_htn_bp$adj.p.value<-NA
+results_htn_bp$adj.p.value[results_htn_bp$metabolite_type=="plasma"] <- p.adjust(results_htn_bp$p.value[results_htn_bp$metabolite_type=="plasma"], "fdr")
+results_htn_bp$adj.p.value[results_htn_bp$metabolite_type=="urine"] <- p.adjust(results_htn_bp$p.value[results_htn_bp$metabolite_type=="urine"], "fdr")
+
+results_htn_bp <- results_htn_bp[order(results_htn_bp$adj.p.value),] 
 
 # neuropathy
 result_NEURO <- NULL
@@ -210,8 +265,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_NEURO <- rbind(result_NEURO,tidymod)
 }
-result_NEURO$adj.p.value <- p.adjust(result_NEURO$p.value, "fdr")
-result_NEURO <- result_NEURO[order(result_NEURO$p.value),] 
+result_NEURO$metabolite_type<-"plasma"
+result_NEURO$metabolite_type[grepl("nM_mM|Adenine|MTA", result_NEURO$term)]<-"urine"
+result_NEURO$adj.p.value<-NA
+result_NEURO$adj.p.value[result_NEURO$metabolite_type=="plasma"] <- p.adjust(result_NEURO$p.value[result_NEURO$metabolite_type=="plasma"], "fdr")
+result_NEURO$adj.p.value[result_NEURO$metabolite_type=="urine"] <- p.adjust(result_NEURO$p.value[result_NEURO$metabolite_type=="urine"], "fdr")
+
+result_NEURO <- result_NEURO[order(result_NEURO$adj.p.value),] 
 
 # retinopathy
 result_RETINO <- NULL
@@ -223,9 +283,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_RETINO <- rbind(result_RETINO,tidymod)
 }
-result_RETINO$adj.p.value <- p.adjust(result_RETINO$p.value, "fdr")
-result_RETINO <- result_RETINO[order(result_RETINO$p.value),] 
+result_RETINO$metabolite_type<-"plasma"
+result_RETINO$metabolite_type[grepl("nM_mM|Adenine|MTA", result_RETINO$term)]<-"urine"
+result_RETINO$adj.p.value<-NA
+result_RETINO$adj.p.value[result_RETINO$metabolite_type=="plasma"] <- p.adjust(result_RETINO$p.value[result_RETINO$metabolite_type=="plasma"], "fdr")
+result_RETINO$adj.p.value[result_RETINO$metabolite_type=="urine"] <- p.adjust(result_RETINO$p.value[result_RETINO$metabolite_type=="urine"], "fdr")
 
+result_RETINO <- result_RETINO[order(result_RETINO$adj.p.value),] 
 # glycemic failure
 result_GLYC <- NULL
 predictors <- colnames(base_log_scale[seq])
@@ -236,8 +300,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   result_GLYC <- rbind(result_GLYC,tidymod)
 }
-result_GLYC$adj.p.value <- p.adjust(result_GLYC$p.value, "fdr")
-result_GLYC <- result_GLYC[order(result_GLYC$p.value),] 
+result_GLYC$metabolite_type<-"plasma"
+result_GLYC$metabolite_type[grepl("nM_mM|Adenine|MTA", result_GLYC$term)]<-"urine"
+result_GLYC$adj.p.value<-NA
+result_GLYC$adj.p.value[result_GLYC$metabolite_type=="plasma"] <- p.adjust(result_GLYC$p.value[result_GLYC$metabolite_type=="plasma"], "fdr")
+result_GLYC$adj.p.value[result_GLYC$metabolite_type=="urine"] <- p.adjust(result_GLYC$p.value[result_GLYC$metabolite_type=="urine"], "fdr")
+
+result_GLYC <- result_GLYC[order(result_GLYC$adj.p.value),] 
 
 # glycemic failure with A1c
 results_glyc_a1c <- NULL
@@ -249,8 +318,13 @@ for (i in 1:length(predictors)) {
   tidymod <- tidymod[1,]
   results_glyc_a1c <- rbind(results_glyc_a1c,tidymod)
 }
-results_glyc_a1c$adj.p.value <- p.adjust(results_glyc_a1c$p.value, "fdr")
-results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$p.value),] 
+results_glyc_a1c$metabolite_type<-"plasma"
+results_glyc_a1c$metabolite_type[grepl("nM_mM|Adenine|MTA", results_glyc_a1c$term)]<-"urine"
+results_glyc_a1c$adj.p.value<-NA
+results_glyc_a1c$adj.p.value[results_glyc_a1c$metabolite_type=="plasma"] <- p.adjust(results_glyc_a1c$p.value[results_glyc_a1c$metabolite_type=="plasma"], "fdr")
+results_glyc_a1c$adj.p.value[results_glyc_a1c$metabolite_type=="urine"] <- p.adjust(results_glyc_a1c$p.value[results_glyc_a1c$metabolite_type=="urine"], "fdr")
+
+results_glyc_a1c <- results_glyc_a1c[order(results_glyc_a1c$adj.p.value),] 
 
 #### commented out for now, pending updates from Laura on CKM dataset
 # CKM progression
@@ -320,22 +394,26 @@ writeData(wb,"GLYC with A1c CPH",results_glyc_a1c,rowNames = F)
 #writeData(wb,"CKM progression stage 3",results_ckm_prog3,rowNames = F)
 #addWorksheet(wb,"CKM progression stage 4")
 #writeData(wb,"CKM progression stage 4",results_ckm_prog4,rowNames = F)
-saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_march2026.xlsx",overwrite = TRUE)
+saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY combined metabolomics Cox models_June2026.xlsx",overwrite = TRUE)
 
 
 ```
 
-# Methods
+# Statistical Methods
 
-Patient demographics, covariates included in modeling, and outcomes were summarized for the TODAY cohort with available metabolomics data. Summary statistics included median (interquartile range, IQR) and frequency (percentage). 
+Patient demographics, clinical characteristics, and outcomes were summarized for the TODAY cohort with available metabolomics data. Summary statistics included median (interquartile range, IQR) and frequency (percentage). 
 
-Multivariable Cox Proportional Hazard (PH) models were fit for each outcome of interest. Covariates for each model are located here: iostatistics Core Shared Drive/TODAY subaward/Metabolomic data/TODAY metabolomics covariates.xlsx. The detailed model results are here: Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_march2026.xlsx and Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/TODAY urine metabolomics Cox models scaled baseline adjusted_march2026.xlsx. 
+Multivariable Cox Proportional Hazard (PH) models were fit for each outcome of interest. A separate model was fit for each metabolite (plasma or urine) and was adjusted for clincial covariates. FDR adjustment was performed for the set of urine metabolites and the set of plasma metabolites separately. Volcano plots were created for the multivariable Cox PH models, using the hazard ratio for each metabolite and the FDR-adjusted p-values. 
 
-Volcano plots were created for the multivariable Cox PH models, using the hazard ratios for each metabolite. FDR adjusted p-values and unajdusted p-values were plotted in separate figures. 
+Covariates for each model are located here: /Biostatistics Core Shared Drive/TODAY subaward/Metabolomic data/TODAY metabolomics covariates.xlsx. The resulting model results for each metabolite are located here: /Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/TODAY combined metabolomics Cox models_June2026.xlsx.
+
+R version 4.5.2 was used for analysis.
 
 # Summary Statistics
 
 ```{r echo=FALSE, include=FALSE}
+label(base$si_1_ins0)<-"Insulin sensitivity"
+label(base$log_trig)<-"Log(triglycerides)"
 tab1<-table1(~ #pt demographics:   
                AGEBASE+sex_char+racedesc+bmi+bmipct+
                dxtime+
@@ -345,8 +423,24 @@ tab1<-table1(~ #pt demographics:
                   render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)"))
 tab1
 
+base$MAC_table<-as.factor(base$MAC)
+label(base$MAC_table)<-"Macroalbuminuria"
+base$MIC_table<-as.factor(base$MIC)
+label(base$MIC_table)<-"Microalbuminuria"
+base$HYP_table<-as.factor(base$HYP)
+label(base$HYP_table)<-"Hyperfiltration"
+base$RAPID_table<-as.factor(base$RAPID)
+label(base$RAPID_table)<-"Rapid eGFR decline"
+base$HTN_table<-as.factor(base$HTN)
+label(base$HTN_table)<-"Hypertension"
+base$NEURO_table<-as.factor(base$NEURO)
+label(base$NEURO_table)<-"Neuropathy"
+base$RETINO_table<-as.factor(base$RETINO)
+label(base$RETINO_table)<-"Retinopathy"
+base$GLYC_table<-as.factor(base$GLYC)
+label(base$GLYC_table)<-"Loss of glycemic control"
 tab_outcomes<-table1(~
-             factor(MAC)+factor(MIC)+factor(HYP)+factor(RAPID)+factor(HTN)+factor(NEURO)+factor(RETINO)+factor(GLYC),
+             MAC_table+MIC_table+HYP_table+RAPID_table+HTN_table+NEURO_table+RETINO_table+GLYC_table,
                   data=base,
                   overall=c(left="Total"),
                   render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)"))
@@ -364,8 +458,9 @@ kable(tab1, align = c("l", "l"))
 kable(tab_outcomes, align = c("l", "l"))
 ``` 
 
-# Volcano plots 
-Need to remember that the interpretation of the hazard ratios is as follows: for a one SD increase in the log of seqXXX, the risk is multiplied by....
+# Modeling Results
+The following volcano plots display the Hazard Ratio and -log10(P-Value) for each metabolite estimate in an adjusted Cox Proportional Hazards model. The p-values are FDR-adjusted. Only metabolites with FDR-adjusted p-value<0.05 are labeled in each plot. The interpretation of the hazard ratios is as follows: for a one SD increase in the log of metabolite, the risk is multiplied by xxx.
+
 
 ```{r echo=FALSE, include=TRUE, fig.width = 10, fig.height = 7}
 ### looped code for all volcano plots (from Claude):
@@ -388,7 +483,6 @@ datasets <- list(
 volcano_plots <- list()
 
 for (label in names(datasets)) {
-  
   full_results <- datasets[[label]]
   
   # ---- P-value columns ----
@@ -431,8 +525,13 @@ for (label in names(datasets)) {
       axis.text.x  = element_text(angle = 0, hjust = 1)) +
     scale_x_continuous(limits = c(x_min, x_max), expand = expansion(mult = 0.2)) +
     coord_cartesian(clip = "off") +
-    geom_text(data = significant_df_adjusted, aes(label = term),
-              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+    geom_text_repel(
+      data  = significant_df_adjusted,
+      aes(label = term),
+      size  = 3,
+      color = "black",
+      max.overlaps = Inf   # ensures all labels are drawn
+)
   
   # ---- Unadjusted volcano plot ----
   p_unadjusted <- ggplot(full_results, aes(x = estimate, y = p10_unadjusted, color = color_unadjusted)) +
@@ -449,12 +548,16 @@ for (label in names(datasets)) {
       axis.text.x  = element_text(angle = 0, hjust = 1)) +
     scale_x_continuous(limits = c(x_min, x_max), expand = expansion(mult = 0.2)) +
     coord_cartesian(clip = "off") +
-    geom_text(data = significant_df_unadjusted, aes(label = term),
-              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+    geom_text_repel(
+      data  = significant_df_adjusted,
+      aes(label = term),
+      size  = 3,
+      color = "black",
+      max.overlaps = Inf)   # ensures all labels are drawn
   
   # ---- Print both plots ----
   print(p_adjusted)
-  print(p_unadjusted)
+  #print(p_unadjusted)
   
   # ---- Store in list (optional) ----
   volcano_plots[[paste0(label, "_adjusted")]]   <- p_adjusted
