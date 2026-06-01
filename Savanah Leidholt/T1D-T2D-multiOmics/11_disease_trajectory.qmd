@@ -5,11 +5,33 @@ editor: visual
 ---
 
 ```{r}
+install_if_missing_cran <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(
+      pkg,
+      lib = ("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/"),
+      dependencies = TRUE
+    )
+  }
+}
+
+install_if_missing_bioc <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    BiocManager::install(
+      pkg,
+      lib = ("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/"),
+      update = FALSE,
+      ask = FALSE
+    )
+  }
+}
+
 library(Seurat)
 library(dplyr)
 library(harmony)
 library(aws.s3)
 library(jsonlite)
+library(patchwork)
 ```
 
 ```{r}
@@ -55,34 +77,28 @@ pb90_TAL <- s3readRDS(
   bucket = "triad",
   region = ""
 )
+
+pb90_EC_PTC <- s3readRDS(
+  object = "data/disease trajectory/pb90_multiomics_EC_PTC_20260529.rds",
+  bucket = "triad",
+  region = ""
+)
+
+pb90_EC_all <- s3readRDS(
+  object = "data/disease trajectory/pb90_multiomics_EC_all_20260529.rds",
+  bucket = "triad",
+  region = ""
+)
 ```
 
-```{r}
-pb90_PT@reductions
-DimPlot(
-  pb90_PT,
-  group.by = "group"
-)
-
-DimPlot(
-  pb90_PT,
-  group.by = "KPMP_celltype"
-)
-
-DimPlot(
-  pb90_PT,
-  split.by = "group",
-  group.by = "KPMP_celltype",
-  ncol = 2
-)
-
- DimPlot(
+```{r fig.width=18}
+p1 <-  DimPlot(
   pb90_PT,
   reduction = "umap.TRIAD",
   group.by = "group"
 )
 
-p1 <-DimPlot(
+p2 <-DimPlot(
   pb90_PT,
   reduction = "umap.TRIAD",
   group.by = "KPMP_celltype"
@@ -95,16 +111,15 @@ p3 <- DimPlot(
   group.by = "KPMP_celltype",
   ncol = 2
 )
-```
-```{r}
-cells_outlier <- WhichCells(
-  pb90_PT,
-  expression = umapTRIAD_1 < -4
-)
+
+p1 | p2
+
+p3 | p2
 ```
 
+
 ```{r fig.width=20, fig.height=10}
-p2 <- FeaturePlot(
+p4 <- FeaturePlot(
   pb90_PT,
   reduction = "umap.TRIAD",
   features = c(
@@ -117,71 +132,391 @@ p2 <- FeaturePlot(
   )
 )
 
-p1 + p2
+p2 + p4
 
-library(patchwork )
-p3|p2
+p3 | p4
+```
+```{r}
+score_and_summarize <- function(obj, gene_set, score_name, group_var = "group") {
+  
+  genes_use <- intersect(gene_set, rownames(obj))
+  
+  message(score_name, ": using ", length(genes_use), " genes")
+  print(genes_use)
+  
+  obj <- AddModuleScore(
+    obj,
+    features = list(genes_use),
+    name = score_name
+  )
+  
+  score_col <- paste0(score_name, "1")
+  
+  cell_df <- FetchData(
+    obj,
+    vars = c(score_col, group_var, "record_id", "KPMP_celltype")
+  )
+  
+  donor_df <- cell_df %>%
+    group_by(record_id, .data[[group_var]]) %>%
+    summarise(
+      mean_score = mean(.data[[score_col]], na.rm = TRUE),
+      median_score = median(.data[[score_col]], na.rm = TRUE),
+      n_cells = n(),
+      .groups = "drop"
+    )
+  
+  list(
+    obj = obj,
+    cell_df = cell_df,
+    donor_df = donor_df,
+    score_col = score_col
+  )
+}
 ```
 
+```{r}
+#PT disease trajectory score
+pt_injury_genes <- c(
+  "HAVCR1", "VCAM1", "LCN2", "KRT8", "KRT18", "VIM", "SOX9"
+)
 
+pt_identity_genes <- c(
+  "LRP2", "CUBN", "SLC5A2", "SLC34A1", "ALDOB", "AQP1"
+)
+
+pt_injury <- score_and_summarize(
+  obj = pb90_PT,
+  gene_set = pt_injury_genes,
+  score_name = "PT_injury"
+)
+
+pb90_PT <- pt_injury$obj
+
+pt_identity <- score_and_summarize(
+  obj = pb90_PT,
+  gene_set = pt_identity_genes,
+  score_name = "PT_identity"
+)
+
+pb90_PT <- pt_identity$obj
+VlnPlot(
+  pb90_PT,
+  features = c("PT_injury1", "PT_identity1"),
+  group.by = "group",
+  pt.size = 0
+)
+
+FeaturePlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  features = c("PT_injury1", "PT_identity1"),
+  ncol = 2
+)
+```
+
+```{r}
+library(ggplot2)
+#Donor-level plot
+pt_donor <- FetchData(
+  pb90_PT,
+  vars = c("PT_injury1", "PT_identity1", "group", "record_id")
+) %>%
+  group_by(record_id, group) %>%
+  summarise(
+    PT_injury = mean(PT_injury1, na.rm = TRUE),
+    PT_identity = mean(PT_identity1, na.rm = TRUE),
+    n_cells = n(),
+    .groups = "drop"
+  )
+
+ggplot(pt_donor, aes(x = group, y = PT_injury)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2) +
+  theme_classic()
+
+ggplot(pt_donor, aes(x = PT_identity, y = PT_injury, label = record_id)) +
+  geom_point(aes(size = n_cells)) +
+  theme_classic() +
+  labs(
+    x = "PT identity score",
+    y = "PT injury score"
+  )
+```
+```{r}
+library(slingshot)
+library(SingleCellExperiment)
+
+run_slingshot_from_seurat <- function(obj, reduction = "umap.TRIAD", cluster_col = "KPMP_celltype") {
+  
+  sce <- as.SingleCellExperiment(obj)
+  
+  reducedDims(sce)$UMAP_TRIAD <- Embeddings(obj, reduction = reduction)
+  colData(sce)$cluster <- obj[[cluster_col]][, 1]
+  colData(sce)$group <- obj$group
+  colData(sce)$record_id <- obj$record_id
+  
+  sce <- slingshot(
+    sce,
+    clusterLabels = "cluster",
+    reducedDim = "UMAP_TRIAD"
+  )
+  
+  obj$pseudotime <- slingPseudotime(sce)[, 1]
+  
+  list(obj = obj, sce = sce)
+}
+```
+
+```{r}
+pt_sling <- run_slingshot_from_seurat(pb90_PT)
+pb90_PT <- pt_sling$obj
+
+p1 <- FeaturePlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  features = "pseudotime"
+)
+
+p2 <- DimPlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype",
+  label = TRUE,
+  repel = TRUE
+)
+
+p1 | p2
+
+VlnPlot(
+  pb90_PT,
+  features = "pseudotime",
+  group.by = "group",
+  pt.size = 0
+)
+
+
+```
 ```{r}
 pb90_PT <- AddModuleScore(
   pb90_PT,
   features = list(
-    c("VCAM1", "KRT8", "KRT18", "VIM")
+    c(
+      "HAVCR1",
+      "VCAM1",
+      "LCN2",
+      "KRT8",
+      "KRT18",
+      "VIM"
+    )
   ),
-  name = "PT_injury"
+  name = "Injury"
+)
+
+pb90_PT <- AddModuleScore(
+  pb90_PT,
+  features = list(
+    c(
+      "LRP2",
+      "CUBN",
+      "SLC5A2",
+      "AQP1",
+      "ALDOB"
+    )
+  ),
+  name = "Healthy"
 )
 ```
 
-```{r}
-VlnPlot(
+```{r fig.width=16, fig.height=12}
+pb90_PT$DiseaseScore <-
+  pb90_PT$Injury1 -
+  pb90_PT$Healthy1
+
+f1 <- DimPlot(
   pb90_PT,
-  features = "PT_injury1",
-  group.by = "group"
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype",
+  label = TRUE,
+  repel = TRUE,
+  ncol = 2
 )
+
+f2 <- FeaturePlot(
+  pb90_PT,
+  reduction = "umap.TRIAD",
+  split.by = "group",
+  features = "DiseaseScore",
+  keep.scale = "all",
+  ncol = 2
+)
+
+f1 / f2
 ```
 
-```{r}
-injury_df <- FetchData(
-  pb90_PT,
-  vars = c(
-    "PT_injury1",
-    "group",
-    "record_id"
-  )
-)
 
-injury_donor <- injury_df %>%
-  group_by(record_id, group) %>%
-  summarise(
-    injury_score = mean(PT_injury1),
+```{r}
+disease_donor <- FetchData(
+  pb90_PT,
+  vars = c("DiseaseScore", "Injury1", "Healthy1", "group", "record_id")
+) %>%
+  dplyr::as_tibble() %>%
+  dplyr::group_by(record_id, group) %>%
+  dplyr::summarise(
+    disease_score = mean(DiseaseScore, na.rm = TRUE),
+    injury_score = mean(Injury1, na.rm = TRUE),
+    healthy_score = mean(Healthy1, na.rm = TRUE),
+    n_cells = dplyr::n(),
     .groups = "drop"
   )
 ```
 
+```{r}
+ggplot(
+  disease_donor,
+  aes(x = group, y = disease_score)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2) +
+  theme_classic() +
+  labs(
+    x = NULL,
+    y = "PT disease score per donor"
+  )
+```
+```{r}
+disease_subtype_donor <- FetchData(
+  pb90_PT,
+  vars = c("DiseaseScore", "Injury1", "Healthy1", "group", "record_id", "KPMP_celltype")
+) %>%
+  dplyr::as_tibble() %>%
+  dplyr::group_by(record_id, group, KPMP_celltype) %>%
+  dplyr::summarise(
+    disease_score = mean(DiseaseScore, na.rm = TRUE),
+    injury_score = mean(Injury1, na.rm = TRUE),
+    healthy_score = mean(Healthy1, na.rm = TRUE),
+    n_cells = dplyr::n(),
+    .groups = "drop"
+  )
+```
 
 ```{r}
-DimPlot(
-  pb90_TAL,
-  split.by = "group",
-  group.by = "KPMP_celltype",
-  ncol = 2
+ggplot(
+  disease_subtype_donor,
+  aes(x = group, y = disease_score)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 1.8) +
+  facet_wrap(~KPMP_celltype) +
+  theme_classic() +
+  labs(
+    x = NULL,
+    y = "PT disease score per donor"
+  )
+```
+```{r}
+kruskal.test(disease_score ~ group, data = disease_donor)
+
+pairwise.wilcox.test(
+  disease_donor$disease_score,
+  disease_donor$group,
+  p.adjust.method = "BH"
+)
+```
+```{r}
+library(rstatix)
+
+disease_subtype_donor %>%
+  group_by(KPMP_celltype) %>%
+  kruskal_test(disease_score ~ group)
+```
+```{r}
+disease_subtype_donor %>%
+  group_by(KPMP_celltype) %>%
+  pairwise_wilcox_test(
+    disease_score ~ group,
+    p.adjust.method = "BH"
+  )
+```
+
+
+
+```{r}
+comp_df <- as_tibble(
+  FetchData(
+    pb90_PT,
+    vars = c(
+      "record_id",
+      "group",
+      "KPMP_celltype"
+    )
+  )
 )
 
- DimPlot(
+comp_df <- comp_df %>%
+  dplyr::count(record_id, group, KPMP_celltype) %>%
+  group_by(record_id) %>%
+  mutate(prop = n / sum(n))
+
+
+```
+
+```{r}
+ggplot(
+  comp_df,
+  aes(
+    x = group,
+    y = prop,
+    fill = KPMP_celltype
+  )
+) +
+  geom_boxplot() +
+  facet_wrap(~KPMP_celltype) + theme_classic()
+```
+
+```{r}
+cell_df <- FetchData(
+  pb90_PT,
+  vars = c(
+    "DiseaseScore",
+    "group",
+    "KPMP_celltype"
+  )
+)
+
+ggplot(
+  cell_df,
+  aes(
+    x = group,
+    y = DiseaseScore,
+    fill = KPMP_celltype
+  )
+) +
+  geom_boxplot() +
+  facet_wrap(~KPMP_celltype) + theme_classic()
+```
+
+
+
+
+
+#---------
+#tal cells
+#---------
+```{r}
+p5<- DimPlot(
   pb90_TAL,
   reduction = "umap.TRIAD",
   group.by = "group"
 )
 
-p1 <-DimPlot(
+p6 <-DimPlot(
   pb90_TAL,
   reduction = "umap.TRIAD",
   group.by = "KPMP_celltype"
 )
 
-p3 <- DimPlot(
+p7 <- DimPlot(
   pb90_TAL,
   reduction = "umap.TRIAD",
   split.by = "group",
@@ -191,7 +526,7 @@ p3 <- DimPlot(
 ```
 
 ```{r fig.width=18}
-p4 <- FeaturePlot(
+p8 <- FeaturePlot(
   pb90_TAL,
   reduction = "umap.TRIAD",
   features = c(
@@ -204,9 +539,49 @@ p4 <- FeaturePlot(
   ncol = 2
 )
 
-p1 | p4
-p3 | p4
+p5 | p8
+p7 | p8
+```
+```{r}
+pb90_TAL <- AddModuleScore(
+  pb90_TAL,
+  features = list(
+    c("VCAM1", "KRT8", "UMOD", "CLDN16")
+  ),
+  name = "TAL_injury"
+)
 ```
 
+```{r}
+VlnPlot(
+  pb90_TAL,
+  features = "TAL_injury1",
+  group.by = "group"
+)
+```
 
+```{r}
+p9<- DimPlot(
+  pb90_EC_PTC,
+  reduction = "umap.TRIAD",
+  group.by = "group"
+)
+
+p10 <-DimPlot(
+  pb90_EC_PTC,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype"
+)
+
+p11 <- DimPlot(
+  pb90_EC_PTC,
+  reduction = "umap.TRIAD",
+  split.by = "group",
+  group.by = "KPMP_celltype",
+  ncol = 2
+)
+p9
+p10
+p11
+```
 
