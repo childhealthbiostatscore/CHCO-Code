@@ -1260,15 +1260,9 @@ p_DESeq2_panel
 #GSEA anlaysis
 #-------------
 ```{r}
-library(msigdbr)
-library(fgsea)
-library(dplyr)
-library(purrr)
-library(forcats)
-
 hallmark <- msigdbr(
     species = "Homo sapiens",
-    category = "H")
+    collection = "H")
 
 hallmark <- hallmark %>%
   mutate(gs_name = str_remove(gs_name, "^HALLMARK_"),
@@ -1279,8 +1273,8 @@ hallmark <- hallmark %>%
 
 reactome<-  msigdbr(
     species = "Homo sapiens",
-    category = "C2",
-    subcategory = "CP:REACTOME"
+    collection = "C2",
+    subcollection = "CP:REACTOME"
   )
 
 reactome <- reactome %>%
@@ -1292,18 +1286,23 @@ reactome <- reactome %>%
 go <- bind_rows(
    msigdbr(
     species = "Homo sapiens",
-    category = "C5",
-    subcategory = "GO:BP"
+    collection = "C5",
+    subcollection = "GO:BP"
     ),
    msigdbr(
     species = "Homo sapiens",
-    category = "C5",
-    subcategory = "GO:BP"
+    collection = "C5",
+    subcollection = "GO:BP"
     ),
    msigdbr(
     species = "Homo sapiens",
-    category = "C5",
-    subcategory = "GO:BP")
+    collection = "C5",
+    subcollection = "GO:BP")
+)
+
+go <- go %>%
+  mutate(gs_name = str_remove(gs_name, "^GO"),
+  gs_name = str_to_title(gs_name)
 )
 
 hallmark_list <- split(
@@ -1345,9 +1344,11 @@ make_rank_vector <- function(dat){
   sort(stats, decreasing = TRUE)
 }
 ```
-
+#--------------
+#reactome plots
+#--------------
 ```{r}
-gsea_results_edgeR <- edgeR_all %>%
+gsea_results_reactome <- edgeR_all %>%
   group_by(celltype, comparison) %>%
   nest() %>%
   dplyr::mutate(
@@ -1366,6 +1367,16 @@ gsea_results_edgeR <- edgeR_all %>%
   dplyr::select(-data, -stats) %>%
   unnest(fgsea)
 
+gsea_top_reactome <- gsea_results_reactome %>%
+  filter(!is.na(padj)) %>%
+  filter(padj < 0.05) %>%
+  group_by(celltype, comparison) %>%
+  slice_max(
+    order_by = abs(NES),
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
 ```
 
 ```{r}
@@ -1446,21 +1457,36 @@ plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
 ```
 
 ```{r}
-gsea_results_edgeR %>%
-  distinct(celltype)
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+PT_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "PT"
 )
 
-pt_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PT_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/PT_panel_reactome.png"
+)
+
+unlink(tmp)
+
+pt_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "PT") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "PT",
       contrast_name = .x
     )
@@ -1475,46 +1501,80 @@ pt_individual_plots[[6]] #t1d vs t2d
 ```
 
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+PC_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "PC"
 )
 
-pc_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PC_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/PC_panel_reactome.png"
+)
+
+unlink(tmp)
+
+pc_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "PC") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "PC",
       contrast_name = .x
     )
   )
 
 pc_individual_plots[[1]] #lean vs obese
-pc_individual_plots[[2]] #lean vs T1d
-pc_individual_plots[[3]] #lean vs T2d
-pc_individual_plots[[4]] #OC vs t1d
-pc_individual_plots[[5]] #oc vs t2d
-pc_individual_plots[[6]] #t1d vs t2d
+#pc_individual_plots[[2]] #lean vs T1d
+pc_individual_plots[[2]] #lean vs T2d
+pc_individual_plots[[3]] #OC vs t1d
+pc_individual_plots[[4]] #oc vs t2d
+pc_individual_plots[[5]] #t1d vs t2d
 ```
 
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+EC_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "EC"
 )
 
-ec_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = EC_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/EC_panel_reactome.png"
+)
+
+unlink(tmp)
+
+ec_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "EC") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "EC",
       contrast_name = .x
     )
@@ -1529,19 +1589,36 @@ ec_individual_plots[[5]] #t1d vs t2d
 ```
 
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+TAL_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "TAL"
 )
 
-tal_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = TAL_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/TAL_panel_reactome.png"
+)
+
+unlink(tmp)
+
+tal_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "TAL") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "TAL",
       contrast_name = .x
     )
@@ -1556,19 +1633,36 @@ tal_individual_plots[[6]] #t1d vs t2d
 ```
 
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+Immune_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "Immune"
 )
 
-immune_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = Immune_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/Immune_panel_reactome.png"
+)
+
+unlink(tmp)
+
+immune_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "Immune") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "Immune",
       contrast_name = .x
     )
@@ -1583,19 +1677,36 @@ immune_individual_plots[[6]] #t1d vs lc
 ```
 
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+POD_panel <-plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "POD"
 )
 
-pod_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = POD_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/POD_panel_reactome.png"
+)
+
+unlink(tmp)
+
+pod_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "POD") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "POD",
       contrast_name = .x
     )
@@ -1609,19 +1720,36 @@ pod_individual_plots <- gsea_top_edgeR %>%
 pod_individual_plots[[1]] #t1d vs t2d
 ```
 ```{r}
-plot_gsea_lollipop(
-  dat = gsea_top_edgeR,
+DCT_CNT_panel <- plot_gsea_lollipop(
+  dat = gsea_top_reactome,
   celltype_name = "DCT_CNT"
 )
 
-dctCNT_individual_plots <- gsea_top_edgeR %>%
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = DCT_CNT_panel,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Reactome/DCT_CNT_panel_reactome.png"
+)
+
+unlink(tmp)
+
+dctCNT_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "DCT_CNT") %>%
   distinct(comparison) %>%
   pull(comparison) %>%
   set_names() %>%
   purrr::map(
     ~ plot_gsea_lollipop(
-      dat = gsea_top_edgeR,
+      dat = gsea_top_reactome,
       celltype_name = "DCT_CNT",
       contrast_name = .x
     )
@@ -1634,3 +1762,712 @@ dctCNT_individual_plots[[4]] #oc vs t1d
 dctCNT_individual_plots[[5]] #oc vs t2d
 dctCNT_individual_plots[[6]] #t1d vs t2d
 ```
+
+#-------------------------------
+#plotting top GO pathways
+#-------------------------------
+```{r}
+gsea_results_GO <- edgeR_all %>%
+  group_by(celltype, comparison) %>%
+  nest() %>%
+  dplyr::mutate(
+    stats = map(data, make_rank_vector),
+
+    fgsea = map(
+      stats,
+      ~ fgsea(
+        pathways = go_list,
+        stats = .x,
+        minSize = 15,
+        maxSize = 500
+      )
+    )
+  ) %>%
+  dplyr::select(-data, -stats) %>%
+  unnest(fgsea)
+
+
+gsea_top_GO<- gsea_results_GO%>%
+  filter(!is.na(padj)) %>%
+  filter(padj < 0.05) %>%
+  group_by(celltype, comparison) %>%
+  slice_max(
+    order_by = abs(NES),
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
+```
+
+```{r}
+PT_panel_GO <- plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "PT"
+)
+
+PT_panel_GO
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PT_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/PT_panel_GO.png"
+)
+
+unlink(tmp)
+
+
+pt_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "PT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "PT",
+      contrast_name = .x
+    )
+  )
+
+pt_individual_plots[[1]] #lean vs obese
+pt_individual_plots[[2]] #lean vs T1d
+pt_individual_plots[[3]] #lean vs T2d
+pt_individual_plots[[4]] #OC vs t1d
+pt_individual_plots[[5]] #oc vs t2d
+pt_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+PC_panel_GO <- plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "PC"
+)
+
+PC_panel_GO
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PC_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/PC_panel_GO.png"
+)
+
+unlink(tmp)
+
+
+pc_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "PC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "PC",
+      contrast_name = .x
+    )
+  )
+
+pc_individual_plots[[1]] #lean vs obese
+pc_individual_plots[[2]] #lean vs T1d
+pc_individual_plots[[3]] #lean vs T2d
+pc_individual_plots[[4]] #OC vs t1d
+pc_individual_plots[[5]] #oc vs t2d
+pc_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+EC_panel_GO <- plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "EC"
+)
+EC_panel_GO
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = EC_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/EC_panel_GO.png"
+)
+
+unlink(tmp)
+
+ec_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "EC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "EC",
+      contrast_name = .x
+    )
+  )
+
+ec_individual_plots[[1]] #lc vs oc
+ec_individual_plots[[2]] #lc vs t2d
+ec_individual_plots[[3]] #oc vs t1d
+ec_individual_plots[[4]] #oc vs t2d
+ec_individual_plots[[5]] #t1d vs t2d
+#ec_individual_plots[[6]] #no t1d vs lc
+```
+
+```{r}
+TAL_panel_GO <- plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "TAL"
+)
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = TAL_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/TAL_panel_GO.png"
+)
+
+unlink(tmp)
+
+tal_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "TAL") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "TAL",
+      contrast_name = .x
+    )
+  )
+
+tal_individual_plots[[1]] #lc vs oc
+tal_individual_plots[[2]] #lc vs t1d
+tal_individual_plots[[3]] #lc vs t2d
+tal_individual_plots[[4]] #oc vs t1d
+tal_individual_plots[[5]] #oc vs t2d
+tal_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+Immune_panel_GO <- plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "Immune")
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = Immune_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/Immune_panel_GO.png"
+)
+
+unlink(tmp)
+
+immune_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "Immune") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "Immune",
+      contrast_name = .x
+    )
+  )
+
+immune_individual_plots[[1]] #lc vs oc
+immune_individual_plots[[2]] #lc vs t2d
+immune_individual_plots[[3]] #oc vs t1d
+immune_individual_plots[[4]] #oc vs t2d
+immune_individual_plots[[5]] #t1d vs t2d
+immune_individual_plots[[6]] #t1d vs lc
+```
+
+```{r}
+POD_panel_GO <-plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "POD"
+)
+POD_panel_GO
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = POD_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/POD_panel_GO.png"
+)
+
+unlink(tmp)
+
+pod_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "POD") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "POD",
+      contrast_name = .x
+    )
+  )
+
+#pod_individual_plots[[1]] #lc vs oc not sig
+#pod_individual_plots[[2]] #lc vs t1d not sig
+#pod_individual_plots[[3]] #lc vs t2d not sig
+#pod_individual_plots[[4]] #oc vs t1d not sig
+#pod_individual_plots[[5]] #oc vs t2d not sig
+pod_individual_plots[[1]] #t1d vs t2d
+```
+
+```{r}
+DCT_CNT_panel_GO <-plot_gsea_lollipop(
+  dat = gsea_top_GO,
+  celltype_name = "DCT_CNT"
+)
+
+DCT_CNT_panel_GO
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = DCT_CNT_panel_GO,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/GO/DCT_CNT_panel_GO.png"
+)
+
+unlink(tmp)
+
+dctCNT_individual_plots <- gsea_top_GO %>%
+  filter(celltype == "DCT_CNT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_GO,
+      celltype_name = "DCT_CNT",
+      contrast_name = .x
+    )
+  )
+
+dctCNT_individual_plots[[1]] #lc vs oc
+dctCNT_individual_plots[[2]] #lc vs t1d
+dctCNT_individual_plots[[3]] #lc vs t2d
+dctCNT_individual_plots[[4]] #oc vs t1d
+dctCNT_individual_plots[[5]] #oc vs t2d
+dctCNT_individual_plots[[6]] #t1d vs t2d
+```
+
+#--------------------
+#plotting hallmark results
+#--------------------
+```{r}
+gsea_results_hallmark <- edgeR_all %>%
+  group_by(celltype, comparison) %>%
+  nest() %>%
+  dplyr::mutate(
+    stats = map(data, make_rank_vector),
+
+    fgsea = map(
+      stats,
+      ~ fgsea(
+        pathways = hallmark_list,
+        stats = .x,
+        minSize = 15,
+        maxSize = 500
+      )
+    )
+  ) %>%
+  dplyr::select(-data, -stats) %>%
+  unnest(fgsea)
+
+gsea_top_hallmark <- gsea_results_hallmark %>%
+  filter(!is.na(padj)) %>%
+  filter(padj < 0.05) %>%
+  group_by(celltype, comparison) %>%
+  slice_max(
+    order_by = abs(NES),
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
+```
+
+```{r}
+PT_panel_hallmark <- plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "PT"
+)
+
+PT_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PT_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/PT_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+pt_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "PT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "PT",
+      contrast_name = .x
+    )
+  )
+
+pt_individual_plots[[1]] #lean vs obese
+pt_individual_plots[[2]] #lean vs T1d
+pt_individual_plots[[3]] #lean vs T2d
+pt_individual_plots[[4]] #OC vs t1d
+pt_individual_plots[[5]] #oc vs t2d
+pt_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+PC_panel_hallmark <-plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "PC"
+)
+
+PC_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = PC_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/PC_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+pc_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "PC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "PC",
+      contrast_name = .x
+    )
+  )
+
+pc_individual_plots[[1]] #lean vs obese
+#pc_individual_plots[[2]] #lean vs T1d
+pc_individual_plots[[2]] #lean vs T2d
+pc_individual_plots[[3]] #OC vs t1d
+pc_individual_plots[[4]] #oc vs t2d
+pc_individual_plots[[5]] #t1d vs t2d
+```
+
+```{r}
+EC_panel_hallmark <- plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "EC"
+)
+
+EC_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = EC_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/EC_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+ec_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "EC") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "EC",
+      contrast_name = .x
+    )
+  )
+
+ec_individual_plots[[1]] #lc vs oc
+ec_individual_plots[[2]] #lc vs t2d
+ec_individual_plots[[3]] #oc vs t1d
+ec_individual_plots[[4]] #oc vs t2d
+ec_individual_plots[[5]] #t1d vs t2d
+ec_individual_plots[[6]] #no t1d vs lc
+```
+
+```{r}
+TAL_panel_hallmark <- plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "TAL"
+)
+
+TAL_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = TAL_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/TAL_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+tal_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "TAL") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "TAL",
+      contrast_name = .x
+    )
+  )
+
+tal_individual_plots[[1]] #lc vs oc
+tal_individual_plots[[2]] #lc vs t1d
+tal_individual_plots[[3]] #lc vs t2d
+tal_individual_plots[[4]] #oc vs t1d
+tal_individual_plots[[5]] #oc vs t2d
+tal_individual_plots[[6]] #t1d vs t2d
+```
+
+```{r}
+Immune_panel_hallmark <-plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "Immune"
+)
+
+Immune_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = Immune_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/Immune_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+immune_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "Immune") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "Immune",
+      contrast_name = .x
+    )
+  )
+
+immune_individual_plots[[1]] #lc vs oc
+immune_individual_plots[[2]] #lc vs t2d
+immune_individual_plots[[3]] #oc vs t1d
+immune_individual_plots[[4]] #oc vs t2d
+immune_individual_plots[[5]] #t1d vs t2d
+immune_individual_plots[[6]] #t1d vs lc
+```
+
+```{r}
+POD_panel_hallmark <-plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "POD"
+)
+
+POD_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = POD_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/POD_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+pod_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "POD") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "POD",
+      contrast_name = .x
+    )
+  )
+
+#pod_individual_plots[[1]] #lc vs oc not sig
+#pod_individual_plots[[2]] #lc vs t1d not sig
+#pod_individual_plots[[3]] #lc vs t2d not sig
+#pod_individual_plots[[4]] #oc vs t1d not sig
+#pod_individual_plots[[5]] #oc vs t2d not sig
+pod_individual_plots[[1]] #t1d vs t2d
+```
+
+```{r}
+DCT_CNT_panel_hallmark <- plot_gsea_lollipop(
+  dat = gsea_top_hallmark,
+  celltype_name = "DCT_CNT"
+)
+
+DCT_CNT_panel_hallmark
+
+tmp <- tempfile(fileext = ".png")
+
+ggsave(
+  filename = tmp,
+  plot = DCT_CNT_panel_hallmark,
+  width = 24,
+  height = 12,
+  dpi = 300
+)
+
+upload_to_kopah(
+  file = tmp,
+  object = "figures/GSEA/Hallmark/DCT_CNT_panel_hallmark.png"
+)
+
+unlink(tmp)
+
+dctCNT_individual_plots <- gsea_top_hallmark %>%
+  filter(celltype == "DCT_CNT") %>%
+  distinct(comparison) %>%
+  pull(comparison) %>%
+  set_names() %>%
+  purrr::map(
+    ~ plot_gsea_lollipop(
+      dat = gsea_top_hallmark,
+      celltype_name = "DCT_CNT",
+      contrast_name = .x
+    )
+  )
+
+dctCNT_individual_plots[[1]] #lc vs oc
+#dctCNT_individual_plots[[2]] #lc vs t1d
+dctCNT_individual_plots[[2]] #lc vs t2d
+dctCNT_individual_plots[[3]] #oc vs t1d
+dctCNT_individual_plots[[4]] #oc vs t2d
+dctCNT_individual_plots[[5]] #t1d vs t2d
+```
+
