@@ -988,7 +988,7 @@ res_T1D_OC <- run_elastic_net(
   cc = "T1D_vs_OC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_log_all,
+  X_mat = mat_log_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -999,7 +999,7 @@ res_T1D_T2D <- run_elastic_net(
   cc = "T1D_vs_T2D",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_log_all,
+  X_mat = mat_log_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -1010,7 +1010,7 @@ res_T2D_LC <- run_elastic_net(
   cc = "T2D_vs_LC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_log_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -1021,7 +1021,7 @@ res_T2D_OC <- run_elastic_net(
   cc = "T2D_vs_OC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_log_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -1032,7 +1032,7 @@ res_OC_LC <- run_elastic_net(
   cc = "OC_vs_LC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_log_filt,
   top_n = 50,
   covars = c("age", "sex")
 )
@@ -1124,7 +1124,7 @@ boot_metab_T1D_LC <- run_elastic_net_bootstrap_metab(
   cc = "T1D_vs_LC",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_log_filt,
   top_n = 50
 )
 ```
@@ -1139,7 +1139,7 @@ boot_metab_T1D_T2D <- run_elastic_net_bootstrap_metab(
   cc = "T1D_vs_T2D",
   out_list = out_all,
   meta_df = meta_all,
-  X_mat = mat_imp_all,
+  X_mat = mat_log_filt,
   top_n = 50
 )
 ```
@@ -1176,50 +1176,44 @@ plot_stability_metab(boot_metab_T1D_LC)
 plot_stability_metab(boot_metab_T1D_T2D)
 ```
 
-```{r}
-run_kegg_metab_ora(
-  tt = out_all[["T1D_vs_LC"]],
-  pathway_map = pathway2compound,
-  p_cutoff = 0.05,
-  fc_cutoff = 0,
-  min_overlap = 3
-)
-```
-
-```{r}
-sig_metabs <- core_metab_T1D_LC$feature_id
-
-ora_input <- out_all[["T1D_vs_LC"]] %>%
-  mutate(is_sig = feature_id %in% sig_metabs)
-
-run_kegg_metab_ora(ora_input, pathway2compound)
-```
-
 ##-------------------------------------------------
 ##PREP MATRIX: Metabolomic + Proteomics data subset
 ##-------------------------------------------------
 ```{r}
-mat_mp <- as.matrix(mat_mp)
-rownames(mat_mp) <- trimws(as.character(rownames(mat_mp)))
+limma_allOmics <- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "limma_gsea_inputs_age_sex_study.rds"))
 
-mat_log_mp <- log2(mat_mp + 1)
-mat_log_mp[!is.finite(mat_log_mp)] <- NA_real_
+allOmics_ids <- limma_allOmics$all_omics$samples$record_id %>%
+  as.character() %>%
+  trimws()
 
-study_idx_mp <- split(seq_len(nrow(mat_log_mp)), meta_mp$study)
+ids_overlap <- intersect(
+  meta_metab$record_id,
+  allOmics_ids
+)
 
-present_by_study_mp <- sapply(study_idx_mp, function(idx) {
-  colSums(!is.na(mat_log_mp[idx, , drop = FALSE])) > 0
-})
+meta_overlap <- meta_metab %>%
+  filter(record_id %in% ids_overlap) %>%
+  arrange(match(record_id, ids_overlap))
 
-present_by_study_mp <- as.matrix(present_by_study_mp)
+mat_overlap <- mat_log_filt2[
+  ids_overlap,
+  ,
+  drop = FALSE
+]
 
-n_studies_present_mp <- colSums(present_by_study_mp)
-keep_study_mp <- n_studies_present_mp >= 2
+stopifnot(
+  identical(meta_overlap$record_id,
+            rownames(mat_overlap))
+)
 
-cat("Subset features before study filter:", ncol(mat_log_mp), "\n")
-cat("Removed (<2 studies):", sum(!keep_study_mp), "\n")
-cat("Kept (>=2 studies):", sum(keep_study_mp), "\n")
+cat("Overlap samples:", nrow(meta_overlap), "\n")
+cat("Metabolites:", ncol(mat_overlap), "\n")
 
+table(meta_overlap$group4)
+table(meta_overlap$study, meta_overlap$group4)
+```
+
+```{r}
 mat_filt_mp <- mat_log_mp[, keep_study_mp, drop = FALSE]
 
 meds_mp <- apply(mat_filt_mp, 2, function(x) {
