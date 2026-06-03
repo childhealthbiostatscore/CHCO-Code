@@ -10,55 +10,24 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-#Directories
-#computer <- "mac studio"
-computer <- "mac laptop"
-
 user <- Sys.info()[["user"]]
 
-if (computer == "mac studio") {
-  
-  if (user == "sleidholt") {
-    dir.dat <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-    dir.results <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/"
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
-    
-  } else if (user == "hhampson") {
-    dir.dat <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
-    dir.results <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results"
-    git_path <- "/Users/hhampson/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "shivaniramesh") {
-    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
-    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
-    
-  } else if (user == "choiyej") {
-    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
-    dir.results <- paste0(dir.dat, "/PANTHER/Results")
-    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "pylell") {
-    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-    dir.results <- paste0(dir.dat, "/PANTHER/Results")
-    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-  }
-
-} else if (computer == "mac laptop") {
-
-  if (user == "savanahleidholt") {
-    dir.dat <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-    dir.results <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/T1D-T2D/Results/Metabolomics"
-    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "hhampson") {
-    dir.dat <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
-    dir.results <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Results"
-    git_path <- "/Users/hhampson/CHCO-Code/Petter Bjornstad"
-    
-  } else if (user == "shivaniramesh") {
-    dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
-    dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results"
-  }
+if (user == "leidholt") {
+  root_path <- "/mmfs1/gscratch/togo/leidholt/"
+  git_path  <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys      <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+  root_path <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
 }
 ```
 
@@ -81,7 +50,7 @@ library(glmnet)
 # raw metabolomics QC/summary plots
 #------------------------------------
 ```{r}
-omics_objects <- readRDS(file.path(dir.dat, "Savanah Leidholt", "T1D-T2D", "Data", "omics_split_objects3.rds"))
+omics_objects <- readRDS(file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "omics_split_objects_clean.rds"))
 meta_qc <- omics_objects$meta_metab
 mat_qc  <- omics_objects$metabolites
 
@@ -237,212 +206,202 @@ contrast_names <- c(
 meta_metab <- omics_objects$meta_metab
 mat_metab  <- omics_objects$metabolites
 
-meta_metab$record_id <- trimws(as.character(meta_metab$record_id))
-meta_metab$study     <- trimws(as.character(meta_metab$study))
-meta_metab$group     <- trimws(as.character(meta_metab$group))
-meta_metab$sex       <- trimws(as.character(meta_metab$sex))
+rownames(mat_metab) <- trimws(rownames(mat_metab))
 
-meta_metab$age <- suppressWarnings(as.numeric(meta_metab$age))
-meta_metab$bmi <- suppressWarnings(as.numeric(meta_metab$bmi))
-
-meta_metab <- meta_metab[
-  !is.na(meta_metab$age) & !is.na(meta_metab$sex) & meta_metab$sex != "",
-  ,
-  drop = FALSE
-]
-
-meta_metab$group4 <- factor(
-  meta_metab$group,
-  levels = c("Lean Control", "Obese Control", "Type 1 Diabetes", "Type 2 Diabetes"),
-  labels = c("LC", "OC", "T1D", "T2D")
-)
-
-# recode study names directly into study
-meta_metab$study <- dplyr::recode(
-  meta_metab$study,
-  "ATTEMPT"         = "ATT",
-  "CROCODILE"       = "CRC",
-  "RENAL-HEIR"      = "RH",
-  "IMPROVE"         = "IT",
-  "PANTHER" = "PANTH",
-  "RENAL-HEIRitage" = "RH2",
-  .default = meta_metab$study
-)
-
-# remove ATTEMPT from all downstream analyses
 meta_metab <- meta_metab %>%
-  filter(!study %in% c("ATT", "PANTH"))
+  mutate(
+    record_id = trimws(as.character(record_id)),
+    study     = trimws(as.character(study)),
+    group     = trimws(as.character(group)),
+    sex       = trimws(as.character(sex)),
+    age       = suppressWarnings(as.numeric(age)),
+    bmi       = suppressWarnings(as.numeric(bmi)),
 
-meta_metab$study <- factor(meta_metab$study)
-meta_metab$sex   <- factor(meta_metab$sex)
+    group4 = factor(
+      group,
+      levels = c(
+        "Lean Control",
+        "Obese Control",
+        "Type 1 Diabetes",
+        "Type 2 Diabetes"
+      ),
+      labels = c("LC", "OC", "T1D", "T2D")
+    ),
 
-rownames(mat_metab) <- trimws(as.character(rownames(mat_metab)))
+    study = dplyr::recode(
+      study,
+      "ATTEMPT"         = "ATT",
+      "CROCODILE"       = "CRC",
+      "RENAL-HEIR"      = "RH",
+      "IMPROVE"         = "IT",
+      "PANTHER"         = "PANTH",
+      "RENAL-HEIRitage" = "RH2",
+      .default = study
+    ),
 
-# keep only IDs remaining after ATT removal
-keep_ids <- intersect(meta_metab$record_id, rownames(mat_metab))
+    study = factor(study),
+    sex   = factor(sex)
+  ) %>%
+  filter(
+    !is.na(age),
+    !is.na(sex),
+    sex != "",
+    !study %in% c("ATT", "PANTH")
+  )
 
-meta_metab <- meta_metab[match(keep_ids, meta_metab$record_id), , drop = FALSE]
-mat_metab  <- mat_metab[keep_ids, , drop = FALSE]
+#remove samples with no metabolite data
+mat_metab <- mat_metab[rowSums(!is.na(mat_metab)) > 0, , drop = FALSE]
 
-stopifnot(identical(meta_metab$record_id, rownames(mat_metab)))
+# keep and align shared samples
+ids_use <- intersect(meta_metab$record_id, rownames(mat_metab))
 
-cat("ATT & PANTH removed from all analyses\n")
-cat("Remaining samples:", nrow(meta_metab), "\n")
-cat("Remaining metabolites:", ncol(mat_metab), "\n")
-print(table(meta_metab$study, useNA = "ifany"))
-```
-#--------------
-#IDS WITH DATA
-#--------------
-```{r}
-ids_metab <- rownames(mat_metab)[rowSums(!is.na(mat_metab)) > 0]
+meta_all <- meta_metab %>%
+  filter(record_id %in% ids_use) %>%
+  arrange(match(record_id, ids_use))
 
-prot_tmp <- omics_objects$prot_plasma
-rownames(prot_tmp) <- trimws(as.character(rownames(prot_tmp)))
-ids_prot <- rownames(prot_tmp)[rowSums(!is.na(prot_tmp)) > 0]
-
-ids_metab <- trimws(as.character(ids_metab))
-ids_prot  <- trimws(as.character(ids_prot))
-
-ids_metab_prot <- intersect(ids_metab, ids_prot)
-
-cat("Total metabolomics IDs with data after ATT & PANTH removal:", length(ids_metab), "\n")
-cat("Total metabolomics + proteomics overlap IDs:", length(ids_metab_prot), "\n")
-
-```
-#----------------------------
-# a) ALL METABOLOMICS SAMPLES
-#----------------------------
-```{r}
-ids_use_all <- intersect(meta_metab$record_id, rownames(mat_metab))
-
-meta_all <- meta_metab[match(ids_use_all, meta_metab$record_id), , drop = FALSE]
-mat_all  <- mat_metab[ids_use_all, , drop = FALSE]
+mat_all <- mat_metab[meta_all$record_id, , drop = FALSE]
 
 stopifnot(identical(meta_all$record_id, rownames(mat_all)))
 
-cat("All metabolomics analysis-ready N:", nrow(meta_all), "\n")
-cat("All metabolomics features before filtering:", ncol(mat_all), "\n")
+cat("All metabolomics participant before filtering:", nrow(meta_metab), "\n")
+cat("All metabolomics participant after filtering:", nrow(meta_all), "\n")
+cat("All metabolomics features before filtiner:", ncol(mat_metab), "\n")
+cat("All metabolomics features after filtering:", ncol(mat_all), "\n")
 print(table(meta_all$study, meta_all$group4, useNA = "ifany"))
 ```
+#----------------------------
+#filtering step where protein 
+#must exist in 60% of samples 
+#in a study &b be in 2 studies
+#----------------------------
 ```{r}
-##filtering step where protein must exist in 60% of samples in a study &b be in 2 studies
-study_idx_all <- split(seq_len(nrow(mat_all)), meta_metab$study)
-present_by_study_all <- sapply(study_idx_all, function(idx) {
-  colMeans(!is.na(mat_all[idx, ])) >= 0.6
-})
+study_idx <- split(seq_len(nrow(mat_all)), meta_all$study)
 
-present_by_study_all <- as.matrix(present_by_study_all)
-n_studies_present_all <- colSums(present_by_study_all)
-keep_study_all <- n_studies_present_all >= 2
+present_by_study <- vapply(
+  study_idx,
+  FUN = function(idx) {
+    colMeans(!is.na(mat_all[idx, , drop = FALSE])) >= 0.6
+  },
+  FUN.VALUE = setNames(logical(ncol(mat_all)), colnames(mat_all))
+)
 
-removed_metabolites <- colnames(mat_all)[!keep_study_all]
-kept_metabolites    <- colnames(mat_all)[keep_study_all]
+present_by_study[is.na(present_by_study)] <- FALSE
 
-cat("All metabolomic features before study filter:", ncol(mat_all), "\n")
-cat("Removed (<2 studies meeting 60% presence threshold):", length(removed_metabolites), "\n")
-cat("Kept (>=2 studies meeting 60% presence threshold):", length(kept_metabolites), "\n")
+n_studies_present <- rowSums(present_by_study)
+
+keep_metabolites <- n_studies_present >= 2
+
+kept_metabolites <- rownames(present_by_study)[keep_metabolites]
+removed_metabolites <- rownames(present_by_study)[!keep_metabolites]
+
+cat("Removed metabolites:", length(removed_metabolites), "\n")
+cat("Kept metabolites:", length(kept_metabolites), "\n")
 
 mat_filt <- mat_all[, kept_metabolites, drop = FALSE]
+
 ```
 
-##--------------------------
-## log transform & imputation
-##-------------------
+##----------------------------------------------------------------------------
+## log transform & removing participants without any data in indivudal studies
+##----------------------------------------------------------------------------
 ```{r}
-mat_filt <- as.matrix(mat_filt)
-rownames(mat_filt) <- trimws(as.character(rownames(mat_filt)))
-
-mat_log_all <- log2(mat_filt + 1)
-
+mat_log_all <- as.matrix(log2(mat_filt + 1))
 mat_log_all[!is.finite(mat_log_all)] <- NA_real_
 
-meds_all <- apply(mat_filt, 2, function(x) {
-  m <- median(x, na.rm = TRUE)
-  if (is.finite(m)) m else NA_real_
-})
+# remove features with any missing values
+mat_log_all <- mat_log_all[
+  ,
+  colSums(is.na(mat_log_all)) == 0,
+  drop = FALSE
+]
 
-mat_imp_all <- mat_filt
+# remove near-zero variance features
+nzv_idx <- nearZeroVar(mat_log_all)
 
-for (j in seq_len(ncol(mat_imp_all))) {
-  if (!is.na(meds_all[j])) {
-    mat_imp_all[is.na(mat_imp_all[, j]), j] <- meds_all[j]
-  }
+mat_log_filt <- if (length(nzv_idx) > 0) {
+  mat_log_all[, -nzv_idx, drop = FALSE]
+} else {
+  mat_log_all
 }
 
-vars_all <- apply(mat_imp_all, 2, var, na.rm = TRUE)
+cat("Features before filtering:", ncol(mat_filt), "\n") #165
+cat("Features after filtering:", ncol(mat_log_filt), "\n") #144
+cat("Participants:", nrow(mat_log_filt), "\n") #132
 
-keep_cols_all <- colSums(is.na(mat_imp_all)) == 0 &
-  vars_all > 0 &
-  is.finite(vars_all)
-
-mat_imp_all <- mat_imp_all[, keep_cols_all, drop = FALSE]
-
-cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
-cat("number of participants kept", nrow(mat_imp_all), "\n")
-stopifnot(identical(rownames(mat_imp_all), meta_metab$record_id))
-```
-
-```{r}
-#removing zero variance features in the imputed matrix
-nzv_idx <- nearZeroVar(mat_imp_all)
-
-length(nzv_idx)   # how many features will be removed
-colnames(mat_imp_all)[nzv_idx]  #view removed features
-
-mat_imp_filt <- mat_imp_all[, -nzv_idx, drop = FALSE]
+stopifnot(identical(rownames(mat_log_filt), meta_all$record_id))
 ```
 
 ##---------------------------
 ## PCA-based outlier removal
 ##---------------------------
 ```{r}
-pca_all <- prcomp(mat_imp_filt, center = TRUE, scale. = TRUE)
-pca_dist_all <- sqrt(rowSums(pca_all$x[, 1:5]^2))
+pca_all <- prcomp(mat_log_filt, center = TRUE, scale. = TRUE)
 
+pca_dist_all <- sqrt(rowSums(pca_all$x[, 1:5, drop = FALSE]^2))
 cutoff_all <- median(pca_dist_all) + 3 * mad(pca_dist_all, constant = 1)
 
 outlier_df_all <- meta_all %>%
-  dplyr::mutate(
+  mutate(
     pca_dist = pca_dist_all,
     pca_outlier = pca_dist > cutoff_all
   ) %>%
-  dplyr::arrange(dplyr::desc(pca_dist))
+  arrange(desc(pca_dist))
 
-# inspect outliers
 outlier_df_all %>%
-  dplyr::filter(pca_outlier) %>%
-  dplyr::select(record_id, study, group4, pca_dist)
+  filter(pca_outlier) %>%
+  select(record_id, study, group4, pca_dist) #CRC-09, CRC-47
 
-# remove outliers
 keep_ids_all <- outlier_df_all %>%
-  dplyr::filter(!pca_outlier) %>%
-  dplyr::pull(record_id)
+  filter(!pca_outlier) %>%
+  pull(record_id)
 
-# subset matrix
-mat_imp_filt <- mat_imp_filt[keep_ids_all, , drop = FALSE]
+mat_log_filt2 <- mat_log_filt[keep_ids_all, , drop = FALSE]
 
-# reorder metadata to match matrix
-meta_all <- meta_all[match(keep_ids_all, meta_all$record_id), , drop = FALSE]
-cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_imp_all), "\n")
-cat("number of participants kept", nrow(mat_imp_all), "\n")
+meta_all2 <- meta_all %>%
+  filter(record_id %in% keep_ids_all) %>%
+  arrange(match(record_id, keep_ids_all))
 
-stopifnot(identical(meta_all$record_id, rownames(mat_imp_filt)))
+stopifnot(identical(meta_all_no_outliers$record_id, rownames(mat_log_filt_no_outliers)))
+
+cat("All metabolomics features kept for PCA/LIMMA:", ncol(mat_log_filt_no_outliers), "\n")
+cat("Number of participants kept:", nrow(mat_log_filt_no_outliers), "\n")
 ```
 
 ##-----------------------
 ## PCA: all metabolomics
 ##-----------------------
 ```{r}
-p0_all <- make_pca_plot(mat_imp_filt, meta_all, "Metabolomics - No adjustment")
+p0_all <- make_pca_plot(
+  mat_log_filt,
+  meta_all,
+  "Metabolomics - No adjustment"
+)
 
 cov1_all <- model.matrix(~ age + sex, data = meta_all)[, -1, drop = FALSE]
-mat_adj1_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov1_all))
-p1_all <- make_pca_plot(mat_adj1_all, meta_all, "Metabolomics - Age + Sex")
+
+mat_adj1_all <- t(limma::removeBatchEffect(
+  t(mat_log_filt),
+  covariates = cov1_all
+))
+
+p1_all <- make_pca_plot(
+  mat_adj1_all,
+  meta_all,
+  "Metabolomics - Age + Sex"
+)
 
 cov2_all <- model.matrix(~ age + sex + study, data = meta_all)[, -1, drop = FALSE]
-mat_adj2_all <- t(removeBatchEffect(t(mat_imp_filt), covariates = cov2_all))
-p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Study")
+
+mat_adj2_all <- t(limma::removeBatchEffect(
+  t(mat_log_filt),
+  covariates = cov2_all
+))
+
+p2_all <- make_pca_plot(
+  mat_adj2_all,
+  meta_all,
+  "Metabolomics - Age + Sex + Study"
+)
 
 (p0_all | p1_all | p2_all) +
   plot_annotation(
@@ -450,11 +409,27 @@ p2_all <- make_pca_plot(mat_adj2_all, meta_all, "Metabolomics - Age + Sex + Stud
     subtitle = "Color = group | Shape = study | removeBatchEffect used for visualization only"
   )
 ```
+```{r}
+table(meta_all$study, meta_all$group4)
+
+limma::nonEstimable(design_all)
+
+qr(design_all)$rank
+ncol(design_all)
+```
+
+
 ##------------------------
 ## LIMMA: all metabolomics
 ## ------------------------
 ```{r}
-Y_all <- t(as.matrix(mat_imp_filt))
+Y_all <- t(as.matrix(mat_log_filt))
+meta_all <- meta_all %>%
+  mutate(
+    group4 = droplevels(group4),
+    sex    = droplevels(sex),
+    study  = droplevels(study)
+  )
 
 design_all <- model.matrix(~ 0 + group4 + age + sex + study, data = meta_all)
 colnames(design_all) <- sub("^group4", "", colnames(design_all))
@@ -491,6 +466,9 @@ sig_all <- tibble(
 )
 
 print(sig_all)
+
+table(meta_all$study, useNA = "ifany")
+colnames(design_all)
 ```
 ##--------------------------------
 ## VOLCANO PLOTS--all metabolomics
@@ -727,7 +705,7 @@ wrap_plots(volcano_list_mp, ncol = 3)
 ```
 ```{r}
 
-dict <- read.csv2(file.path(dir.dat, "Data Harmonization", "data_dictionary_master.csv"), sep = ",") 
+dict <- read.csv2(file.path(root_path, "Data Harmonization", "data_dictionary_master.csv"), sep = ",") 
 
 dict <- dict %>% dplyr::select(variable_name, label, form_name)
 
@@ -744,7 +722,7 @@ dict_lookup <- dict_metab %>%
   filter(!is.na(variable_name), variable_name != "") %>%
   tibble::deframe()
 
-out_mp <- lapply(out_mp, function(x) {
+out_mp <- lapply(out_all, function(x) {
   if (is.matrix(x) || is.data.frame(x)) {
     old_names <- rownames(x)
     if (!is.null(old_names)) {
@@ -939,7 +917,7 @@ plot_kegg_ora <- function(res_df, title_text, n = 15) {
 ##a. ORA on all metabolite data
 ##-----------------------------
 ```{r}
-kegg_res <- lapply(out_all, function(tt) {
+kegg_res <- lapply(out_mp, function(tt) {
   run_kegg_metab_ora(
     tt = tt,
     pathway_map = pathway2compound,
@@ -948,7 +926,7 @@ kegg_res <- lapply(out_all, function(tt) {
   )
 })
 
-names(kegg_res) <- names(out_all)
+names(kegg_res) <- names(out_mp)
 
 kegg_summary<- bind_rows(lapply(names(kegg_res), function(cc) {
   x <- kegg_res[[cc]]
@@ -963,13 +941,13 @@ kegg_summary
 ```
 
 ```{r}
-kegg_res[["T1D_vs_T2D"]] %>%
+kegg_res[["T1D_vs_OC"]] %>%
   select(pathway_name, n_overlap, p_value, padj, overlap_compounds) %>%
   head(20)
 ```
 
 ```{r}
-plot_kegg_ora(kegg_res[["T1D_vs_T2D"]], "KEGG ORA: T1D vs T2D")
+plot_kegg_ora(kegg_res[["T1D_vs_OC"]], "KEGG ORA: T1D vs OC")
 kegg_plots <- lapply(names(kegg_res), function(cc) {
   plot_kegg_ora(kegg_res[[cc]], gsub("_", " ", cc), n = 12)
 })
