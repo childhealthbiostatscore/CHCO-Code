@@ -50,207 +50,9 @@ if (user == "leidholt") {
   stop("Unknown user: please specify root path for this user.")
 }
 ```
-
-#--------------------------
-#partial spearman function
-#--------------------------
-```{r}
-run_partial_spearman <- function(data,
-                                 proteins,
-                                 outcomes,
-                                 covars = c("age", "sex", "study"),
-                                 analysis_label = "global",
-                                 contrast_name = NA_character_,
-                                 min_n = 15) {
-  
-  proteins <- intersect(proteins, colnames(data))
-  outcomes <- intersect(outcomes, colnames(data))
-  covars   <- intersect(covars, colnames(data))
-  
-  purrr::map_dfr(outcomes, function(outcome_var) {
-    
-    purrr::map_dfr(proteins, function(protein_var) {
-      
-      model_df <- data %>%
-        dplyr::select(all_of(c(outcome_var, protein_var, covars))) %>%
-        drop_na()
-      
-      if (nrow(model_df) < min_n) {
-        return(tibble(
-          analysis = analysis_label,
-          contrast = contrast_name,
-          outcome = outcome_var,
-          protein_id = protein_var,
-          rho = NA_real_,
-          p_value = NA_real_,
-          n = nrow(model_df)
-        ))
-      }
-      
-      # ppcor needs numeric covariates
-      model_df2 <- model_df %>%
-        mutate(
-          across(where(is.factor), as.numeric),
-          across(where(is.character), as.factor),
-          across(where(is.factor), as.numeric)
-        )
-      
-      test <- tryCatch(
-        ppcor::pcor.test(
-          x = model_df2[[protein_var]],
-          y = model_df2[[outcome_var]],
-          z = model_df2[, covars, drop = FALSE],
-          method = "spearman"
-        ),
-        error = function(e) NULL
-      )
-      
-      if (is.null(test)) {
-        return(tibble(
-          analysis = analysis_label,
-          contrast = contrast_name,
-          outcome = outcome_var,
-          protein_id = protein_var,
-          rho = NA_real_,
-          p_value = NA_real_,
-          n = nrow(model_df)
-        ))
-      }
-      
-      tibble(
-        analysis = analysis_label,
-        contrast = contrast_name,
-        outcome = outcome_var,
-        protein_id = protein_var,
-        rho = unname(test$estimate),
-        p_value = test$p.value,
-        n = nrow(model_df)
-      )
-    })
-  }) %>%
-    group_by(analysis, contrast, outcome) %>%
-    mutate(FDR = p.adjust(p_value, method = "BH")) %>%
-    ungroup()
-}
-```
-
-#-----------------------------------------
-#volcano function for correlation results
-#----------------------------------------
-```{r}
-make_partial_cor_volcano <- function(cor_df,
-                                     analysis_name,
-                                     contrast_name,
-                                     outcome_name,
-                                     title_prefix = "Partial Spearman correlations",
-                                     fdr_cutoff = 0.05,
-                                     rho_cutoff = 0,
-                                     label_n = 10) {
-  
-  plot_df <- cor_df %>%
-    filter(
-      analysis == analysis_name,
-      contrast == contrast_name,
-      outcome == outcome_name
-    ) %>%
-    filter(
-      is.finite(rho),
-      is.finite(p_value),
-      is.finite(FDR)
-    ) %>%
-    mutate(
-      neg_log10_fdr = -log10(FDR),
-      sig_group = case_when(
-        FDR < fdr_cutoff & rho > rho_cutoff  ~ "Positive",
-        FDR < fdr_cutoff & rho < -rho_cutoff ~ "Negative",
-        TRUE ~ "Not significant"
-      ),
-      label = if_else(
-        !is.na(gene_symbol) & gene_symbol != "",
-        gene_symbol,
-        protein_id
-      )
-    )
-  
-  n_pos <- sum(plot_df$sig_group == "Positive", na.rm = TRUE)
-  n_neg <- sum(plot_df$sig_group == "Negative", na.rm = TRUE)
-  n_ns  <- sum(plot_df$sig_group == "Not significant", na.rm = TRUE)
-  
-  legend_labs <- c(
-    "Positive" = paste0("Positive (n = ", n_pos, ")"),
-    "Negative" = paste0("Negative (n = ", n_neg, ")"),
-    "Not significant" = paste0("Not significant (n = ", n_ns, ")")
-  )
-  
-  top_labels <- plot_df %>%
-    filter(FDR < fdr_cutoff) %>%
-    arrange(FDR) %>%
-    slice_head(n = label_n)
-  
-  ggplot(plot_df, aes(x = rho, y = neg_log10_fdr)) +
-    geom_point(aes(color = sig_group), alpha = 0.75, size = 2) +
-    geom_vline(xintercept = 0, linetype = "solid", alpha = 0.5) +
-    geom_hline(yintercept = -log10(fdr_cutoff), linetype = "dashed") +
-    ggrepel::geom_text_repel(
-      data = top_labels,
-      aes(label = label),
-      size = 3.5,
-      max.overlaps = Inf
-    ) +
-    scale_color_manual(
-      values = c(
-        "Positive" = "orange3",
-        "Negative" = "purple4",
-        "Not significant" = "grey70"
-      ),
-      labels = legend_labs
-    ) +
-    coord_cartesian(xlim = c(-1, 1)) +
-    labs(
-      title = paste(contrast_name, outcome_name, sep = "\n"),
-      x = "Partial Spearman rho",
-      y = "-log10 FDR",
-      color = NULL
-    ) +
-    theme_bw() +
-    theme(
-      panel.grid = element_blank(),
-      legend.position = "right",
-      plot.title = element_text(face = "bold", hjust = 0.5)
-    )
-}
-```
-
-#----------------------------------------------
-#function for plotting all volcanos for all covariates
-#----------------------------------------------
-```{r}
-make_contrast_volcano_panel <- function(cor_df,
-                                        contrast_name,
-                                        outcomes = partial_outcomes) {
-  
-  plot_list <- purrr::map(
-    outcomes,
-    ~ make_partial_cor_volcano(
-      cor_df = cor_df,
-      analysis_name = "Contrast-specific",
-      contrast_name = contrast_name,
-      outcome_name = .x
-    )
-  )
-  
-  names(plot_list) <- outcomes
-  
-  panel <-
-    (plot_list[["BMI"]] | plot_list[["eGFR"]]) /
-    (plot_list[["avg_c_r2"]] | plot_list[["avg_k_r2"]])/
-    (plot_list[["HbA1c"]] | plot_list[["uACR"]])
-  
-  
-  panel
-}
-```
-
+#---------------------------------------------------------
+#load in protein matrix, metadata, and elasticnet results
+#---------------------------------------------------------
 ```{r}
 prot_log <- readRDS(
   file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "prot_log2.rds"))
@@ -268,7 +70,8 @@ prot_mat <- prot_log[meta1$record_id, , drop = FALSE]
 stopifnot(identical(rownames(prot_mat), meta1$record_id))
 
 elasticnet_results <- read.csv(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Results", "Proteomics Results", "ElasticNet", "results_table.csv"))
-elasticnet_results <- elasticnet_results %>%
+elasticnet_results
+proteins <- elasticnet_results %>%
   dplyr::select(contrast, feature_id) 
 
 global_proteins <- elasticnet_results %>%
@@ -287,10 +90,7 @@ meta1 <- meta1 %>%
 ```
 
 ```{r}
-meta_short<- meta1 %>%
-  dplyr::select("record_id", "group", "hba1c", "acr_u", "age", "sex", "bmi", "eGFR_fas_cr", "study6") #eGFR_CKiD_U25_avg not available for all participants
-
-meta_short <- meta_short %>%
+meta1<- meta1 %>%
   dplyr::mutate(log_uACR = log(acr_u))
 
 
@@ -306,137 +106,237 @@ partial_covars <- c("age", "sex", "study") #study may need to be removed
 
 # clinical + protein correlation dataframe
 corr_df <- bind_cols(
-  meta_short %>%
+  meta1 %>%
     transmute(
       record_id,
       group = as.factor(group),
+      group_code = case_when(
+        str_detect(str_to_lower(group), "type 1") ~ "T1D",
+        str_detect(str_to_lower(group), "type 2") ~ "T2D",
+        str_detect(str_to_lower(group), "lean")   ~ "LC",
+        str_detect(str_to_lower(group), "obese")  ~ "OC",
+        TRUE ~ NA_character_
+      ),
       age = as.numeric(age),
       sex = factor(sex),
-      study = as.factor(study6),
+      study = as.factor(study),
       HbA1c = as.numeric(hba1c),
       log_uACR  = as.numeric(log_uACR),
       eGFR  = as.numeric(eGFR_fas_cr),
-      #avg_c_r2 = as.numeric(avg_c_r2),
-      #avg_k_r2 = as.numeric(avg_k_r2),
+      cortical_r = as.numeric(avg_c_r2),
+      medullary_r = as.numeric(avg_k_r2),
       BMI   = as.numeric(bmi)
     ),
   as.data.frame(prot_log)
 )
+
+View(corr_df)
 ```
 
 ```{r}
-global_cor_results <- run_partial_spearman(
-  data = corr_df,
-  proteins = global_proteins,
-  outcomes = partial_outcomes,
-  covars = partial_covars,
-  analysis_label = "Global: all groups",
-  contrast_name = "All_groups",
-  min_n = 15
-) 
-global_cor_results
-
-global_cor_results <- global_cor_results%>%
-  left_join(elasticnet_results,by = c("protein_id" = "feature_id")) %>%
-  mutate(
-    gene_symbol = if_else(
-      is.na(gene_symbol) | gene_symbol == "",
-      protein_id,
-      gene_symbol
-    )
-  )
-
-global_cor_results %>%
-  filter(FDR < 0.05) %>%
-  arrange(outcome, FDR)
+get_contrast <- function(contrast_name) {
+  strsplit(contrast_name, "_vs_")[[1]]
+}
 ```
 
-
+#--------------------------
+#partial spearman function
+#--------------------------
 ```{r}
-contrast_groups <- list(
-  T1D_vs_LC = c("T1D", "LC"), 
-  T2D_vs_LC = c("T2D", "LC"), 
-  T1D_vs_T2D = c("T1D", "T2D"), 
-  OC_vs_LC = c("OC", "LC") ,
-  T1D_vs_OC = c("T1D", "OC"), 
-  T2D_vs_OC = c("T2D", "OC")
-)
+run_partial_spearman <- function(
+    df,
+    protein,
+    outcome,
+    covars = c("age", "sex"),
+    min_n = 5)
+{
 
-elasticnet_results$contrast %>% unique
-setdiff(names(contrast_groups), unique(elasticnet_results$contrast))
-setdiff(unique(elasticnet_results$contrast), names(contrast_groups))
+  vars_needed <- c(protein, outcome, covars)
 
-elasticnet_results %>%
-  filter(contrast == "T1D_vs_LC") %>%
-  pull(feature_id) %>%
-  unique()
+  sub_df <- df %>%
+    select(all_of(vars_needed)) %>%
+    drop_na()
 
-contrast_cor_results <- purrr::imap_dfr(
-  contrast_groups,
-  function(groups_use, contrast_name) {
-    
-    prots <- elasticnet_results %>%
-      filter(contrast == contrast_name) %>%
-      pull(feature_id) %>%
-      unique()
-    
-    data_sub <- corr_df %>%
-      filter(group %in% groups_use)
-    
-    run_partial_spearman(
-      data = data_sub,
-      proteins = prots,
-      outcomes = partial_outcomes,
-      covars = partial_covars,
-      analysis_label = "contrast",
-      contrast_name = contrast_name,
-      min_n = 10
+  if(nrow(sub_df) < min_n) {
+    return(
+      tibble(
+        n = nrow(sub_df),
+        rho = NA_real_,
+        p_value = NA_real_
+      )
     )
   }
+
+
+  fit_prot <- lm(
+    as.formula(
+      paste(protein, "~", paste(covars, collapse = " + "))
+    ),
+    data = sub_df
+  )
+
+  fit_out <- lm(
+    as.formula(
+      paste(outcome, "~", paste(covars, collapse = " + "))
+    ),
+    data = sub_df
+  )
+
+  res_prot <- resid(fit_prot)
+  res_out  <- resid(fit_out)
+
+  ct <- suppressWarnings(
+    cor.test(
+      res_prot,
+      res_out,
+      method = "spearman"
+    )
+  )
+
+  tibble(
+    n = nrow(sub_df),
+    rho = unname(ct$estimate),
+    p_value = ct$p.value
+  )
+}
+```
+
+```{r}
+run_one_contrast_partial <- function(contrast_name,
+                                     analysis_df,
+                                     proteins,
+                                     outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR","cortical_r","medullary_r" ),
+                                     covars = c("age", "sex"),
+                                     min_n = 15) {
+  
+  groups <- get_contrast(contrast_name)
+  
+  df_sub <- analysis_df %>%
+    dplyr::filter(group_code %in% groups)
+  
+  prots <- proteins %>%
+    dplyr::filter(contrast == contrast_name) %>%
+    dplyr::pull(feature_id) %>%
+    unique() %>%
+    na.omit() %>%
+    as.character()
+  
+  prots <- intersect(prots, colnames(df_sub))
+  
+  message("Contrast: ", contrast_name)
+  message("Groups: ", paste(groups, collapse = ", "))
+  message("N samples: ", nrow(df_sub))
+  message("N proteins: ", length(prots))
+  
+  if (nrow(df_sub) == 0 || length(prots) == 0) {
+    return(tibble::tibble())
+  }
+  
+  prots <- prots[
+    sapply(df_sub[, prots, drop = FALSE], function(x) sd(x, na.rm = TRUE) > 0)
+  ]
+  
+  tidyr::crossing(
+    outcome = outcomes,
+    feature_id = prots
+  ) %>%
+    dplyr::mutate(
+      stats = purrr::map2(
+        feature_id,
+        outcome,
+        ~run_partial_spearman(
+          df = df_sub,
+          protein = .x,
+          outcome = .y,
+          covars = covars,
+          min_n = min_n
+        )
+      )
+    ) %>%
+    tidyr::unnest(stats) %>%
+    dplyr::mutate(contrast = contrast_name) %>%
+    dplyr::left_join(
+      elasticnet_results %>%
+        dplyr::select(feature_id, gene_symbol, contrast) %>%
+        dplyr::distinct(feature_id, contrast, .keep_all = TRUE),
+      by = c("feature_id", "contrast")
+    ) %>%
+    dplyr::group_by(contrast, outcome) %>%
+    dplyr::mutate(FDR = p.adjust(p_value, method = "BH")) %>%
+    dplyr::ungroup() %>%
+    dplyr::arrange(outcome, FDR)
+}
+```
+
+```{r}
+partial_T1D_vs_LC <- run_one_contrast_partial(
+  contrast_name = "T1D_vs_LC",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR", "cortical_r","medullary_r"),
+  covars = c("age", "sex")
 )
 
+partial_T1D_vs_LC
+```
 
-contrast_cor_results
 
-  left_join(
-    elasticnet_results,
-    by = c(
-      "protein_id" = "feature_id",
-      "contrast" = "contrast"
-    )
-  ) %>%
-  mutate(
-    gene_symbol = if_else(
-      is.na(gene_symbol) | gene_symbol == "",
-      protein_id,
-      gene_symbol
-    )
-  )
+```{r}
+partial_T1D_vs_OC <- run_one_contrast_partial(
+  contrast_name = "T1D_vs_OC",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR", "cortical_r","medullary_r"),
+  covars = c("age", "sex")
+)
 
-contrast_cor_results %>%
-  filter(FDR < 0.05) %>%
-  arrange(contrast, outcome, FDR)
-
-contrast_cor_results
+partial_T1D_vs_OC
 ```
 
 ```{r}
-contrast_cor_results %>%
-  filter(contrast == "T1D_vs_LC") %>%
-  summarize(
-    n_tests = n(),
-    n_p_lt_005 = sum(p_value < 0.05, na.rm = TRUE),
-    n_fdr_lt_005 = sum(FDR < 0.05, na.rm = TRUE),
-    min_p = min(p_value, na.rm = TRUE),
-    min_fdr = min(FDR, na.rm = TRUE)
-  )
+partial_T1D_vs_T2D <- run_one_contrast_partial(
+  contrast_name = "T1D_vs_T2D",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR","cortical_r","medullary_r"),
+  covars = c("age", "sex")
+)
+
+partial_T1D_vs_T2D
 ```
 ```{r}
-contrast_cor_results %>%
-  filter(contrast == "T1D_vs_LC") %>%
-  arrange(p_value) %>%
-  select(protein_id, outcome, rho, p_value, FDR) %>%
-  head(20)
+partial_T2D_vs_LC <- run_one_contrast_partial(
+  contrast_name = "T2D_vs_LC",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR","cortical_r","medullary_r"),
+  covars = c("age", "sex")
+)
+
+partial_T2D_vs_LC
+```
+```{r}
+partial_T2D_vs_OC <- run_one_contrast_partial(
+  contrast_name = "T2D_vs_OC",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR","cortical_r","medullary_r"),
+  covars = c("age", "sex")
+)
+
+partial_T2D_vs_OC
+```
+
+```{r}
+partial_OC_vs_LC <- run_one_contrast_partial(
+  contrast_name = "OC_vs_LC",
+  analysis_df = corr_df,
+  proteins  = proteins,
+  outcomes = c("HbA1c", "log_uACR", "BMI", "eGFR","cortical_r","medullary_r"),
+  covars = c("age", "sex")
+)
+
+partial_OC_vs_LC
 ```
 
 
@@ -446,169 +346,165 @@ contrast_cor_results %>%
 
 ```{r}
 final_cor_results <- bind_rows(
-  global_cor_results,
-  contrast_cor_results
+  partial_OC_vs_LC,
+  partial_T1D_vs_LC,
+  partial_T1D_vs_OC,
+  partial_T1D_vs_T2D,
+  partial_T2D_vs_LC,
+  partial_T2D_vs_OC
 ) %>%
-  arrange(analysis, contrast, outcome, FDR)
+  select(
+    contrast,
+    outcome,
+    feature_id,
+    gene_symbol,
+    rho,
+    p_value,
+    FDR,
+    n,
+    everything()
+  ) %>%
+  arrange(contrast, outcome, FDR)
 
+final_cor_results
 #write_csv(
  # final_partial_results,
   #file.path(dir.results, "partial_spearman_global_and_contrast_specific.csv")
 #)
 
-#write_csv(
- # global_partial_results,
-  #file.path(dir.results, "partial_spearman_global_all_adiposity_groups.csv")
-#)
 
-#write_csv(
- # contrast_partial_results,
-  #file.path(dir.results, "partial_spearman_contrast_specific.csv")
-#)
 ```
-
-
-```{r fig.width=20}
-contrast_volcano_panels <- purrr::map(
-  names(contrast_protein_list),
-  ~ make_contrast_volcano_panel(
-    cor_df = final_cor_results,
-    contrast_name = .x
-  )
-)
-
-names(contrast_volcano_panels) <- names(contrast_protein_list)
-
-contrast_volcano_panels[["T1D_Normal_vs_LC_Normal"]]
-contrast_volcano_panels[["T1D_OverObese_vs_LC_OverObese"]]
-contrast_volcano_panels[["T1D_Normal_vs_T1D_Overweight"]]
-contrast_volcano_panels[["T1D_Normal_vs_T1D_Obese"]]
-ggsave(filename = file.path(dir.results, "Plots", "T1D_normal_obese_correlations.png"),
-       height = 8,
-       width = 12,
-       dpi = 300)
-contrast_volcano_panels[["T1D_Obese_vs_T1D_Overweight"]]
-```
-#----------------------------------------------------------------------
-#doing correlations for all groups (T1D & LC) and for all T1D together
-#-----------------------------------------------------------------------
 ```{r}
-# all significant proteins from any pairwise limma contrast
-all_sig_pairwise_proteins <- res_m2 %>%
-  filter(
-    contrast != "Global_group_bmi",
-    adj.P.Val < 0.05
-  ) %>%
-  pull(protein_id) %>%
-  unique()
+library(ggrepel)
 
-length(all_sig_pairwise_proteins)
-```
-
-```{r}
-partial_covars2 <- c("age", "sex") #wouldn't work with study
-
-all_groups_sig_cor_results <- run_partial_spearman(
-  data = corr_df,
-  proteins = all_sig_pairwise_proteins,
-  outcomes = partial_outcomes,
-  covars = partial_covars2,
-  analysis_label = "All groups: all significant pairwise proteins",
-  contrast_name = "All_groups_sig_pairwise",
-  min_n = 15
-) %>%
-  left_join(map_tbl, by = "protein_id") %>%
-  mutate(
-    gene_symbol = if_else(
-      is.na(gene_symbol) | gene_symbol == "",
-      protein_id,
-      gene_symbol
+plot_cor_volcano_panel <- function(dat,
+                                   contrast_name,
+                                   fdr_cutoff = 0.05,
+                                   p_cutoff = 0.05,
+                                   label_top_n = 10) {
+  
+  plot_df <- dat %>%
+    filter(
+      contrast == contrast_name,
+      is.finite(rho),
+      is.finite(p_value),
+      is.finite(FDR)
+    ) %>%
+    mutate(
+      neg_log10_FDR = -log10(FDR),
+      sig_class = case_when(
+        FDR < fdr_cutoff & rho > 0 ~ "FDR positive",
+        FDR < fdr_cutoff & rho < 0 ~ "FDR negative",
+        #p_value < p_cutoff & rho > 0 ~ "Nominal positive",
+        #p_value < p_cutoff & rho < 0 ~ "Nominal negative",
+        TRUE ~ "Not significant"
+      ),
+      label = if_else(
+        is.na(gene_symbol) | gene_symbol == "",
+        feature_id,
+        gene_symbol
+      )
     )
-  )
-```
-
-```{r}
-t1d_sig_cor_results <- run_partial_spearman(
-  data = corr_df %>%
-    filter(group_bmi %in% c(
-      "T1D_Normal",
-      "T1D_Overweight",
-      "T1D_Obese"
-    )),
-  proteins = all_sig_pairwise_proteins,
-  outcomes = partial_outcomes,
-  covars = partial_covars2,
-  analysis_label = "T1D only: all significant pairwise proteins",
-  contrast_name = "T1D_only_sig_pairwise",
-  min_n = 10
-) %>%
-  left_join(map_tbl, by = "protein_id") %>%
-  mutate(
-    gene_symbol = if_else(
-      is.na(gene_symbol) | gene_symbol == "",
-      protein_id,
-      gene_symbol
+  
+  label_df <- plot_df %>%
+    filter(sig_class %in% c("FDR positive", "FDR negative")) %>%
+    group_by(outcome) %>%
+    arrange(FDR, .by_group = TRUE) %>%
+    slice_head(n = label_top_n) %>%
+    ungroup()
+  
+  ggplot(
+    plot_df,
+    aes(x = rho, y = neg_log10_FDR)
+  ) +
+    geom_point(
+      aes(color = sig_class),
+      alpha = 0.8,
+      size = 2
+    ) +
+    geom_hline(
+      yintercept = -log10(fdr_cutoff),
+      linetype = "dashed",
+      color = "red"
+    ) +
+    geom_vline(
+      xintercept = 0,
+      linetype = "dashed"
+    ) +
+    geom_text_repel(
+      data = label_df,
+      aes(label = label),
+      size = 3,
+      max.overlaps = Inf
+    ) +
+    facet_wrap(
+      ~outcome,
+      nrow = 2
+    ) +
+    scale_color_manual(
+      values = c(
+        "FDR positive" = "orange3",
+       # "Nominal positive" = "orange",
+        "FDR negative" = "purple4",
+        #"Nominal negative" = "plum",
+        "Not significant" = "grey80"
+      )
+    ) +
+    theme_bw() +
+    labs(
+      title = paste0(
+        "Partial Spearman Correlations: ",
+        contrast_name
+      ),
+      x = "Partial Spearman rho",
+      y = "-log10(FDR)",
+      color = NULL
+    )+
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
     )
-  )
-```
-#---------------------
-#remaking results table
-#---------------------
-```{r}
-final_cor_results <- bind_rows(
-  global_cor_results,
-  contrast_cor_results,
-  all_groups_sig_cor_results,
-  t1d_sig_cor_results
-) %>%
-  arrange(analysis, contrast, outcome, FDR)
-
-#sig results
-final_cor_results %>%
-  filter(FDR < 0.05) %>%
-  arrange(analysis, outcome, FDR)
+}
 ```
 
 ```{r}
-all_groups_sig_volcano_panel <- purrr::map(
-  partial_outcomes,
-  ~ make_partial_cor_volcano(
-    cor_df = final_cor_results,
-    analysis_name = "All groups: all significant pairwise proteins",
-    contrast_name = "All_groups_sig_pairwise",
-    outcome_name = .x
-  )
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "T1D_vs_LC"
 )
-
-names(all_groups_sig_volcano_panel) <- partial_outcomes
-
-all_groups_sig_panel <-
-  (all_groups_sig_volcano_panel[["BMI"]] | all_groups_sig_volcano_panel[["eGFR"]]) /
-  (all_groups_sig_volcano_panel[["avg_c_r2"]] | all_groups_sig_volcano_panel[["avg_k_r2"]]) /
-  (all_groups_sig_volcano_panel[["HbA1c"]] | all_groups_sig_volcano_panel[["uACR"]])
-
-all_groups_sig_panel
 ```
-
 
 ```{r}
-t1d_sig_volcano_panel <- purrr::map(
-  partial_outcomes,
-  ~ make_partial_cor_volcano(
-    cor_df = final_cor_results,
-    analysis_name = "T1D only: all significant pairwise proteins",
-    contrast_name = "T1D_only_sig_pairwise",
-    outcome_name = .x
-  )
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "T1D_vs_OC"
 )
-
-names(t1d_sig_volcano_panel) <- partial_outcomes
-
-t1d_sig_panel <-
-  (t1d_sig_volcano_panel[["BMI"]] | t1d_sig_volcano_panel[["eGFR"]]) /
-  (t1d_sig_volcano_panel[["avg_c_r2"]] | t1d_sig_volcano_panel[["avg_k_r2"]]) /
-  (t1d_sig_volcano_panel[["HbA1c"]] | t1d_sig_volcano_panel[["uACR"]])
-
-t1d_sig_panel
-
 ```
+```{r}
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "T1D_vs_T2D"
+)
+```
+```{r}
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "T2D_vs_LC"
+)
+```
+
+```{r}
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "T2D_vs_OC"
+)
+```
+
+```{r}
+plot_cor_volcano_panel(
+  final_cor_results,
+  contrast_name = "OC_vs_LC"
+)
+```
+
