@@ -21,6 +21,7 @@ library(haven)
 library(ggVennDiagram)
 library(caret)
 library(jsonlite)
+library(mixOmics)
 ```
 
 ```{r}
@@ -44,9 +45,475 @@ if (user == "leidholt") {
   stop("Unknown user: please specify root path for this user.")
 }
 ```
-```
-
 
 ```{r}
+limma_prot <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_gsea_inputs_age_sex_study.rds"
+))
+prot_out  <- limma_prot$all_omics$out
+prot_log <- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "proteomics_paired_matrix.rds"))
+
+
+
+limma_metab <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_metabolomics_inputs_age_sex_study.rds"
+))
+metab_out <- limma_metab$all_omics$out
+metab_log <- readRDS(file = file.path(root_path,"Savanah Leidholt","TRIAD","Data","metabolomics_paired_matrix.rds"))
+
+
+
+meta_paired<- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "paired_metadata.rds"))
+```
+#----------------------------
+#function for top 50 features
+#---------------------------
+```{r}
+get_top_abs_t <- function(out_list, contrast_name, n = 50) {
+  out_list[[contrast_name]] %>%
+    dplyr::mutate(abs_t = abs(t)) %>%
+    dplyr::arrange(dplyr::desc(abs_t)) %>%
+    dplyr::slice_head(n = n) %>%
+    dplyr::pull(feature_id)
+}
+```
+
+```{r}
+top_prot_t1d_lc <- get_top_abs_t(prot_out,  "T1D_vs_LC", n = 50)
+top_metab_t1d_lc <- get_top_abs_t(metab_out, "T1D_vs_LC", n = 50)
+```
+
+```{r}
+X_prot <- prot_log[, top_prot_t1d_lc, drop = FALSE]
+X_metab <- metab_log[, top_metab_t1d_lc, drop = FALSE]
+```
+
+```{r}
+contrast_name <- "T1D_vs_LC"
+
+groups_keep <- c("LC", "T1D")
+
+meta_diablo <- meta_paired %>%
+  filter(group4 %in% groups_keep) %>%
+  mutate(group4 = factor(group4, levels = groups_keep))
+```
+
+```{r}
+common_ids <- Reduce(
+  intersect,
+  list(
+    rownames(meta_diablo),
+    rownames(X_prot),
+    rownames(X_metab)
+  )
+)
+
+meta_diablo <- meta_diablo[common_ids, , drop = FALSE]
+X_prot_d   <- X_prot[common_ids, , drop = FALSE]
+X_metab_d  <- X_metab[common_ids, , drop = FALSE]
+
+Y <- droplevels(meta_diablo$group4)
+
+table(Y)
+dim(X_prot_d)
+dim(X_metab_d)
+```
+#----------------------------
+# remove bad features
+#----------------------------
+```{r}
+clean_block <- function(x) {
+  x <- as.matrix(x)
+  x <- x[, colSums(is.na(x)) == 0, drop = FALSE]
+  x <- x[, apply(x, 2, sd, na.rm = TRUE) > 0, drop = FALSE]
+  x
+}
+
+X_prot_d  <- clean_block(X_prot_d)
+X_metab_d <- clean_block(X_metab_d)
+
+X <- list(
+  proteomics   = X_prot_d,
+  metabolomics = X_metab_d
+)
+```
+#----------------------------
+# design matrix
+# 0.1 = weak connection
+# 0.5 = moderate connection
+# 1 = force strong integration
+#----------------------------
+```{r}
+design <- matrix(
+  0.1,
+  ncol = length(X),
+  nrow = length(X),
+  dimnames = list(names(X), names(X))
+)
+
+diag(design) <- 0
+design
+```
+
+```{r}
+set.seed(123)
+
+diablo_init <- block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = 2,
+  design = design
+)
+
+plotIndiv(
+  diablo_init,
+  comp = c(1, 2),
+  group = Y,
+  legend = TRUE,
+  title = paste0("DIABLO: ", contrast_name)
+)
+```
+```{r}
+set.seed(123)
+
+test_keepX <- list(
+  proteomics   = c(5, 10, 15, 25, 50),
+  metabolomics = c(5, 10, 15, 25, 50)
+)
+
+tune_diablo <- tune.block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = 2,
+  test.keepX = test_keepX,
+  design = design,
+  validation = "Mfold",
+  folds = 5,
+  nrepeat = 50,
+  dist = "centroids.dist",
+  progressBar = TRUE
+)
+
+tune_diablo$choice.keepX
+tune_diablo$choice.ncomp
+```
+```{r}
+final_ncomp <- tune_diablo$choice.ncomp$ncomp
+
+final_keepX <- lapply(
+  tune_diablo$choice.keepX,
+  function(x) x[seq_len(final_ncomp)]
+)
+
+final_keepX
+
+
+diablo_final <- block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = final_ncomp,
+  keepX = final_keepX,
+  design = design
+)
+
+diablo_final
+```
+#----------------------------
+# model performance
+#----------------------------
+```{r}
+set.seed(123)
+
+perf_diablo <- perf(
+  diablo_final,
+  validation = "Mfold",
+  folds = 5,
+  nrepeat = 50,
+  dist = "centroids.dist",
+  progressBar = TRUE
+)
+
+perf_diablo$error.rate
+perf_diablo$auc
+```
+```{r}
+#plotIndiv(
+#  diablo_final,
+#  comp = c(1),
+#  group = Y,
+#  legend = TRUE,
+#  title = paste0("Final DIABLO: ", contrast_name)
+#)
+
+plotLoadings(
+  diablo_final,
+  block = "proteomics",
+  comp = 1,
+  contrib = "max",
+  method = "mean"
+)
+
+plotLoadings(
+  diablo_final,
+  block = "metabolomics",
+  comp = 1,
+  contrib = "max",
+  method = "mean"
+)
+
+circosPlot(
+  diablo_final,
+  cutoff = 0.7,
+  line = TRUE,
+  size.labels = 0.7
+)
+```
+
+```{r}
+pdf(
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Results", "Integrated",
+            paste0("network_", contrast_name, ".pdf")),
+  width = 12,
+  height = 10
+)
+
+network(
+  diablo_final,
+  cutoff = 0.7,
+  color.node = c("lightblue", "mistyrose")
+)
+
+dev.off()
+```
+```{r}
+quartz(width = 10, height = 8)
+
+network(
+  diablo_final,
+  cutoff = 0.7,
+  color.node = c("lightblue", "mistyrose")
+)
+```
+```{r}
+contrast_groups <- list(
+  T1D_vs_LC  = c("LC", "T1D"),
+  T2D_vs_LC  = c("LC", "T2D"),
+  T1D_vs_T2D = c("T2D", "T1D"),
+  OC_vs_LC   = c("LC", "OC"),
+  T1D_vs_OC  = c("OC", "T1D"),
+  T2D_vs_OC  = c("OC", "T2D")
+)
+
+diablo_dir <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "TRIAD",
+  "Results",
+  "Integrated",
+  "DIABLO"
+)
+```
+
+#----------------------------
+# run DIABLO per contrast
+#----------------------------
+```{r}
+run_diablo_contrast <- function(
+    contrast_name,
+    groups_keep,
+    prot_out,
+    metab_out,
+    prot_log,
+    metab_log,
+    meta_paired,
+    top_n = 50,
+    ncomp_tune = 2,
+    folds = 5,
+    nrepeat = 50,
+    cutoff = 0.7,
+    out_dir = diablo_dir
+) {
+  
+  message("Running DIABLO for: ", contrast_name)
+  
+
+  # top features by absolute limma t
+  top_prot <- get_top_abs_t(prot_out, contrast_name, n = top_n)
+  top_metab <- get_top_abs_t(metab_out, contrast_name, n = top_n)
+  
+  top_prot <- intersect(top_prot, colnames(prot_log))
+  top_metab <- intersect(top_metab, colnames(metab_log))
+  
+  X_prot <- prot_log[, top_prot, drop = FALSE]
+  X_metab <- metab_log[, top_metab, drop = FALSE]
+  
+
+  #subset metadata
+  meta_diablo <- meta_paired %>%
+    dplyr::filter(group4 %in% groups_keep) %>%
+    dplyr::mutate(group4 = factor(group4, levels = groups_keep))
+  
+  common_ids <- Reduce(
+    intersect,
+    list(
+      rownames(meta_diablo),
+      rownames(X_prot),
+      rownames(X_metab)
+    )
+  )
+  
+  meta_diablo <- meta_diablo[common_ids, , drop = FALSE]
+  X_prot_d <- X_prot[common_ids, , drop = FALSE]
+  X_metab_d <- X_metab[common_ids, , drop = FALSE]
+  
+  Y <- droplevels(meta_diablo$group4)
+  
+  # skip weak contrasts
+  if (length(unique(Y)) < 2 || min(table(Y)) < folds) {
+    warning("Skipping ", contrast_name, ": not enough samples per group.")
+    return(NULL)
+  }
+  
+
+  #cleaning
+  X_prot_d <- clean_block(X_prot_d)
+  X_metab_d <- clean_block(X_metab_d)
+  
+  X <- list(
+    proteomics = X_prot_d,
+    metabolomics = X_metab_d
+  )
+
+  design <- matrix(
+    0.1,
+    ncol = length(X),
+    nrow = length(X),
+    dimnames = list(names(X), names(X))
+  )
+  diag(design) <- 0
+  
+
+  #model tuning
+  test_keepX <- list(
+    proteomics = c(5, 10, 15, 25, 50),
+    metabolomics = c(5, 10, 15, 25, 50)
+  )
+  
+  set.seed(123)
+  
+  tune_diablo <- tune.block.splsda(
+    X = X,
+    Y = Y,
+    ncomp = ncomp_tune,
+    test.keepX = test_keepX,
+    design = design,
+    validation = "Mfold",
+    folds = folds,
+    nrepeat = nrepeat,
+    dist = "centroids.dist",
+    progressBar = TRUE
+  )
+  
+  final_ncomp <- tune_diablo$choice.ncomp$ncomp
+  
+  final_keepX <- lapply(
+    tune_diablo$choice.keepX,
+    function(x) x[seq_len(final_ncomp)]
+  )
+  
+
+  # final model
+  diablo_final <- block.splsda(
+    X = X,
+    Y = Y,
+    ncomp = final_ncomp,
+    keepX = final_keepX,
+    design = design
+  )
+  
+  set.seed(123)
+  
+  perf_diablo <- perf(
+    diablo_final,
+    validation = "Mfold",
+    folds = folds,
+    nrepeat = nrepeat,
+    dist = "centroids.dist",
+    progressBar = TRUE
+  )
+  
+selected <- selectVar(diablo_final, comp = 1)
+
+selected_tbl <- dplyr::bind_rows(
+  tibble(
+    contrast = contrast_name,
+    block = "proteomics",
+    feature_id = selected$proteomics$name,
+    comp = 1
+  ),
+  tibble(
+    contrast = contrast_name,
+    block = "metabolomics",
+    feature_id = selected$metabolomics$name,
+    comp = 1
+  )
+)
+
+result <- list(
+  contrast = contrast_name,
+  groups = groups_keep,
+  metadata = meta_diablo,
+  X = X,
+  Y = Y,
+  top_prot = top_prot,
+  top_metab = top_metab,
+  tune = tune_diablo,
+  model = diablo_final,
+  performance = perf_diablo,
+  selected_features = selected_tbl,
+  final_ncomp = final_ncomp,
+  final_keepX = final_keepX
+)
+
+saveRDS(
+  result,
+  file = file.path(out_dir, paste0("diablo_", contrast_name, "_top", top_n, "_abs_t.rds"))
+)
+
+readr::write_csv(
+  selected_tbl,
+  file.path(out_dir, paste0("diablo_selected_features_", contrast_name, ".csv"))
+)
+
+return(result)
+}
+```
+
+```{r}
+diablo_results <- purrr::imap(
+  contrast_groups,
+  ~ run_diablo_contrast(
+    contrast_name = .y,
+    groups_keep = .x,
+    prot_out = prot_out,
+    metab_out = metab_out,
+    prot_log = prot_log,
+    metab_log = metab_log,
+    meta_paired = meta_paired,
+    top_n = 50,
+    ncomp_tune = 2,
+    folds = 5,
+    nrepeat = 50,
+    cutoff = 0.7,
+    out_dir = diablo_dir
+  )
+)
+
+saveRDS(
+  diablo_results,
+  file = file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds")
+)
 ```
 
