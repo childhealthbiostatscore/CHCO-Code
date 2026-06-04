@@ -895,29 +895,67 @@ sig_overlap_noATT_study
 #fix to have scRNA and not lipidomic data
 #------------------------------------------------------------------------
 ```{r}
-#Sys.setenv(
-#  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
-#  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
-#  "AWS_DEFAULT_REGION" = "",
-#  "AWS_REGION" = "",
-#  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
-#)
-#pb90_multiomics_meta <- s3readRDS(
-#          object = "data_clean/pb90_multiomics_subset_meta_savanah_20260420.rds", 
-#          bucket = "scrna",
-#          region = "")
+obj <- readRDS(
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "omics_split_objects_clean.rds")
+)
 
-# Identify participants with all three omics types
-obj <- readRDS(file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "omics_split_objects_clean.rds"))
+prot_log <- readRDS(
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "prot_log2.rds")
+)
 
+prot_plasma <- obj$prot_plasma
+metabolites <- obj$metabolites
+meta_prot <- obj$meta_prot
+meta_metab <- obj$meta_metab
 
-# HELPER: count non-NA samples in a matrix for a given metadata
-count_samples_with_data <- function(meta_df, mat_df) {
-  # A sample "has data" if it has at least one non-NA value in the omics matrix
-  has_data <- rowSums(!is.na(mat_df)) > 0
+# clean rownames
+rownames(prot_plasma) <- trimws(as.character(rownames(prot_plasma)))
+rownames(prot_log)    <- trimws(as.character(rownames(prot_log)))
+rownames(metabolites) <- trimws(as.character(rownames(metabolites)))
+
+# IDs with any measured data in each omics matrix
+ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
+ids_prot  <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
+ids_log   <- rownames(prot_log)[rowSums(!is.na(prot_log)) > 0]
+
+ids_metab <- trimws(as.character(ids_metab))
+ids_prot  <- trimws(as.character(ids_prot))
+ids_log   <- trimws(as.character(ids_log))
+
+# paired IDs present in metabolomics, raw proteomics, and logged proteomics
+paired_ids <- Reduce(intersect, list(ids_metab, ids_prot, ids_log))
+```
+
+```{r}
+# HELPER: Study x Group count table for one omics type
+make_count_table <- function(meta_df, mat_df, omics_label) {
+  
+  count_samples_with_data(meta_df, mat_df) %>%
+    count(study, group) %>%
+    pivot_wider(
+      names_from = group,
+      values_from = n,
+      values_fill = 0
+    ) %>%
+    arrange(study) %>%
+    mutate(Omics = omics_label, .before = 1)
+}
+
+make_count_table_group4 <- function(meta_df, omics_label = "Paired metabolomics + proteomics") {
+  
   meta_df %>%
-    mutate(has_omics = has_data) %>%
-    filter(has_omics)
+    count(study6, group4) %>%
+    pivot_wider(
+      names_from = group4,
+      values_from = n,
+      values_fill = 0
+    ) %>%
+    mutate(
+      Total = rowSums(across(any_of(c("LC", "OC", "T1D", "T2D")))),
+      Omics = omics_label,
+      .before = 1
+    ) %>%
+    arrange(study6)
 }
 ```
 
@@ -925,68 +963,124 @@ count_samples_with_data <- function(meta_df, mat_df) {
 ## samples counts Study x Group
 ##---------------------------------------
 ```{r}
-
-make_count_table <- function(meta_df, mat_df, omics_label) {
-  count_samples_with_data(meta_df, mat_df) %>%
-    count(study, group) %>%
-    pivot_wider(names_from = group, values_from = n, values_fill = 0) %>%
-    arrange(study) %>%
-    mutate(Omics = omics_label, .before = 1)
-}
-
-prot_plasma <- obj$prot_plasma
-meta_prot <- obj$meta_prot
-meta_metab <- obj$meta_metab
-metabolites <- obj$metabolites
-
-
-ids_metab <- rownames(metabolites)[rowSums(!is.na(metabolites)) > 0]
-ids_prot  <- rownames(prot_plasma)[rowSums(!is.na(prot_plasma)) > 0]
-#ids_scrna <- pb90_multiomics_meta %>%
-#  dplyr::pull(record_id) %>%
-#  unique()
-
-# clean IDs
-ids_metab <- trimws(as.character(ids_metab))
-ids_prot  <- trimws(as.character(ids_prot))
-#ids_scrna <- trimws(as.character(ids_scrna))
-
-ids_all <- Reduce(intersect, list(ids_metab, ids_prot)) #ids_scrna, 
-```
-
-```{r}
-meta8 <- meta4 %>%
-  filter(record_id %in% ids_all) %>%
+meta_mp <- meta_prot %>%
+  mutate(
+    record_id = trimws(as.character(record_id)),
+    study     = trimws(as.character(study)),
+    group     = trimws(as.character(group)),
+    sex       = trimws(as.character(sex)),
+    ethnicity = trimws(as.character(race_ethnicity_condensed)),
+    age       = suppressWarnings(as.numeric(age)),
+    uacr      = suppressWarnings(as.numeric(acr_u)),
+    log_uacr  = log(uacr + 1)
+  ) %>%
+  filter(
+    record_id %in% paired_ids,
+    !is.na(age),
+    !is.na(sex),
+    sex != ""
+  ) %>%
+  mutate(
+    group4 = factor(
+      group,
+      levels = c("Lean Control", "Obese Control", "Type 1 Diabetes", "Type 2 Diabetes"),
+      labels = c("LC", "OC", "T1D", "T2D")
+    ),
+    ethnicity = factor(ethnicity),
+    study6 = dplyr::recode(
+      study,
+      "ATTEMPT"          = "ATT",
+      "CROCODILE"        = "CRC",
+      "PANTHER"          = "PAN",
+      "RENAL-HEIR"       = "RH",
+      "IMPROVE"          = "IT",
+      "RENAL-HEIRitage"  = "RH2",
+      .default = study
+    )
+  ) %>%
+  filter(study6 != "ATT") %>%
+  mutate(study6 = factor(study6)) %>%
+  arrange(record_id) %>%
   droplevels()
 
-prot_log6 <- prot_log2[meta8$record_id, , drop = FALSE]
+saveRDS(
+  meta_mp,
+  file = file.path(
+    root_path,
+    "Savanah Leidholt",
+    "TRIAD",
+    "Data",
+    "paired_metadata.rds"
+  )
+)
+```
 
-stopifnot(identical(rownames(prot_log6), meta8$record_id))
 
-cat("Primary analysis N:", nrow(meta4), "\n")
-cat("All-omics sensitivity N:", nrow(meta8), "\n")
+```{r}
+paired_ids_final <- meta_mp$record_id
+
+prot_log6 <- prot_log[paired_ids_final, , drop = FALSE]
+saveRDS(
+  prot_log6,
+  file = file.path(
+    root_path,
+    "Savanah Leidholt",
+    "TRIAD",
+    "Data",
+    "proteomics_paired_matrix.rds"
+  )
+)
+
+metab_mp  <- metabolites[paired_ids_final, , drop = FALSE]
+
+stopifnot(identical(rownames(prot_log6), meta_mp$record_id))
+stopifnot(identical(rownames(metab_mp), meta_mp$record_id))
 ```
 
 ```{r}
-meta8 %>%
-  count(group4) %>%
-  arrange(group4)
+cat("Paired metabolomics + proteomics N:", nrow(meta_mp), "\n")
+cat("Proteins:", nrow(prot_log6), "\n")
+cat("Metabolites:", nrow(metab_mp), "\n")
+
+meta_mp %>%
+  count(study6, group4) %>%
+  pivot_wider(
+    names_from = group4,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  arrange(study6)
 ```
+```{r}
+tbl_mp <- meta_mp %>%
+  count(study6, group4) %>%
+  pivot_wider(
+    names_from = group4,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(Total = rowSums(across(any_of(c("LC", "OC", "T1D", "T2D"))))) %>%
+  arrange(study6)
+
+tbl_mp
+```
+
+
 #-------------------
 #sensitivty 3: PCAs 
 #-------------------
 ```{r}
-design_allomics <- model.matrix(~ group4, data = meta8)
+design_allomics <- model.matrix(~ group4, data = meta_mp)
 
-p_all0 <- make_pca_plot(prot_log6,meta8,"Sensitivity: No adjustment, all omics")
-cov_all1 <- model.matrix(~ age + sex,data = meta8)[, -1, drop = FALSE]
+p_all0 <- make_pca_plot(prot_log6,meta_mp,"Sensitivity: No adjustment, all omics")
+cov_all1 <- model.matrix(~ age + sex,data = meta_mp)[, -1, drop = FALSE]
 prot_all1 <- t(limma::removeBatchEffect(t(prot_log6),covariates = cov_all1, design = design_allomics))
 
-p_all1 <- make_pca_plot(prot_all1,meta8,"Sensitivity: Age + Sex, all omics")
-cov_all2 <- model.matrix(~ age + sex + study6,data = meta8)[, -1, drop = FALSE]
+p_all1 <- make_pca_plot(prot_all1,meta_mp,"Sensitivity: Age + Sex, all omics")
+cov_all2 <- model.matrix(~ age + sex + study6,data = meta_mp)[, -1, drop = FALSE]
 prot_all2 <- t(limma::removeBatchEffect( t(prot_log6),covariates = cov_all2,design = design_allomics))
 
-p_all2 <- make_pca_plot(prot_all2,meta8,"Sensitivity: Age + Sex + Study, all omics")
+p_all2 <- make_pca_plot(prot_all2,meta_mp,"Sensitivity: Age + Sex + Study, all omics")
 pca_allomics <- p_all0 | p_all1 | p_all2
 pca_allomics
 
@@ -998,16 +1092,16 @@ ggsave(
 )
 ```
 ##--------------------------------------------------
-##limma using all-3-omics subset
+##limma using all omics subset
 ## model1: age + sex
 ## model2: age + sex + study
 ##--------------------------------------------------
 ```{r}
 Y_allomics <- t(prot_log6)
-stopifnot(identical(colnames(Y_allomics), meta8$record_id))
+stopifnot(identical(colnames(Y_allomics), meta_mp$record_id))
 
 # Model 1: age + sex
-meta_m8 <- meta8
+meta_m8 <- meta_mp
 Y_m8 <- Y_allomics[, meta_m8$record_id, drop = FALSE]
 
 design_m8 <- model.matrix(~ 0 + group4 + age + sex,data = meta_m8)
@@ -1057,7 +1151,7 @@ sig_m9 <- summarise_sig( out_m9,"sensitivity: age + sex + study, all omics",nrow
 sig_m9
 ```
 ## --------------------------------------------------
-## Summarize all-3-omics results compared to total
+## Summarize all-omics results compared to total
 ##--------------------------------------------------
 ```{r}
 summary_allomics <- bind_rows(
