@@ -16,6 +16,8 @@ editor: source
 execute:
   echo: false
   message: false
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r libraries}
@@ -127,7 +129,9 @@ deltas$seq.18896.23 <- deltas$`seq.18896.23.Year 1` - deltas$`seq.18896.23.Month
 deltas$seq.15487.164 <- deltas$`seq.15487.164.Year 1` - deltas$`seq.15487.164.Month 1`
 
 deltas <- deltas %>% select(ID, sbp, dbp, bmi, seq.19563.3, seq.4498.62, seq.20161.41, seq.7957.2, seq.3343.1, 
-                            seq.24957.6, seq.13998.26, seq.24681.2, seq.8958.51, seq.2999.6, seq.2948.58, seq.5634.39 )
+                            seq.24957.6, seq.13998.26, seq.24681.2, seq.8958.51, seq.2999.6, seq.2948.58, seq.5634.39,
+                            seq.13408.23, seq.5307.12, seq.23569.53, seq.3235.50, seq.6506.54, seq.7735.17,
+                            seq.17755.5, seq.18896.23, seq.15487.164)
 
 ```
 
@@ -361,7 +365,49 @@ corr_plot_modified_nodict(data=df,
                  rownames_M=c("SBP","DBP"))
 dev.off()
 
+#### added on 6/4/2026: change in proteins vs. change in BMI correlations
+#output table, not heatmap:
+corr_table <- function(protein, label) {
+  out <- rcorr(protein, deltas$bmi,type = "spearman")
+  out_df <- data.frame("Aptamer" = label, "Correlation" = round(out$r[1,2],2), "Pval" = round(out$P[1,2],2))
+  return(out_df)
+}
 
+seq_include<-c("seq.24681.2","seq.15487.164","seq.13998.26",
+                         "seq.2948.58","seq.23569.53","seq.17755.5",
+                         "seq.3343.1","seq.7735.17","seq.24957.6","seq.5307.12")
+prot_heatmap <- top_htn_df %>%
+  filter(AptName %in% seq_include) %>%
+  pull(AptName)
+colnames_M <- top_htn_df %>%
+  filter(AptName %in% seq_include) %>%
+  pull(Target)
+
+corr_results_risk <- map2_dfr(
+  prot_heatmap,
+  colnames_M,  # now label = Target name directly
+  ~ corr_table(deltas[, .x], .y)
+)
+write.csv(corr_results_risk,"/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward/TODAY HTN and DKD output/deltabmi_deltaproteins_risk.csv",row.names=F)
+
+seq_include<-c("seq.19563.3","seq.13408.23",
+                               "seq.4498.62","seq.7957.2",
+                               "seq.18896.23","seq.6506.54",
+                               "seq.3235.50","seq.8958.51",
+                                "seq.20161.41","seq.2999.6")
+prot_heatmap <- top_htn_df %>%
+  filter(AptName %in% seq_include) %>%
+  pull(AptName)
+colnames_M <- top_htn_df %>%
+  filter(AptName %in% seq_include) %>%
+  pull(Target)
+
+corr_results_protective<- map2_dfr(
+  prot_heatmap,
+  colnames_M,  # now label = Target name directly
+  ~ corr_table(deltas[, .x], .y)
+)
+write.csv(corr_results_protective,"/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward/TODAY HTN and DKD output/deltabmi_deltaproteins_protective.csv",row.names=F)
 ```
 
 # Correlations of change in SBP/DBP/BMI with changes in proteins
