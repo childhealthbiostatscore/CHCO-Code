@@ -32,6 +32,14 @@ library(harmony)
 library(aws.s3)
 library(jsonlite)
 library(patchwork)
+library(rstatix)
+library(ggplot2)
+library(slingshot)
+library(SingleCellExperiment)
+library(uwot)
+library(S4Vectors)
+library(scales)
+
 ```
 
 ```{r}
@@ -216,7 +224,6 @@ FeaturePlot(
 ```
 
 ```{r}
-library(ggplot2)
 #Donor-level plot
 pt_donor <- FetchData(
   pb90_PT,
@@ -244,263 +251,7 @@ ggplot(pt_donor, aes(x = PT_identity, y = PT_injury, label = record_id)) +
   )
 ```
 
-```{r}
-library(slingshot)
-library(SingleCellExperiment)
-
-run_slingshot_from_seurat <- function(obj, reduction = "umap.TRIAD", cluster_col = "KPMP_celltype") {
-  
-  sce <- as.SingleCellExperiment(obj)
-  
-  reducedDims(sce)$UMAP_TRIAD <- Embeddings(obj, reduction = reduction)
-  colData(sce)$cluster <- obj[[cluster_col]][, 1]
-  colData(sce)$group <- obj$group
-  colData(sce)$record_id <- obj$record_id
-  
-  sce <- slingshot(
-    sce,
-    clusterLabels = "cluster",
-    reducedDim = "UMAP_TRIAD"
-  )
-  
-  obj$pseudotime <- slingPseudotime(sce)[, 1]
-  
-  list(obj = obj, sce = sce)
-}
-```
-
-```{r}
-pt_sling <- run_slingshot_from_seurat(pb90_PT)
-pb90_PT <- pt_sling$obj
-
-p1 <- FeaturePlot(
-  pb90_PT,
-  reduction = "umap.TRIAD",
-  features = "pseudotime"
-)
-
-p2 <- DimPlot(
-  pb90_PT,
-  reduction = "umap.TRIAD",
-  group.by = "KPMP_celltype",
-  label = TRUE,
-  repel = TRUE
-)
-
-p1 | p2
-
-VlnPlot(
-  pb90_PT,
-  features = "pseudotime",
-  group.by = "group",
-  pt.size = 0
-)
-
-
-```
-
-```{r}
-pb90_PT <- AddModuleScore(
-  pb90_PT,
-  features = list(
-    c(
-      "HAVCR1",
-      "VCAM1",
-      "LCN2",
-      "KRT8",
-      "KRT18",
-      "VIM"
-    )
-  ),
-  name = "Injury"
-)
-
-pb90_PT <- AddModuleScore(
-  pb90_PT,
-  features = list(
-    c(
-      "LRP2",
-      "CUBN",
-      "SLC5A2",
-      "AQP1",
-      "ALDOB"
-    )
-  ),
-  name = "Healthy"
-)
-```
-
-```{r fig.width=16, fig.height=12}
-pb90_PT$DiseaseScore <-
-  pb90_PT$Injury1 -
-  pb90_PT$Healthy1
-
-f1 <- DimPlot(
-  pb90_PT,
-  reduction = "umap.TRIAD",
-  group.by = "KPMP_celltype",
-  label = TRUE,
-  repel = TRUE,
-  ncol = 2
-)
-
-f2 <- FeaturePlot(
-  pb90_PT,
-  reduction = "umap.TRIAD",
-  split.by = "group",
-  features = "DiseaseScore",
-  keep.scale = "all",
-  ncol = 2
-)
-
-f1 / f2
-```
-
-```{r}
-disease_donor <- FetchData(
-  pb90_PT,
-  vars = c("DiseaseScore", "Injury1", "Healthy1", "group", "record_id")
-) %>%
-  dplyr::as_tibble() %>%
-  dplyr::group_by(record_id, group) %>%
-  dplyr::summarise(
-    disease_score = mean(DiseaseScore, na.rm = TRUE),
-    injury_score = mean(Injury1, na.rm = TRUE),
-    healthy_score = mean(Healthy1, na.rm = TRUE),
-    n_cells = dplyr::n(),
-    .groups = "drop"
-  )
-```
-
-```{r}
-ggplot(
-  disease_donor,
-  aes(x = group, y = disease_score)
-) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(width = 0.15, size = 2) +
-  theme_classic() +
-  labs(
-    x = NULL,
-    y = "PT disease score per donor"
-  )
-```
-
-```{r}
-disease_subtype_donor <- FetchData(
-  pb90_PT,
-  vars = c("DiseaseScore", "Injury1", "Healthy1", "group", "record_id", "KPMP_celltype")
-) %>%
-  dplyr::as_tibble() %>%
-  dplyr::group_by(record_id, group, KPMP_celltype) %>%
-  dplyr::summarise(
-    disease_score = mean(DiseaseScore, na.rm = TRUE),
-    injury_score = mean(Injury1, na.rm = TRUE),
-    healthy_score = mean(Healthy1, na.rm = TRUE),
-    n_cells = dplyr::n(),
-    .groups = "drop"
-  )
-```
-
-```{r}
-ggplot(
-  disease_subtype_donor,
-  aes(x = group, y = disease_score)
-) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(width = 0.15, size = 1.8) +
-  facet_wrap(~KPMP_celltype) +
-  theme_classic() +
-  labs(
-    x = NULL,
-    y = "PT disease score per donor"
-  )
-```
-
-```{r}
-kruskal.test(disease_score ~ group, data = disease_donor)
-
-pairwise.wilcox.test(
-  disease_donor$disease_score,
-  disease_donor$group,
-  p.adjust.method = "BH"
-)
-```
-
-```{r}
-library(rstatix)
-
-disease_subtype_donor %>%
-  group_by(KPMP_celltype) %>%
-  kruskal_test(disease_score ~ group)
-```
-
-```{r}
-disease_subtype_donor %>%
-  group_by(KPMP_celltype) %>%
-  pairwise_wilcox_test(
-    disease_score ~ group,
-    p.adjust.method = "BH"
-  )
-```
-
-```{r}
-comp_df <- as_tibble(
-  FetchData(
-    pb90_PT,
-    vars = c(
-      "record_id",
-      "group",
-      "KPMP_celltype"
-    )
-  )
-)
-
-comp_df <- comp_df %>%
-  dplyr::count(record_id, group, KPMP_celltype) %>%
-  group_by(record_id) %>%
-  mutate(prop = n / sum(n))
-
-
-```
-
-```{r}
-ggplot(
-  comp_df,
-  aes(
-    x = group,
-    y = prop,
-    fill = KPMP_celltype
-  )
-) +
-  geom_boxplot() +
-  facet_wrap(~KPMP_celltype) + theme_classic()
-```
-
-```{r}
-cell_df <- FetchData(
-  pb90_PT,
-  vars = c(
-    "DiseaseScore",
-    "group",
-    "KPMP_celltype"
-  )
-)
-
-ggplot(
-  cell_df,
-  aes(
-    x = group,
-    y = DiseaseScore,
-    fill = KPMP_celltype
-  )
-) +
-  geom_boxplot() +
-  facet_wrap(~KPMP_celltype) + theme_classic()
-```
-
 #--------- #tal cells #---------
-
 ```{r}
 p5<- DimPlot(
   pb90_TAL,
@@ -583,3 +334,566 @@ p9
 p10
 p11
 ```
+
+#-----------------
+#PT specific umaps
+#----------------
+```{r}
+pb90_PT2 <- FindVariableFeatures(pb90_PT)
+
+pb90_PT2 <- ScaleData(pb90_PT2)
+
+pb90_PT2 <- RunPCA(pb90_PT2)
+
+pb90_PT2 <- RunHarmony(
+  pb90_PT2,
+  group.by.vars = "study"
+)
+
+pb90_PT2 <- FindNeighbors(
+  pb90_PT2,
+  reduction = "harmony",
+  dims = 1:30
+)
+
+pb90_PT2 <- FindClusters(
+  pb90_PT2,
+  resolution = 0.6
+)
+
+pb90_PT2 <- RunUMAP(
+  pb90_PT2,
+  reduction = "harmony",
+  dims = 1:30,
+  reduction.name = "umap.TRIAD"
+)
+```
+
+```{r}
+DimPlot(
+  pb90_PT2,
+  reduction = "umap.TRIAD",
+  group.by = "seurat_clusters",
+  label = TRUE
+)
+
+Dimplot(pb902)
+
+DimPlot(
+  pb90_PT2,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype",
+)
+
+DimPlot(
+  pb90_PT2,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype",
+  split.by = "group"
+)
+
+FeaturePlot(
+  pb90_PT2,
+  reduction = "umap.TRIAD",
+  features = c("LRP2", "SLC5A2", "HAVCR1", "VCAM1")
+)
+```
+
+#------------------------------
+# Slingshot setup function
+#adapted from attempt functions
+#------------------------------
+```{r}
+slingshot_setup <- function(
+    seurat_obj,
+    celltype_prefix,
+    cluster_col = "KPMP_celltype",
+    assay = "RNA"
+) {
+  
+  counts <- GetAssayData(
+    seurat_obj,
+    assay = assay,
+    layer = "counts"
+  )
+  
+  sce <- SingleCellExperiment(
+    assays = List(counts = counts),
+    colData = seurat_obj@meta.data
+  )
+  
+  # gene filtering
+  gene_filter <- Matrix::rowSums(assays(sce)$counts >= 3) >= 10
+  sce <- sce[gene_filter, ]
+  
+  # quantile normalization from workflow
+  FQnorm <- function(counts) {
+    counts <- as.matrix(counts)
+    rk <- apply(counts, 2, rank, ties.method = "min")
+    counts.sort <- apply(counts, 2, sort)
+    refdist <- apply(counts.sort, 1, median)
+    norm <- apply(rk, 2, function(r) refdist[r])
+    rownames(norm) <- rownames(counts)
+    colnames(norm) <- colnames(counts)
+    norm
+  }
+  
+  assays(sce)$norm <- FQnorm(assays(sce)$counts)
+  
+  # PCA on normalized counts
+  pca <- prcomp(
+    t(log1p(assays(sce)$norm)),
+    scale. = FALSE
+  )
+  
+  var_explained <- pca$sdev^2 / sum(pca$sdev^2) * 100
+  names(var_explained) <- paste0("PC", seq_along(var_explained))
+  
+  elbow_df <- data.frame(
+    PC = 1:50,
+    VarianceExplained = var_explained[1:50]
+  )
+  
+  elbow_plot <- ggplot(elbow_df, aes(x = PC, y = VarianceExplained)) +
+    geom_point(size = 2) +
+    geom_line() +
+    labs(
+      title = paste("Elbow Plot:", celltype_prefix),
+      x = "Principal Component",
+      y = "% Variance Explained"
+    ) +
+    theme_bw()
+  
+  colData(sce)$cluster <- colData(sce)[[cluster_col]]
+  
+  return(list(
+    sce = sce,
+    pca = pca,
+    var_explained = var_explained,
+    elbow_plot = elbow_plot
+  ))
+}
+```
+
+#---------------------
+# Run Slingshot on PCA
+#---------------------
+```{r}
+run_slingshot <- function(
+    sce,
+    pca_obj,
+    n_pcs = 6,
+    start_cluster = NULL,
+    end_cluster = NULL,
+    cluster_label = "cluster"
+) {
+  
+  rd1 <- pca_obj$x[, 1:n_pcs]
+  colnames(rd1) <- paste0("PC", 1:n_pcs)
+  
+  umap_mat <- uwot::umap(
+    t(log1p(assays(sce)$norm)),
+    n_neighbors = 30,
+    min_dist = 0.3
+  )
+  colnames(umap_mat) <- c("UMAP1", "UMAP2")
+  
+  reducedDims(sce) <- SimpleList(
+    PCA = rd1,
+    UMAP = umap_mat
+  )
+  
+  sce_sl <- slingshot(
+    sce,
+    clusterLabels = cluster_label,
+    reducedDim = "PCA",
+    start.clus = start_cluster,
+    end.clus = end_cluster
+  )
+  
+  return(sce_sl)
+}
+```
+
+#-----------------------
+# Plot Slingshot on PCA
+#-----------------------
+```{r}
+plot_slingshot_trajectory <- function(
+    sce_sl,
+    var_explained,
+    cluster_label = "cluster",
+    title = NULL,
+    lineage = 1
+) {
+  
+  pca_df <- as.data.frame(reducedDims(sce_sl)$PCA)
+  pca_df$cluster_label <- factor(colData(sce_sl)[[cluster_label]])
+  pca_df$pseudotime <- slingPseudotime(sce_sl)[, lineage]
+  
+  curves <- slingCurves(sce_sl)
+  curve_df <- as.data.frame(curves[[lineage]]$s)
+  
+  p <- ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster_label)) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    geom_path(
+      data = curve_df,
+      aes(x = PC1, y = PC2),
+      color = "black",
+      linewidth = 1.2,
+      inherit.aes = FALSE
+    ) +
+    labs(
+      title = title,
+      color = NULL,
+      x = paste0("PC1 (", round(var_explained["PC1"], 1), "%)"),
+      y = paste0("PC2 (", round(var_explained["PC2"], 1), "%)")
+    ) +
+    theme_classic()
+  
+  return(list(
+    plot = p,
+    pca_df = pca_df,
+    curve_df = curve_df,
+    curves = curves,
+    lineages = slingLineages(sce_sl)
+  ))
+}
+```
+
+```{r}
+pt_setup <- slingshot_setup(
+  seurat_obj = pb90_PT2,
+  celltype_prefix = "PT",
+  cluster_col = "KPMP_celltype"
+)
+
+pt_setup$elbow_plot
+
+sce_PT_sl <- run_slingshot(
+  sce = pt_setup$sce,
+  pca_obj = pt_setup$pca,
+  n_pcs = 6,
+  start_cluster = "PT-S1/S2",
+  cluster_label = "cluster"
+)
+
+pt_plot <- plot_slingshot_trajectory(
+  sce_sl = sce_PT_sl,
+  var_explained = pt_setup$var_explained,
+  title = "PT Slingshot trajectory"
+)
+
+pt_plot$plot
+
+pb90_PT2$pseudotime <- slingPseudotime(sce_PT_sl)[, 1]
+```
+```{r}
+FeaturePlot(pb90_PT2, features = "pseudotime", reduction = "umap.TRIAD")
+VlnPlot(pb90_PT2, features = "pseudotime", group.by = "group", pt.size = 0)
+```
+
+```{r}
+FeaturePlot(
+  pb90_PT2,
+  reduction = "umap.TRIAD",
+  features = c(
+    "pseudotime",
+    "LRP2",
+    "SLC5A2",
+    "CUBN",
+    "HAVCR1",
+    "VCAM1"
+  ),
+  ncol = 3
+)
+```
+
+```{r}
+VlnPlot(
+  pb90_PT2,
+  features = "pseudotime",
+  group.by = "KPMP_celltype",
+  pt.size = 0
+)
+```
+
+```{r}
+slingLineages(sce_PT_sl)
+```
+```{r}
+pb90_PT2$PT_lineage1<- pt[, 1]
+plot_df <- FetchData(
+  pb90_PT2,
+  vars = c("PT_lineage1", "group")
+) %>%
+  filter(!is.na(PT_lineage1))
+
+ggplot(plot_df, aes(x = group, y = PT_lineage1)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.12, outlier.shape = NA) +
+  labs(
+    x = "Group",
+    y = "PT lineage 1 pseudotime",
+    title = "PT lineage 1 pseudotime by group"
+  ) +
+  theme_classic()
+
+kruskal.test(PT_lineage1 ~ group, data = plot_df)
+
+pairwise.wilcox.test(
+  plot_df$PT_lineage1,
+  plot_df$group,
+  p.adjust.method = "BH"
+)
+
+```
+
+
+```{r}
+pt_donor <- pb90_PT2@meta.data %>%
+  filter(!is.na(pseudotime)) %>%
+  group_by(record_id, group) %>%
+  summarise(
+    median_pt = median(pseudotime),
+    pct_high_pt = mean(pseudotime > 40),
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+ggplot(
+  pt_donor,
+  aes(group, median_pt, fill = group)
+) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1)
+
+ggplot(
+  pt_donor,
+  aes(group, pct_high_pt, fill = group)
+) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1)
+```
+
+#------------------
+#Tal specific umaps
+#------------------
+```{r}
+pb90_TAL2 <- FindVariableFeatures(pb90_TAL)
+
+pb90_TAL2 <- ScaleData(pb90_TAL2)
+
+pb90_TAL2 <- RunPCA(pb90_TAL2)
+
+pb90_TAL2 <- RunHarmony(
+  pb90_TAL2,
+  group.by.vars = "study"
+)
+
+pb90_TAL2 <- FindNeighbors(
+  pb90_TAL2,
+  reduction = "harmony",
+  dims = 1:30
+)
+
+pb90_TAL2 <- FindClusters(
+  pb90_TAL2,
+  resolution = 0.6
+)
+
+pb90_TAL2 <- RunUMAP(
+ pb90_TAL2,
+  reduction = "harmony",
+  dims = 1:30,
+  reduction.name = "umap.TRIAD"
+)
+```
+
+```{r}
+DimPlot(
+  pb90_TAL2,
+  reduction = "umap.TRIAD",
+  group.by = "seurat_clusters",
+  label = TRUE
+)
+
+DimPlot(
+  pb90_TAL2,
+  reduction = "umap.TRIAD",
+  group.by = "KPMP_celltype"
+)
+
+FeaturePlot(
+ pb90_TAL2,
+  reduction = "umap.TRIAD",
+  features = c("SLC12A1", "UMOD", "CLDN16", "CLDN10", "KCNJ1")
+)
+
+FeaturePlot(
+ pb90_TAL2,
+  reduction = "umap.TRIAD",
+  features = c("LCN2", "VCAM1", "KRT8", "KRT18", "VIM")
+)
+```
+
+```{r}
+tal_setup <- slingshot_setup(
+  seurat_obj = pb90_TAL2,
+  celltype_prefix = "TAL",
+  cluster_col = "KPMP_celltype"
+)
+
+tal_setup$elbow_plot
+
+sce_tal_sl <- run_slingshot(
+  sce = tal_setup$sce,
+  pca_obj = tal_setup$pca,
+  n_pcs = 6,
+  start_cluster = "C-TAL-1",
+  cluster_label = "cluster"
+)
+
+tal_setup$elbow_plot
+
+tal_plot <- plot_slingshot_trajectory(
+  sce_sl = sce_tal_sl,
+  var_explained = tal_setup$var_explained,
+  title = "TAL Slingshot trajectory"
+)
+
+tal_plot$plot
+
+pb90_TAL2$pseudotime <- slingPseudotime(sce_tal_sl)[, 1]
+
+tal_cols <- c(
+  "aTAL"    = "red3",
+  "C-TAL-1" = "darkgreen",
+  "C-TAL-2" = "dodgerblue3",
+  "dTAL"    = "purple4"
+)
+
+plot_labels <- colData(sce_tal_sl)$cluster
+
+plot(
+  reducedDims(sce_tal_sl)$PCA[, 1:2],
+  col = tal_cols[as.character(plot_labels)],
+  pch = 16,
+  cex = 0.4,
+  asp = 1,
+  xlab = paste0("PC1 (", round(tal_setup$var_explained[1], 1), "%)"),
+  ylab = paste0("PC2 (", round(tal_setup$var_explained[2], 1), "%)")
+)
+
+lines(
+  SlingshotDataSet(sce_tal_sl),
+  lwd = 4,
+  col = "black"
+)
+
+legend(
+  "topright",
+  legend = names(tal_cols),
+  col = tal_cols,
+  pch = 16,
+  bty = "n"
+)
+```
+
+```{r}
+FeaturePlot(pb90_TAL2, features = "pseudotime", reduction = "umap.TRIAD")
+VlnPlot(pb90_TAL2, features = "pseudotime", group.by = "group", pt.size = 0)
+```
+
+```{r}
+FeaturePlot(
+  pb90_TAL2,
+  features = c(
+    "UMOD",
+    "SLC12A1",
+    "KCNJ1",
+    "CLDN16"
+  ),
+  reduction = "umap.TRIAD"
+)
+```
+
+```{r}
+FeaturePlot(
+  pb90_TAL2,
+  features = c(
+    "VCAM1",
+    "LCN2",
+    "KRT8",
+    "KRT18",
+    "VIM"
+  ),
+  reduction = "umap.TRIAD"
+)
+```
+
+```{r}
+slingLineages(sce_tal_sl)
+```
+```{r}
+tal <- slingPseudotime(sce_tal_sl)
+
+pb90_TAL2$TAL_lineage1<- tal[, 1]
+pb90_TAL2$TAL_lineage2 <- tal[, 2]
+```
+
+```{r}
+FeaturePlot(
+  pb90_TAL2,
+  features = c("TAL_lineage1", "TAL_lineage2"),
+  reduction = "umap.TRIAD"
+)
+```
+```{r}
+plot_df <- FetchData(
+  pb90_TAL2,
+  vars = c("TAL_lineage2", "group")
+) %>%
+  filter(!is.na(TAL_lineage2))
+
+ggplot(plot_df, aes(x = group, y = TAL_lineage2)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.12, outlier.shape = NA) +
+  labs(
+    x = "Group",
+    y = "TAL lineage 2 pseudotime",
+    title = "TAL lineage 2 pseudotime by group"
+  ) +
+  theme_classic()
+
+plot_df1 <- FetchData(
+  pb90_TAL2,
+  vars = c("TAL_lineage1", "group")
+) %>%
+  filter(!is.na(TAL_lineage1))
+
+ggplot(plot_df1, aes(x = group, y = TAL_lineage1)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.12, outlier.shape = NA) +
+  theme_classic()
+```
+```{r}
+kruskal.test(TAL_lineage1 ~ group, data = pb90_TAL2@meta.data)
+kruskal.test(TAL_lineage2 ~ group, data = pb90_TAL2@meta.data)
+```
+```{r}
+pairwise.wilcox.test(
+  plot_df1$TAL_lineage1,
+  plot_df1$group,
+  p.adjust.method = "BH"
+)
+
+pairwise.wilcox.test(
+  plot_df$TAL_lineage2,
+  plot_df$group,
+  p.adjust.method = "BH"
+)
+```
+
