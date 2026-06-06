@@ -205,9 +205,7 @@ def clean_rpc2_redcap():
     labs.rename({ "labs_hg": "hemoglobin", "labs_pltct": "pltct", "serum_sodium": "sodium_s", 
                   "serum_creatinine": "creatinine_s", "totprot_base": "tot_prot", "spotalbumin": "microalbumin_u", 
                   "spotcreatinine": "creatinine_u", "labs_bun": "bun"}, axis=1, inplace=True)
-    labs.drop(["wbc", "rbc", "mcv", "mch", "rdw", "immgran", "ua_color", "ua_norm", 
-              "ua_specgrav", "ua_ph", "ua_leukest", "ua_nitrate", "ua_protein", "ua_glucose", "ua_ketone", 
-              "ua_urobilinogen", "ua_bilirubin", "ua_blood", "urineculture", "uric_acid", "phys_date", "vitals_date"], axis=1, inplace=True)            
+    labs.drop(["phys_date", "vitals_date"], axis=1, inplace=True)            
     labs["microalbumin_u"] = pd.to_numeric(labs["microalbumin_u"], errors="coerce") * 10
     labs["procedure"] = "labs"
     labs["redcap_event_name"] = labs["redcap_event_name"].replace(
