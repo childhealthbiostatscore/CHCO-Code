@@ -119,6 +119,19 @@ def clean_attempt():
     biopsy["procedure"] = "kidney_biopsy"
     biopsy["visit"] = biopsy["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
     
+    
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology.rename({"redcap_event_name": "visit", "date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["visit"] = pathology["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
+    pathology["date"] = biopsy["date"]
+     
     # --------------------------------------------------------------------------
     # MRI
     # --------------------------------------------------------------------------
@@ -151,6 +164,7 @@ def clean_attempt():
     bold_mri.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=12, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -158,7 +172,8 @@ def clean_attempt():
 
     df = pd.concat([clamp, med], join='outer', ignore_index=True)
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    bx = pd.merge(biopsy, pathology, how="outer")
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
     df = pd.concat([df, labs], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]

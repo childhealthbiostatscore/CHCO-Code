@@ -309,12 +309,6 @@ def clean_renal_heiritage():
 
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                   == "kidney_biopsy", "field_name"]]
-    var = var + ["cortex_dx_other", "gloms", "gloms_gs", "ifta", "vessels_other", "fia",
-                 "glom_tuft_area", "glom_volume_weibel", "glom_volume_wiggins",
-                 "glom_volume_con", "mes_matrix_area",
-                 "mes_index", "mes_volume_weibel", "mes_volume_wiggins",
-                 "mes_volume_con", "glom_nuc_count", "mes_nuc_count", "art_intima",
-                 "art_media", "pod_nuc_density", "pod_cell_volume"]
     biopsy = pd.DataFrame(proj.export_records(fields=var))
     biopsy = biopsy.loc[biopsy["redcap_event_name"].str.startswith("kidney_bio", na=False)]
     # Replace missing values
@@ -330,6 +324,18 @@ def clean_renal_heiritage():
     biopsy["procedure"] = "kidney_biopsy"
     biopsy["visit"] = "baseline"
 
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology = pathology.loc[pathology["redcap_event_name"].str.startswith("kidney_bio", na=False)]
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology.rename({"date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["date"] = biopsy["date"]
+    
     # --------------------------------------------------------------------------
     # J-Wire
     # --------------------------------------------------------------------------
@@ -456,6 +462,7 @@ def clean_renal_heiritage():
     liver_pet.dropna(thresh=5, axis=0, inplace=True)
     brain.dropna(thresh=2, axis=0, inplace=True)
     biopsy.dropna(thresh=7, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
     j_wire.dropna(thresh=4, axis=0, inplace=True)
     neuro.dropna(thresh=4, axis=0, inplace=True)
     voxelwise.dropna(thresh=4, axis=0, inplace=True)
@@ -463,7 +470,6 @@ def clean_renal_heiritage():
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
     sphygmocor.dropna(thresh=4, axis=0, inplace=True)
-    print("number of non-missing sphyg_yob values: ", sphygmocor["sphyg_yob"].notna().sum())
 
 
     # --------------------------------------------------------------------------
@@ -481,13 +487,15 @@ def clean_renal_heiritage():
     df = pd.concat([df, liver_pet], join='outer', ignore_index=True)
     df = pd.concat([df, brain], join='outer', ignore_index=True)
     df = pd.concat([df, neuro], join='outer', ignore_index=True)
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    
+    bx = pd.merge(biopsy, pathology, how = 'outer')
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+    
     df = pd.concat([df, j_wire], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
     df = pd.concat([df, lip], join='outer', ignore_index=True)
     df = pd.concat([df, sphygmocor], join='outer', ignore_index=True)
-    print("number of non-missing sphyg_yob values: ", df["sphyg_yob"].notna().sum())
 
     df = pd.merge(df, demo, on='record_id', how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
@@ -509,5 +517,4 @@ def clean_renal_heiritage():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
-    print("number of non-missing sphyg_yob values: ", df["sphyg_yob"].notna().sum())
     return df

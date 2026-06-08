@@ -260,6 +260,23 @@ def clean_rpc2_redcap():
     dictionary.loc[dictionary['variable_name'].isin(biopsy.columns), 'form_name'] = 'biopsy'
 
     biopsy["procedure"] = "kidney_biopsy"
+    
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology["redcap_event_name"] = pathology["redcap_event_name"].replace(
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",
+         "v2_gfr_mri_arm_1": "baseline", "v3_arm_1": "baseline", "v4_arm_1": "treatment_period_1",
+         "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
+         "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
+    pathology.rename({"redcap_event_name": "visit", "date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["date"] = biopsy["date"]
+    
     # --------------------------------------------------------------------------
     # MRI Outcomes
     # --------------------------------------------------------------------------
@@ -368,6 +385,7 @@ def clean_rpc2_redcap():
     labs.dropna(thresh=5, axis=0, inplace=True)
     # kidney_outcomes.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=5, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
     mri.dropna(thresh=5, axis=0, inplace=True)
     rct.dropna(thresh=6, axis=0, inplace=True)
 
@@ -379,7 +397,10 @@ def clean_rpc2_redcap():
     df = pd.concat([phys, labs], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     # df = pd.concat([df, kidney_outcomes], join='outer', ignore_index=True)
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    
+    bx = pd.merge(biopsy, pathology, on='subject_id', how="outer")
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+    
     # df = pd.concat([df, disp], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = pd.concat([df, rct], join='outer', ignore_index=True)
@@ -387,8 +408,6 @@ def clean_rpc2_redcap():
     df = pd.merge(df, demo, on='subject_id', how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
-
-    print("UNIQUE VISITS: ", df["visit"].unique())
 
     # --------------------------------------------------------------------------
     # Reorganize

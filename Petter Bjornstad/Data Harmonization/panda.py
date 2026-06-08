@@ -307,12 +307,6 @@ def clean_panda():
 
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                == "renal_biopsy", "field_name"]]
-    var = var + ["gloms", "gloms_gs", "ifta", "vessels_other", "fia",
-                 "glom_tuft_area", "glom_volume_weibel", "glom_volume_wiggins",
-                 "glom_volume_con", "mes_matrix_area",
-                 "mes_index", "mes_volume_weibel", "mes_volume_wiggins",
-                 "mes_volume_con", "glom_nuc_count", "mes_nuc_count", "art_intima",
-                 "art_media", "pod_nuc_density", "pod_cell_volume"]
     biopsy = pd.DataFrame(proj.export_records(fields=var))
     # Replace missing values
     biopsy.replace(rep, np.nan, inplace=True)
@@ -329,6 +323,19 @@ def clean_panda():
     biopsy["visit"] = biopsy["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     biopsy.drop(["redcap_event_name"], axis=1, inplace=True)
 
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology.replace(rep, np.nan, inplace=True) 
+    pathology.rename({"date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["visit"] = pathology["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
+    pathology["visit"] = pathology["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
+    pathology.drop(["redcap_event_name"], axis=1, inplace=True)    
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["date"] = biopsy["date"]
     
     # --------------------------------------------------------------------------
     # Clamp
@@ -466,7 +473,6 @@ def clean_panda():
     # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------
-    print("rows with CGM data:  ", cgm['cgm_avg_glucose'].notnull().sum())
 
     med.dropna(thresh=5, axis=0, inplace=True)
     epic_med.dropna(thresh=6, axis=0, inplace=True)
@@ -479,12 +485,9 @@ def clean_panda():
     clamp.dropna(thresh=7, axis=0, inplace=True)
     rct.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=20, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
     az_u_metab.dropna(thresh=6, axis=0, inplace=True)
     croc_labs.dropna(thresh=5, axis=0, inplace=True)
-
-    print("POST DROP: rows with CGM data:  ", cgm['cgm_avg_glucose'].notnull().sum())
-    print("POST DROP: total CGM rows (including all-missing):  ", len(cgm))
-    print("POST DROP: CGM visit values:  ", cgm['visit'].value_counts().to_dict() if 'visit' in cgm.columns else "NO VISIT COLUMN")
 
     # --------------------------------------------------------------------------
     # Merge
@@ -499,7 +502,10 @@ def clean_panda():
     df = pd.concat([df, clamp_merge], join='outer', ignore_index=True)
     df = pd.concat([df, cgm], join='outer', ignore_index=True)
     df = pd.concat([df, croc_labs], join='outer', ignore_index=True)
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    
+    bx = pd.merge(biopsy, pathology,  how="outer")
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+    
     df = pd.concat([df, med], join='outer', ignore_index=True)
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)

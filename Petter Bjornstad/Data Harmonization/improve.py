@@ -458,12 +458,6 @@ def clean_improve():
 
     var = ["subject_id", "study_visit"] + [v for v in meta.loc[meta["form_name"]
                                                                == "kidney_biopsy", "field_name"]]
-    var = var + ["cortex_dx_other", "gloms", "gloms_gs", "ifta", "vessels_other", "fia",
-                 "glom_tuft_area", "glom_volume_weibel", "glom_volume_wiggins",
-                 "glom_volume_con", "mes_matrix_area",
-                 "mes_index", "mes_volume_weibel", "mes_volume_wiggins",
-                 "mes_volume_con", "glom_nuc_count", "gbm_thick_artmean", "gbm_thick_harmmean", "mes_nuc_count", "art_intima",
-                 "art_media", "pod_nuc_density", "pod_cell_volume"]
     biopsy = pd.DataFrame(proj.export_records(fields=var))
     # Replace missing values
     biopsy.replace(rep, np.nan, inplace=True)
@@ -476,7 +470,19 @@ def clean_improve():
     biopsy.columns = biopsy.columns.str.replace(r"vitals_", "", regex=True)
     biopsy.rename({"hg": "hemoglobin"}, inplace=True, axis=1)
     biopsy["procedure"] = "kidney_biopsy"
-
+    
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["subject_id", "study_visit"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology.drop(redcap_cols, axis=1, inplace=True)    
+    pathology.rename({"date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["date"] = biopsy["date"]
+    
     # --------------------------------------------------------------------------
     # EPIC Medications
     # --------------------------------------------------------------------------
@@ -568,6 +574,7 @@ def clean_improve():
     out.dropna(thresh=10, axis=0, inplace=True)
     bold_mri.dropna(thresh=4, axis=0, inplace=True)
     biopsy.dropna(thresh=12, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
     az_u_metab.dropna(thresh=10, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
@@ -585,7 +592,10 @@ def clean_improve():
     df = pd.concat([df, clamp], join='outer', ignore_index=True)
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
     df = pd.merge(df, out, how='outer')
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    
+    bx = pd.merge(biopsy, pathology, how='outer')
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+    
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.concat([df, phys], join='outer', ignore_index=True)
     df = pd.concat([df, pavel], join='outer', ignore_index=True)

@@ -406,21 +406,6 @@ def clean_crocodile():
 
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                == "optional_kidney_biopsy_56ba", "field_name"]]
-    var = var + ["gloms", "gloms_gs", "ifta", "vessels_other", "fia",
-                 "glom_tuft_area", "glom_volume_weibel", "glom_volume_wiggins",
-                 "glom_volume_con", "mes_matrix_area",
-                 "mes_index", "mes_volume_weibel", "mes_volume_wiggins",
-                 "mes_volume_con", "glom_nuc_count", "mes_nuc_count", "art_intima",
-                 "art_media", "pod_nuc_density", "pod_cell_volume",
-                 "gbm_thick_artmean", "gbm_thick_harmmean",
-                 "cortex_total_area", "cortex_analyzed_area", 
-                 "cortex_percentage", "pt_total_number", 
-                 "pt_total_area", "pt_epithelium_area", "pt_lumen_area", "pt_nuclear_count", 
-                 "pt_total_nuc_area", "pt_density", "pt_avg_area", 
-                 "pt_epithelium_avg_area", "pt_lumen_avg_area", 
-                 "fractional_pt_total_area", "fractional_pt_epithelium_area", 
-                 "fractional_pt_lumen_area", "pt_nuc_density_number_tubule", 
-                 "pt_nuc_area", "pt_nuc_density_number_cortex", "pt_nuc_density_area_cortex"]
     biopsy = pd.DataFrame(proj.export_records(fields=var))
     # Replace missing values
     biopsy.replace(rep, np.nan, inplace=True)
@@ -438,6 +423,17 @@ def clean_crocodile():
 
     dictionary.loc[dictionary['variable_name'].isin(biopsy.columns), 'form_name'] = 'kidney_biopsy'
 
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology.rename({"date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["visit"] = "baseline"
+    pathology["date"] = biopsy["date"]
 
     # --------------------------------------------------------------------------
     # PET scan
@@ -578,6 +574,7 @@ def clean_crocodile():
     clamp.dropna(thresh=6, axis=0, inplace=True)
     rct.dropna(thresh=4, axis=0, inplace=True)
     biopsy.dropna(thresh=4, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
     pet.dropna(thresh=4, axis=0, inplace=True)
     liver_pet.dropna(thresh=5, axis=0, inplace=True)
     brain.dropna(thresh=2, axis=0, inplace=True)
@@ -601,7 +598,10 @@ def clean_crocodile():
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = pd.concat([df, dxa], join='outer', ignore_index=True)
     df = pd.concat([df, clamp_merge], join='outer', ignore_index=True)
-    df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+
+    bx = pd.merge(biopsy, pathology, how = 'outer')
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+
     pet = pd.merge(pet, voxelwise, how = 'outer')
     df = pd.concat([df, pet], join='outer', ignore_index=True)
     df = pd.concat([df, liver_pet], join='outer', ignore_index=True)
