@@ -22,6 +22,7 @@ library(ggVennDiagram)
 library(caret)
 library(jsonlite)
 library(mixOmics)
+library(circlize)
 ```
 
 ```{r}
@@ -225,7 +226,7 @@ diablo_final
 # model performance
 #----------------------------
 ```{r}
-set.seed(123)
+set.seed(1835)
 
 perf_diablo <- perf(
   diablo_final,
@@ -401,7 +402,7 @@ run_diablo_contrast <- function(
     metabolomics = c(5, 10, 15, 25, 50)
   )
   
-  set.seed(123)
+  set.seed(1835)
   
   tune_diablo <- tune.block.splsda(
     X = X,
@@ -433,7 +434,7 @@ run_diablo_contrast <- function(
     design = design
   )
   
-  set.seed(123)
+  set.seed(1835)
   
   perf_diablo <- perf(
     diablo_final,
@@ -512,11 +513,140 @@ diablo_results <- purrr::imap(
 )
 
 saveRDS(
-  diablo_results,
+    diablo_results,
   file = file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds")
 )
+
+#diablo_results <- readRDS(file= file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds"))
 ```
 
+```{r}
+metabolites <- read_csv(file = file.path(root_path, "Data Harmonization/data_dictionary_master.csv"))
+metabolites
+metabolites <- metabolites %>%
+  dplyr::filter(form_name == c("metabolomics", "metabolomics_blood_raw")) %>%
+  dplyr::select(variable_name, label)
+metabolites
+
+metab_anno <- metabolites %>%
+  transmute(
+    feature_id = as.character(variable_name),
+    metabolite_label = label
+  ) %>%
+  distinct(feature_id, .keep_all = TRUE) 
+```
+
+```{r}
+analytes <- read_csv(
+  file.path(root_path,"Data Harmonization/Combined SomaScan/analytes.csv")
+)
+glimpse(analytes)
+
+prot_anno <- analytes %>%
+  transmute(
+    feature_id = as.character(AptName),
+    target_name = Target,
+    target_full_name = TargetFullName,
+    gene_symbol = EntrezGeneSymbol,
+    uniprot = UniProt,
+    entrez_id = EntrezGeneID,
+    somaid = SomaId,
+    seqid = SeqId
+  ) %>%
+  distinct(feature_id, .keep_all = TRUE)
+
+make_protein_label_map <- function(prot_anno) {
+  prot_anno %>%
+    mutate(
+      protein_label = case_when(
+        !is.na(target_name) & target_name != "" ~ target_name,
+        !is.na(gene_symbol) & gene_symbol != "" ~ gene_symbol,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, protein_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+}
+
+protein_label_map <- make_protein_label_map(prot_anno)
+```
+
+```{r}
+
+annotate_diablo_model <- function(model, prot_anno, metab_anno) {
+  
+  prot_map <- prot_anno %>%
+    mutate(
+      new_label = case_when(
+        !is.na(target_name) & target_name != "" ~ target_name,
+        !is.na(gene_symbol) & gene_symbol != "" ~ gene_symbol,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, new_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+  
+  metab_map <- metab_anno %>%
+    mutate(
+      new_label = case_when(
+        !is.na(metabolite_label) & metabolite_label != "" ~ metabolite_label,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, new_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+  
+  rename_block <- function(model, block_name, label_map) {
+    
+    label_vec <- label_map$new_label
+    names(label_vec) <- label_map$feature_id
+    
+    old_names <- rownames(model$loadings[[block_name]])
+    
+    new_names <- ifelse(
+      old_names %in% names(label_vec),
+      label_vec[old_names],
+      old_names
+    )
+    
+    new_names <- make.unique(new_names)
+    
+    rownames(model$loadings[[block_name]]) <- new_names
+    
+    if (!is.null(model$X[[block_name]])) {
+      colnames(model$X[[block_name]]) <- new_names
+    }
+    
+    if (!is.null(model$names$colnames[[block_name]])) {
+      model$names$colnames[[block_name]] <- new_names
+    }
+    
+    model
+  }
+  
+  model <- rename_block(model, "proteomics", prot_map)
+  model <- rename_block(model, "metabolomics", metab_map)
+  
+  model
+}
+```
+
+```{r}
+diablo_results_annotated <- purrr::map(
+  diablo_results,
+  ~ {
+    if (is.null(.x)) return(NULL)
+    
+    .x$model_annotated <- annotate_diablo_model(
+      model = .x$model,
+      prot_anno = prot_anno,
+      metab_anno = metab_anno
+    )
+    
+    .x
+  }
+)
+```
 
 ```{r}
 for (nm in names(diablo_results)) {
@@ -540,13 +670,20 @@ for (nm in names(diablo_results)) {
 
 ```{r}
 #only one component chosen for each contrast model so plotIndiv and plotArrow won't work
-#plotIndiv(
-#  diablo_results$T1D_vs_LC$model,
-#  comp = 1,
-#  ind.names = FALSE,
-#  legend = TRUE,
-#  title = "T1D vs LC"
-#)
+plotIndiv(
+  diablo_results$T1D_vs_LC$model,
+  ind.names = FALSE,
+  legend = TRUE,
+  title = "T1D vs LC"
+)
+
+plotArrow(
+  diablo_results$T1D_vs_LC$model,
+  comp = c(1,2),
+  ind.names = FALSE,
+  legend = TRUE,
+  title = "T1D vs LC"
+)
 ```
 
 ```{r}
@@ -580,10 +717,11 @@ plot_1comp_scores(diablo_results$T2D_vs_LC)
 plot_1comp_scores(diablo_results$T2D_vs_OC)
 plot_1comp_scores(diablo_results$OC_vs_LC)
 ```
-```{r}
-for (nm in names(diablo_results)) {
 
-  res <- diablo_results[[nm]]
+```{r}
+for (nm in names(diablo_results_annotated)) {
+
+  res <- diablo_results_annotated[[nm]]
 
   if (is.null(res)) next
 
@@ -592,7 +730,7 @@ for (nm in names(diablo_results)) {
   cat("=====================================\n")
 
   plotLoadings(
-    res$model,
+    res$model_annotated,
     comp = 1,
     contrib = "max",
     method = "mean",
@@ -612,12 +750,12 @@ png(
 )
 
 network(
-  diablo_results$T1D_vs_LC$model,
+  diablo_results_annotated$T1D_vs_LC$model_annotated,
   comp = NULL,
   cutoff = 0.85
 )
 
-title(main = "T1D vs LC")
+title("T1D vs LC")
 
 dev.off()
 ```
@@ -631,7 +769,7 @@ png(
 )
 
 network(
-  diablo_results$T1D_vs_OC$model,
+  diablo_results_annotated$T1D_vs_OC$model_annotated,
   comp = NULL,
   cutoff = 0.7
 )
@@ -650,7 +788,7 @@ png(
 )
 
 network(
-  diablo_results$T1D_vs_T2D$model,
+  diablo_results_annotated$T1D_vs_T2D$model_annotated,
   comp = NULL,
   cutoff = 0.85
 )
@@ -669,7 +807,7 @@ png(
 )
 
 network(
-  diablo_results$T2D_vs_LC$model,
+  diablo_results_annotated$T2D_vs_LC$model_annotated,
   comp = NULL,
   cutoff = 0.8
 )
@@ -688,7 +826,7 @@ png(
 )
 
 network(
-  diablo_results$T2D_vs_OC$model,
+  diablo_results_annotated$T2D_vs_OC$model_annotated,
   comp = NULL,
   cutoff = 0.5
 )
@@ -707,7 +845,7 @@ png(
 )
 
 network(
-  diablo_results$OC_vs_LC$model,
+  diablo_results_annotated$OC_vs_LC$model_annotated,
   comp = NULL,
   cutoff = 0.75
 )
@@ -719,57 +857,172 @@ dev.off()
 
 ```{r}
 selected_all <- purrr::map_dfr(
-  diablo_results,
+  diablo_results_annotated,
   ~ .x$selected_features
 )
 
 selected_all %>%
   count(feature_id, block, sort = TRUE)
+
+selected_all_annotated <- selected_all %>%
+  left_join(prot_anno, by = "feature_id") %>%
+  left_join(metab_anno, by = "feature_id") %>%
+  mutate(
+    feature_label = case_when(
+      block == "proteomics" & !is.na(target_name) ~ target_name,
+      block == "metabolomics" & !is.na(metabolite_label) ~ metabolite_label,
+      TRUE ~ feature_id
+    )
+  )
+
+selected_all_annotated %>%
+  count(feature_label, block, sort = TRUE)
 ```
 
 ```{r}
+pdf(
+  file.path(diablo_dir, "T1D_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
 circosPlot(
-  diablo_results$T1D_vs_LC$model,
+  diablo_results_annotated$T1D_vs_LC$model_annotated,
   line = TRUE,
   cutoff = 0.7
 )
+
+title("T1D vs LC")
+
+dev.off()
 ```
 ```{r}
+pdf(
+  file.path(diablo_dir, "T1D_vs_OC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
 circosPlot(
-  diablo_results$T1D_vs_OC$model,
+  diablo_results_annotated$T1D_vs_OC$model_annotated,
   line = TRUE,
   cutoff = 0.7
 )
+
+title("T1D vs OC")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_dir, "T1D_vs_T2D_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T1D_vs_T2D$model_annotated,
+  line = TRUE,
+  cutoff = 0.7
+)
+
+title("T1D vs T2D")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_dir, "T2D_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T2D_vs_LC$model_annotated,
+  line = TRUE,
+  cutoff = 0.7
+)
+
+title("T2D vs LC")
+
+dev.off
 ```
 
 ```{r}
+pdf(
+  file.path(diablo_dir, "T2D_vs_OC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
 circosPlot(
-  diablo_results$T1D_vs_T2D$model,
+  diablo_results_annotated$T2D_vs_OC$model_annotated,
   line = TRUE,
   cutoff = 0.7
 )
+
+title("T2D vs OC")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_dir, "OC_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$OC_vs_LC$model_annotated,
+  line = TRUE,
+  cutoff = 0.7
+)
+
+title("OC vs LC")
+
+dev.off
 ```
 
-```{r}
-circosPlot(
-  diablo_results$T2D_vs_LC$model,
-  line = TRUE,
-  cutoff = 0.7
-)
-```
 
-```{r}
-circosPlot(
-  diablo_results$T2D_vs_OC$model,
-  line = TRUE,
-  cutoff = 0.5
-)
-```
-```{r}
-circosPlot(
-  diablo_results$OC_vs_LC$model,
-  line = TRUE,
-  cutoff = 0.7
-)
-```
+
+
+
+
+
 
