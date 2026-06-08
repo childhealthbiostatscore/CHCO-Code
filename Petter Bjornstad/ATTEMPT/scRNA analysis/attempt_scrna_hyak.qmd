@@ -65,7 +65,38 @@ library(scCustomize)
 library(msigdbr)
 library(lme4)
 library(lmerTest)
+library(aws.s3)
+library(jsonlite)
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
 ```
 
 ```{r include = F}
@@ -90,9 +121,19 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 
 ```{r echo = F, eval = F}
 # read ATTEMPT Seurat file
+start_time <- Sys.time()
 temp_file <- tempfile(fileext = ".RDS")
 s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", temp_file)
 attempt_so_raw <- readRDS(temp_file)
+end_time <- Sys.time()
+elapsed_time <- end_time - start_time
+print(elapsed_time) 
+# start_time <- Sys.time()
+# attempt_so_raw <- s3readRDS("Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", 
+#                             "scrna", region = "")
+# end_time <- Sys.time()
+# elapsed_time <- end_time - start_time
+# print(elapsed_time) 
 
 # N of cells for Petter (B-cells and POD at baseline)
 # attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
