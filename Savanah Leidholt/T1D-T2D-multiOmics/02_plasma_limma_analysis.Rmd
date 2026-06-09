@@ -1200,6 +1200,401 @@ sig_overlap_allomics_study <- bind_rows(
 
 sig_overlap_allomics_study
 ```
+#----------------------------
+#sensitivity analysis tables
+#----------------------------
+```{r}
+compare_to_primary <- function(primary_out, sens_out, analysis_name){
+
+  bind_rows(
+    lapply(names(primary_out), function(cc){
+
+      primary_ids <- primary_out[[cc]] %>%
+        filter(adj.P.Val < 0.05) %>%
+        pull(feature_id)
+
+      sens_ids <- sens_out[[cc]] %>%
+        filter(adj.P.Val < 0.05) %>%
+        pull(feature_id)
+
+      n_overlap <- length(intersect(primary_ids, sens_ids))
+
+      tibble(
+        Contrast = cc,
+        `Primary\n(FDR<0.05)` = length(primary_ids),
+        `Sensitivity\n(FDR<0.05)` = length(sens_ids),
+        Overlap = n_overlap,
+        `% overlap` = round(
+          100 * n_overlap / length(primary_ids),
+          1
+        ),
+        Analysis = analysis_name
+      )
+    })
+  )
+}
+```
+
+
+```{r}
+tab_obesity <- compare_to_primary(
+  primary_out = out_m3,
+  sens_out = out_m5,
+  analysis_name = "Remove obese T1D"
+)
+
+tab_noATT <- compare_to_primary(
+  primary_out = out_m3,
+  sens_out = out_m7,
+  analysis_name = "Exclude ATTEMPT"
+)
+
+tab_allomics <- compare_to_primary(
+  primary_out = out_m3,
+  sens_out = out_m9,
+  analysis_name = "Paired multi-omics subset"
+)
+
+sens_table <- bind_rows(
+  tab_obesity,
+  tab_noATT,
+  tab_allomics
+)
+```
+
+
+```{r}
+pub_table <- full_join(
+  tab_obesity %>%
+    select(
+      Contrast,
+      Primary = `Primary\n(FDR<0.05)`,
+      ObeseT1D = `Sensitivity\n(FDR<0.05)`,
+      ObeseT1D_overlap = `% overlap`
+    ),
+
+  tab_noATT %>%
+    select(
+      Contrast,
+      NoATT = `Sensitivity\n(FDR<0.05)`,
+      NoATT_overlap = `% overlap`
+    ),
+
+  by = "Contrast"
+
+) %>%
+  full_join(
+
+    tab_allomics %>%
+      select(
+        Contrast,
+        AllOmics = `Sensitivity\n(FDR<0.05)`,
+        AllOmics_overlap = `% overlap`
+      ),
+
+    by = "Contrast"
+  )
+```
+
+```{r}
+library(gt)
+
+pub_table %>%
+  gt() %>%
+  tab_header(
+    title = md("**Sensitivity Analyses Compared with the Primary Proteomic Analysis**")
+  ) %>%
+  cols_label(
+    Contrast = "Contrast",
+    Primary = "Primary",
+    ObeseT1D = "Remove obese T1D",
+    ObeseT1D_overlap = "% DEP overlap",
+    NoATT = "Exclude ATTEMPT",
+    NoATT_overlap = "% DEP overlap",
+    AllOmics = "Paired multi-omics",
+    AllOmics_overlap = "% DEP overlap"
+  ) %>%
+  tab_spanner(
+    label = "Remove obese T1D",
+    columns = c(ObeseT1D, ObeseT1D_overlap)
+  ) %>%
+  tab_spanner(
+    label = "Exclude ATTEMPT",
+    columns = c(NoATT, NoATT_overlap)
+  ) %>%
+  tab_spanner(
+    label = "Paired multi-omics subset",
+    columns = c(AllOmics, AllOmics_overlap)
+  )
+```
+```{r}
+gt_tab <- pub_table %>%
+  gt() %>%
+  tab_header(
+    title = md("**Sensitivity Analyses Compared with the Primary Proteomic Analysis**")
+  )
+
+gtsave(
+  gt_tab,
+  filename = file.path(
+    root_path,
+    "Savanah Leidholt",
+    "TRIAD",
+    "figures",
+    "Proteomics Figures",
+    "Limma",
+    "sensitivity_analysis_table.png"
+  )
+)
+```
+#--------------------
+#T-stat correlations
+#--------------------
+```{r}
+# Primary + sensitivity objects
+primary_out <- out_m3
+
+sensitivity_outs <- list(
+  no_obese_T1D = out_m5,
+  no_ATTEMPT   = out_m7,
+  all_omics    = out_m9
+)
+
+
+#Function to compare t-statistics for one contrast
+compare_t_stat <- function(primary_out, sens_out, sens_name, contrast_name) {
+  
+  df <- primary_out[[contrast_name]] %>%
+    dplyr::select(feature_id, t_primary = t) %>%
+    inner_join(
+      sens_out[[contrast_name]] %>%
+        dplyr::select(feature_id, t_sensitivity = t),
+      by = "feature_id"
+    ) %>%
+    filter(
+      is.finite(t_primary),
+      is.finite(t_sensitivity)
+    )
+  
+  rho <- cor(
+    df$t_primary,
+    df$t_sensitivity,
+    method = "spearman",
+    use = "complete.obs"
+  )
+  
+  p <- ggplot(df, aes(x = t_primary, y = t_sensitivity)) +
+    geom_point(alpha = 0.25, size = 1) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(
+      title = paste0(contrast_name, ": ", sens_name),
+      subtitle = paste0("Spearman rho = ", round(rho, 3)),
+      x = "Primary limma t-statistic",
+      y = "Sensitivity limma t-statistic"
+    ) +
+    theme_bw()
+  
+  list(
+    plot = p,
+    summary = tibble(
+      sensitivity = sens_name,
+      contrast = contrast_name,
+      n_features = nrow(df),
+      spearman_t = rho
+    )
+  )
+}
+```
+
+```{r}
+contrast_order <- c(
+  "T1D_vs_LC",
+  "T2D_vs_LC",
+  "T1D_vs_T2D",
+  "OC_vs_LC",
+  "T1D_vs_OC",
+  "T2D_vs_OC"
+)
+
+tstat_results <- purrr::imap(
+  sensitivity_outs,
+  function(sens_out, sens_name) {
+    purrr::map(
+      contrast_order,
+      ~ compare_t_stat(
+        primary_out = primary_out,
+        sens_out = sens_out,
+        sens_name = sens_name,
+        contrast_name = .x
+      )
+    )
+  }
+)
+```
+
+```{r}
+tstat_summary <- purrr::map_dfr(
+  tstat_results,
+  ~ purrr::map_dfr(.x, "summary")
+)
+
+tstat_summary
+```
+```{r}
+plots_no_obese_T1D <- purrr::map(tstat_results$no_obese_T1D, "plot")
+plots_no_ATTEMPT   <- purrr::map(tstat_results$no_ATTEMPT, "plot")
+plots_all_omics    <- purrr::map(tstat_results$all_omics, "plot")
+
+panel_no_obese_T1D <- wrap_plots(plots_no_obese_T1D, ncol = 3) +
+  plot_annotation(title = "Primary vs sensitivity: remove obese T1D")
+
+panel_no_ATTEMPT <- wrap_plots(plots_no_ATTEMPT, ncol = 3) +
+  plot_annotation(title = "Primary vs sensitivity: exclude ATTEMPT")
+
+panel_all_omics <- wrap_plots(plots_all_omics, ncol = 3) +
+  plot_annotation(title = "Primary vs sensitivity: paired multi-omics subset")
+
+out_dir <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "TRIAD",
+  "figures",
+  "Proteomics Figures",
+  "Limma"
+)
+ggsave(
+  file.path(out_dir, "tstat_correlation_no_obese_T1D.pdf"),
+  panel_no_obese_T1D,
+  width = 14,
+  height = 8
+)
+
+ggsave(
+  file.path(out_dir, "tstat_correlation_no_ATTEMPT.pdf"),
+  panel_no_ATTEMPT,
+  width = 14,
+  height = 8
+)
+
+ggsave(
+  file.path(out_dir, "tstat_correlation_all_omics.pdf"),
+  panel_all_omics,
+  width = 14,
+  height = 8
+)
+
+write.csv(
+  tstat_summary,
+  file.path(dir.results, "Proteomics Results", "Limma", "tstat_correlation_summary.csv"),
+  row.names = FALSE
+)
+
+panel_no_obese_T1D
+panel_no_ATTEMPT
+panel_all_omics
+```
+#---------------------------------------------------
+#correlations with only top 100 overlapping proteins
+#---------------------------------------------------
+```{r}
+compare_top100 <- function(primary_out,
+                           sens_out,
+                           sens_name,
+                           contrast_name,
+                           top_n = 500){
+
+  primary_df <- primary_out[[contrast_name]]
+  sens_df    <- sens_out[[contrast_name]]
+
+  top_primary <- primary_df %>%
+    arrange(desc(abs(t))) %>%
+    slice_head(n = top_n) %>%
+    select(feature_id, t_primary = t)
+
+  top_sens <- sens_df %>%
+    arrange(desc(abs(t))) %>%
+    slice_head(n = top_n) %>%
+    select(feature_id, t_sens = t)
+
+  overlap_df <- inner_join(
+    top_primary,
+    top_sens,
+    by = "feature_id"
+  )
+
+  n_overlap <- nrow(overlap_df)
+
+  rho <- if(n_overlap > 1){
+    cor(
+      overlap_df$t_primary,
+      overlap_df$t_sens,
+      method = "spearman"
+    )
+  } else {
+    NA
+  }
+
+  tibble(
+    sensitivity = sens_name,
+    contrast = contrast_name,
+    top_n = top_n,
+    n_overlap = n_overlap,
+    pct_overlap = round(100*n_overlap/top_n,1),
+    spearman_overlap_t = round(rho,3)
+  )
+}
+```
+
+```{r}
+top100_summary <- imap_dfr(
+  sensitivity_outs,
+  function(sens_out, sens_name){
+
+    map_dfr(
+      contrast_order,
+      ~compare_top100(
+        primary_out = out_m3,
+        sens_out = sens_out,
+        sens_name = sens_name,
+        contrast_name = .x,
+        top_n = 500
+      )
+    )
+
+  }
+)
+
+top100_summary
+write.csv(
+  top100_summary,
+  file.path(dir.results, "Proteomics Results", "Limma", "top_overlap_summary.csv"),
+  row.names = FALSE
+)
+```
+
+```{r}
+top100_summary %>%
+  ggplot(
+    aes(
+      x = sensitivity,
+      y = contrast,
+      fill = pct_overlap
+    )
+  ) +
+  geom_tile() +
+  geom_text(
+    aes(label = paste0(n_overlap, "/500")),
+    size = 4
+  ) +
+  scale_fill_gradient(
+    low = "grey",
+    high = "purple4"
+  ) +
+  theme_bw()
+```
+
+
+
 #---------------------------------------------------
 # saving limma outputs
 # Three analyses, all using age + sex + study model
@@ -1217,7 +1612,7 @@ prep_gsea_tables <- function(out_list) {
 out_m3_gsea <- prep_gsea_tables(out_m3)
 out_m7_gsea <- prep_gsea_tables(out_m7)
 out_m9_gsea <- prep_gsea_tables(out_m9)
-#out_m5_gsea <- prep_gsea_tables(out_m5)
+out_m5_gsea <- prep_gsea_tables(out_m5)
 
 contrast_order <- c(
   "T1D_vs_LC",
@@ -1245,6 +1640,15 @@ limma_gsea_inputs <- list(
     fit = fit_m3,
     out = out_m3,
     gsea_tables = out_m3_gsea
+  ),
+  
+  noObeseT1D = list(
+    model_name = "sensitivty_age_sex_study_noObeseT1D",
+    samples = meta_m5,
+    design = design_m5,
+    fit = fit_m5,
+    out = out_m5,
+    gsea_tables = out_m5_gsea
   ),
 
   no_ATTEMPT = list(
