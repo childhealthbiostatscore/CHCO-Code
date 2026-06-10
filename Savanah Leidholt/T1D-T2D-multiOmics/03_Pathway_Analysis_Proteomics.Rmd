@@ -56,30 +56,29 @@ msig_hs <- msigdbr(species = "Homo sapiens")
 
 # Reactome (C2:CP:REACTOME)
 reactome <- msig_hs %>%
-  filter(gs_collection == "C2", gs_subcollection == "CP:REACTOME") %>%
-  select(gs_name, gene_symbol)
+  dplyr::filter(gs_collection == "C2", gs_subcollection == "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol)
 
 # GO categories (C5)
 go_bp <- msig_hs %>%
-  filter(gs_collection == "C5", gs_subcollection == "GO:BP") %>%
-  select(gs_name, gene_symbol)
+  dplyr::filter(gs_collection == "C5", gs_subcollection == "GO:BP") %>%
+  dplyr::select(gs_name, gene_symbol)
 
 go_cc <- msig_hs %>%
-  filter(gs_collection == "C5", gs_subcollection == "GO:CC") %>%
-  select(gs_name, gene_symbol)
+  dplyr::filter(gs_collection == "C5", gs_subcollection == "GO:CC") %>%
+  dplyr::select(gs_name, gene_symbol)
 
 go_mf <- msig_hs %>%
-  filter(gs_collection== "C5", gs_subcollection == "GO:MF") %>%
-  select(gs_name, gene_symbol)
+  dplyr::filter(gs_collection== "C5", gs_subcollection == "GO:MF") %>%
+  dplyr::select(gs_name, gene_symbol)
 
 # Combine + split to fgsea pathways list
 pathways <- bind_rows(reactome, go_bp, go_cc, go_mf) %>%
-  distinct(gs_name, gene_symbol) %>%
-  group_by(gs_name) %>%
+  dplyr::distinct(gs_name, gene_symbol) %>%
+  dplyr::group_by(gs_name) %>%
   summarise(genes = list(unique(gene_symbol)), .groups = "drop") %>%
   tibble::deframe()
 
-# Optional: sanity check sizes
 summary(lengths(pathways))
 ```
 
@@ -89,17 +88,21 @@ summary(lengths(pathways))
 ```{r}
 obj <- readRDS(file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "limma_gsea_inputs_age_sex_study.rds"))
 
-dat1 <- obj$all_studies
-dat2 <- obj$no_attempt
-dat3 <- obj$all3_omics
+dat1 <- obj$primary
+dat2 <- obj$noObeseT1D
+dat2 <- obj$no_ATTEMPT
+dat4 <- obj$all_omics
+
 
 dat1_fit <- dat1$fit
 dat2_fit <- dat2$fit
 dat3_fit <- dat3$fit
+dat4_fit <- dat4$fit
 
 out1 <- dat1$out
 out2 <- dat2$out
 out3 <- dat3$out
+out4 <- dat4$out
 
 contrast_names <- colnames(dat1_fit$coefficients) %>% trimws()
 ```
@@ -138,11 +141,11 @@ run_fgsea_contrast <- function(fit, coef_name, id_map, pathways,
   tt <- topTable(fit, coef = coef_name, number = Inf, sort.by = "none") %>%
     tibble::rownames_to_column(feature_col) %>%
     left_join(id_map, by = feature_col) %>%
-    filter(!is.na(.data[[symbol_col]]), .data[[symbol_col]] != "")
+    dplyr::filter(!is.na(.data[[symbol_col]]), .data[[symbol_col]] != "")
 
   # collapse duplicate genes
   tt_gene <- tt %>%
-    group_by(.data[[symbol_col]]) %>%
+    dplyr::group_by(.data[[symbol_col]]) %>%
     slice_max(order_by = abs(.data[[rank_by]]), n = 1) %>%
     ungroup()
 
@@ -157,19 +160,19 @@ run_fgsea_contrast <- function(fit, coef_name, id_map, pathways,
     maxSize = maxSize
   ) %>%
     as_tibble() %>%
-    mutate(
+    dplyr::mutate(
       contrast = coef_name,
       rank_metric = rank_by,
       n_genes_ranked = length(stats)
     ) %>%
-    arrange(padj, desc(abs(NES)))
+    dplyr::arrange(padj, desc(abs(NES)))
 }
 
 ```
 
 
 ```{r}
-fgsea_all <- map_dfr(
+fgsea1 <- map_dfr(
   contrast_names,
   ~ run_fgsea_contrast(
       fit = dat1_fit,
@@ -183,7 +186,45 @@ fgsea_all <- map_dfr(
 ```
 
 ```{r}
-fgsea_all <- fgsea_all %>%
+fgsea1 <- fgsea1 %>%
+  dplyr::mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+fgsea1
+
+#getting only significant pathways
+fgsea_sig1 <- fgsea1 %>% filter(padj < 0.05 & abs(NES) >= 1)
+table(fgsea_sig1$contrast)
+
+
+fgsea1 %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+
+```{r}
+fgsea2 <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat2_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+```
+
+```{r}
+fgsea2 <- fgsea2 %>%
   mutate(collection = case_when(
     grepl("REACTOME", pathway) ~ "Reactome",
     grepl("GOBP", pathway)     ~ "GO:BP",
@@ -193,14 +234,91 @@ fgsea_all <- fgsea_all %>%
   ))
 
 
-fgsea_all
 
 #getting only significant pathways
-fgsea_sig <- fgsea_all %>% filter(padj < 0.05 & abs(NES) >= 2)
-table(fgsea_sig$contrast)
+
+fgsea_sig2 <- fgsea2 %>% filter(padj < 0.05 & abs(NES) >= 1)
+table(fgsea_sig2$contrast)
 
 
-fgsea_all %>%
+fgsea2 %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+```{r}
+fgsea3 <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat3_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+
+```
+
+```{r}
+fgsea3 <- fgsea3 %>%
+  mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+fgsea3
+#getting only significant pathways
+
+fgsea_sig3 <- fgsea3 %>% filter(padj < 0.05 & abs(NES) >= 1)
+table(fgsea_sig3$contrast)
+
+
+fgsea3 %>%
+  filter(padj < 0.05 & abs(NES) >= 2) %>%
+  count(contrast)
+
+```
+
+
+```{r}
+fgsea4 <- map_dfr(
+  contrast_names,
+  ~ run_fgsea_contrast(
+      fit = dat4_fit,
+      coef_name = .x,
+      id_map = id_map,
+      pathways = pathways,
+      rank_by = "t"
+  )
+)
+
+```
+
+```{r}
+fgsea4 <- fgsea4 %>%
+  mutate(collection = case_when(
+    grepl("REACTOME", pathway) ~ "Reactome",
+    grepl("GOBP", pathway)     ~ "GO:BP",
+    grepl("GOCC", pathway)     ~ "GO:CC",
+    grepl("GOMF", pathway)     ~ "GO:MF",
+    TRUE ~ "Other"
+  ))
+
+
+fgsea4
+#getting only significant pathways
+
+fgsea_sig4 <- fgsea4 %>% filter(padj < 0.05 & abs(NES) >= 1)
+table(fgsea_sig4$contrast)
+
+
+fgsea4 %>%
   filter(padj < 0.05 & abs(NES) >= 2) %>%
   count(contrast)
 
@@ -251,19 +369,46 @@ enrich_dotplot <- function(fgsea_df, n = 15, title = NULL, wrap_width = 60) {
 
 ```{r}
 plots <- lapply(contrast_names, function(cn) {
-  df <- fgsea_all %>% filter(contrast == cn)
+  df <- fgsea1 %>% filter(contrast == cn)
   enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
 })
 
 plots
 
 ```
+```{r}
+plots2 <- lapply(contrast_names, function(cn) {
+  df <- fgsea2 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
 
+plots3
+
+```
+
+```{r}
+plots3 <- lapply(contrast_names, function(cn) {
+  df <- fgsea3 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
+
+plots3
+
+```
+```{r}
+plots4 <- lapply(contrast_names, function(cn) {
+  df <- fgsea4 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
+})
+
+plots4
+
+```
 #-----------------------------------
 #plotting only top 10 reactome pathways in each contrast
 #-----------------------------------
 ```{r}
-fgsea_reactome <- fgsea_all %>%
+fgsea_reactome <- fgsea1 %>%
   filter(grepl("^REACTOME_", pathway))
 
 fgsea_reactome_top10 <- fgsea_reactome %>%
@@ -285,57 +430,8 @@ gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
 ```
 
 ```{r}
-fgsea_all2 <- map_dfr(
-  contrast_names,
-  ~ run_fgsea_contrast(
-      fit = dat2_fit,
-      coef_name = .x,
-      id_map = id_map,
-      pathways = pathways,
-      rank_by = "t"
-  )
-)
-
-```
-
-```{r}
-fgsea_all2 <- fgsea_all2 %>%
-  mutate(collection = case_when(
-    grepl("REACTOME", pathway) ~ "Reactome",
-    grepl("GOBP", pathway)     ~ "GO:BP",
-    grepl("GOCC", pathway)     ~ "GO:CC",
-    grepl("GOMF", pathway)     ~ "GO:MF",
-    TRUE ~ "Other"
-  ))
-
-
-
-#getting only significant pathways
-
-fgsea_sig2 <- fgsea_all2 %>% filter(padj < 0.05 & abs(NES) >= 2)
-table(fgsea_sig2$contrast)
-
-
-fgsea_all2 %>%
-  filter(padj < 0.05 & abs(NES) >= 2) %>%
-  count(contrast)
-
-```
-
-
-```{r}
-plots2 <- lapply(contrast_names, function(cn) {
-  df <- fgsea_all2 %>% filter(contrast == cn)
-  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
-})
-
-plots2
-
-```
-
-```{r}
 #plotting only top 10 reactome pathways in each contrast
-fgsea_reactome2 <- fgsea_all2 %>%
+fgsea_reactome2 <- fgsea2 %>%
   filter(grepl("^REACTOME_", pathway))
 
 fgsea_reactome2_top10 <- fgsea_reactome2 %>%
@@ -355,59 +451,9 @@ reactome_plots
 gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
 
 ```
-
-```{r}
-fgsea_all3 <- map_dfr(
-  contrast_names,
-  ~ run_fgsea_contrast(
-      fit = dat3_fit,
-      coef_name = .x,
-      id_map = id_map,
-      pathways = pathways,
-      rank_by = "t"
-  )
-)
-
-
-```
-
-```{r}
-fgsea_all3 <- fgsea_all3 %>%
-  mutate(collection = case_when(
-    grepl("REACTOME", pathway) ~ "Reactome",
-    grepl("GOBP", pathway)     ~ "GO:BP",
-    grepl("GOCC", pathway)     ~ "GO:CC",
-    grepl("GOMF", pathway)     ~ "GO:MF",
-    TRUE ~ "Other"
-  ))
-
-
-fgsea_all3
-#getting only significant pathways
-
-fgsea_sig3 <- fgsea_all3 %>% filter(padj < 0.05 & abs(NES) >= 2)
-table(fgsea_sig3$contrast)
-
-
-fgsea_all3 %>%
-  filter(padj < 0.05 & abs(NES) >= 2) %>%
-  count(contrast)
-
-```
-
-```{r}
-plots3 <- lapply(contrast_names, function(cn) {
-  df <- fgsea_all3 %>% filter(contrast == cn)
-  enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
-})
-
-plots
-
-```
-
 ```{r}
 #plotting only top 10 reactome pathways in each contrast
-fgsea_reactome3 <- fgsea_all3 %>%
+fgsea_reactome3 <- fgsea3 %>%
   filter(grepl("^REACTOME_", pathway))
 
 fgsea_reactome3_top10 <- fgsea_reactome3 %>%
@@ -427,63 +473,326 @@ reactome_plots3
 gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
 
 ```
+```{r}
+#plotting only top 10 reactome pathways in each contrast
+fgsea_reactome4 <- fgsea4 %>%
+  filter(grepl("^REACTOME_", pathway))
+
+fgsea_reactome4_top10 <- fgsea_reactome4 %>%
+  group_by(contrast) %>%
+  slice_min(padj, n = 15, with_ties = FALSE) %>%
+  ungroup()
+
+
+reactome_plots4 <- lapply(unique(fgsea_reactome4_top10$contrast), function(cn) {
+  df <- fgsea_reactome4_top10 %>% filter(contrast == cn)
+  enrich_dotplot(df, n = 15, title = paste("Top Reactome:", cn))
+})
+
+
+reactome_plots4
+
+gridExtra::grid.arrange(grobs = reactome_plots, ncol = 2)
+
+```
+
+
 #-------------------------------
 #Pathway overlap between models
 #-------------------------------
 ```{r}
-sig1 <- fgsea_sig  %>% select(pathway, contrast, NES)
-sig2 <- fgsea_sig2 %>% select(pathway, contrast, NES)
-sig3 <- fgsea_sig3 %>% select(pathway, contrast, NES)
+fgsea_sig_list <- list(
+  primary       = fgsea_sig1,
+  no_obese_T1D   = fgsea_sig2,
+  no_ATTEMPT     = fgsea_sig3,
+  all_omics  = fgsea_sig4
+)
 
-sig1$analysis <- "all_studies"
-sig2$analysis <- "no_attempt"
-sig3$analysis <- "all3_omics"
-
-sig_all <- bind_rows(sig1, sig2, sig3)
-sig_all_all3 <- bind_rows(sig1, sig3)
-heatmap_all <- sig_all_all3 %>%
-  tidyr::unite("analysis_contrast", analysis, contrast, sep = "_") %>%
-  dplyr::select(pathway, analysis_contrast, NES) %>%
-  tidyr::pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
-  column_to_rownames("pathway") %>%
-  as.matrix()
-
-# optional: replace NA with 0
-heatmap_all[is.na(heatmap_all)] <- 0
-
-pheatmap::pheatmap(
-  heatmap_all,
-  scale = "row",
-  clustering_distance_rows = "euclidean",
-  clustering_distance_cols = "euclidean",
-  main = "All Significant Pathways"
+fgsea_list <- list(
+  primary       = fgsea1,
+  no_obese_T1D   = fgsea2,
+  no_ATTEMPT     = fgsea3,
+  all_omics  = fgsea4
 )
 ```
 
 ```{r}
-shared_pathways <- Reduce(
-  intersect,
-  list(sig1$pathway, sig2$pathway, sig3$pathway)
-)
+compare_fgsea_nes <- function(primary_df, sens_df, sens_name) {
+  
+  contrast_names <- intersect(
+    unique(primary_df$contrast),
+    unique(sens_df$contrast)
+  )
+  
+  map_dfr(contrast_names, function(cc) {
+    
+    df <- primary_df %>%
+      filter(contrast == cc) %>%
+      select(pathway, NES_primary = NES) %>%
+      inner_join(
+        sens_df %>%
+          filter(contrast == cc) %>%
+          select(pathway, NES_sensitivity = NES),
+        by = "pathway"
+      ) %>%
+      filter(
+        is.finite(NES_primary),
+        is.finite(NES_sensitivity)
+      )
+    
+    tibble(
+      sensitivity = sens_name,
+      contrast = cc,
+      n_shared_pathways = nrow(df),
+      spearman_NES = ifelse(
+        nrow(df) >= 3,
+        cor(df$NES_primary, df$NES_sensitivity, method = "spearman"),
+        NA_real_
+      )
+    )
+  })
+}
 
-shared_pathways2 <- Reduce(
-  intersect,
-  list(sig1$pathway, sig3$pathway)
-)
-heatmap_shared <- sig_all_all3 %>%
-  filter(pathway %in% shared_pathways2) %>%
-  tidyr::unite("analysis_contrast", analysis, contrast, sep = "_") %>%
-  dplyr::select(pathway, analysis_contrast, NES) %>%
-  pivot_wider(names_from = analysis_contrast, values_from = NES) %>%
-  column_to_rownames("pathway") %>%
-  as.matrix()
-
-heatmap_shared[is.na(heatmap_shared)] <- 0
-
-pheatmap::pheatmap(
-  heatmap_shared,
-  scale = "row",
-  main = "Shared Significant Pathways"
-)
 ```
 
+```{r}
+gsea_sensitivity_cor <- imap_dfr(
+  fgsea_sig_list[-1],
+  ~ compare_fgsea_nes(
+      primary_df = fgsea_sig_list$primary,
+      sens_df = .x,
+      sens_name = .y
+    )
+)
+
+gsea_sensitivity_cor
+```
+
+```{r}
+gsea_sensitivity_cor_wide <- gsea_sensitivity_cor %>%
+  select(sensitivity, contrast, spearman_NES) %>%
+  pivot_wider(
+    names_from = sensitivity,
+    values_from = spearman_NES
+  )
+
+gsea_sensitivity_cor_wide
+```
+
+```{r}
+gsea_sensitivity_cor2 <- imap_dfr(
+  fgsea_list[-1],
+  ~ compare_fgsea_nes(
+      primary_df = fgsea_list$primary,
+      sens_df = .x,
+      sens_name = .y
+    )
+)
+
+gsea_sensitivity_cor2
+
+gsea_sensitivity_cor_wide2 <- gsea_sensitivity_cor2 %>%
+  select(sensitivity, contrast, spearman_NES) %>%
+  pivot_wider(
+    names_from = sensitivity,
+    values_from = spearman_NES
+  )
+
+gsea_sensitivity_cor_wide2
+```
+
+
+
+
+
+
+```{r}
+plot_fgsea_correlation <- function(primary_df,
+                                   sens_df,
+                                   sens_name,
+                                   contrast_name) {
+
+  df <- primary_df %>%
+    filter(contrast == contrast_name) %>%
+    select(pathway, NES_primary = NES) %>%
+    inner_join(
+      sens_df %>%
+        filter(contrast == contrast_name) %>%
+        select(pathway, NES_sensitivity = NES),
+      by = "pathway"
+    ) %>%
+    filter(
+      is.finite(NES_primary),
+      is.finite(NES_sensitivity)
+    )
+
+  rho <- cor(
+    df$NES_primary,
+    df$NES_sensitivity,
+    method = "spearman"
+  )
+
+  ggplot(
+    df,
+    aes(
+      x = NES_primary,
+      y = NES_sensitivity
+    )
+  ) +
+    geom_point(alpha = 0.4, size = 2) +
+    geom_abline(
+      slope = 1,
+      intercept = 0,
+      linetype = "dashed",
+      color = "red"
+    ) +
+    coord_equal() +
+    theme_bw() +
+    labs(
+      title = contrast_name,
+      subtitle = paste0(
+        "ρ = ",
+        round(rho, 3),
+        " (n = ",
+        nrow(df),
+        ")"
+      ),
+      x = "Primary NES",
+      y = paste0(sens_name, " NES")
+    )
+}
+```
+
+```{r}
+plots_noObese <- map(
+  contrast_names,
+  ~plot_fgsea_correlation(
+    primary_df = fgsea_sig1,
+    sens_df = fgsea_sig2,
+    sens_name = "No Obese T1D",
+    contrast_name = .x
+  )
+)
+
+panel_noObese <- wrap_plots(
+  plots_noObese,
+  ncol = 3
+) +
+  plot_annotation(
+    title = "Pathway sensitivity analysis: Remove obese T1D"
+  )
+
+panel_noObese
+```
+
+```{r}
+plots_noATT <- map(
+  contrast_names,
+  ~plot_fgsea_correlation(
+    primary_df = fgsea_sig1,
+    sens_df = fgsea_sig3,
+    sens_name = "No ATTEMPT",
+    contrast_name = .x
+  )
+)
+
+panel_noATT <- wrap_plots(
+  plots_noATT,
+  ncol = 3
+) +
+  plot_annotation(
+    title = "Pathway sensitivity analysis: No ATTEMPT"
+  )
+
+panel_noATT
+```
+
+```{r}
+plots_allomics <- map(
+  contrast_names,
+  ~plot_fgsea_correlation(
+    primary_df = fgsea_sig1,
+    sens_df = fgsea_sig4,
+    sens_name = "All Omics",
+    contrast_name = .x
+  )
+)
+
+panel_allomics <- wrap_plots(
+  plots_allomics,
+  ncol = 3
+) +
+  plot_annotation(
+    title = "Pathway sensitivity analysis: All Omics"
+  )
+
+panel_allomics
+```
+```{r}
+make_top_pathway_overlap <- function(primary_df,
+                                     sens_df,
+                                     sens_name,
+                                     top_n = 100) {
+  
+  contrast_names <- intersect(
+    unique(primary_df$contrast),
+    unique(sens_df$contrast)
+  )
+  
+  purrr::map_dfr(contrast_names, function(cc) {
+    
+    primary_top <- primary_df %>%
+      filter(contrast == cc, is.finite(NES)) %>%
+      arrange(desc(abs(NES))) %>%
+      slice_head(n = top_n) %>%
+      pull(pathway)
+    
+    sens_top <- sens_df %>%
+      filter(contrast == cc, is.finite(NES)) %>%
+      arrange(desc(abs(NES))) %>%
+      slice_head(n = top_n) %>%
+      pull(pathway)
+    
+    n_overlap <- length(intersect(primary_top, sens_top))
+    
+    tibble(
+      sensitivity = sens_name,
+      contrast = cc,
+      top_n = top_n,
+      n_overlap = n_overlap,
+      pct_overlap = round(100 * n_overlap / top_n, 1),
+      jaccard_index = round(
+        n_overlap / length(union(primary_top, sens_top)),
+        3
+      )
+    )
+  })
+}
+```
+
+```{r}
+pathway_top_overlap <- bind_rows(
+  make_top_pathway_overlap(fgsea1, fgsea2, "No obese T1D", top_n = 100),
+  make_top_pathway_overlap(fgsea1, fgsea3, "No ATTEMPT", top_n = 100),
+  make_top_pathway_overlap(fgsea1, fgsea4, "All Omics", top_n = 100)
+)
+
+pathway_top_overlap
+```
+```{r}
+make_top_pathway_overlap(fgsea3, fgsea4, "comparing no attempt to all omics", top_n = 100)
+```
+
+
+
+
+```{r}
+top_pathway_overlap_wide <- pathway_top_overlap %>%
+  select(sensitivity, contrast, jaccard_index) %>%
+  pivot_wider(
+    names_from = sensitivity,
+    values_from = jaccard_index
+  )
+
+top_pathway_overlap_wide 
+```
