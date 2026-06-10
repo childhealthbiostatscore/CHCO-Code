@@ -276,13 +276,17 @@ run_nebula <- function(cell_name, pair, contrast_name) {
   }
   
   tt <- purrr::map_dfr(
-    successful_results,
-    function(x) {
-      x$result$summary %>%
-        as.data.frame() %>%
-        tibble::rownames_to_column("gene")
-    }
-  )
+  successful_results,
+  function(x) {
+    
+    df <- x$result$summary %>%
+      as.data.frame()
+    
+    df$gene_tested <- x$gene
+    
+    df
+  }
+)
   
   if (!"p_group_contrast" %in% colnames(tt)) {
     stop("Could not find p_group_contrast. Run colnames(tt) to inspect NEBULA output.")

@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=triad_nebula
-#SBATCH --array=1-84%10
-#SBATCH --time=24:00:00
-#SBATCH --mem=128G
-#SBATCH --cpus-per-task=6
-#SBATCH --partition=cpu-2
+#SBATCH --array=1-84%2
+#SBATCH --time=72:00:00
+#SBATCH --mem=100G
+#SBATCH --cpus-per-task=30
+#SBATCH --partition=cpu-g2
 #SBATCH --account=togo
 #SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula/output/nebula_%A_%a.out"
 #SBATCH --error="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula/error/nebula_%A_%a.err"
@@ -14,16 +14,16 @@ module load apptainer
 
 CONTAINER="/mmfs1/gscratch/togo/yzhangtufts_r_scrnaseq.sif"
 
-BASE_DIR="/mmfs1/gscratch/togo/leidholt/CHCO-Code/Petter Bjornstad/T1D-T2D-multiOmics/nebula"
+BASE_DIR="/mmfs1/gscratch/togo/leidholt/CHCO-Code/Savanah Leidholt/T1D-T2D-multiOmics/nebula"
 
 cd "${BASE_DIR}"
 
-CONFIG_FILE="${BASE_DIR}/config/job_config.txt"
+CONFIG_FILE="${BASE_DIR}/nebula_array.tsv"
 
 JOB_PARAMS=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${CONFIG_FILE}")
 
-RUN_NAME=$(echo "$JOB_PARAMS" | cut -d$'\t' -f1)
-CELL_TYPE=$(echo "$JOB_PARAMS" | cut -d$'\t' -f2)
+CELL_TYPE=$(echo "$JOB_PARAMS" | awk '{print $1}')
+CONTRAST_NAME=$(echo "$JOB_PARAMS" | awk '{print $2}')
 
 
 echo "============================================================="
@@ -41,9 +41,9 @@ apptainer exec \
   --cleanenv \
   --bind /mmfs1:/mmfs1 \
   "${CONTAINER}" \
-  Rscript "${BASE_DIR}/scripts/run_nebula.R" \
-  "${RUN_NAME}" \
-  "${CELL_TYPE}" 
+  Rscript "${BASE_DIR}/run_nebula.R" \
+  "${CELL_TYPE}" \
+  "${CONTRAST_NAME}" 
 
 EXIT_CODE=$?
 
