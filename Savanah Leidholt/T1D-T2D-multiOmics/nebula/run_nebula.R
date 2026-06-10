@@ -65,6 +65,11 @@ counts_nebula <- GetAssayData(
   layer = "counts"
 )
 
+if (any(duplicated(rownames(counts_nebula)))) {
+  message("Making duplicated gene names unique")
+  rownames(counts_nebula) <- make.unique(rownames(counts_nebula))
+}
+
 counts_nebula <- counts_nebula[, meta_nebula$cell_barcode, drop = FALSE]
 
 pb90_multiomics_subset <- FindVariableFeatures(
@@ -75,6 +80,7 @@ pb90_multiomics_subset <- FindVariableFeatures(
 )
 
 hvgs <- VariableFeatures(pb90_multiomics_subset)
+hvgs <- make.unique(hvgs)
 
 counts_nebula_hvg <- counts_nebula[
   intersect(hvgs, rownames(counts_nebula)),
@@ -173,6 +179,7 @@ run_nebula <- function(cell_name, pair, contrast_name) {
   
   counts_sub <- counts_sub[, meta_sub$cell_barcode, drop = FALSE]
   
+  gene_index <- seq_len(nrow(counts_sub))
   genes_list <- rownames(counts_sub)
   
   cat(
@@ -189,8 +196,10 @@ run_nebula <- function(cell_name, pair, contrast_name) {
   start_time <- Sys.time()
   
   nebula_gene_results <- purrr::map(
-    genes_list,
-    function(g) {
+    gene_index,
+    function(i) {
+      
+      g <- genes_list[i]
       
       warn <- NULL
       err <- NULL
@@ -198,7 +207,8 @@ run_nebula <- function(cell_name, pair, contrast_name) {
       
       tryCatch({
         
-        count_gene <- counts_sub[g, , drop = FALSE]
+        count_gene <- counts_sub[i, , drop = FALSE]
+        rownames(count_gene) <- g
         
         pred_gene <- model.matrix(
           ~ group_contrast + age + sex_num,
