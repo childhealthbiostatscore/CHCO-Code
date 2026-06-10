@@ -23,6 +23,7 @@ library(forcats)
 library(stringr)
 library(rlang)
 library(limma)
+library(jsonlite)
 ```
 
 
@@ -90,7 +91,7 @@ obj <- readRDS(file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "limma_
 
 dat1 <- obj$primary
 dat2 <- obj$noObeseT1D
-dat2 <- obj$no_ATTEMPT
+dat3 <- obj$no_ATTEMPT
 dat4 <- obj$all_omics
 
 
@@ -382,7 +383,7 @@ plots2 <- lapply(contrast_names, function(cn) {
   enrich_dotplot(df, n = 10, title = paste("FGSEA:", cn))
 })
 
-plots3
+plots2
 
 ```
 
@@ -554,7 +555,9 @@ compare_fgsea_nes <- function(primary_df, sens_df, sens_name) {
 }
 
 ```
-
+#------------------------------------
+#sig pathways spearman correlations
+#------------------------------------
 ```{r}
 gsea_sensitivity_cor <- imap_dfr(
   fgsea_sig_list[-1],
@@ -578,7 +581,9 @@ gsea_sensitivity_cor_wide <- gsea_sensitivity_cor %>%
 
 gsea_sensitivity_cor_wide
 ```
-
+#----------------------------------
+#all pathways spearman correlations
+#----------------------------------
 ```{r}
 gsea_sensitivity_cor2 <- imap_dfr(
   fgsea_list[-1],
@@ -600,11 +605,6 @@ gsea_sensitivity_cor_wide2 <- gsea_sensitivity_cor2 %>%
 
 gsea_sensitivity_cor_wide2
 ```
-
-
-
-
-
 
 ```{r}
 plot_fgsea_correlation <- function(primary_df,
@@ -647,6 +647,8 @@ plot_fgsea_correlation <- function(primary_df,
       color = "red"
     ) +
     coord_equal() +
+    scale_x_continuous(limits = c(-3, 3)) +
+    scale_y_continuous(limits = c(-3, 3)) +
     theme_bw() +
     labs(
       title = contrast_name,
@@ -664,11 +666,33 @@ plot_fgsea_correlation <- function(primary_df,
 ```
 
 ```{r}
+library(patchwork)
 plots_noObese <- map(
   contrast_names,
   ~plot_fgsea_correlation(
     primary_df = fgsea_sig1,
     sens_df = fgsea_sig2,
+    sens_name = "No Obese T1D",
+    contrast_name = .x
+  )
+)
+
+panel_noObese <- wrap_plots(
+  plots_noObese,
+  ncol = 3
+) +
+  plot_annotation(
+    title = "Pathway sensitivity analysis: Remove obese T1D"
+  )
+
+panel_noObese
+```
+```{r}
+plots_noObese <- map(
+  contrast_names,
+  ~plot_fgsea_correlation(
+    primary_df = fgsea1,
+    sens_df = fgsea2,
     sens_name = "No Obese T1D",
     contrast_name = .x
   )
@@ -729,6 +753,29 @@ panel_allomics <- wrap_plots(
 panel_allomics
 ```
 ```{r}
+plots_allomics <- map(
+  contrast_names,
+  ~plot_fgsea_correlation(
+    primary_df = fgsea1,
+    sens_df = fgsea4,
+    sens_name = "All Omics",
+    contrast_name = .x
+  )
+)
+
+panel_allomics <- wrap_plots(
+  plots_allomics,
+  ncol = 3
+) +
+  plot_annotation(
+    title = "Pathway sensitivity analysis: All Omics"
+  )
+
+panel_allomics
+```
+
+
+```{r}
 make_top_pathway_overlap <- function(primary_df,
                                      sens_df,
                                      sens_name,
@@ -779,11 +826,6 @@ pathway_top_overlap <- bind_rows(
 
 pathway_top_overlap
 ```
-```{r}
-make_top_pathway_overlap(fgsea3, fgsea4, "comparing no attempt to all omics", top_n = 100)
-```
-
-
 
 
 ```{r}
