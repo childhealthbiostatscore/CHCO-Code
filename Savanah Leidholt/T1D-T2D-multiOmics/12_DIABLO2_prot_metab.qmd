@@ -345,53 +345,48 @@ run_diablo_contrast <- function(
     folds = 5,
     nrepeat = 50,
     cutoff = 0.7,
-    out_dir = diablo_dir
+    out_dir = diablo_dir,
+    seed = 1835
 ) {
-  
+
   message("Running DIABLO for: ", contrast_name)
-  
+
+  RNGkind("L'Ecuyer-CMRG")
+  set.seed(seed)
 
   top_prot <- get_top_abs_t(prot_out, contrast_name, n = top_n)
   top_metab <- get_top_abs_t(metab_out, contrast_name, n = top_n)
-  
-  top_prot <- intersect(top_prot, colnames(prot_log))
-  top_metab <- intersect(top_metab, colnames(metab_log))
-  
+
+  top_prot <- top_prot[top_prot %in% colnames(prot_log)]
+  top_metab <- top_metab[top_metab %in% colnames(metab_log)]
+
   X_prot <- prot_log[, top_prot, drop = FALSE]
   X_metab <- metab_log[, top_metab, drop = FALSE]
-  
 
-  #subset metadata
   meta_diablo <- meta_paired %>%
     dplyr::filter(group4 %in% groups_keep) %>%
     dplyr::mutate(group4 = factor(group4, levels = groups_keep))
-  
-  common_ids <- Reduce(
-    intersect,
-    list(
-      rownames(meta_diablo),
-      rownames(X_prot),
-      rownames(X_metab)
-    )
-  )
-  
+
+  common_ids <- rownames(meta_diablo)
+  common_ids <- common_ids[
+    common_ids %in% rownames(X_prot) &
+      common_ids %in% rownames(X_metab)
+  ]
+
   meta_diablo <- meta_diablo[common_ids, , drop = FALSE]
   X_prot_d <- X_prot[common_ids, , drop = FALSE]
   X_metab_d <- X_metab[common_ids, , drop = FALSE]
-  
+
   Y <- droplevels(meta_diablo$group4)
-  
-  # skip weak contrasts
+
   if (length(unique(Y)) < 2 || min(table(Y)) < folds) {
     warning("Skipping ", contrast_name, ": not enough samples per group.")
     return(NULL)
   }
-  
 
-  #cleaning
   X_prot_d <- clean_block(X_prot_d)
   X_metab_d <- clean_block(X_metab_d)
-  
+
   X <- list(
     proteomics = X_prot_d,
     metabolomics = X_metab_d
@@ -404,16 +399,14 @@ run_diablo_contrast <- function(
     dimnames = list(names(X), names(X))
   )
   diag(design) <- 0
-  
 
-  #model tuning
   test_keepX <- list(
     proteomics = c(5, 10, 15, 25, 50),
     metabolomics = c(5, 10, 15, 25, 50)
   )
-  
-  set.seed(1835)
-  
+
+  set.seed(seed)
+
   tune_diablo <- tune.block.splsda(
     X = X,
     Y = Y,
@@ -426,16 +419,16 @@ run_diablo_contrast <- function(
     dist = "centroids.dist",
     progressBar = TRUE
   )
-  
+
   final_ncomp <- tune_diablo$choice.ncomp$ncomp
-  
+
   final_keepX <- lapply(
     tune_diablo$choice.keepX,
     function(x) x[seq_len(final_ncomp)]
   )
-  
 
-  # final model
+  set.seed(seed)
+
   diablo_final <- block.splsda(
     X = X,
     Y = Y,
@@ -443,9 +436,9 @@ run_diablo_contrast <- function(
     keepX = final_keepX,
     design = design
   )
-  
-  set.seed(1835)
-  
+
+  set.seed(seed)
+
   perf_diablo <- perf(
     diablo_final,
     validation = "Mfold",
@@ -454,89 +447,89 @@ run_diablo_contrast <- function(
     dist = "centroids.dist",
     progressBar = TRUE
   )
-  
-selected <- selectVar(diablo_final, comp = 1)
 
-selected_tbl <- dplyr::bind_rows(
-  tibble(
-    contrast = contrast_name,
-    block = "proteomics",
-    feature_id = selected$proteomics$name,
-    comp = 1
-  ),
-  tibble(
-    contrast = contrast_name,
-    block = "metabolomics",
-    feature_id = selected$metabolomics$name,
-    comp = 1
+  selected <- selectVar(diablo_final, comp = 1)
+
+  selected_tbl <- dplyr::bind_rows(
+    tibble(
+      contrast = contrast_name,
+      block = "proteomics",
+      feature_id = selected$proteomics$name,
+      comp = 1
+    ),
+    tibble(
+      contrast = contrast_name,
+      block = "metabolomics",
+      feature_id = selected$metabolomics$name,
+      comp = 1
+    )
   )
-)
 
-result <- list(
-  contrast = contrast_name,
-  groups = groups_keep,
-  metadata = meta_diablo,
-  X = X,
-  Y = Y,
-  top_prot = top_prot,
-  top_metab = top_metab,
-  tune = tune_diablo,
-  model = diablo_final,
-  performance = perf_diablo,
-  selected_features = selected_tbl,
-  final_ncomp = final_ncomp,
-  final_keepX = final_keepX
-)
+  result <- list(
+    contrast = contrast_name,
+    groups = groups_keep,
+    metadata = meta_diablo,
+    X = X,
+    Y = Y,
+    top_prot = top_prot,
+    top_metab = top_metab,
+    tune = tune_diablo,
+    model = diablo_final,
+    performance = perf_diablo,
+    selected_features = selected_tbl,
+    final_ncomp = final_ncomp,
+    final_keepX = final_keepX,
+    seed = seed
+  )
 
-saveRDS(
-  result,
-  file = file.path(out_dir, paste0("diablo_", contrast_name, "_top", top_n, "_abs_t.rds"))
-)
+  saveRDS(
+    result,
+    file = file.path(out_dir, paste0("diablo_", contrast_name, "_top", top_n, "_abs_t.rds"))
+  )
 
-readr::write_csv(
-  selected_tbl,
-  file.path(out_dir, paste0("diablo_selected_features_", contrast_name, ".csv"))
-)
+  readr::write_csv(
+    selected_tbl,
+    file.path(out_dir, paste0("diablo_selected_features_", contrast_name, ".csv"))
+  )
 
-return(result)
+  return(result)
 }
 ```
 
 ```{r}
-diablo_results <- purrr::imap(
-  contrast_groups,
-  ~ run_diablo_contrast(
-    contrast_name = .y,
-    groups_keep = .x,
-    prot_out = prot_out,
-    metab_out = metab_out,
-    prot_log = prot_log,
-    metab_log = metab_log,
-    meta_paired = meta_paired,
-    top_n = 50,
-    ncomp_tune = 2,
-    folds = 5,
-    nrepeat = 50,
-    cutoff = 0.7,
-    out_dir = diablo_dir
-  )
-)
+#diablo_results <- purrr::imap(
+#  contrast_groups,
+#  ~ run_diablo_contrast(
+#    contrast_name = .y,
+#    groups_keep = .x,
+#    prot_out = prot_out,
+#    metab_out = metab_out,
+#    prot_log = prot_log,
+#    metab_log = metab_log,
+#    meta_paired = meta_paired,
+#    top_n = 50,
+#    ncomp_tune = 2,
+#    folds = 5,
+#    nrepeat = 50,
+#    cutoff = 0.7,
+#    out_dir = diablo_dir,
+#    seed = 1835
+#  )
+#)
 
-saveRDS(
-    diablo_results,
-  file = file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds")
-)
+#saveRDS(
+ #   diablo_results,
+#  file = file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds")
+#)
 
-#diablo_results <- readRDS(file= file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds"))
+diablo_results <- readRDS(file= file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds"))
 ```
 
 ```{r}
 metabolites <- read_csv(file = file.path(root_path, "Data Harmonization/data_dictionary_master.csv"))
-metabolites
 metabolites <- metabolites %>%
   dplyr::filter(form_name == c("metabolomics", "metabolomics_blood_raw")) %>%
   dplyr::select(variable_name, label)
-metabolites
 
 metab_anno <- metabolites %>%
   transmute(
@@ -550,7 +543,6 @@ metab_anno <- metabolites %>%
 analytes <- read_csv(
   file.path(root_path,"Data Harmonization/Combined SomaScan/analytes.csv")
 )
-glimpse(analytes)
 
 prot_anno <- analytes %>%
   transmute(
@@ -676,7 +668,126 @@ for (nm in names(diablo_results)) {
 }
 ```
 
+```{r}
+diablo_results[[1]]$performance$error.rate$proteomics
+diablo_results[[1]]$performance$error.rate$metabolomics
 
+diablo_performance_tbl <-
+  purrr::map_dfr(
+    diablo_results,
+    ~{
+      if (is.null(.x)) return(NULL)
+
+      err <- .x$performance$AveragedPredict.error.rate
+
+      final_comp <- .x$final_ncomp
+
+      ber_value <- as.numeric(err["Overall.BER", final_comp])
+      er_value  <- as.numeric(err["Overall.ER", final_comp])
+
+      tibble(
+        contrast = .x$contrast,
+        groups = paste(.x$groups, collapse = " vs "),
+        ncomp = final_comp,
+        BER = ber_value,
+        ER = er_value,
+        balanced_accuracy = 1 - ber_value
+      )
+    }
+  ) %>%
+  arrange(BER)
+
+diablo_performance_tbl
+
+write_csv(
+  diablo_performance_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_performance.csv"
+  )
+)
+```
+
+```{r}
+diablo_keepX_tbl <-
+  purrr::map_dfr(
+    diablo_results,
+    ~{
+      if (is.null(.x)) return(NULL)
+
+      tibble(
+        contrast = .x$contrast,
+        ncomp = .x$final_ncomp,
+        n_proteins_selected = .x$final_keepX$proteomics[1],
+        n_metabolites_selected = .x$final_keepX$metabolomics[1],
+        total_selected =
+          .x$final_keepX$proteomics[1] +
+          .x$final_keepX$metabolomics[1]
+      )
+    }
+  ) %>%
+  arrange(contrast)
+
+diablo_keepX_tbl
+
+write_csv(
+  diablo_keepX_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_total_featurs.csv"
+  )
+)
+```
+
+```{r}
+selected_all <- purrr::map_dfr(
+  diablo_results_annotated,
+  ~{
+    if (is.null(.x)) return(NULL)
+    .x$selected_features
+  }
+)
+
+selected_all_annotated <- selected_all %>%
+  left_join(prot_anno, by = "feature_id") %>%
+  left_join(metab_anno, by = "feature_id") %>%
+  mutate(
+    feature_label = case_when(
+      block == "proteomics" & !is.na(target_name) ~ target_name,
+      block == "metabolomics" & !is.na(metabolite_label) ~ metabolite_label,
+      TRUE ~ feature_id
+    )
+  )
+
+selected_all_annotated
+
+diablo_recurrent_features_annotated_tbl <- selected_all_annotated %>%
+  group_by(
+    feature_label,
+    block
+  ) %>%
+  summarise(
+    n_contrasts_selected = n_distinct(contrast),
+    contrasts_selected = paste(sort(unique(contrast)), collapse = "; "),
+    .groups = "drop"
+  ) %>%
+  filter(n_contrasts_selected > 1) %>%
+  arrange(
+    desc(n_contrasts_selected),
+    block,
+    feature_label
+  )
+
+diablo_recurrent_features_annotated_tbl
+
+write_csv(
+  diablo_recurrent_features_annotated_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_repeat_featurs.csv"
+  )
+)
+```
 
 ```{r}
 #only one component chosen for each contrast model so plotIndiv and plotArrow won't work
@@ -868,29 +979,7 @@ title(main = "OC vs LC")
 dev.off()
 ```
 
-```{r}
-selected_all <- purrr::map_dfr(
-  diablo_results_annotated,
-  ~ .x$selected_features
-)
 
-selected_all %>%
-  count(feature_id, block, sort = TRUE)
-
-selected_all_annotated <- selected_all %>%
-  left_join(prot_anno, by = "feature_id") %>%
-  left_join(metab_anno, by = "feature_id") %>%
-  mutate(
-    feature_label = case_when(
-      block == "proteomics" & !is.na(target_name) ~ target_name,
-      block == "metabolomics" & !is.na(metabolite_label) ~ metabolite_label,
-      TRUE ~ feature_id
-    )
-  )
-
-selected_all_annotated %>%
-  count(feature_label, block, sort = TRUE)
-```
 
 ```{r}
 pdf(
@@ -1001,7 +1090,7 @@ par(
 circosPlot(
   diablo_results_annotated$T2D_vs_OC$model_annotated,
   line = TRUE,
-  cutoff = 0.5
+  cutoff = 0.7
 )
 
 title("T2D vs OC")
