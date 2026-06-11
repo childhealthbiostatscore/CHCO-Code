@@ -1,8 +1,7 @@
 #!/usr/bin/env Rscript
 
-
-#NEBULA single-cell DE by cell type and contrast
-#fixing low counts issue and using entire counts matrix rather than just HVGs
+# NEBULA single-cell DE by cell type and contrast
+# Uses entire count matrix, donor-aware gene filtering, and chunked NEBULA fitting
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -36,8 +35,8 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
-# Cell & Donor Settings
 
+#Settings
 min_cells_per_donor_celltype <- 20
 min_donors_per_group <- 3
 
@@ -46,6 +45,7 @@ min_mean_gene <- 0.01
 min_donors_detected_per_group <- 2
 
 max_abs_logFC_for_stable <- 20
+nebula_chunk_size <- 500
 
 contrast_pairs <- list(
   T1D_vs_LC = c("Lean Control", "Type 1 Diabetes"),
@@ -63,7 +63,7 @@ if (is.null(pair)) {
 }
 
 
-#read in data
+#Read data
 pb90_multiomics_subset <- s3readRDS(
   object = "data/pb90_multiomics_SLL_subset_20260527.rds",
   bucket = "triad",
@@ -107,24 +107,7 @@ meta_all <- pb90_multiomics_subset@meta.data %>%
 counts_all <- counts_all[, meta_all$cell_barcode, drop = FALSE]
 
 
-# HVGs
-pb90_multiomics_subset <- FindVariableFeatures(
-  pb90_multiomics_subset,
-  assay = "RNA",
-  selection.method = "vst",
-  nfeatures = 3000
-)
-
-hvgs <- intersect(
-  make.unique(VariableFeatures(pb90_multiomics_subset)),
-  rownames(counts_all)
-)
-
-counts_hvg <- counts_all[hvgs, , drop = FALSE]
-
-
-#donor aware filter (only had cell filter before)
-
+#Donor-aware gene filter
 filter_genes_donor_aware <- function(counts_sub, meta_sub, pair) {
   
   basic_keep <- Matrix::rowSums(counts_sub > 0) >= min_cells_gene &
@@ -175,6 +158,65 @@ filter_genes_donor_aware <- function(counts_sub, meta_sub, pair) {
 }
 
 
+#nebula function to run in chunks and drop one gene until it passes at a time
+run_nebula_keep_going <- function(counts_sub, meta_sub, pred, chunk_size = 500) {
+  
+  fit_genes <- function(genes) {
+    
+    fit <- tryCatch(
+      nebula(
+        count = counts_sub[genes, , drop = FALSE],
+        id = meta_sub$record_id,
+        pred = pred,
+        offset = meta_sub$pooled_offset,
+        model = "NBLMM",
+        covariance = TRUE,
+        reml = 1,
+        output_re = TRUE,
+        ncore = 1
+      ),
+      error = function(e) e
+    )
+    
+    if (!inherits(fit, "error")) {
+      return(list(
+        results = as.data.frame(fit$summary) %>%
+          tibble::rownames_to_column("gene"),
+        failed_genes = character(0)
+      ))
+    }
+    
+    if (length(genes) == 1) {
+      message("Dropping failed gene: ", genes, " | ", fit$message)
+      return(list(
+        results = NULL,
+        failed_genes = genes
+      ))
+    }
+    
+    mid <- floor(length(genes) / 2)
+    
+    left <- fit_genes(genes[seq_len(mid)])
+    right <- fit_genes(genes[(mid + 1):length(genes)])
+    
+    list(
+      results = dplyr::bind_rows(left$results, right$results),
+      failed_genes = c(left$failed_genes, right$failed_genes)
+    )
+  }
+  
+  genes <- rownames(counts_sub)
+  chunks <- split(genes, ceiling(seq_along(genes) / chunk_size))
+  
+  out <- purrr::map(chunks, fit_genes)
+  
+  list(
+    results = dplyr::bind_rows(purrr::map(out, "results")),
+    failed_genes = unlist(purrr::map(out, "failed_genes"))
+  )
+}
+
+
 #NEBULA function
 run_nebula <- function(cell_name, pair, contrast_name) {
   
@@ -192,7 +234,7 @@ run_nebula <- function(cell_name, pair, contrast_name) {
     stop("No cells found for ", cell_name, " and ", contrast_name)
   }
   
-  counts_sub <- counts_hvg[, meta_sub$cell_barcode, drop = FALSE]
+  counts_sub <- counts_all[, meta_sub$cell_barcode, drop = FALSE]
   
   donor_cell_counts <- meta_sub %>%
     count(record_id, group, name = "n_cells_donor")
@@ -258,80 +300,30 @@ run_nebula <- function(cell_name, pair, contrast_name) {
     data = meta_sub
   )
   
-  nebula_gene_results <- map(
-    genes_list,
-    function(g) {
-      
-      warn <- NULL
-      err <- NULL
-      res <- NULL
-      
-      count_gene <- counts_sub[g, , drop = FALSE]
-      rownames(count_gene) <- g
-      
-      tryCatch({
-        
-        res <- withCallingHandlers({
-          nebula(
-            count = count_gene,
-            id = meta_sub$record_id,
-            pred = pred,
-            offset = meta_sub$pooled_offset,
-            model = "NBLMM",
-            covariance = TRUE,
-            reml = 1,
-            output_re = TRUE,
-            ncore = 1
-          )
-        }, warning = function(w) {
-          warn <<- conditionMessage(w)
-          invokeRestart("muffleWarning")
-        })
-        
-      }, error = function(e) {
-        err <<- conditionMessage(e)
-      })
-      
-      list(
-        gene = g,
-        result = res,
-        warning = warn,
-        error = err
-      )
-    }
+  nebula_safe <- run_nebula_keep_going(
+    counts_sub = counts_sub,
+    meta_sub = meta_sub,
+    pred = pred,
+    chunk_size = nebula_chunk_size
   )
   
-  diagnostics <- map_dfr(
-    nebula_gene_results,
-    function(x) {
-      tibble(
-        gene = x$gene,
-        has_result = !is.null(x$result),
-        warning = x$warning,
-        error = x$error
-      )
-    }
-  )
+  tt <- nebula_safe$results
+  failed_genes <- nebula_safe$failed_genes
   
-  print(diagnostics %>% count(has_result))
-  
-  successful_results <- nebula_gene_results %>%
-    keep(~ !is.null(.x$result))
-  
-  if (length(successful_results) == 0) {
+  if (is.null(tt) || nrow(tt) == 0) {
     stop("No genes successfully fit")
   }
   
-  tt <- map_dfr(
-    successful_results,
-    function(x) {
-      df <- x$result$summary %>%
-        as.data.frame()
-      
-      df$gene_tested <- x$gene
-      df
-    }
+  cat("Successfully fit genes:", nrow(tt), "\n")
+  cat("Failed genes dropped:", length(failed_genes), "\n")
+  
+  diagnostics <- tibble(
+    gene = c(tt$gene, failed_genes),
+    has_result = c(rep(TRUE, nrow(tt)), rep(FALSE, length(failed_genes))),
+    error = c(rep(NA_character_, nrow(tt)), rep("NEBULA failed; dropped by recursive chunking", length(failed_genes)))
   )
+  
+  print(diagnostics %>% count(has_result))
   
   if (!"p_group_contrast" %in% colnames(tt)) {
     stop("Could not find p_group_contrast. Inspect colnames(tt).")
@@ -347,6 +339,7 @@ run_nebula <- function(cell_name, pair, contrast_name) {
       n_cells = nrow(meta_sub),
       n_genes_tested = length(genes_list),
       n_genes_successful = nrow(tt),
+      n_genes_failed = length(failed_genes),
       n_donors_group1 = donor_tab$n[match(pair[1], donor_tab$group)],
       n_donors_group2 = donor_tab$n[match(pair[2], donor_tab$group)],
       p_adj = p.adjust(p_group_contrast, method = "fdr"),
@@ -370,6 +363,7 @@ run_nebula <- function(cell_name, pair, contrast_name) {
   list(
     results = tt,
     diagnostics = diagnostics,
+    failed_genes = failed_genes,
     settings = list(
       cell_name = cell_name,
       contrast_name = contrast_name,
@@ -380,14 +374,15 @@ run_nebula <- function(cell_name, pair, contrast_name) {
       min_mean_gene = min_mean_gene,
       min_donors_detected_per_group = min_donors_detected_per_group,
       max_abs_logFC_for_stable = max_abs_logFC_for_stable,
+      nebula_chunk_size = nebula_chunk_size,
       offset = "full RNA library size",
-      age = "scaled"
+      age = "scaled",
+      gene_set = "all genes after donor-aware filtering, not HVGs"
     )
   )
 }
 
 
-#Running nebula
 nebula_out <- run_nebula(
   cell_name = cell_name,
   pair = pair,
@@ -395,15 +390,21 @@ nebula_out <- run_nebula(
 )
 
 
-# Save outputs to Kopah
+
 tmp_rds <- tempfile(fileext = ".rds")
 
-saveRDS(nebula_out,file = tmp_rds)
+saveRDS(nebula_out, file = tmp_rds)
 
 put_object(
   file = tmp_rds,
   object = paste0(
-    "results/nebula/nebula_2","nebula_",cell_name,"_",contrast_name,".rds"),
+    "results/nebula/nebula_3/",
+    "nebula_",
+    cell_name,
+    "_",
+    contrast_name,
+    ".rds"
+  ),
   bucket = "triad",
   base_url = "s3.kopah.uw.edu",
   region = "",
