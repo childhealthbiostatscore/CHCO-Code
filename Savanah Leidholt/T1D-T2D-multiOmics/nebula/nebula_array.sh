@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=triad_nebula
-#SBATCH --array=1-84%2
+#SBATCH --array=4
 #SBATCH --time=72:00:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=30
