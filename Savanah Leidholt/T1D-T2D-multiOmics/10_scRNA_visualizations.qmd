@@ -115,228 +115,203 @@ if (user == "leidholt") {
 #reading in nebulat resutls file
 #-------------------
 ```{r}
-PT_OC_LC_results <- readRDS(file = file.path(dir.results, "scRNA results", "nebula", "nebula_PT_OC_vs_LC.rds" ))
+PT_OC_LC_results <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_OC_vs_LC.rds"))
 PT_OC_LC_results <- PT_OC_LC_results$results
-PT_test2 <- readRDS(file = file.path(dir.results, "scRNA results", "nebula", "nebula_2nebula_PT_OC_vs_LC.rds" ))
+PT_OC_LC <- PT_OC_LC_results %>%
+  filter(stable_fit == "TRUE")
+PT_diag <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_OC_vs_LC.rds"))
+PT_diag <- PT_diag$diagnostics
 
+PT_T1D_LC_res <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_T1D_vs_LC.rds"))
+PT_T1D_LC_res <- PT_T1D_LC_res$results
+PT_T1D_LC <- PT_T1D_LC_res %>%
+  filter(stable_fit == "TRUE")
+
+PT_T2D_LC_res <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_T2D_vs_LC.rds"))
+PT_T2D_LC_res <- PT_T2D_LC_res$results
+PT_T2D_LC <- PT_T2D_LC_res %>%
+  filter(stable_fit == "TRUE")
+
+PT_T1D_T2D_res <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_T1D_vs_T2d.rds"))
+PT_T1D_T2D_res <- PT_T1D_T2D_res$results
+PT_T1D_T2D <- PT_T1D_T2D_res %>%
+  filter(stable_fit == "TRUE")
+
+PT_list <- list(
+  "OC_vs_LC"   = PT_OC_LC,
+  "T1D_vs_LC"  = PT_T1D_LC,
+  "T2D_vs_LC"  = PT_T2D_LC,
+  "T1D_vs_T2D" = PT_T1D_T2D
+)
+```
+
+```{r}
+volcano_plots <- lapply(names(PT_list), function(cc) {
+
+  plot_df <- PT_list[[cc]] %>%
+    filter(
+      is.finite(logFC_group_contrast),
+      is.finite(p_adj),
+      is.finite(neg_log10_fdr)
+    ) %>%
+    mutate(
+      sig_class = case_when(
+        p_adj < 0.05 & logFC_group_contrast > 0 ~ "Increased",
+        p_adj < 0.05 & logFC_group_contrast < 0 ~ "Decreased",
+        TRUE ~ "Not significant"
+      )
+    )
+
+  top_labs <- plot_df %>%
+    filter(p_adj < 0.05) %>%
+    arrange(p_adj) %>%
+    slice_head(n = 20)
+
+  ggplot(
+    plot_df,
+    aes(
+      x = logFC_group_contrast,
+      y = neg_log10_fdr,
+      color = sig_class
+    )
+  ) +
+    geom_point(alpha = 0.65, size = 2) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    geom_text_repel(
+      data = top_labs,
+      aes(label = gene),
+      size = 3,
+      max.overlaps = Inf
+    ) +
+    scale_color_manual(values = c(
+      "Increased" = "orange3",
+      "Decreased" = "purple4",
+      "Not significant" = "grey75"
+    )) +
+    coord_cartesian(
+      xlim = c(-20, 20),
+      ylim = c(
+        0,
+        ceiling(max(plot_df$neg_log10_fdr, na.rm = TRUE))
+      )
+    ) +
+    labs(
+      title = paste("NEBULA PT:", gsub("_", " ", cc)),
+      x = "logFC group contrast",
+      y = "-log10(FDR)",
+      color = NULL
+    ) +
+    theme_classic(base_size = 14)
+
+})
+
+names(volcano_plots) <- names(PT_list)
+```
+
+```{r}
+volcano_plots$OC_vs_LC
+volcano_plots$T1D_vs_LC
+volcano_plots$T2D_vs_LC
+volcano_plots$T1D_vs_T2D
+```
+```{r}
+hist_plots <- lapply(names(PT_list), function(cc) {
+
+  plot_df <- PT_list[[cc]]
+
+  ggplot(
+    plot_df,
+    aes(x = logFC_group_contrast)
+  ) +
+    geom_histogram(bins = 60) +
+    coord_cartesian(xlim = c(-20, 20)) +
+    theme_classic(base_size = 14) +
+    labs(
+      title = paste("Distribution of NEBULA coefficients:", gsub("_", " ", cc)),
+      x = "logFC group contrast",
+      y = "Number of genes"
+    )
+
+})
+
+names(hist_plots) <- names(PT_list)
+hist_plots$OC_vs_LC
+hist_plots$T1D_vs_LC
+hist_plots$T2D_vs_LC
+hist_plots$T1D_vs_T2D
+```
+```{r}
+dot_plots <- lapply(names(PT_list), function(cc) {
+
+  plot_df <- PT_list[[cc]] %>%
+    filter(
+      is.finite(logFC_group_contrast),
+      is.finite(p_adj),
+      is.finite(neg_log10_fdr)
+    ) %>%
+    mutate(
+      sig_class = case_when(
+        p_adj < 0.05 & logFC_group_contrast > 0 ~ "Higher positive group",
+        p_adj < 0.05 & logFC_group_contrast < 0 ~ "Higher reference group"
+      )
+    )
+
+  top_dot <- plot_df %>%
+    filter(p_adj < 0.05) %>%
+    arrange(p_adj) %>%
+    slice_head(n = 30)
+
+  ggplot(
+    top_dot,
+    aes(
+      x = logFC_group_contrast,
+      y = reorder(gene, logFC_group_contrast),
+      color = sig_class,
+      size = neg_log10_fdr
+    )
+  ) +
+    geom_point() +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    scale_color_manual(values = c(
+      "Higher positive group" = "red3",
+      "Higher reference group" = "blue3"
+    )) +
+    labs(
+      title = paste("Top NEBULA PT genes:", gsub("_", " ", cc)),
+      x = "logFC group contrast",
+      y = NULL,
+      color = NULL,
+      size = "-log10(FDR)"
+    ) +
+    theme_classic(base_size = 14)
+
+})
+
+names(dot_plots) <- names(PT_list)
+
+dot_plots$OC_vs_LC
+dot_plots$T1D_vs_LC
+dot_plots$T2D_vs_LC
+dot_plots$T1D_vs_T2D
+```
+
+
+
+#----------------------------
+#archived code
+#keeping for troubleshooting
+#----------------------------
+```{r}
+PT_test2 <- readRDS(file = file.path(dir.results, "scRNA results", "nebula", "nebula_2nebula_PT_OC_vs_LC.rds" ))
 PT_test2 <- PT_test2$results
 
-PT_T1D_T2D <- nebula_PT_T1D_vs_T2D$results
-TAL <- nebula_TAL_OC_vs_LC$results
-```
+PT_test3 <- readRDS(file = file.path(dir.results, "scRNA results", "nebula","nebula_PT_OC_vs_LC.rds"))
+PT_test3 <- PT_test3$results
 
-```{r}
-nebula_plot_df <- PT_OC_LC_results %>%
-  filter(
-    is.finite(logFC_group_contrast),
-    is.finite(p_adj),
-    is.finite(neg_log10_fdr)
-  ) %>%
-  mutate(
-    sig_class = case_when(
-      p_adj < 0.05 & logFC_group_contrast > 0 ~ "Increased in OC",
-      p_adj < 0.05 & logFC_group_contrast < 0 ~ "Decreased in OC",
-      TRUE ~ "Not significant"
-    )
-  )
-  
-```
+PT_test3 <- PT_test3 %>%
+  filter(stable_fit == "TRUE")
 
-```{r}
-top_labs <- nebula_plot_df %>%
-  filter(p_adj < 0.05) %>%
-  arrange(p_adj) %>%
-  slice_head(n = 20)
-
-ggplot(
-  nebula_plot_df,
-  aes(
-    x = logFC_group_contrast,
-    y = neg_log10_fdr,
-    color = sig_class
-  )
-) +
-  geom_point(alpha = 0.65, size = 2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
-  geom_text_repel(
-    data = top_labs,
-    aes(label = gene),
-    size = 3,
-    max.overlaps = Inf
-  ) +
-  scale_color_manual(values = c(
-    "Increased in OC" = "orange3",
-    "Decreased in OC" = "purple4",
-    "Not significant" = "grey75"
-  )) +
-  coord_cartesian(
-    xlim = c(-600, 600),
-    ylim = c(0, 300)
-  ) +
-  labs(
-    title = "NEBULA PT: Obese Control vs Lean Control",
-    subtitle = "LC is the reference; positive logFC = increased in OC",
-    x = "logFC relative to LC",
-    y = "-log10(FDR)",
-    color = NULL
-  ) +
-  theme_classic(base_size = 14)
-```
-
-```{r}
-ggplot(
-  nebula_plot_df,
-  aes(x = logFC_group_contrast)
-) +
-  geom_histogram(bins = 60) +
-  coord_cartesian(xlim = c(-1000, 1000)) +
-  theme_classic(base_size = 14) +
-  labs(
-    title = "Distribution of NEBULA group coefficients",
-    x = "logFC group contrast",
-    y = "Number of genes"
-  )
-```
-
-```{r}
-top_dot <- nebula_plot_df %>%
-  filter(p_adj < 0.05) %>%
-  arrange(p_adj) %>%
-  slice_head(n = 30)
-
-ggplot(
-  top_dot,
-  aes(
-    x = logFC_group_contrast,
-    y = reorder(gene, logFC_group_contrast),
-    color = sig_class,
-    size = neg_log10_fdr
-  )
-) +
-  geom_point() +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_color_manual(values = c(
-    "Higher in OC" = "red3",
-    "Higher in LC" = "blue3"
-  )) +
-  labs(
-    title = "Top NEBULA PT genes: OC vs LC",
-    x = "NEBULA logFC group contrast",
-    y = NULL,
-    color = NULL,
-    size = "-log10(FDR)"
-  ) +
-  theme_classic(base_size = 14)
-```
-```{r}
-nebula_plot_df4 <- TAL %>%
-  filter(
-    is.finite(logFC_group_contrast),
-    is.finite(p_adj),
-    is.finite(neg_log10_fdr)
-  ) %>%
-  mutate(
-    sig_class = case_when(
-      p_adj < 0.05 & logFC_group_contrast > 0 ~ "Increased in OC",
-      p_adj < 0.05 & logFC_group_contrast < 0 ~ "Decreased in OC",
-      TRUE ~ "Not significant"
-    )
-  )
-  
-```
-
-```{r}
-top_labs4 <- nebula_plot_df4 %>%
-  filter(p_adj < 0.05) %>%
-  arrange(p_adj) %>%
-  slice_head(n = 20)
-
-ggplot(
-  nebula_plot_df4,
-  aes(
-    x = logFC_group_contrast,
-    y = neg_log10_fdr,
-    color = sig_class
-  )
-) +
-  geom_point(alpha = 0.65, size = 2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
-  geom_text_repel(
-    data = top_labs,
-    aes(label = gene),
-    size = 3,
-    max.overlaps = Inf
-  ) +
-  scale_color_manual(values = c(
-    "Increased in OC" = "orange3",
-    "Decreased in OC" = "purple4",
-    "Not significant" = "grey75"
-  )) +
-  coord_cartesian(
-    xlim = c(-600, 600),
-    ylim = c(0, 300)
-  ) +
-  labs(
-    title = "NEBULA PT: Obese Control vs Lean Control",
-    subtitle = "LC is the reference; positive logFC = increased in OC",
-    x = "logFC relative to LC",
-    y = "-log10(FDR)",
-    color = NULL
-  ) +
-  theme_classic(base_size = 14)
-```
-```{r}
-ggplot(
-  nebula_plot_df4,
-  aes(x = logFC_group_contrast)
-) +
-  geom_histogram(bins = 60) +
-  coord_cartesian(xlim = c(-1000, 1000)) +
-  theme_classic(base_size = 14) +
-  labs(
-    title = "Distribution of NEBULA group coefficients",
-    x = "logFC group contrast",
-    y = "Number of genes"
-  )
-```
-
-```{r}
-top_dot4 <- nebula_plot_df4 %>%
-  filter(p_adj < 0.05) %>%
-  arrange(p_adj) %>%
-  slice_head(n = 30)
-
-ggplot(
-  top_dot4,
-  aes(
-    x = logFC_group_contrast,
-    y = reorder(gene, logFC_group_contrast),
-    color = sig_class,
-    size = neg_log10_fdr
-  )
-) +
-  geom_point() +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_color_manual(values = c(
-    "Higher in OC" = "red3",
-    "Higher in LC" = "blue3"
-  )) +
-  labs(
-    title = "Top NEBULA PT genes: OC vs LC",
-    x = "NEBULA logFC group contrast",
-    y = NULL,
-    color = NULL,
-    size = "-log10(FDR)"
-  ) +
-  theme_classic(base_size = 14)
-```
-
-
-
-
-```{r}
 nebula_plot_df2 <- PT_test2 %>%
   filter(
     is.finite(logFC_group_contrast),
@@ -371,7 +346,7 @@ ggplot(
   geom_vline(xintercept = 0, linetype = "dashed") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
   geom_text_repel(
-    data = top_labs,
+    data = top_labs2,
     aes(label = gene),
     size = 3,
     max.overlaps = Inf
@@ -394,7 +369,6 @@ ggplot(
   ) +
   theme_classic(base_size = 14)
 ```
-
 ```{r}
 ggplot(
   nebula_plot_df2,
@@ -409,6 +383,7 @@ ggplot(
     y = "Number of genes"
   )
 ```
+
 ```{r}
 top_dot2 <- nebula_plot_df2 %>%
   filter(p_adj < 0.05) %>%
@@ -439,22 +414,6 @@ ggplot(
   ) +
   theme_classic(base_size = 14)
 ```
-```{r}
-nebula_plot_df3 <- PT_T1D_T2D %>%
-  filter(
-    is.finite(logFC_group_contrast),
-    is.finite(p_adj),
-    is.finite(neg_log10_fdr)
-  ) %>%
-  mutate(
-    sig_class = case_when(
-      p_adj < 0.05 & logFC_group_contrast > 0 ~ "Increased in T2D",
-      p_adj < 0.05 & logFC_group_contrast < 0 ~ "Decreased in T2D",
-      TRUE ~ "Not significant"
-    )
-  )
-  
-```
 
 ```{r}
 top_labs3 <- nebula_plot_df3 %>%
@@ -480,36 +439,22 @@ ggplot(
     max.overlaps = Inf
   ) +
   scale_color_manual(values = c(
-    "Increased in T2D" = "orange3",
-    "Decreased in T2D" = "purple4",
+    "Increased in OC" = "orange3",
+    "Decreased in OC" = "purple4",
     "Not significant" = "grey75"
   )) +
   coord_cartesian(
-    xlim = c(-600, 600),
-    ylim = c(0, 300)
+    xlim = c(-20, 20),
+    ylim = c(0, 10)
   ) +
   labs(
-    title = "NEBULA PT: T1D vs T2D",
-    x = "logFC relative to T1D",
+    title = "NEBULA PT: Obese Control vs Lean Control",
+    subtitle = "LC is the reference; positive logFC = increased in OC",
+    x = "logFC relative to LC",
     y = "-log10(FDR)",
     color = NULL
   ) +
   theme_classic(base_size = 14)
-```
-
-```{r}
-ggplot(
-  nebula_plot_df3,
-  aes(x = logFC_group_contrast)
-) +
-  geom_histogram(bins = 60) +
-  coord_cartesian(xlim = c(-1000, 1000)) +
-  theme_classic(base_size = 14) +
-  labs(
-    title = "Distribution of NEBULA group coefficients",
-    x = "logFC group contrast",
-    y = "Number of genes"
-  )
 ```
 
 ```{r}
@@ -530,14 +475,29 @@ ggplot(
   geom_point() +
   geom_vline(xintercept = 0, linetype = "dashed") +
   scale_color_manual(values = c(
-    "Higher in T2D" = "red3",
-    "Higher in T1D" = "blue3"
+    "Higher in OC" = "red3",
+    "Higher in LC" = "blue3"
   )) +
   labs(
+    title = "Top NEBULA PT genes: OC vs LC",
     x = "NEBULA logFC group contrast",
     y = NULL,
     color = NULL,
     size = "-log10(FDR)"
   ) +
   theme_classic(base_size = 14)
+```
+```{r}
+ggplot(
+  nebula_plot_df3,
+  aes(x = logFC_group_contrast)
+) +
+  geom_histogram(bins = 10) +
+  coord_cartesian(xlim = c(-50, 50)) +
+  theme_classic(base_size = 14) +
+  labs(
+    title = "Distribution of NEBULA group coefficients",
+    x = "logFC group contrast",
+    y = "Number of genes"
+  )
 ```
