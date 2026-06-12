@@ -462,7 +462,7 @@ pb90_analysis_params <- list(
   sglt2i_ever_t2d = list(var = "sglt2i_ever",  
                          out = paste0(base_dir, "pb90_sglt2i_ever_t2d_neb.csv"),
                          prep = make_prep("Type 2 Diabetes")),
-  sglt2i_timepoint_t2d = list(var = "sglt2i_ever",  
+  sglt2i_timepoint_t2d = list(var = "sglt2i_timepoint",  
                          out = paste0(base_dir, "pb90_sglt2i_timepoint_t2d_neb.csv"),
                          prep = make_prep("Type 2 Diabetes")),
   dkd30_t2d       = list(var = "dkd_group_30", out = paste0(base_dir, "pb90_dkd30_t2d_neb.csv"),
@@ -515,19 +515,24 @@ for (name in names(pb90_analysis_params)) {
 ```
 ```{r}
 plot_pb90_gene <- function(obj, gene, celltypes, ct_col, tag,
-                           group_col = "group", person_col = "record_id") {
-  df <- FetchData(obj, vars = c(gene, person_col, group_col, ct_col))
+                           group_col = "group", person_col = "record_id",
+                           cohort = NULL, cohort_col = "group",
+                           fill_values = NULL) {
+  df <- FetchData(obj, vars = unique(c(gene, person_col, group_col, ct_col)))
   names(df)[names(df) == gene]       <- "expr"
   names(df)[names(df) == person_col] <- "person"
-  names(df)[names(df) == group_col]  <- "group"
+  names(df)[names(df) == group_col]  <- "strat"
   names(df)[names(df) == ct_col]     <- "celltype"
-  df <- df %>% filter(celltype %in% celltypes)
+  df$cohort <- obj@meta.data[rownames(df), cohort_col]   # aligned by barcode, no rename clash
 
-  pb <- df %>% group_by(group, celltype, person) %>%
-    summarise(mean_expr = mean(expr), .groups = "drop")
+  if (!is.null(cohort)) df <- df %>% filter(.data$cohort %in% .env$cohort)
+  df <- df %>% filter(celltype %in% celltypes, !is.na(strat))
 
-  # per-subject pseudobulk by group
-  p1 <- ggplot(pb, aes(group, mean_expr, fill = group)) +
+  pb <- df %>% group_by(strat, celltype, person) %>%
+    summarise(mean_expr = mean(expr), .groups = "drop") %>%
+    mutate(strat = factor(strat))                        # coerce 0/1 predictors to discrete
+
+  p1 <- ggplot(pb, aes(strat, mean_expr, fill = strat)) +
     geom_boxplot(outlier.shape = NA, alpha = 0.6) +
     geom_jitter(width = 0.15, alpha = 0.6) +
     facet_wrap(~ celltype, scales = "free_y") +
@@ -535,22 +540,21 @@ plot_pb90_gene <- function(obj, gene, celltypes, ct_col, tag,
     theme_minimal() +
     theme(text = element_text(size = 15), legend.position = "none",
           axis.text.x = element_text(angle = 60, hjust = 1), panel.grid = element_blank()) +
-    theme_transparent +
-    scale_fill_manual(values = c("Type 2 Diabetes" = "#e07a5f",
-                                 "Type 1 Diabetes" = "#f2cc8f",
-                                 "Lean Control" = "#81b29a",
-                                 "Obese Control" = "#3d405b"))
+    theme_transparent
+  if (!is.null(fill_values)) p1 <- p1 + scale_fill_manual(values = fill_values)
   print(p1)
   s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
     object = paste0(out_dir, "pb90_", gene, "_", tag, "_box.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 
-  # dotplot ("__" delim since group labels contain spaces)
-  obj$grp <- paste(obj@meta.data[[ct_col]], obj@meta.data[[group_col]], sep = "__")
-  p2 <- DotPlot(obj, features = gene, group.by = "grp")@data %>%
-    separate_wider_delim(id, delim = "__", names = c("celltype", "group")) %>%
-    filter(celltype %in% celltypes) %>%
-    ggplot(aes(celltype, group, size = pct.exp, color = avg.exp.scaled)) +
+  # dotplot (subset to cohort first; "__" delim survives single "_" in e.g. non_DKD)
+  o <- obj
+  if (!is.null(cohort)) o <- subset(o, cells = colnames(o)[o@meta.data[[cohort_col]] %in% cohort])
+  o$grp <- paste(o@meta.data[[ct_col]], o@meta.data[[group_col]], sep = "__")
+  p2 <- DotPlot(o, features = gene, group.by = "grp")@data %>%
+    separate_wider_delim(id, delim = "__", names = c("celltype", "strat")) %>%
+    filter(celltype %in% celltypes, strat != "NA") %>%
+    ggplot(aes(celltype, strat, size = pct.exp, color = avg.exp.scaled)) +
     geom_point() +
     scale_color_gradient2(low = "#fff0f3", mid = "#fff0f3", high = "#ee7674") +
     theme_minimal() + theme(panel.grid = element_blank(), text = element_text(size = 15)) +
@@ -562,22 +566,72 @@ plot_pb90_gene <- function(obj, gene, celltypes, ct_col, tag,
     width = 7, height = 5, dpi = 300, bg = "transparent")
 }
 
+group_pal <- c("Type 2 Diabetes" = "#e07a5f", "Type 1 Diabetes" = "#f2cc8f",
+               "Lean Control"    = "#81b29a", "Obese Control"   = "#3d405b")
+
+dkd_pal <- c("DKD" = "#f1856a", "non_DKD" = "#a3b18a")
+
+sglt2i_pal <- c("Yes" = "#4f6d7a", "No" = "#c0d6df")
+
 plot_pb90_gene(pb90, 
                "NNMT",
-               c("EC-LYM", "MC"), 
+               c("EC-LYM", "MC"),
                "KPMP_celltype",
-               "topcells")
-plot_pb90_gene(pb90, 
-               "SLC6A19",
+               "topcells", 
+               fill_values = group_pal)
+plot_pb90_gene(pb90,
+               "SLC6A19", 
                c("PT-S1/S2", "PT-S3", "aPT"), 
                "KPMP_celltype",
-               "PT_sub")
-plot_pb90_gene(pb90, 
+               "PT_sub",
+               fill_values = group_pal)
+plot_pb90_gene(pb90,
                "SLC6A19", 
                "PT",
-               "KPMP_celltype_general",
-               "PT")
+               "KPMP_celltype_general", 
+               "PT",
+               fill_values = group_pal)
 
+views <- list(
+  list(gene = "NNMT",
+       celltypes = c("EC-LYM", "MC"),
+       ct_col = "KPMP_celltype",
+       tag = "topcells"),
+  list(gene = "SLC6A19", 
+       celltypes = c("PT-S1/S2", "PT-S3", "aPT"), 
+       ct_col = "KPMP_celltype",
+       tag = "PT_sub"),
+  list(gene = "SLC6A19", 
+       celltypes = "PT",
+       ct_col = "KPMP_celltype_general", 
+       tag = "PT")
+)
+
+contrasts <- list(
+  dkd30_t2d = list(group_col = "dkd_group_30",
+                   cohort = c("Type 2 Diabetes", "Obese Control"),
+                   fill_values = dkd_pal),
+  
+  dkd100_t2d = list(group_col = "dkd_group_100",
+                    cohort = c("Type 2 Diabetes", "Obese Control"),
+                    fill_values = dkd_pal),
+  
+  sglt2i_ever_t2d = list(group_col = "sglt2i_ever",
+                         cohort = "Type 2 Diabetes",
+                         fill_values = sglt2i_pal),
+  
+  sglt2i_timepoint_t2d = list(group_col = "sglt2i_timepoint", 
+                              cohort = "Type 2 Diabetes",
+                              fill_values = sglt2i_pal)
+)
+
+for (v in views) for (cname in names(contrasts)) {
+  cc <- contrasts[[cname]]
+  plot_pb90_gene(pb90, v$gene, v$celltypes, v$ct_col,
+                 tag = paste0(v$tag, "_", cname),
+                 group_col = cc$group_col, cohort = cc$cohort, 
+                 fill_values = cc$fill_values)
+}
 ```
 
 # ATTEMPT
