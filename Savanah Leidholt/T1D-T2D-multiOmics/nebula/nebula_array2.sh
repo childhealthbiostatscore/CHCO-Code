@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=triad_nebula
-#SBATCH --array=1-85%2
+#SBATCH --array=1-85%4
 #SBATCH --time=72:00:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=30
 #SBATCH --partition=cpu-g2
 #SBATCH --account=togo
-#SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.2/output/nebula_%A_%a.out"
-#SBATCH --error="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.2/error/nebula_%A_%a.err"
+#SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.4/output/nebula_%A_%a.out"
+#SBATCH --error="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.4/error/nebula_%A_%a.err"
 
 module purge
 module load apptainer
@@ -41,7 +41,7 @@ apptainer exec \
   --cleanenv \
   --bind /mmfs1:/mmfs1 \
   "${CONTAINER}" \
-  Rscript "${BASE_DIR}/run_nebula_2.R" \
+  Rscript "${BASE_DIR}/run_nebula_4.R" \
   "${CELL_TYPE}" \
   "${CONTRAST_NAME}" 
 
