@@ -4,6 +4,9 @@
 ### outcome variables:
 
 #Table 2:
+lm(avg_c_r2~sex+group_risk,data=panther)
+lm(avg_c_r2~sex+tanner_stage_comp_panther_cat,data=panther)
+
 kable(summary(tableby(group_risk ~  total_kidney_volume_ml + ht_adj_tkv + avg_c_r2 + avg_k_r2 + avg_c_t1 + avg_pcascl + avg_c_adc + 
                         mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
                         ra + re + anova(rvr, digits = 3) + glomerular_pressure, 
