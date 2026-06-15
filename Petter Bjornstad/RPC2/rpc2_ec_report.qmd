@@ -1,0 +1,275 @@
+---
+title: "RPC2 Endothelial Cell CMR Report"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+# Setup
+
+```{r setup, echo = F, message = F, warning = F}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(table1)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(stringr)
+library(lubridate)
+```
+
+```{r paths, echo = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") {
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r helpers, echo = F}
+# Read an object from S3 into R (e.g. a CSV via read.csv)
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) bucket <- get_bucketname(object)
+  object <- get_objectkey(object)
+  tmp <- if (is.character(filename)) file.path(tempdir(TRUE), filename) else tempfile(fileext = paste0(".", tools::file_ext(object)))
+  on.exit(unlink(tmp))
+  if (!is.null(region)) {
+    if (is.null(opts)) opts <- list(region = region) else opts$region <- region
+  }
+  if (is.null(opts)) {
+    save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    do.call("save_object", c(list(bucket = bucket, object = object, file = tmp), opts))
+  }
+  FUN(tmp, ...)
+}
+
+# Download a saved figure into a document-relative folder for embedding.
+# A document-relative path (not the R tempdir) is required so pandoc can
+# resolve and embed the image at render time.
+# Returns the local relative path, or NULL if the object is not found.
+fig_dir <- "ec_cmr_figs"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+get_s3_fig <- function(object, bucket = "scrna") {
+  dest <- file.path(fig_dir, gsub("[/ ]", "_", object))
+  ok <- tryCatch({
+    save_object(object = object, bucket = bucket, file = dest, region = "")
+    TRUE
+  }, error = function(e) FALSE)
+  if (ok && file.exists(dest) && file.info(dest)$size > 0) dest else NULL
+}
+
+# Imaging variable labels (carried over from the analysis script)
+im_labels <- c(
+  lv_hr                  = "LV Heart rate (1/min)",
+  rvedv                  = "RV EDV (mL)",
+  lvedv                  = "LV EDV (mL)",
+  rvesv                  = "RV ESV (mL)",
+  lvesv                  = "LV ESV (mL)",
+  rv_stroke_volume       = "RV stroke volume (mL)",
+  lv_stroke_volume       = "LV stroke volume (mL)",
+  rvedv_bsa              = "RVEDV BSA (mL/m²)",
+  lvedv_bsa              = "LVEDV BSA (mL/m²)",
+  rvesv_bsa              = "RVESV BSA (mL/m²)",
+  lvesv_bsa              = "LVESV BSA (mL/m²)",
+  rv_stroke_volume_bsa   = "RV stroke volume BSA (mL/m²)",
+  lv_stroke_volume_bsa   = "LV stroke volume BSA (mL/m²)",
+  rv_cardiac_output      = "RV cardiac output",
+  lv_cardiac_output      = "LV cardiac output",
+  lves_mass              = "LV myocardial mass (systole)",
+  lved_mass              = "LV mass (g)",
+  lves_mass_bsa          = "LV myocardial mass BSA (systole)",
+  lved_mass_bsa          = "LV mass BSA (g/m²)",
+  lv_myo_thickness_total = "LV thickness total (mm)",
+  lv_myo_thickness_dias  = "LV thickness (mm)",
+  rvef                   = "RV ejection fraction (%)",
+  lvef                   = "LV ejection fraction (%)",
+  gls                    = "Global longitudinal strain (%)",
+  gcs                    = "Global circumferential strain (%)",
+  grs                    = "Global radial strain (%)",
+  af_high5pctwss         = "Aortic wall shear stress (top 5%)",
+  af_medianwss           = "Aortic wall shear stress (median)",
+  af_meanwss             = "Mean wall shear stress (Pa)",
+  af_pwv                 = "Pulse wave velocity (m/s)",
+  tt1                    = "CMR T1 (ms)",
+  tt2                    = "CMR T2* (ms)",
+  tr2                    = "R2* (1/s)",
+  mv_flow_e              = "E wave (cm/s)",
+  mv_flow_a              = "A wave (cm/s)",
+  mv_flow_ea             = "E/A ratio"
+)
+```
+
+# Included participants
+
+
+```{r descriptive, echo = F, warning = F, message = F, results='asis'}
+meta <- s3read_using_region(FUN = read.csv,
+                            bucket = "scrna",
+                            object = "Projects/EC CMR/Data Clean/pb90_ec_cmr_meta.csv",
+                            region = "")
+
+# Drop the barcode row-name column written by write.csv
+meta <- meta[, setdiff(names(meta), c("X", "X.1")), drop = FALSE]
+
+# Collapse repeated per-cell rows to one row per participant
+meta_subj <- meta %>% dplyr::distinct(kit_id, .keep_all = T)
+
+cat("Participants included:", nrow(meta_subj), "  |  Endothelial cells included:", nrow(meta), "\n")
+
+summary(arsenal::tableby(group ~ age + sex + hba1c + kwt(acr_u, "medianq1q3", "range") +  study, data = meta_subj), digits = 1)
+```
+
+# EC association with CMR parameters (NEBULA)
+
+Gene level associations between endothelial cell expression and each CMR parameter.
+
+```{r nebula-read, echo = F}
+nebula_results <- s3read_using_region(FUN = read.csv,
+                                      bucket = "scrna",
+                                      object = "Projects/EC CMR/Results/cmr_ec_nebula_compiled.csv",
+                                      region = "")
+vars_nebula <- unique(nebula_results$var)
+```
+
+## Significant genes per parameter
+
+Count of significant genes per CMR parameter, at both raw p < 0.05 and FDR < 0.05.
+
+```{r nebula-sig, echo = F}
+n_p   <- nebula_results %>% filter(p   < 0.05) %>% count(var, name = "n_p_sig")
+n_fdr <- nebula_results %>% filter(fdr < 0.05) %>% count(var, name = "n_fdr_sig")
+
+sig_tab <- full_join(n_p, n_fdr, by = "var") %>%
+  mutate(across(c(n_p_sig, n_fdr_sig), ~ tidyr::replace_na(., 0L)),
+         label = ifelse(var %in% names(im_labels), im_labels[var], var)) %>%
+  arrange(desc(n_p_sig)) %>%
+  select(Parameter = label, `Variable` = var,
+         `p < 0.05 genes` = n_p_sig, `FDR significant genes` = n_fdr_sig)
+
+sig_tab %>% kable() %>% kable_styling(full_width = FALSE)
+```
+
+## Combined volcano plots
+
+```{r facet-volcano, echo = F, out.width = "100%"}
+fp <- get_s3_fig("Projects/EC CMR/Results/Figures/cmr_faceted_volcano.png")
+if (!is.null(fp)) knitr::include_graphics(fp)
+```
+
+```{r facet-volcano-fdr, echo = F, out.width = "100%"}
+fp <- get_s3_fig("Projects/EC CMR/Results/Figures/cmr_faceted_volcano_fdr.png")
+if (!is.null(fp)) knitr::include_graphics(fp)
+```
+
+## Per parameter volcano plots
+
+For each CMR parameter, the raw p-value volcano is shown alongside the FDR volcano.
+
+```{r per-var-volcano, echo = F, results = "asis", out.width = "48%"}
+for (v in vars_nebula) {
+  ttl <- if (v %in% names(im_labels)) im_labels[[v]] else v
+  cat("\n\n### ", ttl, "\n\n")
+  paths <- c(
+    get_s3_fig(paste0("Projects/EC CMR/Results/Figures/", v, ".png")),
+    get_s3_fig(paste0("Projects/EC CMR/Results/Figures/", v, "_fdr.png"))
+  )
+  paths <- paths[!sapply(paths, is.null)]
+  if (length(paths)) {
+    cat(paste0("![](", paths, ")", collapse = " "))
+    cat("\n\n")
+  } else {
+    cat("_No saved figure found._\n\n")
+  }
+}
+```
+
+# Gene set enrichment (Hallmark)
+
+Hallmark GSEA results per CMR parameter.
+
+```{r gsea-read, echo = F}
+gsea_results <- s3read_using_region(FUN = read.csv,
+                                    bucket = "scrna",
+                                    object = "Projects/EC CMR/Results/cmr_ec_hallmark_compiled.csv",
+                                    region = "")
+```
+
+## Significant pathways
+
+Hallmark pathways with padj < 0.05.
+
+```{r gsea-sig, echo = F}
+gsea_sig <- gsea_results %>%
+  filter(padj < 0.05) %>%
+  mutate(label = ifelse(var %in% names(im_labels), im_labels[var], var),
+         pathway = str_to_title(str_replace_all(str_remove(pathway, "^HALLMARK_"), "_", " "))) %>%
+  arrange(var, padj) %>%
+  select(Parameter = label, Pathway = pathway, NES, pval, padj, size)
+
+if (nrow(gsea_sig)) {
+  gsea_sig %>% kable(digits = 3) %>% kable_styling(full_width = FALSE)
+} else {
+  cat("No pathways reached padj < 0.05.")
+}
+```
+
+## NES heatmap
+
+```{r gsea-heat, echo = F, out.width = "100%"}
+fp <- get_s3_fig("Projects/EC CMR/Results/Figures/gsea/ec_cmr_nes_heatmap.png")
+if (!is.null(fp)) knitr::include_graphics(fp)
+```
+
+## FDR significant genes per parameter
+
+```{r gsea-bar, echo = F, out.width = "80%"}
+fp <- get_s3_fig("Projects/EC CMR/Results/Figures/gsea/ec_cmr_siggene_bar.png")
+if (!is.null(fp)) knitr::include_graphics(fp)
+```
+
+## Per parameter pathway lollipops
+
+Lollipop plots were saved only for parameters with significant Hallmark pathways; others are skipped.
+
+```{r gsea-lollipop, echo = F, results = "asis", out.width = "80%"}
+for (v in vars_nebula) {
+  fp <- get_s3_fig(paste0("Projects/EC CMR/Results/Figures/gsea/hallmark_", v, ".png"))
+  if (!is.null(fp)) {
+    ttl <- if (v %in% names(im_labels)) im_labels[[v]] else v
+    cat("\n\n### ", ttl, "\n\n")
+    cat(paste0("![](", fp, ")"))
+    cat("\n\n")
+  }
+}
+```
