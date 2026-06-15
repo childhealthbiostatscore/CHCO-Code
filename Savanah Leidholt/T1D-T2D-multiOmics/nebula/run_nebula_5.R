@@ -2,12 +2,13 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 cell_name <- args[1]
+contrast_name <- args[2]
 
-if (is.na(cell_name)) {
-  stop("Usage: Rscript run_nebula_5.R <cell_name> ")
+if (is.na(cell_name) || is.na(contrast_name)) {
+  stop("Usage: Rscript run_nebula_5.R <cell_name> <contrast_name>")
 }
 
-.libPaths("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/")
+.libPaths(c("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat", .libPaths()))
 
 suppressPackageStartupMessages({
   library(Matrix)
@@ -147,6 +148,7 @@ pred <- model.matrix(
   data = meta_sub
 )
 
+#creating chunks of 2000 to parse through
 cat("Running NEBULA\n")
 cat("Cell type:", cell_name, "\n")
 cat("Contrast:", contrast_name, "\n")
@@ -202,36 +204,50 @@ cat("Number of chunks:", length(gene_chunks), "\n")
 
 start_time <- Sys.time()
 
-chunk_results <- map2(
-  gene_chunks,
-  seq_along(gene_chunks),
-  function(gene_set, chunk_id) {
-    cat("Running chunk", chunk_id, "of", length(gene_chunks), "\n")
-    run_nebula_chunk(
-      count_chunk = counts_sub[gene_set, , drop = FALSE],
-      chunk_id = chunk_id
-    )
-  }
-)
+chunk_results <- vector("list", length(gene_chunks))
+
+for (chunk_id in seq_along(gene_chunks)) {
+  
+  gene_set <- gene_chunks[[chunk_id]]
+  
+  cat("Running chunk", chunk_id, "of", length(gene_chunks), "\n")
+  cat("Genes in chunk:", length(gene_set), "\n")
+  cat("First gene:", gene_set[1], "\n")
+  cat("Last gene:", gene_set[length(gene_set)], "\n")
+  
+  chunk_results[[chunk_id]] <- run_nebula_chunk(
+    count_chunk = counts_sub[gene_set, , drop = FALSE],
+    chunk_id = chunk_id
+  )
+  
+  cat("Finished chunk", chunk_id, "\n")
+  gc()
+}
+
 
 end_time <- Sys.time()
 cat("NEBULA runtime:\n")
 print(end_time - start_time)
 
-diagnostics <- map_dfr(
-  chunk_results,
-  function(x) {
-    tibble(
-      chunk_id = x$chunk_id,
-      gene = x$genes,
-      chunk_success = !is.null(x$fit),
-      warning = x$warning,
-      error = x$error
-    )
-  }
+diagnostics <- bind_rows(
+  lapply(
+    chunk_results,
+    function(x) {
+      tibble(
+        chunk_id = x$chunk_id,
+        gene = x$genes,
+        chunk_success = !is.null(x$fit),
+        warning = x$warning,
+        error = x$error
+      )
+    }
+  )
 )
 
-successful_chunks <- keep(chunk_results, ~ !is.null(.x$fit))
+successful_chunks <- Filter(
+  function(x) !is.null(x$fit),
+  chunk_results
+)
 
 if (length(successful_chunks) == 0) {
   
@@ -243,7 +259,8 @@ if (length(successful_chunks) == 0) {
   
 } else {
   
-  tt <- map_dfr(
+  tt <- bind_rows(
+  lapply(
     successful_chunks,
     function(x) {
       
@@ -267,6 +284,7 @@ if (length(successful_chunks) == 0) {
       mutate(df, chunk_id = x$chunk_id)
     }
   )
+)
   
   if (!"p_group_contrast" %in% colnames(tt)) {
     stop(
@@ -274,6 +292,7 @@ if (length(successful_chunks) == 0) {
       paste(colnames(tt), collapse = ", ")
     )
   }
+
   
   tt <- tt %>%
     mutate(
@@ -310,6 +329,8 @@ out_object <- paste0(
   "results/nebula/nebula_5/",
   "nebula_",
   cell_name,
+  "_",
+  contrast_name,
   ".rds"
 )
 
