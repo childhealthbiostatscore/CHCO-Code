@@ -20,8 +20,13 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-ncore <-  min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
+ncore <- min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
 chunk_size <- 2000
+
+min_cells_per_donor_celltype <- 20
+min_donors_per_group <- 3
+min_cells_gene <- 100
+min_mean_gene <- 0.01
 
 keys <- jsonlite::fromJSON("/mmfs1/home/leidholt/keys.json")
 
@@ -33,7 +38,21 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
-#importing cleaned celltypes subsets
+contrast_pairs <- list(
+  T1D_vs_LC  = c("Lean Control", "Type 1 Diabetes"),
+  T2D_vs_LC  = c("Lean Control", "Type 2 Diabetes"),
+  T1D_vs_T2D = c("Type 2 Diabetes", "Type 1 Diabetes"),
+  OC_vs_LC   = c("Lean Control", "Obese Control"),
+  T1D_vs_OC  = c("Obese Control", "Type 1 Diabetes"),
+  T2D_vs_OC  = c("Obese Control", "Type 2 Diabetes")
+)
+
+pair <- contrast_pairs[[contrast_name]]
+
+if (is.null(pair)) {
+  stop("Unknown contrast_name: ", contrast_name)
+}
+
 in_object <- paste0(
   "data/nebula_prepped_inputs/",
   "nebula_input_",
@@ -54,7 +73,91 @@ prep <- s3readRDS(
 counts_nebula <- prep$count
 meta_nebula <- prep$meta
 
-#running nebula pipeline
+cat("Loaded celltype input\n")
+cat("Cells in prepped object:", nrow(meta_nebula), "\n")
+cat("Genes in prepped object:", nrow(counts_nebula), "\n")
+
+meta_sub <- meta_nebula %>%
+  filter(
+    group %in% pair,
+    !is.na(record_id),
+    !is.na(group),
+    !is.na(age),
+    !is.na(sex),
+    sex %in% c("Female", "Male")
+  )
+
+if (nrow(meta_sub) == 0) {
+  stop("No cells for this contrast after subsetting")
+}
+
+counts_sub <- counts_nebula[, meta_sub$cell_barcode, drop = FALSE]
+
+donor_cell_counts <- meta_sub %>%
+  count(record_id, group, name = "n_cells_donor")
+
+keep_donors <- donor_cell_counts %>%
+  filter(n_cells_donor >= min_cells_per_donor_celltype) %>%
+  pull(record_id)
+
+meta_sub <- meta_sub %>%
+  filter(record_id %in% keep_donors)
+
+counts_sub <- counts_sub[, meta_sub$cell_barcode, drop = FALSE]
+
+donor_tab <- meta_sub %>%
+  distinct(record_id, group) %>%
+  count(group)
+
+cat("Donor table:\n")
+print(donor_tab)
+
+if (nrow(donor_tab) < 2 || any(donor_tab$n < min_donors_per_group)) {
+  stop("Too few donors per group after donor-cell filtering")
+}
+
+lib_size <- Matrix::colSums(counts_sub)
+
+meta_sub <- meta_sub %>%
+  mutate(lib_size = lib_size) %>%
+  filter(is.finite(lib_size), lib_size > 0)
+
+counts_sub <- counts_sub[, meta_sub$cell_barcode, drop = FALSE]
+offset <- meta_sub$lib_size
+
+keep_genes <- Matrix::rowSums(counts_sub > 0) >= min_cells_gene &
+  Matrix::rowMeans(counts_sub) > min_mean_gene
+
+counts_sub <- counts_sub[keep_genes, , drop = FALSE]
+
+if (nrow(counts_sub) == 0) {
+  stop("No genes left after filtering")
+}
+
+meta_sub <- meta_sub %>%
+  mutate(
+    group = factor(group, levels = pair),
+    group_contrast = ifelse(group == pair[2], 1, 0),
+    sex = factor(sex, levels = c("Female", "Male")),
+    sex_num = ifelse(sex == "Male", 1, 0),
+    record_id = factor(record_id)
+  )
+
+pred <- model.matrix(
+  ~ group_contrast + age + sex_num,
+  data = meta_sub
+)
+
+cat("Running NEBULA\n")
+cat("Cell type:", cell_name, "\n")
+cat("Contrast:", contrast_name, "\n")
+cat("Groups:", pair[1], "vs", pair[2], "\n")
+cat("Cells:", nrow(meta_sub), "\n")
+cat("Donors:", length(unique(meta_sub$record_id)), "\n")
+cat("Genes tested:", nrow(counts_sub), "\n")
+cat("ncore:", ncore, "\n")
+cat("chunk_size:", chunk_size, "\n")
+
 run_nebula_chunk <- function(count_chunk, chunk_id) {
   
   warn_msg <- NULL
@@ -96,6 +199,10 @@ gene_chunks <- split(
   ceiling(seq_along(rownames(counts_sub)) / chunk_size)
 )
 
+cat("Number of chunks:", length(gene_chunks), "\n")
+
+start_time <- Sys.time()
+
 chunk_results <- map2(
   gene_chunks,
   seq_along(gene_chunks),
@@ -107,6 +214,10 @@ chunk_results <- map2(
     )
   }
 )
+
+end_time <- Sys.time()
+cat("NEBULA runtime:\n")
+print(end_time - start_time)
 
 diagnostics <- map_dfr(
   chunk_results,
@@ -124,11 +235,13 @@ diagnostics <- map_dfr(
 successful_chunks <- keep(chunk_results, ~ !is.null(.x$fit))
 
 if (length(successful_chunks) == 0) {
+  
   nebula_out <- list(
     results = NULL,
     diagnostics = diagnostics,
     donor_table = donor_tab
   )
+  
 } else {
   
   tt <- map_dfr(
@@ -155,6 +268,13 @@ if (length(successful_chunks) == 0) {
       mutate(df, chunk_id = x$chunk_id)
     }
   )
+  
+  if (!"p_group_contrast" %in% colnames(tt)) {
+    stop(
+      "Could not find p_group_contrast. Available columns: ",
+      paste(colnames(tt), collapse = ", ")
+    )
+  }
   
   tt <- tt %>%
     mutate(
@@ -195,6 +315,8 @@ out_object <- paste0(
   contrast_name,
   ".rds"
 )
+
+cat("Saving to:", out_object, "\n")
 
 put_object(
   file = tmp_rds,
