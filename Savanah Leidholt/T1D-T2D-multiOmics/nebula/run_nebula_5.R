@@ -14,13 +14,12 @@ suppressPackageStartupMessages({
   library(Matrix)
   library(nebula)
   library(dplyr)
-  library(purrr)
   library(tibble)
   library(aws.s3)
   library(jsonlite)
 })
 
-ncore <- min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
+ncore <- 1 #min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
 chunk_size <- 2000
 
 min_cells_per_donor_celltype <- 20
@@ -163,6 +162,12 @@ run_nebula_chunk <- function(count_chunk, chunk_id) {
   
   warn_msg <- NULL
   err_msg <- NULL
+  cat("Calling nebula for chunk:", chunk_id, "\n")
+  cat("ncore passed to nebula:", ncore, "\n")
+  cat("future in this process:\n")
+  print(packageVersion("future"))
+  print(find.package("future"))
+  
   
   fit <- tryCatch(
     withCallingHandlers(

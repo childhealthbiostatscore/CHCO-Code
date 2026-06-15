@@ -3,7 +3,7 @@
 #SBATCH --array=1-5%2
 #SBATCH --time=72:00:00
 #SBATCH --mem=100G
-#SBATCH --cpus-per-task=30
+#SBATCH --cpus-per-task=8
 #SBATCH --partition=ckpt
 #SBATCH --account=togo
 #SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.5/neb_output/nebula_%A_%a.out"
