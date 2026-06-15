@@ -26,7 +26,7 @@ cat("Cell type:", cell_name, "\n")
 cat("Contrast:", contrast_name, "\n")
 
 # Hard-coded NEBULA settings
-ncore <- 8
+ncore <- 40
 chunk_size <- 2000
 
 cat("Using ncore:", ncore, "\n")
