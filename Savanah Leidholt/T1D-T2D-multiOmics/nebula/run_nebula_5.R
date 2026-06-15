@@ -2,10 +2,9 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 cell_name <- args[1]
-contrast_name <- args[2]
 
-if (is.na(cell_name) || is.na(contrast_name)) {
-  stop("Usage: Rscript run_nebula_5.R <cell_name> <contrast_name>")
+if (is.na(cell_name)) {
+  stop("Usage: Rscript run_nebula_5.R <cell_name> ")
 }
 
 .libPaths("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/")
@@ -311,8 +310,6 @@ out_object <- paste0(
   "results/nebula/nebula_5/",
   "nebula_",
   cell_name,
-  "_",
-  contrast_name,
   ".rds"
 )
 
