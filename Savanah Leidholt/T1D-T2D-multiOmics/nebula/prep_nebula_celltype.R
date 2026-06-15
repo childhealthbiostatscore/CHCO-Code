@@ -27,7 +27,7 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
-cat("Preparing NEBULA input for cell type:", cell_name, "\n")
+cat("Preparing NEBULA input for cell type:")
 
 cat("Loading Seurat object from S3\n")
 
