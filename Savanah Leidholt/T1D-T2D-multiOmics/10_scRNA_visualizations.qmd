@@ -82,9 +82,7 @@ library(fgsea)
 
 #install_if_missing_bioc("speckle")
 library(speckle)
-#install_if_missing_bioc("DESeq2")
-#BiocManager::install("DESeq2")
-library(DESeq2)
+
 ```
 #directories
 ```{r}
@@ -252,8 +250,6 @@ volcano_plots <- lapply(names(Cell_list), function(cc) {
     theme_classic(base_size = 14)
 
 })
-
-
 ```
 
 ```{r}
@@ -308,8 +304,8 @@ dot_plots <- lapply(names(Cell_list), function(cc) {
     ) %>%
     mutate(
       sig_class = case_when(
-        p_adj < 0.05 & logFC_group_contrast > 0 ~ "Higher positive group",
-        p_adj < 0.05 & logFC_group_contrast < 0 ~ "Higher reference group"
+        p_adj < 0.05 & logFC_group_contrast > 0.5 ~ "Higher in First Group",
+        p_adj < 0.05 & logFC_group_contrast < -0.5 ~ "Lower in First Group"
       )
     )
 
@@ -422,7 +418,7 @@ Cell_list <- list(
 ```
 
 ```{r}
-names(volcano_plots) <- names(Cell_list2)
+names(volcano_plots) <- names(Cell_list)
 
 volcano_plots$PT_OC_vs_LC
 volcano_plots$PT_T1D_vs_LC
@@ -479,12 +475,12 @@ PT_T2D_LC_res3 <- PT_T2D_LC_res3$results
 PT_T2D_LC3 <- PT_T2D_LC_res3 %>%
   filter(stable_fit == "TRUE")
 
-Cell_list <- list(
-  "PT_OC_vs_LC" = PT_OC_LC3,
-  "PT_T1D_vs_LC"  = PT_T1D_LC3,
-  "PT_T1D_vs_OC" = PT_T1D_OC3,
-  "PT_T1D_vs_T2D" = PT_T1D_T2D3,
-  "PT_T2D_vs_LC"  = PT_T2D_LC3
+Cell_list2 <- list(
+  "PT_OC_vs_LC3" = PT_OC_LC3,
+  "PT_T1D_vs_LC3"  = PT_T1D_LC3,
+  "PT_T1D_vs_OC3" = PT_T1D_OC3,
+  "PT_T1D_vs_T2D3" = PT_T1D_T2D3,
+  "PT_T2D_vs_LC3"  = PT_T2D_LC3
 )
 
 
@@ -492,13 +488,83 @@ Cell_list <- list(
 ```
 
 ```{r}
-names(volcano_plots) <- names(Cell_list)
+volcano_plots <- lapply(names(Cell_list2), function(cc) {
 
-volcano_plots$PT_OC_vs_LC
-volcano_plots$PT_T1D_vs_LC
-volcano_plots$PT_T1D_vs_OC
-volcano_plots$PT_T1D_vs_T2D
-volcano_plots$PT_T2D_vs_LC
+  plot_df <- Cell_list2[[cc]] %>%
+    filter(
+      is.finite(logFC_group_contrast),
+      is.finite(p_adj),
+      is.finite(neg_log10_fdr)
+    ) %>%
+    mutate(
+      sig_class = case_when(
+        p_adj < 0.05 & logFC_group_contrast >  0.5 ~ "Increased",
+        p_adj < 0.05 & logFC_group_contrast < -0.5 ~ "Decreased",
+        TRUE ~ "Not significant"
+      )
+    )
+
+  top_labs <- plot_df %>%
+    filter(p_adj < 0.05) %>%
+    arrange(p_adj) %>%
+    slice_head(n = 20)
+
+  ggplot(
+    plot_df,
+    aes(
+      x = logFC_group_contrast,
+      y = neg_log10_fdr,
+      color = sig_class
+    )
+  ) +
+    geom_point(alpha = 0.65, size = 2) +
+    geom_vline(
+      xintercept = c(-0.5, 0.5),
+      linetype = "dashed"
+    ) +
+    geom_hline(
+      yintercept = -log10(0.05),
+      linetype = "dashed"
+    ) +
+    geom_text_repel(
+      data = top_labs,
+      aes(label = gene),
+      size = 3,
+      max.overlaps = Inf
+    ) +
+    scale_color_manual(
+      values = c(
+        "Increased" = "orange3",
+        "Decreased" = "purple4",
+        "Not significant" = "grey75"
+      )
+    ) +
+    coord_cartesian(
+      xlim = c(-20, 20),
+      ylim = c(
+        0,
+        ceiling(max(plot_df$neg_log10_fdr, na.rm = TRUE))
+      )
+    ) +
+    labs(
+      title = paste("NEBULA PT:", gsub("_", " ", cc)),
+      x = "logFC group contrast",
+      y = "-log10(FDR)",
+      color = NULL
+    ) +
+    theme_classic(base_size = 14)
+
+})
+```
+
+```{r}
+names(volcano_plots) <- names(Cell_list2)
+
+volcano_plots$PT_OC_vs_LC3
+volcano_plots$PT_T1D_vs_LC3
+volcano_plots$PT_T1D_vs_OC3
+volcano_plots$PT_T1D_vs_T2D3
+volcano_plots$PT_T2D_vs_LC3
 ```
 ```{r}
 names(hist_plots) <- names(Cell_list)

@@ -70,8 +70,6 @@ library(fgsea)
 #install_if_missing_bioc("speckle")
 library(speckle)
 #install_if_missing_bioc("DESeq2")
-#BiocManager::install("DESeq2")
-library(DESeq2)
 ```
 #directories
 ```{r}
@@ -1078,6 +1076,21 @@ upload_to_kopah(
 #plotting cell type specific expression patterns per contrast
 #------------------------------------------------------------
 ```{r}
+#setting up save function to kopah
+bucket <- "triad"
+
+upload_to_kopah <- function(file, object, bucket = "triad") {
+  put_object(
+    file = file,
+    object = object,
+    bucket = bucket,
+    base_url = "s3.kopah.uw.edu",
+    region = "",
+    use_https = TRUE
+  )
+}
+
+
 kopah_opts <- list(
   base_url = "s3.kopah.uw.edu",
   region = "",
@@ -1133,6 +1146,15 @@ deseq2_all <- read_kopah_csvs(
 )
 
 de_all <- bind_rows(edgeR_all, deseq2_all)
+
+tmp_de_all <- tempfile(fileext = ".csv")
+write.csv(de_all, tmp_de_all, row.names = F)
+upload_to_kopah(
+  file = tmp_de_all,
+  object = "results/pseudobulk/DE_all.csv"
+)
+
+unlink(tmp_de_all)
 ```
 #---------------------------------
 #count significant genes/cell type
@@ -1393,7 +1415,7 @@ plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
     } %>%
     mutate(
       Direction = ifelse(NES > 0, "Positive", "Negative"),
-      pathway = stringr::str_trunc(pathway, 60),
+      pathway = stringr::str_wrap(pathway, 55),
       pathway = forcats::fct_reorder(pathway, NES)
     )
   
@@ -1403,12 +1425,12 @@ plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
       linewidth = 0.7,
       color = "grey70"
     ) +
-    geom_point(aes(color = Direction), size = 3) +
+    geom_point(aes(color = Direction), size = 8) +
     geom_text(
       data = ~ dplyr::filter(.x, NES > 0),
       aes(x = 0, label = pathway),
       hjust = 1.02,
-      size = 3,
+      size = 6,
       fontface = "bold",
       color = "black"
     ) +
@@ -1416,7 +1438,7 @@ plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
       data = ~ dplyr::filter(.x, NES < 0),
       aes(x = 0, label = pathway),
       hjust = -0.02,
-      size = 3,
+      size = 6,
       fontface = "bold",
       color = "black"
     ) +
@@ -1456,28 +1478,28 @@ plot_gsea_lollipop <- function(dat, celltype_name, contrast_name = NULL) {
 }
 ```
 
-```{r}
+```{r fig.width=14}
 PT_panel <- plot_gsea_lollipop(
   dat = gsea_top_reactome,
   celltype_name = "PT"
 )
 
-tmp <- tempfile(fileext = ".png")
+#tmp <- tempfile(fileext = ".png")
 
-ggsave(
-  filename = tmp,
-  plot = PT_panel,
-  width = 24,
-  height = 12,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp,
+#  plot = PT_panel,
+#  width = 24,
+#  height = 12,
+#  dpi = 300
+#)
 
-upload_to_kopah(
-  file = tmp,
-  object = "figures/GSEA/Reactome/PT_panel_reactome.png"
-)
+#upload_to_kopah(
+#  file = tmp,
+#  object = "figures/GSEA/Reactome/PT_panel_reactome.png"
+#)
 
-unlink(tmp)
+#unlink(tmp)
 
 pt_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "PT") %>%
@@ -1506,22 +1528,22 @@ PC_panel <- plot_gsea_lollipop(
   celltype_name = "PC"
 )
 
-tmp <- tempfile(fileext = ".png")
+#tmp <- tempfile(fileext = ".png")
 
-ggsave(
-  filename = tmp,
-  plot = PC_panel,
-  width = 24,
-  height = 12,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp,
+#  plot = PC_panel,
+#  width = 24,
+#  height = 12,
+#  dpi = 300
+#)
 
-upload_to_kopah(
-  file = tmp,
-  object = "figures/GSEA/Reactome/PC_panel_reactome.png"
-)
+#upload_to_kopah(
+#  file = tmp,
+#  object = "figures/GSEA/Reactome/PC_panel_reactome.png"
+#)
 
-unlink(tmp)
+#unlink(tmp)
 
 pc_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "PC") %>%
@@ -1544,28 +1566,28 @@ pc_individual_plots[[4]] #oc vs t2d
 pc_individual_plots[[5]] #t1d vs t2d
 ```
 
-```{r}
+```{r fig.width=14}
 EC_panel <- plot_gsea_lollipop(
   dat = gsea_top_reactome,
   celltype_name = "EC"
 )
 
-tmp <- tempfile(fileext = ".png")
+#tmp <- tempfile(fileext = ".png")
 
-ggsave(
-  filename = tmp,
-  plot = EC_panel,
-  width = 24,
-  height = 12,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp,
+#  plot = EC_panel,
+#  width = 24,
+#  height = 12,
+#  dpi = 300
+#)
 
-upload_to_kopah(
-  file = tmp,
-  object = "figures/GSEA/Reactome/EC_panel_reactome.png"
-)
+#upload_to_kopah(
+#  file = tmp,
+#  object = "figures/GSEA/Reactome/EC_panel_reactome.png"
+#)
 
-unlink(tmp)
+#unlink(tmp)
 
 ec_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "EC") %>%
@@ -1588,28 +1610,28 @@ ec_individual_plots[[5]] #t1d vs t2d
 #ec_individual_plots[[6]] #no t1d vs lc
 ```
 
-```{r}
+```{r fig.width=14}
 TAL_panel <- plot_gsea_lollipop(
   dat = gsea_top_reactome,
   celltype_name = "TAL"
 )
 
-tmp <- tempfile(fileext = ".png")
+#tmp <- tempfile(fileext = ".png")
 
-ggsave(
-  filename = tmp,
-  plot = TAL_panel,
-  width = 24,
-  height = 12,
-  dpi = 300
-)
+#ggsave(
+#  filename = tmp,
+#  plot = TAL_panel,
+#  width = 24,
+#  height = 12,
+#  dpi = 300
+#)
 
-upload_to_kopah(
-  file = tmp,
-  object = "figures/GSEA/Reactome/TAL_panel_reactome.png"
-)
+#upload_to_kopah(
+#  file = tmp,
+#  object = "figures/GSEA/Reactome/TAL_panel_reactome.png"
+#)
 
-unlink(tmp)
+#unlink(tmp)
 
 tal_individual_plots <- gsea_top_reactome %>%
   filter(celltype == "TAL") %>%
@@ -1638,7 +1660,7 @@ Immune_panel <- plot_gsea_lollipop(
   celltype_name = "Immune"
 )
 
-tmp <- tempfile(fileext = ".png")
+#tmp <- tempfile(fileext = ".png")
 
 ggsave(
   filename = tmp,
