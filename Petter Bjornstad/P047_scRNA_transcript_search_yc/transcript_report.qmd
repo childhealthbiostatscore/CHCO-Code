@@ -1,0 +1,245 @@
+---
+title: "scRNA transcript expression results"
+author: "Ye Ji Choi"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+---
+
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(dplyr)
+library(tidyr)
+library(aws.s3)
+library(jsonlite)
+library(knitr)
+library(kableExtra)
+
+# ---- report parameters -----------------------------------------------------
+bucket         <- "scrna"
+results_prefix <- "Projects/transcript search/Results/"
+figures_prefix <- "Projects/transcript search/Results/Figures/"
+
+gene_notes <- list(
+  SLC6A19 = "SLC6A19 (B⁰AT1): neutral amino-acid transporter and canonical proximal-tubule identity marker, strongest in early PT segments.",
+  NNMT    = "NNMT (nicotinamide N-methyltransferase): metabolic enzyme tied to NAD⁺/methylation balance and, in kidney, to metabolic stress and fibrosis."
+)
+```
+
+```{r aws-env}
+# Standalone AWS/Kopah setup so this renders on its own
+user <- Sys.info()[["user"]]
+if (user == "yejichoi") {
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+}
+
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID"     = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION"    = "",
+  "AWS_REGION"            = "",
+  "AWS_S3_ENDPOINT"       = "s3.kopah.uw.edu"
+)
+```
+
+```{r helpers}
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL) {
+  tmp <- tempfile(fileext = paste0(".", tools::file_ext(object)))
+  on.exit(unlink(tmp))
+  args <- list(bucket = bucket, object = object, file = tmp, url_style = "path")
+  if (!is.null(region)) args$region <- region
+  do.call(aws.s3::save_object, args)
+  FUN(tmp, ...)
+}
+
+# ---- cell-type vocabulary (KPMP V1 fine-grained + general collapses) -------
+# Used to strip the cell-type suffix from NEBULA filenames. Robust to new
+# covariates because we match the cell type at the END of the name.
+sanitize <- function(x) gsub("[^A-Za-z0-9]+", "_", x)
+ct_vocab <- c(
+  "PT-S1/S2", "PT-S3", "aPT",
+  "C-TAL-1", "C-TAL-2", "aTAL", "dTAL", "ATL",
+  "CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC",
+  "IC-A", "IC-B", "aIC",
+  "EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC",
+  "MAC", "MON", "cDC", "pDC",
+  "CD4+ T", "CD8+ T", "B", "NK",
+  "VSMC/P", "FIB", "POD", "MC",
+  "PT", "TAL", "PC", "IC", "EC"          # general (KPMP_celltype_general)
+)
+ct_tokens <- sanitize(ct_vocab)
+ct_label  <- setNames(ct_vocab, ct_tokens)
+ct_label["all"] <- "all (pooled)"
+# longest token first so e.g. PT_S1_S2 wins over PT, CNT_PC over PC
+ct_tokens <- ct_tokens[order(nchar(ct_tokens), decreasing = TRUE)]
+
+parse_neb_name <- function(key) {
+  base    <- sub("_neb\\.csv$", "", basename(key))
+  dataset <- dplyr::case_when(startsWith(base, "pb90_")    ~ "pb90",
+                              startsWith(base, "attempt_") ~ "attempt",
+                              TRUE ~ NA_character_)
+  mid <- sub("^(pb90|attempt)_", "", base)
+  ct  <- "all"; analysis <- mid
+  for (tok in ct_tokens) {
+    if (grepl(paste0("_", tok, "$"), mid)) {
+      ct <- tok; analysis <- sub(paste0("_", tok, "$"), "", mid); break
+    }
+  }
+  data.frame(dataset = dataset, analysis = analysis,
+             cell_type = ct, key = key, stringsAsFactors = FALSE)
+}
+
+# read one NEBULA csv, melt ALL genes -> one row per gene x term
+read_all_genes <- function(key) {
+  df <- tryCatch(
+    s3read_using_region(FUN = function(f) read.csv(f, check.names = FALSE),
+                        bucket = bucket, object = key, region = ""),
+    error = function(e) NULL)
+  if (is.null(df) || !nrow(df)) return(NULL)
+  gcol <- intersect(c("gene", "gene_id", "Gene"), names(df))[1]
+  if (is.na(gcol)) return(NULL)
+  est_cols  <- grep("^(logFC|se|p)_", names(df), value = TRUE)
+  if (!length(est_cols)) return(NULL)
+  meta_cols <- intersect(c("n_cells", "n_people"), names(df))
+
+  df %>%
+    dplyr::select(gene = dplyr::all_of(gcol),
+                  dplyr::all_of(est_cols), dplyr::all_of(meta_cols)) %>%
+    tidyr::pivot_longer(cols = dplyr::all_of(est_cols),
+                        names_to = c(".value", "term"),
+                        names_pattern = "^(logFC|se|p)_(.*)$") %>%
+    dplyr::filter(term != "(Intercept)") %>%
+    dplyr::mutate(key = key)
+}
+
+# embed an S3 PNG inline (skip silently on failure)
+img_tag <- function(key, width = "70%") {
+  tmp <- tempfile(fileext = ".png")
+  ok  <- tryCatch({ aws.s3::save_object(object = key, bucket = bucket,
+                                        file = tmp, region = "", url_style = "path"); TRUE },
+                  error = function(e) FALSE)
+  if (!ok) return(invisible(NULL))
+  cat(sprintf('<p><em>%s</em><br><img src="%s" style="width:%s"></p>\n\n',
+              basename(key), knitr::image_uri(tmp), width))
+}
+
+# match a gene token in a figure filename (delimited, avoids partial hits)
+gene_match <- function(keys, g) grepl(paste0("(^|/|_)", g, "(_|\\.)"), keys)
+```
+
+```{r compile}
+neb_keys <- aws.s3::get_bucket_df(bucket = bucket, prefix = results_prefix,
+                                  region = "", url_style = "path", max = Inf)$Key
+neb_keys <- neb_keys[grepl("_neb\\.csv$", neb_keys)]
+
+meta_tbl <- if (length(neb_keys)) do.call(rbind, lapply(neb_keys, parse_neb_name)) else NULL
+
+est_list <- lapply(neb_keys, read_all_genes)
+est_tbl  <- if (any(lengths(est_list))) {
+  do.call(rbind, est_list) %>% dplyr::left_join(meta_tbl, by = "key")
+} else NULL
+
+disp <- if (!is.null(est_tbl)) {
+  est_tbl %>%
+    dplyr::transmute(
+      gene,
+      analysis,
+      `cell type` = dplyr::coalesce(ct_label[cell_type], cell_type),
+      term,
+      logFC   = round(logFC, 3),
+      se      = round(se, 3),
+      p       = signif(p, 3),
+      n_cells, n_people,
+      dataset
+    ) %>%
+    dplyr::arrange(gene, dataset, analysis, `cell type`, term)
+} else NULL
+
+# discovered transcripts (known ones first, then any others alphabetically)
+genes <- if (!is.null(disp)) {
+  g_all   <- sort(unique(disp$gene))
+  g_known <- intersect(names(gene_notes), g_all)
+  c(g_known, setdiff(g_all, g_known))
+} else character(0)
+
+# figure keys (once)
+fig_keys <- aws.s3::get_bucket_df(bucket = bucket, prefix = figures_prefix,
+                                  region = "", url_style = "path", max = Inf)$Key
+fig_keys <- fig_keys[grepl("\\.png$", fig_keys)]
+
+# ---- per-gene renderers ----------------------------------------------------
+show_gene_tbl <- function(g, d) {
+  sub <- dplyr::filter(disp, gene == g, dataset == d) %>%
+    dplyr::select(-gene, -dataset)
+  if (!nrow(sub)) { cat("_No results found for", d, "._\n\n"); return(invisible()) }
+  sub %>%
+    kbl(caption = paste0(d, " — ", g, " NEBULA results")) %>%
+    kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+    print()
+  cat("\n\n")
+}
+
+render_gene <- function(g) {
+  cat("\n\n## ", g, "\n\n", sep = "")
+  if (!is.null(gene_notes[[g]])) cat(gene_notes[[g]], "\n\n", sep = "")
+
+  cat("\n\n### NEBULA results — pb90\n\n")
+  show_gene_tbl(g, "pb90")
+  cat("\n\n### NEBULA results — ATTEMPT\n\n")
+  cat("_For the DiD model (`treatment*visit`), read the **treatment × visit interaction**; main-effect rows shown for completeness._\n\n")
+  show_gene_tbl(g, "attempt")
+
+  gk <- fig_keys[gene_match(fig_keys, g)]
+  if (length(gk)) {
+    cat("\n\n### Figures\n\n")
+    uk <- gk[grepl("UMAP", gk)]
+    pk <- gk[grepl("pb90", gk)]
+    ak <- gk[grepl("attempt", gk)]
+    if (length(uk)) { cat("\n\n**Feature UMAPs**\n\n");                    for (k in uk) img_tag(k) }
+    if (length(pk)) { cat("\n\n**pb90 — expression by group / covariate**\n\n"); for (k in pk) img_tag(k) }
+    if (length(ak)) { cat("\n\n**ATTEMPT — dapa vs. placebo / baseline**\n\n");   for (k in ak) img_tag(k) }
+  }
+}
+```
+
+# Overview
+
+This report compiles **all transcripts** found in the NEBULA result files under
+`r results_prefix`, across both datasets (pb90 and ATTEMPT). For each gene it shows
+the per-model NEBULA estimates (every covariate × cell type, plus pooled runs) and
+the associated figures.
+
+```{r summary-tbl, results = "asis"}
+if (is.null(disp)) {
+  cat("_No NEBULA result files found._\n\n")
+} else {
+  disp %>%
+    dplyr::distinct(gene, dataset, analysis, `cell type`) %>%
+    dplyr::count(gene, dataset, name = "models") %>%
+    tidyr::pivot_wider(names_from = dataset, values_from = models, values_fill = 0) %>%
+    kbl(caption = "Models per transcript and dataset") %>%
+    kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+    print()
+}
+```
+
+> **Multiplicity caution.** These tables aggregate many models (multiple covariates ×
+> cell types × datasets × transcripts). The `p` values are raw per-model NEBULA
+> p-values; interpret them with the full size of the sweep in mind and apply a
+> deliberate multiple-testing correction before drawing firm conclusions. The
+> `n_cells` / `n_people` columns flag runs thin enough that estimates may be unstable.
+
+# Results by transcript
+
+```{r per-gene, results = "asis"}
+if (!length(genes)) {
+  cat("_Nothing to display._\n\n")
+} else {
+  for (g in genes) render_gene(g)
+}
+```
