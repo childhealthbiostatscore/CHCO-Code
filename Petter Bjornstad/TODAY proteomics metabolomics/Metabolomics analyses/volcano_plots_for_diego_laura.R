@@ -1,5 +1,6 @@
 
 ### more visually appealing volcano plots for Diego/Laura posters ###
+setwd("/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/poster figures")
 full_results <- datasets[["HTN"]]
 
 # ---- P-value columns ----
@@ -22,7 +23,8 @@ significant_df_adjusted   <- full_results[full_results$p_adjusted   < 0.05, ]
 x_min <- min(full_results$estimate)
 x_max <- max(full_results$estimate)
 
-p_adjusted <- ggplot(full_results, aes(x = estimate, y = p10_adjusted, color = color_adjusted)) +
+jpeg("HTN_example.jpeg",units="in",height=6,width=8,res=300)
+ggplot(full_results, aes(x = estimate, y = p10_adjusted, color = color_adjusted)) +
   geom_point(alpha = 0.7) +
   scale_color_identity() +
   theme_minimal() +
@@ -46,4 +48,4 @@ p_adjusted <- ggplot(full_results, aes(x = estimate, y = p10_adjusted, color = c
     color        = "black",
     max.overlaps = Inf
   )
-p_adjusted
+dev.off()
