@@ -456,7 +456,9 @@ prepare_umap_metadata <- function(seurat_obj, genes,
                                   celltype_col = "KPMP_celltype",
                                   umap_reduction = "umap.harmony",
                                   color_palette = "Set3", custom_colors = NULL) {
-  celltypes <- levels(seurat_obj@meta.data[[celltype_col]])
+  ct_col_vals <- seurat_obj@meta.data[[celltype_col]]
+  celltypes   <- if (is.factor(ct_col_vals)) levels(ct_col_vals) else sort(unique(as.character(ct_col_vals)))
+  celltypes   <- celltypes[!is.na(celltypes)]
   n_celltypes <- length(celltypes)
   if (!is.null(custom_colors)) {
     celltype_colors <- custom_colors
@@ -592,7 +594,7 @@ plot_pb90_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
   if (nrow(df) == 0) { message("  no data for scatter: ", gene, " / ", tag); return(invisible()) }
 
   pb <- df %>% group_by(celltype, person) %>%
-    summarise(mean_expr = mean(expr), covar = first(covar), .groups = "drop")
+    dplyr::summarise(mean_expr = mean(expr), covar = dplyr::first(covar), .groups = "drop")
 
   p <- ggplot(pb, aes(covar, mean_expr)) +
     geom_point(alpha = 0.6, color = "#3d405b") +
@@ -677,7 +679,7 @@ plot_attempt_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
   df <- df %>% filter(celltype %in% celltypes, is.finite(covar))
   if (nrow(df) == 0) { message("  no data for scatter: ", gene, " / ", tag); return(invisible()) }
   pb <- df %>% group_by(celltype, subject_id) %>%
-    summarise(mean_expr = mean(expr), covar = first(covar), .groups = "drop")
+    dplyr::summarise(mean_expr = mean(expr), covar = dplyr::first(covar), .groups = "drop")
   p <- ggplot(pb, aes(covar, mean_expr)) +
     geom_point(alpha = 0.6, color = "#3d405b") +
     geom_smooth(method = "lm", se = TRUE, color = "#a7b298", fill = "#f8ae9d") +
@@ -844,6 +846,23 @@ attempt_so$pooled_offset <- sizeFactors(sce)
 attempt_dat <- s3readRDS(bucket = "harmonized.dataset", object = "attempt_clinical_data.RDS", region = "")
 attempt_denver_dat <- s3read_using_region(FUN = read.csv, bucket = "attempt",
   object = "Clinical Data/ATTEMPT_DenverDataRequest_20250314.csv", region = "")
+harm_dat <- s3read_using_region(FUN = read.csv, bucket = "harmonized.dataset",
+  object = "harmonized_dataset.csv", region = "", na = "")
+dat <- harm_dat %>%
+  filter(study == "ATTEMPT") %>%
+  mutate(visit = case_when(visit %in% c("screening", "baseline") ~ "PRE",
+                           visit %in% c("4_months_post", "follow_up") ~ "POST")) %>%
+  dplyr::summarise(
+    across(
+      where(negate(is.numeric)),
+      ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))
+    ),
+    across(
+      where(is.numeric),
+      ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))
+    ),
+    .by = c(record_id, visit)
+  )
 
 attempt_denver_dat <- attempt_denver_dat %>%
   mutate(visit = case_when(str_detect(visit, "V1|V2|R1") ~ "PRE",
@@ -862,6 +881,12 @@ attempt_so_meta <- attempt_so@meta.data %>%
 attempt_so_meta <- left_join(attempt_so_meta, attempt_dat, by = c("subject_id", "visit"))
 rownames(attempt_so_meta) <- attempt_so_meta$barcode
 attempt_so_meta <- left_join(attempt_so_meta, attempt_denver_dat, by = c("subject_id", "visit"))
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+
+dat_new <- dat %>%
+  rename(subject_id = record_id) %>%
+  select(subject_id, visit, !any_of(names(attempt_so_meta)))
+attempt_so_meta <- left_join(attempt_so_meta, dat_new, by = c("subject_id", "visit"))
 rownames(attempt_so_meta) <- attempt_so_meta$barcode
 
 assignInNamespace("FilterObjects", SeuratObject:::.FilterObjects, ns = "SeuratObject")
