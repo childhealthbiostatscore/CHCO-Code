@@ -152,7 +152,7 @@ map_df <- tibble(mrn = names(mrn_uuid_map), uuid = unname(mrn_uuid_map))
 cat(sprintf("Total: %d mappings (%d newly added)\n",
             nrow(map_df), length(new_mrns)))
 
-# write_csv(map_df, map_path)
+# write_csv(map_df, map_path) # check the number of new mappings before saving a new map
 
 clean <- clean %>%
   left_join(map_df) %>%
@@ -179,24 +179,24 @@ soma <- soma_combined %>%
   mutate_at(vars(starts_with("seq")), as.numeric) %>%
   dplyr::rename("record_id" = SampleDescription) %>%
   dplyr::mutate(record_id = gsub("IT2D-", "IT_", record_id),
-         record_id = gsub("PAN_", "PAN-", record_id), # PAN-44-O entered as PAN_44-O in soma
-         record_id = gsub("PAN-14-O", "PAN-14-C", record_id), # PAN-14-O to PAN-14-C (group changed, name should have been changed but changed later)
-         record_id = gsub("PAN-103-0", "PAN-103-O", record_id), # PAN-103-O entered as PAN-103-0 in soma
-         visit = case_when(grepl("PAN-", record_id) ~ SampleGroup,
-                           T ~ TimePoint),
-         visit = case_when(visit == "Baseline" ~ "baseline",
-                           visit == "BL" ~ "baseline",
-                           visit == "Year 1" ~ "year_1",
-                           visit == "Year 2" ~ "year_2",
-                           visit == "Year 3" ~ "year_3",
-                           visit == "3M" ~ "3_months_post_surgery",
-                           visit == "12M" ~ "12_months_post_surgery",
-                           visit == "V1" ~ "baseline",
-                           visit == "V4" ~ "4_months_post"),
-         visit = case_when(grepl("PAN-", record_id) & visit == "year_1" ~ "baseline", # PANTHER dates skips baseline in SOMA (shifted)
-                           grepl("PAN-", record_id) & visit == "year_2" ~ "year_1",
-                           grepl("PAN-", record_id) & visit == "year_3" ~ "year_2",
-                           T ~ visit)) %>%
+                record_id = gsub("PAN_", "PAN-", record_id), # PAN-44-O entered as PAN_44-O in soma
+                record_id = gsub("PAN-14-O", "PAN-14-C", record_id), # PAN-14-O to PAN-14-C (group changed, name should have been changed but changed later)
+                record_id = gsub("PAN-103-0", "PAN-103-O", record_id), # PAN-103-O entered as PAN-103-0 in soma
+                visit = case_when(grepl("PAN-", record_id) ~ SampleGroup,
+                                  T ~ TimePoint),
+                visit = case_when(visit == "Baseline" ~ "baseline",
+                                  visit == "BL" ~ "baseline",
+                                  visit == "Year 1" ~ "year_1",
+                                  visit == "Year 2" ~ "year_2",
+                                  visit == "Year 3" ~ "year_3",
+                                  visit == "3M" ~ "3_months_post_surgery",
+                                  visit == "12M" ~ "12_months_post_surgery",
+                                  visit == "V1" ~ "baseline",
+                                  visit == "V4" ~ "4_months_post"),
+                visit = case_when(grepl("PAN-", record_id) & visit == "year_1" ~ "baseline", # PANTHER dates skips baseline in SOMA (shifted)
+                                  grepl("PAN-", record_id) & visit == "year_2" ~ "year_1",
+                                  grepl("PAN-", record_id) & visit == "year_3" ~ "year_2",
+                                  T ~ visit)) %>%
   dplyr::select(record_id, visit, starts_with("seq"), urine_creat_proteomics) %>% 
   mutate_at(vars(starts_with("seq")), as.numeric)
 
@@ -266,9 +266,9 @@ s3write_using_region(x = olink_plasma_clean,
 
 ## Urine
 olink_urine <- s3read_using_region(FUN = read.csv,
-                                    object = "Olink/urine_cleaned.csv",
-                                    bucket = "raw.data",
-                                    region = "")
+                                   object = "Olink/urine_cleaned.csv",
+                                   bucket = "raw.data",
+                                   region = "")
 olink_urine <- olink_urine %>%
   mutate(visit = case_when(endsWith(record_id, "BL") ~ "baseline",
                            endsWith(record_id, "12M") ~ "12_months_post_surgery",
