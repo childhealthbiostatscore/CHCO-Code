@@ -1,5 +1,35 @@
-library(reticulate)
-py_config()
+# =====================================================================
+# DATA HARMONIZATION - SINGLE PIPELINE (clinical + proteomics)
+# This is the one script to run to rebuild the harmonized datasets.
+# It merges the Python clinical harmonizer and the R proteomics steps
+# into one end to end pipeline.
+#
+# WHAT IT DOES (in order):
+#   1. Sources the Python clinical engine (compile/data_harmonization.py)
+#      via reticulate and runs harmonize_data(), which pulls every REDCap
+#      study, merges them, and returns a temp CSV of the clinical data.
+#   2. Adds ATTEMPT data from Antoine (ATTEMPT_AC.RData).
+#   3. Computes BMI percentiles and z scores with growthcleanr.
+#   4. Merges SomaScan proteomics (soma_combined_anml_2.RData).
+#   5. Merges Olink plasma and urine proteomics.
+#
+# OUTPUTS (to Data Harmonization/Data Clean/):
+#   harmonized_dataset.csv               clinical only, with BMI percentiles
+#   soma_harmonized_dataset.csv          clinical + SomaScan
+#   olink_plasma_harmonized_dataset.csv  clinical + Olink plasma
+#   olink_urine_harmonized_dataset.csv   clinical + Olink urine
+#   soma_olink_harmonized_dataset.csv    clinical + Olink + SomaScan
+#
+# REQUIRES: reticulate, dplyr, tidyr, purrr, growthcleanr, lubridate, and
+#   the Python clinical engine plus its inputs (REDCap tokens, etc.).
+#   The Python engine stays in its own file because it does the heavy
+#   REDCap pulls; this R script is the single entry point that drives it.
+#
+# NOTE: this script writes harmonized_dataset.csv directly. The Python
+#   script compile/data harmonization save.py also writes that file and
+#   uploads to S3. Decide which one is the source of truth so they do not
+#   overwrite each other (see INDEX.md attention notes).
+# =====================================================================
 
 library(reticulate)
 library(dplyr)
@@ -25,7 +55,7 @@ if (user == "choiyej") {
 
 
 # Import python harmonization function & run
-source_python(file.path(git_path, 'Data Harmonization/data_harmonization.py'))
+source_python(file.path(git_path, 'Data Harmonization/compile/data_harmonization.py'))
 temp_path <- harmonize_data()
 clean <- read.csv(temp_path, na.strings = c("", "NaN"), check.names = FALSE)
 clean <- data.frame(lapply(clean, as.character), check.names = FALSE)

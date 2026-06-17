@@ -15,6 +15,13 @@ os.chdir(
     "C:/Users/timbv/Documents/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
 import pandas as pd
 import numpy as np
+# __pipeline_path_bootstrap__ (files moved into subfolders; resolve repo root from this file)
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _sub in ("compile", "studies", "calculations", "exports",):
+    _p = _os.path.join(_ROOT, _sub)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 from data_harmonization import harmonize_data
 from natsort import natsorted, ns
 # Get dataset

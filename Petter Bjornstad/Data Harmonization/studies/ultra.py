@@ -36,6 +36,13 @@ def clean_ultra():
     import numpy as np
     from datetime import timedelta
     from natsort import natsorted, ns
+    # __pipeline_path_bootstrap__ (files moved into subfolders; resolve repo root from this file)
+    import os as _os, sys as _sys
+    _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    for _sub in ("calculations", "exports", "studies",):
+        _p = _os.path.join(_ROOT, _sub)
+        if _p not in _sys.path:
+            _sys.path.insert(0, _p)
     from harmonization_functions import combine_checkboxes
     # REDCap project variables
     import getpass

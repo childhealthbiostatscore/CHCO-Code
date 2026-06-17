@@ -68,12 +68,16 @@ def harmonize_data():
     import pandas as pd
     import numpy as np
     from natsort import natsorted, ns
-    # Per-study cleaning scripts now live in the studies/ subfolder.
-    # Add that folder (and this file's folder) to the path so the flat
-    # imports below still resolve, no matter which machine runs this.
-    _here = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, os.path.join(_here, "studies"))
-    sys.path.insert(0, _here)
+    # This file lives in compile/. The pieces it imports live in sibling
+    # folders: study scripts in studies/, helpers in calculations/, and
+    # pfas_data_merge (used by some study scripts) in exports/. Resolve the
+    # repo root from this file and add those folders so the flat imports
+    # below resolve, no matter which machine runs this.
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for _sub in ("studies", "calculations", "exports"):
+        _p = os.path.join(_ROOT, _sub)
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
     from casper import clean_casper
     from coffee import clean_coffee
     from crocodile import clean_crocodile
