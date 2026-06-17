@@ -8,6 +8,21 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the PENGUIN REDCap project into a harmonized DataFrame
+# (semi-long format, one row per procedure with a visit column for
+# longitudinal clustering when combined with other studies).
+# Called by: data_harmonization.py via clean_penguin()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medications, Physical exam, Screening labs,
+# Baseline labs, DXA Scan, Clamp, Renal Clearance Testing, PET scan,
+# Voxelwise, fMRI, Brain biomarkers, Missingness, Merge, Reorganize.
+# =====================================================================
 
 
 def clean_penguin():
@@ -37,13 +52,14 @@ def clean_penguin():
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 
+    # Look up this study's REDCap API token and open the project connection
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "PENGUIN", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
-    # Replace missing values
+    # Sentinel codes used in REDCap for missing/not-applicable; built in both numeric and string form
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
@@ -274,6 +290,7 @@ def clean_penguin():
     rct["map"] = rct[["visit_map", "phys_map"]].mean(axis=1)
     rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"]/60
     rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"]/60
+    # Derive renal hemodynamic outcomes (Gomez equations) from GFR/ERPF
     # Filtration Fraction
     rct["ff"] = rct["gfr_raw_plasma"]/rct["erpf_raw_plasma"] 
     # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
@@ -370,6 +387,7 @@ def clean_penguin():
     # --------------------------------------------------------------------------
     # Merge
     # --------------------------------------------------------------------------
+    # Combine the clamp-day procedures (clamp, labs, renal clearance) on shared keys
     # Procedure = clamp
     clamp_merge = pd.merge(clamp, labs, how="outer")
     clamp_merge = pd.merge(clamp_merge, rct,  how="outer")

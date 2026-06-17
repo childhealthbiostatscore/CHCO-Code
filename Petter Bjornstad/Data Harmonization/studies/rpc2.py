@@ -9,6 +9,22 @@ __maintainer__ = "Ye Ji Choi"
 __email__ = "yejichoi@uw.edu"
 __status__ = "Dev"
 
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the RPC2 REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit).
+# Called by: data_harmonization.py via clean_rpc2_redcap()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medications at screening, Physical exam/vitals,
+#                 Screening Lab results, Lab results, Kidney Biopsy,
+#                 Pathology Report, MRI Outcomes, Renal Clearance testing,
+#                 Missingness, Merge, Reorganize
+# =====================================================================
+
 
 # Function to clean and structure REDCap data
 def clean_rpc2_redcap():
@@ -44,6 +60,7 @@ def clean_rpc2_redcap():
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
             #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
+    # Look up the RPC2 API token and open the REDCap project connection
     token = tokens.loc[tokens["Study"] == "RPC2", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
@@ -53,6 +70,7 @@ def clean_rpc2_redcap():
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
     # Get metadata
     meta = pd.DataFrame(proj.metadata)
+    # Sentinel codes treated as missing (both numeric and string forms)
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     invalid = ["", " ", np.nan]
@@ -104,6 +122,7 @@ def clean_rpc2_redcap():
                 "uric_acid_med": "uric_acid_med"
                 }
 
+    # Keep only the mapped medication checkbox columns, then rename them
     og_names = list(med_list.keys())
     med = med[["subject_id"] + og_names]
     med.rename(med_list, axis=1, inplace=True)    
@@ -418,6 +437,7 @@ def clean_rpc2_redcap():
     id_cols = ["subject_id", "mrn", "study", "dob", "sex", "race", "ethnicity", "visit", "procedure", "group"]
     cols = ['dob', 'group', 'sex', 'race', 'ethnicity', 'mrn']
 
+    # Carry demographic values across all visit rows within each subject
     df[cols] = (
         df
         .sort_values(['subject_id'])   # important for reproducibility

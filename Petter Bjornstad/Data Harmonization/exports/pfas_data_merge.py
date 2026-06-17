@@ -2,6 +2,16 @@ import pandas as pd
 import numpy as np
 
 
+# =====================================================================
+# WHAT THIS FILE DOES (helper, reads a PFAS lab report, no REDCap)
+# Loads the Emory PFAS quantification Excel file, renames the long
+# analyte names to short codes, cleans the Sample.ID values, and
+# returns a DataFrame tagged procedure="pfas", visit="baseline".
+# Called by: panther.py and t1disco.py via PFAS()
+#
+# INPUTS:  CLU0126-PFAS_Concentrations_Final_Report.xlsx (OneDrive)
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# =====================================================================
 def PFAS():
     import os
     import sys

@@ -3,8 +3,10 @@ import numpy as np
 import sys
 import os
 
-# Add the path to import the RPC2 cleaning function
+# Add the path to import the RPC2 cleaning function.
+# rpc2.py now lives in the studies/ subfolder, so add that to the path too.
 sys.path.insert(0, os.path.expanduser('~') + "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "studies"))
 from rpc2 import clean_rpc2_redcap
 
 # Pull RPC2 data directly from REDCap (before harmonization loses the visits)

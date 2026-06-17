@@ -8,6 +8,20 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the SWEETHEART REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit; all rows are
+# a single "baseline" visit).
+# Called by: data_harmonization.py via clean_sweetheart()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medical History, Physical exam,
+#                 Screening labs, Imaging, Missingness, Merge, Reorganize
+# =====================================================================
 
 
 def clean_sweetheart():
@@ -38,6 +52,7 @@ def clean_sweetheart():
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 
+    # Look up this study's API token and open the REDCap project connection
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "SWEETHEART", "Token"].iloc[0]
@@ -93,6 +108,7 @@ def clean_sweetheart():
     # Replace missing values
     med.replace(rep, np.nan, inplace=True)
     # SGLT2i (diabetes_med_other___4), RAASi (htn_med_type___1, htn_med_type___2), Metformin (diabetes_med_other___1)
+    # Keep only the specific medication checkbox columns of interest
     med = med[["record_id", "diabetes_med_other___3", "diabetes_med_other___2", "htn_med_type___1",
                "htn_med_type___2", "htn_med_type___3", "htn_med_type___5", "diabetes_med___1", "diabetes_med___2", "addl_hld_meds___1", "hypertension"]]
     # SGLT2i
@@ -105,7 +121,7 @@ def clean_sweetheart():
         {0: "No", "0": "No", 1: "Yes", "1": "Yes"})
     med.rename({"diabetes_med_other___2": "glp1_agonist_timepoint"},
                axis=1, inplace=True)
-    # RAASi
+    # RAASi: flagged if either ACE inhibitor or ARB checkbox is set
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
     med["raasi_timepoint"] = med["raasi_timepoint"].replace(
@@ -213,6 +229,7 @@ def clean_sweetheart():
     # Missingness
     # --------------------------------------------------------------------------
 
+    # Drop rows that are mostly empty (keep rows with at least thresh non-null values)
     med.dropna(thresh=3, axis=0, inplace=True)
     demo.dropna(thresh=3, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
@@ -223,6 +240,7 @@ def clean_sweetheart():
     # Merge
     # --------------------------------------------------------------------------
 
+    # Stack each procedure as its own rows, then attach demographics by record
     df = pd.concat([phys, med], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.concat([df, imaging], join='outer', ignore_index=True)
@@ -237,11 +255,13 @@ def clean_sweetheart():
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "SWEETHEART"
     df["visit"] = "baseline"
+    # Put identifier columns first, then natural-sort the remaining measures
     id_cols = ["record_id", "study"] + \
         dem_cols[1:] + [ "procedure"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
+    # Prefix record IDs with the study tag
     df["record_id"] = "SWHT_" + df["record_id"].astype(str)
 
     # Change study visit names

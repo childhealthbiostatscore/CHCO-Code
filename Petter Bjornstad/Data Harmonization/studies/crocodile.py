@@ -8,6 +8,22 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the CROCODILE REDCap project into a harmonized, semi-long
+# DataFrame (one row per procedure, with a visit column).
+# Called by: data_harmonization.py via clean_crocodile()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (also writes updated data_dictionary_master.csv back to disk)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: demographics, medications, EPIC medications, physical exam,
+# screening labs, labs, BOLD/ASL MRI, DXA, clamp, renal clearance testing,
+# kidney biopsy, pathology, PET scan, liver PET, voxelwise, brain biomarkers,
+# Pavel labs, metabolomics (blood and tissue), AstraZeneca urine metabolomics,
+# lipidomics, then missingness filtering and merge.
+# =====================================================================
 
 
 def clean_crocodile():
@@ -25,6 +41,7 @@ def clean_crocodile():
     import getpass
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
+    # Resolve per-user OneDrive and GitHub paths since these differ by machine
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -44,6 +61,7 @@ def clean_crocodile():
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
     # Replace missing values
+    # Build list of REDCap missing-value codes (numeric and string forms) to convert to NaN
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
@@ -112,6 +130,7 @@ def clean_crocodile():
                 }
     dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
 
+    # Keep mapped medication columns plus any medical-history (hx_) columns
     og_names = list(med_list.keys())
     hx_list = [col for col in med.columns if col.startswith('hx_')]
     med = med[["record_id"] + og_names + hx_list]
@@ -363,6 +382,7 @@ def clean_crocodile():
     rct["map"] = rct[["visit_map", "phys_map"]].mean(axis=1)
     rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"] / 60
     rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"] / 60
+    # Derive renal hemodynamic measures from GFR/ERPF using Gomez equations
     # Filtration Fraction
     rct["ff"] = rct["gfr_raw_plasma"] / rct["erpf_raw_plasma"]
     # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
@@ -525,6 +545,7 @@ def clean_crocodile():
     tissue_met = [c for c in metabolomics_tissue.columns if "_tissue" in c]
     metabolomics_tissue[tissue_met] = metabolomics_tissue[tissue_met].apply(
         pd.to_numeric, errors='coerce')
+    # Collapse multiple tissue measurements per subject into a per-subject mean
     metabolomics_tissue = metabolomics_tissue.groupby(by=["record_id"]).agg("mean", numeric_only = True).reset_index()
     # Replace missing values
     metabolomics_tissue.replace(rep, np.nan, inplace=True)
@@ -564,6 +585,7 @@ def clean_crocodile():
     # Missingness
     # --------------------------------------------------------------------------
 
+    # Drop rows that are mostly empty (keep only rows with enough non-NA values per procedure)
     med.dropna(thresh=5, axis=0, inplace=True)
     epic_med.dropna(thresh=5, axis=0, inplace=True)
     phys.dropna(thresh=4, axis=0, inplace=True)
@@ -629,6 +651,7 @@ def clean_crocodile():
     # Sort
     df.sort_values(["record_id", "date", "procedure"], inplace=True)
     # Rename IDs
+    # Prefix numeric record ids with study tag and zero-pad to 2 digits (e.g. CRC-01)
     df["record_id"] = ["CRC-" + str(i).zfill(2) for i in df["record_id"]]
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)

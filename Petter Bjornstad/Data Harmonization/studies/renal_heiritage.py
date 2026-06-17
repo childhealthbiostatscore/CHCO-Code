@@ -8,6 +8,27 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the RENAL-HEIRitage (RH2) REDCap project into a harmonized DataFrame
+# (semi-long format: one row per record per study procedure, with a "visit"
+# column). RENAL-HEIRitage is the LONGITUDINAL follow-up study, so this REDCap
+# project is event/visit-structured: each form is filtered by redcap_event_name
+# (e.g. screening, annual_blood_and_u, renal clearance, kidney_biopsy, pet_scan).
+# NOTE: Do not confuse with renal_heir.py (RENAL-HEIR), the cross-sectional
+# parent study with a flat (non-event) project (renal_heir vs renal_heiritage).
+# Called by: data_harmonization.py via clean_renal_heiritage()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medical History, EPIC Medications, Physical exam,
+#   Annual Labs, Renal Clearance Testing, Dextran, BOLD MRI, PET scan,
+#   Liver PET scan, Kidney Biopsy, Pathology Report, J-Wire, Sphygmocor,
+#   Voxelwise, Neurocognitive Tracking, Astrazeneca urine metabolomics,
+#   Plasma metabolomics, Brain biomarkers, Lipidomics, Missingness, Merge, Reorganize
+# =====================================================================
 
 
 def clean_renal_heiritage():
@@ -40,6 +61,7 @@ def clean_renal_heiritage():
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")
         #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
+    # Look up this study's API token by name and open the REDCap project
     token = tokens.loc[tokens["Study"] == "Renal-HEIRitage", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
@@ -50,6 +72,9 @@ def clean_renal_heiritage():
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
+    # Each section below pulls one REDCap form, subsets to the relevant
+    # redcap_event_name (this is a longitudinal/event project), cleans/renames it,
+    # and tags it with a "procedure" and "visit" so pieces can be stacked in Merge.
     # --------------------------------------------------------------------------
     # Demographics
     # --------------------------------------------------------------------------
@@ -58,6 +83,7 @@ def clean_renal_heiritage():
                 "participation_status", "rh_id", "mrn", "diabetes_dx_date"]
     # Export
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    # Keep only the screening event rows for demographics
     demo = demo.loc[demo["redcap_event_name"].str.startswith('screen', na=False)].copy()
     demo.drop(["redcap_event_name"], inplace=True, axis=1)
     # Replace missing values
@@ -111,6 +137,7 @@ def clean_renal_heiritage():
                 "meds_weight_type___2": "phentermine",
                 "uric_acid_med": "uric_acid_med"},
                 inplace=True, axis=1)
+    # Derive combined insulin and RAASi flags from multiple source checkboxes
     med['insulin_med_timepoint'] = med.apply(lambda row: "1" if row['insulin_inj'] == "1" or row['diabetes_med___2'] == "1" else 0, axis=1)
     med['raasi_timepoint'] = med.apply(lambda row: "1" if row['htn_med_type___1'] == "1" or row['htn_med_type___2'] == "1" else 0, axis=1)
     # Replace 1 with yes 0 and 2 with no
@@ -193,6 +220,8 @@ def clean_renal_heiritage():
     "study_visit_renal_clearance_testing", "field_name"]] +[v for v in meta.loc[meta["form_name"] == 
     "renal_clearance_baseline_labs", "field_name"]]
     rct = pd.DataFrame(proj.export_records(fields=var))
+    # Collapse the multiple renal-clearance events per record into one row by
+    # taking the max of each numeric column (non-numeric/date cols excluded)
     numeric_cols = [col for col in rct.columns if col not in ['record_id', 'redcap_event_name'] 
                     and not col.startswith('tm_') and not col.endswith(('_date', '_com', '_start'))]
     rct[numeric_cols] = rct[numeric_cols].apply(pd.to_numeric, errors='coerce')
@@ -476,6 +505,7 @@ def clean_renal_heiritage():
     # Merge
     # --------------------------------------------------------------------------
 
+    # Stack all per-procedure tables into one long DataFrame, then attach demographics
     df = pd.concat([phys, annual_labs], join='outer', ignore_index=True)
     df = pd.concat([df, med], join='outer', ignore_index=True)
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)
@@ -505,6 +535,7 @@ def clean_renal_heiritage():
     # Reorganize
     # --------------------------------------------------------------------------
 
+    # Put identifier/demographic columns first, then everything else
     df["study"] = "RENAL-HEIRitage"
     id_cols = ["record_id", "study"] + \
         dem_cols[2:] + ["visit", "procedure", "date"]

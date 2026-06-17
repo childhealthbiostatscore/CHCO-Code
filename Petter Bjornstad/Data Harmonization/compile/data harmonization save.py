@@ -1,3 +1,17 @@
+# =====================================================================
+# WHAT THIS FILE DOES (final step: build, save, upload)
+# Calls harmonize_data() from data_harmonization.py, writes the
+# harmonized dataset CSV to OneDrive, then uploads it to the Kopah S3
+# bucket. This is the script you run to refresh the harmonized dataset.
+#
+# INPUTS:  data_harmonization.harmonize_data(), keys.json (S3 creds)
+# OUTPUT:  Data Clean/harmonized_dataset.csv and S3 harmonized.dataset
+#
+# ATTENTION: line below does clean = harmonize_data(); clean.to_csv(...).
+# But harmonize_data() returns a file PATH string, not a DataFrame, so
+# clean.to_csv would fail. Either harmonize_data should return a frame,
+# or this script should pd.read_csv(clean) first. Confirm before running.
+# =====================================================================
 # Libraries
 import os
 import sys

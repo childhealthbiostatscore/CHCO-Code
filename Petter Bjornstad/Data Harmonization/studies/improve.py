@@ -8,6 +8,23 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the IMPROVE REDCap project into a harmonized DataFrame
+# (long format, one row per procedure per visit; this study is
+# longitudinal with baseline and post-surgery visits).
+# Called by: data_harmonization.py via clean_improve()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medications, Physical exam, Screening labs,
+# Accelerometry, Cardio/Abdominal MRI, MMTT + Metabolic Cart, DXA, Clamp,
+# Outcomes, Kidney Biopsy, Pathology Report, EPIC Medications, Pavel Labs,
+# Astrazeneca urine metabolomics, Plasma metabolomics, Lipidomics,
+# Missingness, Merge, Reorganize.
+# =====================================================================
 
 
 def clean_improve():
@@ -41,9 +58,11 @@ def clean_improve():
         }
     }
     
+    # Select the OneDrive/Git paths for the detected user
     base_data_path = base_paths[user]["base_data_path"]
     git_path = base_paths[user]["git_path"]
 
+    # Look up this study's REDCap API token and open the project connection
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "IMPROVE", "Token"].iloc[0]
@@ -53,7 +72,7 @@ def clean_improve():
     # Columns to drop
     redcap_cols = ["redcap_event_name",
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
-    # Replace missing values
+    # Sentinel codes used in REDCap for missing/not-applicable; built in both numeric and string form
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
@@ -423,6 +442,7 @@ def clean_improve():
     out["hct"] = out[["hematocrit_90", "hematocrit_120"]].mean(axis=1)
     out["erpf_raw_plasma_seconds"] = out["erpf_raw_plasma"]/60
     out["gfr_raw_plasma_seconds"] = out["gfr_raw_plasma"]/60
+    # Derive renal hemodynamic outcomes (Gomez equations) from GFR/ERPF
     # Filtration Fraction
     out["ff"] = out["gfr_raw_plasma"]/out["erpf_raw_plasma"] 
     # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
@@ -584,6 +604,7 @@ def clean_improve():
     # Merge
     # --------------------------------------------------------------------------
 
+    # Stack each procedure DataFrame into one long table, then attach demographics
     df = pd.concat([accel, med], join='outer', ignore_index=True)
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
@@ -632,7 +653,7 @@ def clean_improve():
     df.rename({"subject_id": "record_id"}, axis=1, inplace=True)
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
-    # Return final data
+    # Write back the data dictionary with updated form_name assignments, then return the cleaned data
     tocsv_path = base_data_path + "Data Harmonization/data_dictionary_master.csv"
-    dictionary.to_csv(tocsv_path, index=False) 
+    dictionary.to_csv(tocsv_path, index=False)
     return df

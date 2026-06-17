@@ -9,6 +9,21 @@ __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
 
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the PANTHER REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit).
+# Called by: data_harmonization.py via clean_panther()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes, pfas_data_merge.PFAS
+#
+# SECTIONS BELOW: Demographics, Screening labs, Medications, Physical exam,
+#                 IVGTT, DXA, Renal Clearance Testing, CGM, Outcomes,
+#                 Pc MRI 2d, PFAS, Missingness, Merge, Reorganize
+# =====================================================================
+
 
 def clean_panther():
     # Libraries
@@ -27,6 +42,7 @@ def clean_panther():
     import getpass
     user = getpass.getuser() 
     
+    # Set data and git paths based on which user is running this
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -42,11 +58,13 @@ def clean_panther():
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")
         #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
+    # Look up the PANTHER API token and open the REDCap project connection
     token = tokens.loc[tokens["Study"] == "PANTHER", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
     # Replace missing values
+    # Sentinel codes treated as missing (both numeric and string forms)
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
@@ -399,6 +417,7 @@ def clean_panther():
             	"Perfluorodecane-1-sulfonic_acid_(PFDoS)":"PFDoS",	"Perfluoroheptanesulfonic_acid_(PFHps)":"PFHps", "Perfluorohexane-1-sulfonic_acid_(PFHxS)":"PFHxS",
             	"Perfluorononanesulfonic_acid_(PFNS)":"PFNS", "Perfluorooctane-1-sulfonic_acid_(PFOS)":"PFOS",	"Perfluorooctane_sulfonamide_(PFOSA)":"PFOSA",
             	"Perfluoropentanesulfonic_acid_(PFPeAS)":"PFPeAS"}
+    # Add any PFAS analyte columns missing from the data dictionary
     for col in pfas.columns:
         if col not in dictionary['variable_name'].values:
             new_row = pd.DataFrame({'variable_name': [col],
@@ -461,6 +480,7 @@ def clean_panther():
     # Reorganize
     # --------------------------------------------------------------------------
 
+    # Order identifier columns first, then natural-sort the remaining columns
     df["study"] = "PANTHER"
     id_cols = ["record_id", "study"] + \
         dem_cols[1:] + ["visit", "procedure", "date"]

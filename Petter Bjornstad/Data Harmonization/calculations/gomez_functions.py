@@ -1,3 +1,14 @@
+# =====================================================================
+# WHAT THIS FILE DOES (Gomez renal hemodynamics equations)
+# A snippet of calculations (NOT wrapped in a function) that derives
+# afferent/efferent arteriolar resistance and related glomerular
+# pressure variables from GFR, ERPF, total protein, and hematocrit.
+# It assumes a DataFrame named `data` and numpy as `np` already exist.
+#
+# HEADS UP: this is reference code, not an importable module. The same
+# equations are inlined inside the study scripts (see their Outcomes /
+# Renal Clearance sections). Keep this as the canonical reference.
+# =====================================================================
 # Functions for Gomez calculations
 
 data["erpf_raw_plasma_seconds"] = data["erpf_raw_plasma"]/60

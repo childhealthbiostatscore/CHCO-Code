@@ -8,7 +8,20 @@ __version__ = "0.0.1"
 __maintainer__ = "Ye Ji Choi"
 __email__ = "yejichoi@uw.edu"
 __status__ = "Dev"
-
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the ATTEMPT REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit).
+# Called by: data_harmonization.py via clean_attempt()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medications, Clamp, Kidney Biopsy,
+#                 Pathology Report, MRI, Safety Labs, Missingness,
+#                 Merge, Reorganize
+# =====================================================================
 
 
 
@@ -42,6 +55,7 @@ def clean_attempt():
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 
+    # Look up this study's API token and open the REDCap project connection
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "ATTEMPT", "Token"].iloc[0]
@@ -54,6 +68,7 @@ def clean_attempt():
     
     # Get metadata
     meta = pd.DataFrame(proj.metadata)
+    # Sentinel values (and their string forms plus blank) treated as missing
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
     
@@ -108,6 +123,7 @@ def clean_attempt():
                                                   == "kidney_biopsy", "field_name"]]
     biopsy = pd.DataFrame(proj.export_records(fields=var))
     biopsy.replace(rep, np.nan, inplace=True)
+    # Drop yes/no flags, procedure-tracking, and raw core sample columns
     biopsy.drop([col for col in biopsy.columns if '_yn' in col] +
                 [col for col in biopsy.columns if 'procedure_' in col] +
                 ["core_diagnostic", "core_hypo_cryo", "core_oct", "core_rna"],
@@ -130,6 +146,7 @@ def clean_attempt():
     pathology.rename({"redcap_event_name": "visit", "date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
     pathology["procedure"] = "kidney_biopsy"
     pathology["visit"] = pathology["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"})
+    # Carry the biopsy collection date over to the pathology rows
     pathology["date"] = biopsy["date"]
      
     # --------------------------------------------------------------------------
@@ -158,6 +175,7 @@ def clean_attempt():
     # Missingness
     # --------------------------------------------------------------------------
 
+    # Drop rows that are mostly empty (keep rows with at least thresh non-null values)
     demo.dropna(thresh=9, axis=0, inplace=True)
     med.dropna(thresh=9, axis=0, inplace=True)
     clamp.dropna(thresh=5, axis=0, inplace=True)
@@ -170,6 +188,7 @@ def clean_attempt():
     # Merge
     # --------------------------------------------------------------------------
 
+    # Stack each procedure as its own rows, then attach demographics by subject
     df = pd.concat([clamp, med], join='outer', ignore_index=True)
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
     bx = pd.merge(biopsy, pathology, how="outer")
@@ -184,6 +203,7 @@ def clean_attempt():
     # --------------------------------------------------------------------------
 
     df["study"] = "ATTEMPT"
+    # Put identifier/visit columns first, then natural-sort the remaining measures
     id_cols = ["subject_id", "study"] + \
         dem_cols[1:] + ["visit", "procedure", "date"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()

@@ -8,6 +8,24 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the RENAL-HEIR REDCap project into a harmonized DataFrame
+# (semi-long format: one row per subject per study procedure, with a
+# "visit" column; this is a cross-sectional study so all visits are "baseline").
+# NOTE: Do not confuse with renal_heiritage.py (RENAL-HEIRitage / RH2),
+# which is the longitudinal follow-up study (renal_heir vs renal_heiritage).
+# Called by: data_harmonization.py via clean_renal_heir()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medications, EPIC Medications, Physical exam,
+#   Screening labs, DXA Scan, Clamp, Outcomes, Kidney Biopsy, Pathology Report,
+#   Astrazeneca urine metabolomics, Plasma metabolomics, Brain biomarkers,
+#   Pavel Labs, Lipidomics, Missingness, Merge, Reorganize
+# =====================================================================
 
 
 def clean_renal_heir():
@@ -39,6 +57,7 @@ def clean_renal_heir():
 
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
+    # Look up this study's API token by name and open the REDCap project
     token = tokens.loc[tokens["Study"] == "Renal-HEIR", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
@@ -49,6 +68,8 @@ def clean_renal_heir():
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
 
 
+    # Each section below pulls one REDCap form, cleans/renames it, and tags it
+    # with a "procedure" and "visit" so the pieces can be stacked in the Merge step.
     # --------------------------------------------------------------------------
     # Demographics
     # --------------------------------------------------------------------------
@@ -97,6 +118,7 @@ def clean_renal_heir():
               "diabetes_med_other___3", "diabetes_med___3", "addl_hld_meds___1", "htn_med_type___1",
               "htn_med_type___2", "htn_med_type___3", "htn_med_type___4", "htn_med_type___5"]]
 
+    # RAASi flag is positive if either ACE inhibitor or ARB checkbox is checked
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["htn_med_type___1"]), pd.to_numeric(med["htn_med_type___2"])))
@@ -242,6 +264,7 @@ def clean_renal_heir():
     clamp["procedure"] = "clamp"
     clamp["visit"] = "baseline"
     clamp["insulin_sensitivity_method"] = "hyperglycemic_clamp"
+    # Glucose infusion rate (GIR), formerly the M-value, normalized by weight
     # M
     num_vars = ["d20_infusion", "weight"]
     clamp[num_vars] = clamp[num_vars].apply(
@@ -305,6 +328,7 @@ def clean_renal_heir():
     out.replace(rep, np.nan, inplace=True)
     out.drop(["kidney_outcomes", "egfr", "metab_outcomes", "asl_outcomes", "adc_outcomes", "tkv_outcomes"],
              axis=1, inplace=True)
+    # Split BOLD/ASL MRI imaging columns into their own table dated by mri_date;
     # Kidney outcomes like GFR, etc. were collected with the clamp, not
     # necessarily the day of the MRI
     bold_mri_cols = [c for c in out.columns if ("bold_" in c) or ("asl_" in c)]
@@ -477,6 +501,7 @@ def clean_renal_heir():
     # Merge
     # --------------------------------------------------------------------------
 
+    # Stack all per-procedure tables into one long DataFrame, then attach demographics
     df = pd.concat([phys, screen], join='outer', ignore_index=True)
     df = pd.concat([df, med], join='outer', ignore_index=True)
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)
@@ -503,6 +528,7 @@ def clean_renal_heir():
     print("Number of acr_u values:", df['acr_u'].notna().sum())
 
 
+    # Put identifier/demographic columns first, then everything else
     df["study"] = "RENAL-HEIR"
     id_cols = ["subject_id", "co_enroll_id", "study"] + \
         dem_cols[2:] + ["visit", "procedure", "date"]

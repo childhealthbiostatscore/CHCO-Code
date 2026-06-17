@@ -10,6 +10,19 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the CASPER REDCap project into a harmonized, semi-long
+# DataFrame (one row per procedure, with a visit column).
+# Called by: data_harmonization.py via clean_casper()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: demographics, medications, physical exam, screening labs,
+# clamp, DXA, outcomes, then missingness filtering and merge.
+# =====================================================================
 
 
 def clean_casper():
@@ -25,6 +38,7 @@ def clean_casper():
     import getpass
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
+    # Resolve per-user OneDrive and GitHub paths since these differ by machine
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -48,6 +62,7 @@ def clean_casper():
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
     # Replace missing values
+    # Build list of REDCap missing-value codes (numeric and string forms) to convert to NaN
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
@@ -263,6 +278,7 @@ def clean_casper():
     out["hematocrit_avg"] = out[["hematocrit_minus_5", "hematocrit_90", "hematocrit_120"]].mean(axis=1)
     out["erpf_raw_plasma_seconds"] = out["erpf_raw_plasma"]/60
     out["gfr_raw_plasma_seconds"] = out["gfr_raw_plasma"]/60
+    # Derive renal hemodynamic measures from GFR/ERPF using Gomez equations
     # Filtration Fraction
     out["ff"] = out["gfr_raw_plasma"]/out["erpf_raw_plasma"] 
     # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
@@ -298,6 +314,7 @@ def clean_casper():
     # Missingness
     # --------------------------------------------------------------------------
 
+    # Drop rows that are mostly empty (keep only rows with enough non-NA values per procedure)
     med.dropna(thresh=4, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)

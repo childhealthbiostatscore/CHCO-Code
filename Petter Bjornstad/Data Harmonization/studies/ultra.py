@@ -9,6 +9,21 @@ __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
 
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the ULTRA (ULTRA-T2D) REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit).
+# Called by: data_harmonization.py via clean_ultra()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv)
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medical History, Physical exam,
+#                 Screening labs, Vitals, Imaging, Missingness,
+#                 Merge, Reorganize
+# =====================================================================
+
 
 def clean_ultra():
     # Libraries
@@ -40,6 +55,7 @@ def clean_ultra():
 
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
+    # Look up the ULTRA-T2D API token and open the REDCap project connection
     token = tokens.loc[tokens["Study"] == "ULTRA-T2D", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
@@ -48,6 +64,7 @@ def clean_ultra():
     redcap_cols = ["redcap_event_name",
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
     # Replace missing values
+    # Sentinel codes treated as missing (both numeric and string forms)
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
@@ -55,6 +72,7 @@ def clean_ultra():
     # Demographics
     # --------------------------------------------------------------------------
 
+    # Pull all fields belonging to the demographics form
     var =  [v for v in meta.loc[meta["form_name"] == "demographics", "field_name"]]
     # # Export
     demo = pd.DataFrame(proj.export_records(fields=var))
@@ -264,6 +282,7 @@ def clean_ultra():
     # Change study visit names
     # df["visit"].replace({np.nan: "baseline", '1': "baseline",
     #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
+    # Map raw study visit codes to readable visit labels
     df["visit"] = df["visit"].replace({
         np.nan: "baseline",
         "": "baseline",

@@ -8,6 +8,20 @@ __version__ = "0.0.1"
 __maintainer__ = "Tim Vigers"
 __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the T1-DISCO REDCap project into a harmonized DataFrame
+# (long format, one row per study procedure per visit).
+# Called by: data_harmonization.py via clean_t1disco()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes, pfas_data_merge.PFAS
+#          (PFAS is imported but currently unused in this function)
+#
+# SECTIONS BELOW: Demographics, Medical History (commented out), Vitals,
+#                 Labs, Clamp, Renal Clearance, Missingness, Merge datasets
+# =====================================================================
 
 
 def clean_t1disco():
@@ -39,6 +53,7 @@ def clean_t1disco():
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
 
+    # Look up this study's API token and open the REDCap project connection
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")
         #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
@@ -46,10 +61,11 @@ def clean_t1disco():
     proj = redcap.Project(url=uri, token=token)
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
-    # Replace missing values
+    # Sentinel values (and their string forms plus blank) treated as missing
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
+    # Load the master data dictionary
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
     redcap_cols = ["redcap_event_name",
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
@@ -61,7 +77,9 @@ def clean_t1disco():
     # # Export
     demo = pd.DataFrame(proj.export_records(fields=var))
     demo.replace(rep, np.nan, inplace=True)    
+    # T1-DISCO is a single-group T1D study
     demo["group"] = "Type 1 Diabetes"
+    # Drop REDCap bookkeeping and identifying/free-text columns
     demo.drop(redcap_cols + ["name_first", "name_last", "phone", "race_other"], axis=1, inplace=True)
     #Race columns combined into one
     demo = combine_checkboxes(demo, base_name="race", levels=[
@@ -164,6 +182,7 @@ def clean_t1disco():
     # ----------------------------------------------------------------------------
     # Missingness
     # ----------------------------------------------------------------------------
+    # Drop rows that are mostly empty (keep rows with at least thresh non-null values)
     demo.dropna(thresh=5, axis=0, inplace=True)
     vitals.dropna(thresh=3, axis=0, inplace=True)
     labs.dropna(thresh=3, axis=0, inplace=True)
@@ -173,6 +192,7 @@ def clean_t1disco():
     # ----------------------------------------------------------------------------
     # Merge datasets
     # ----------------------------------------------------------------------------
+    # Stack each procedure as its own rows, then attach demographics by record
     df = pd.concat([vitals, labs], join='outer', ignore_index=True)
     df = pd.concat([df, clamp], join='outer', ignore_index=True)
     df = pd.concat([df, rc], join='outer', ignore_index=True)
@@ -180,15 +200,18 @@ def clean_t1disco():
     df = df.copy()
 
     df["study"] = "T1-DISCO"
+    # Prefix record IDs with the study tag unless already present
     df["record_id"] = df["record_id"].astype(str)
     mask = ~df["record_id"].str.startswith("DSCO-")
     df.loc[mask, "record_id"] = "DSCO-" + df.loc[mask, "record_id"]
+    # Put identifier/visit columns first, then natural-sort the remaining measures
     dem_cols = ["mrn", "dob", "group", "race", "ethnicity"]
     id_cols = ["record_id", "study"] + \
     dem_cols[1:] + ["visit", "procedure", "date"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
+    # Impose chronological visit ordering
     df["visit"] = pd.Categorical(df["visit"],
                                  categories=["screening", "baseline", "2_month", "4_month", "6_month", "post_treatment", "9_month"],
                                  ordered=True)

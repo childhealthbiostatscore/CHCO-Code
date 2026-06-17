@@ -16,6 +16,30 @@ __email__ = "timothy.vigers@cuanschutz.edu"
 __status__ = "Dev"
 
 
+# =====================================================================
+# WHAT THIS FILE DOES (this is the main orchestrator)
+# Runs every per-study cleaning function, stacks the results into one
+# big "semi-long" table, then computes all the cross-study derived
+# variables and harmonizes the data dictionary.
+#
+# RUN ORDER / ROLE IN PIPELINE:
+#   1. studies/*.py each clean one REDCap project (called below)
+#   2. THIS FILE merges them and adds derived variables
+#   3. data harmonization save.py calls harmonize_data() and uploads
+#
+# INPUTS:  the 14 clean_* functions, data_dictionary_master.csv
+# OUTPUT:  writes the updated dictionary back to disk, and returns the
+#          FILE PATH (a string) of a temp CSV of the harmonized data.
+#          NOTE: it returns a path, not a DataFrame. See attention note
+#          in INDEX.md about data harmonization save.py expecting a frame.
+# DEPENDS: harmonization_functions (calc_egfr, create_study_id_columns,
+#          biopsy_merge), natsort
+#
+# DERIVED VARIABLE SECTIONS BELOW: dates, age, BMI, diabetes duration,
+#   eGFR, kidney volume, PCASL, R2*/T1/ADC/voxelwise/K1/K2/F averages,
+#   FSOC, UACR, albuminuria, fasting clamp values, HOMA-IR / adipose-IR /
+#   SEARCH eIS, copeptin merge, AER/BSA, biopsy merge, study id columns.
+# =====================================================================
 def harmonize_data():
     # Libraries
     import os
@@ -44,6 +68,12 @@ def harmonize_data():
     import pandas as pd
     import numpy as np
     from natsort import natsorted, ns
+    # Per-study cleaning scripts now live in the studies/ subfolder.
+    # Add that folder (and this file's folder) to the path so the flat
+    # imports below still resolve, no matter which machine runs this.
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(_here, "studies"))
+    sys.path.insert(0, _here)
     from casper import clean_casper
     from coffee import clean_coffee
     from crocodile import clean_crocodile

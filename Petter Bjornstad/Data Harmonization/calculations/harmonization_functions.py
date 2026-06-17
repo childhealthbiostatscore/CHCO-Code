@@ -2,6 +2,25 @@
 Helper functions for data harmonization.
 """
 
+# =====================================================================
+# WHAT THIS FILE DOES (shared helper library, no REDCap pulls here)
+# Reusable functions imported by the study scripts and the orchestrator.
+# Called by: every study script (combine_checkboxes) and
+#            data_harmonization.py (calc_egfr, create_study_id_columns,
+#            biopsy_merge).
+#
+# KEY FUNCTIONS:
+#   combine_checkboxes      collapse REDCap checkbox___N cols into one
+#   calc_egfr               compute the various eGFR equations
+#   add_id_column           helper to build one per-study id column
+#   create_study_id_columns build all per-study id columns, write the
+#                           id linkage matrices, map MRN to UUID
+#   biopsy_merge            attach biopsy kit ids by record_id and date
+#
+# OUTPUT:  returns DataFrames/Series; create_study_id_columns and
+#          biopsy_merge also read/write CSVs and Excel from OneDrive.
+# =====================================================================
+
 
 def combine_checkboxes(df, base_name="", levels=[], sep=" & ",
                        drop=True):
