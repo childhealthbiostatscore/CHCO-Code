@@ -14,7 +14,7 @@ Helper functions for data harmonization.
 #   calc_egfr               compute the various eGFR equations
 #   add_id_column           helper to build one per-study id column
 #   create_study_id_columns build all per-study id columns, write the
-#                           id linkage matrices, map MRN to UUID
+#                           id linkage matrices
 #   biopsy_merge            attach biopsy kit ids by record_id and date
 #
 # OUTPUT:  returns DataFrames/Series; create_study_id_columns and
@@ -193,35 +193,19 @@ def create_study_id_columns(harmonized):
         study_mrns = harmonized.loc[harmonized['study'] == study, ['mrn', 'record_id']]
         study_id_map = dict(zip(study_mrns['mrn'], study_mrns['record_id']))
         harmonized[id] = harmonized.apply(lambda row: study_id_map[row['mrn']] if row['mrn'] in study_id_map else '', axis=1)
-    #add uuid column from ~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/mrn_uuid_map.csv
-    uuid_map = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/mrn_uuid_map.csv")
-    uuid_dict = dict(zip(uuid_map['mrn'], uuid_map['uuid']))
-    harmonized['uuid'] = harmonized['mrn'].map(uuid_dict)
-    #print how many uuid values were successfully mapped (i.e. not null)
-    num_mapped = harmonized['uuid'].notnull().sum()
-    print(f"Successfully mapped {num_mapped} MRNs to UUIDs.")
+
     # ---- Create and Save ID Linkage Matrix ----
     linkage_df = (
         harmonized
-        .dropna(subset=['mrn', 'uuid','study', 'record_id'])
+        .dropna(subset=['mrn','study', 'record_id'])
         .drop_duplicates(subset=['mrn', 'study'])
         .pivot(index='mrn', columns='study', values='record_id')
         .fillna('')
         .reset_index()
     )
-    #linkage matrix with just uuid (no mrn)
-    linkage_deidentified_df = (
-        harmonized
-        .dropna(subset=['uuid', 'study', 'record_id'])
-        .drop_duplicates(subset=['uuid', 'study'])
-        .pivot(index='uuid', columns='study', values='record_id')
-        .fillna('')
-        .reset_index()
-    )
     
     linkage_df.to_csv(output_path, index=False)
-    linkage_deidentified_df.to_csv(output_path_deid, index=False)
-    
+
     return harmonized
 
 def biopsy_merge(harmonized):

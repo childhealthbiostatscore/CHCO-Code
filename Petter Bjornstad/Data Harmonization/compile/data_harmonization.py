@@ -73,7 +73,12 @@ def harmonize_data():
     # pfas_data_merge (used by some study scripts) in exports/. Resolve the
     # repo root from this file and add those folders so the flat imports
     # below resolve, no matter which machine runs this.
-    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    except NameError:
+        # reticulate source_python() does not define __file__, so fall back to
+        # the per-user git_path resolved above.
+        _ROOT = os.path.join(git_path, "Data Harmonization")
     for _sub in ("studies", "calculations", "exports"):
         _p = os.path.join(_ROOT, _sub)
         if _p not in sys.path:
