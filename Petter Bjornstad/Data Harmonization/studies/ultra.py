@@ -218,7 +218,8 @@ def clean_ultra():
                           "s_ca":"ca_base", "tot_prot": "tot_protein", "albumin": "alb_base", 
                           "u_na": "sodium_u", "u_glucose": "urine_glucose", "s_creatinine":"creatinine_s", 
                           "u_creatinine": "creatinine_u", "acr": "acr_u", "iohexol_ecv": "ecv", 
-                          "iohexol_ec_gfr": "gfr_ecv_percent", "iohexol_gfr_ecv_std": "gfr_ecv_std"}, axis=1)
+                          "iohexol_ec_gfr": "gfr_ecv_percent", "iohexol_gfr_ecv_std": "gfr_ecv_std",
+                          "got_ast": "gotast_base", "gpt_alt": "gptalt_base"}, axis=1)
     print("studyvisit_type unique values:", vital["visit"].unique())
     print("studyvisit_type value counts:\n",
           vital["visit"].value_counts(dropna=False))

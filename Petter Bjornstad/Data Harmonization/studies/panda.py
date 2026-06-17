@@ -224,7 +224,8 @@ def clean_panda():
     labs.columns = labs.columns.str.replace(
         r"visit_|bl_|_yr|yr_", "", regex=True)
     labs.rename({"uacr": "acr_u", "a1c": "hba1c",
-                "na_u": "sodium_u", "na_s": "sodium_s"}, axis=1, inplace=True)
+                "na_u": "sodium_u", "na_s": "sodium_s",
+                "creat_s": "creatinine_s", "creat_u": "creatinine_u"}, axis=1, inplace=True)
     labs["procedure"] = "clamp"
     labs["visit"] = labs["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     labs["visit"] = labs["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
@@ -379,7 +380,8 @@ def clean_panda():
     clamp.rename({"clamp_wt": "weight", "clamp_ht": "height",
                   "cystatin_c": "cystatin_c_s", "hct_210": "hematocrit_210",
                   "acr_baseline": "acr_u", "acr_250": "acr_u_pm",
-                  "clamp_d20": "d20_infusion"},
+                  "clamp_d20": "d20_infusion",
+                  "creat_s": "creatinine_s", "creat_u": "creatinine_u"},
                  inplace=True, axis=1)
     clamp.columns = clamp.columns.str.replace(r"clamp_", "", regex=True)
     clamp.columns = clamp.columns.str.replace(

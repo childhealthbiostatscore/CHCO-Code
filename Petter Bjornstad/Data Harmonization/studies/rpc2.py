@@ -300,8 +300,6 @@ def clean_rpc2_redcap():
          "v7_gfr_mri_arm_1": "post_treatment", "v61_med_dispense_arm_1": "treatment_period_3",
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"})
     pathology.rename({"redcap_event_name": "visit", "date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
-    pathology["procedure"] = "kidney_biopsy"
-    pathology["date"] = biopsy["date"]
     
     # --------------------------------------------------------------------------
     # MRI Outcomes
@@ -424,7 +422,7 @@ def clean_rpc2_redcap():
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     # df = pd.concat([df, kidney_outcomes], join='outer', ignore_index=True)
     
-    bx = pd.merge(biopsy, pathology, on='subject_id', how="outer")
+    bx = pd.merge(biopsy, pathology, how="outer")
     df = pd.concat([df, bx], join='outer', ignore_index=True)
     
     # df = pd.concat([df, disp], join='outer', ignore_index=True)

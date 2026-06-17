@@ -40,7 +40,9 @@ library(togolab)
 library(uuid)
 library(growthcleanr)
 library(readr)
+library(Hmisc)
 library(aws.s3)
+library(powerjoin)
 togolab::togo_paths()
 
 # Import python harmonization function & run
@@ -57,23 +59,34 @@ names(merged_data)[names(merged_data) %in% names(clean)]
 attempt <- merged_data %>%
   mutate(group = "Type 1 Diabetes",
          study = "ATTEMPT",
-         diabetes_duration = diabetes_dx_duration) %>%
-  dplyr::select(any_of(names(clean)), record_id, visit, study, PWV, treatment_arm, everything())
+         hba1c = coalesce(hba1c, hba1c_percent),
+         diabetes_duration = coalesce(diabetes_duration, diabetes_dx_duration),
+         creatinine_s = creatinine_serum_umoll / 88.42) %>%
+  dplyr::select(any_of(names(clean)), record_id, visit, study, af_pwv = PWV, 
+                -diabetes_dx_duration,
+                treatment_arm, -hba1c_percent, -creatinine_serum_umoll,
+                -bmi_z, -bmi_percentile, 
+                everything()) %>%
+  filter(visit %nin% c("Unscheduled 1", "Unscheduled 2"))
 attempt[] <- lapply(attempt, function(x) {
   if (is.numeric(x)) as.character(x) else x
 })
 attempt$date <- mdy(attempt$date)
 
 # Create screen_date (screening date for each participant or earliest date available)
-keys <- c("record_id", "visit", "date", "procedure", "mrn")
+keys <- c("record_id", "visit", "procedure")
+
 clean <- clean %>%
   dplyr::mutate(date = as.Date(date)) %>%
-  full_join(
+  power_full_join(
     attempt %>% select(all_of(keys), !any_of(setdiff(names(clean), keys))),
-    by = keys
+    by = keys,
+    conflict = coalesce
   ) %>%
   dplyr::group_by(record_id, visit) %>%
-  dplyr::mutate(screen_date = case_when(procedure == "screening" | visit == "screening" ~ date)) %>%
+  dplyr::mutate(screen_date = case_when(procedure == "screening" | visit == "screening" ~ date),
+                hba1c = coalesce(hba1c, prescreen_a1c),
+                hct = coalesce(hct, hematocrit)) %>%
   ungroup() %>% dplyr::group_by(record_id) %>%
   fill(screen_date, .direction = "updown") %>%
   dplyr::mutate(screen_date = coalesce(screen_date, 
@@ -87,7 +100,8 @@ clean <- clean %>%
   ungroup() %>%
   dplyr::select(record_id, attempt_id, casper_id, coffee_id, croc_id, improve_id, penguin_id,
                 rh_id, rh2_id, panther_id, panda_id, rpc2_id, swht_id, ultra_id, co_enroll_id,
-                mrn, date, screen_date, everything())
+                mrn, date, screen_date, everything(),
+                -prescreen_a1c, -sphyg_sex)
 
 # Calculate BMI Percentiles using growthcleanr
 # Convert date columns safely
