@@ -5,7 +5,7 @@ cell_name <- args[1]
 contrast_name <- args[2]
 
 if (is.na(cell_name) || is.na(contrast_name)) {
-  stop("Usage: Rscript run_nebula_5.R <cell_name> <contrast_name>")
+  stop("Usage: Rscript run_nebula_5_hvg.R <cell_name> <contrast_name>")
 }
 
 .libPaths(c("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat", .libPaths()))
@@ -19,13 +19,13 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-ncore <- 1 #min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
-chunk_size <- 2000
+ncore <- min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
+chunk_size <- 1000
 
 min_cells_per_donor_celltype <- 20
 min_donors_per_group <- 3
-min_cells_gene <- 100
-min_mean_gene <- 0.01
+min_cells_gene <- 50
+min_mean_gene <- 0.005
 
 keys <- jsonlite::fromJSON("/mmfs1/home/leidholt/keys.json")
 
@@ -53,13 +53,13 @@ if (is.null(pair)) {
 }
 
 in_object <- paste0(
-  "data/nebula_prepped_inputs/",
-  "nebula_input_",
+  "data/nebula_prepped_inputs_hvg/",
+  "nebula_input_hvg_",
   cell_name,
   ".rds"
 )
 
-cat("Reading prepped input from S3:", in_object, "\n")
+cat("Reading HVG prepped input from S3:", in_object, "\n")
 
 prep <- s3readRDS(
   object = in_object,
@@ -72,10 +72,6 @@ prep <- s3readRDS(
 counts_nebula <- prep$count
 meta_nebula <- prep$meta
 
-cat("Loaded celltype input\n")
-cat("Cells in prepped object:", nrow(meta_nebula), "\n")
-cat("Genes in prepped object:", nrow(counts_nebula), "\n")
-
 meta_sub <- meta_nebula %>%
   filter(
     group %in% pair,
@@ -85,10 +81,6 @@ meta_sub <- meta_nebula %>%
     !is.na(sex),
     sex %in% c("Female", "Male")
   )
-
-if (nrow(meta_sub) == 0) {
-  stop("No cells for this contrast after subsetting")
-}
 
 counts_sub <- counts_nebula[, meta_sub$cell_barcode, drop = FALSE]
 
@@ -130,7 +122,7 @@ keep_genes <- Matrix::rowSums(counts_sub > 0) >= min_cells_gene &
 counts_sub <- counts_sub[keep_genes, , drop = FALSE]
 
 if (nrow(counts_sub) == 0) {
-  stop("No genes left after filtering")
+  stop("No HVGs left after filtering")
 }
 
 meta_sub <- meta_sub %>%
@@ -147,27 +139,18 @@ pred <- model.matrix(
   data = meta_sub
 )
 
-#creating chunks of 2000 to parse through
-cat("Running NEBULA\n")
+cat("Running HVG NEBULA\n")
 cat("Cell type:", cell_name, "\n")
 cat("Contrast:", contrast_name, "\n")
-cat("Groups:", pair[1], "vs", pair[2], "\n")
 cat("Cells:", nrow(meta_sub), "\n")
 cat("Donors:", length(unique(meta_sub$record_id)), "\n")
-cat("Genes tested:", nrow(counts_sub), "\n")
+cat("HVGs tested:", nrow(counts_sub), "\n")
 cat("ncore:", ncore, "\n")
-cat("chunk_size:", chunk_size, "\n")
 
 run_nebula_chunk <- function(count_chunk, chunk_id) {
   
   warn_msg <- NULL
   err_msg <- NULL
-  cat("Calling nebula for chunk:", chunk_id, "\n")
-  cat("ncore passed to nebula:", ncore, "\n")
-  cat("future in this process:\n")
-  print(packageVersion("future"))
-  print(find.package("future"))
-  
   
   fit <- tryCatch(
     withCallingHandlers(
@@ -205,69 +188,42 @@ gene_chunks <- split(
   ceiling(seq_along(rownames(counts_sub)) / chunk_size)
 )
 
-cat("Number of chunks:", length(gene_chunks), "\n")
-
-start_time <- Sys.time()
-
 chunk_results <- vector("list", length(gene_chunks))
 
 for (chunk_id in seq_along(gene_chunks)) {
-  
   gene_set <- gene_chunks[[chunk_id]]
-  
   cat("Running chunk", chunk_id, "of", length(gene_chunks), "\n")
-  cat("Genes in chunk:", length(gene_set), "\n")
-  cat("First gene:", gene_set[1], "\n")
-  cat("Last gene:", gene_set[length(gene_set)], "\n")
   
   chunk_results[[chunk_id]] <- run_nebula_chunk(
     count_chunk = counts_sub[gene_set, , drop = FALSE],
     chunk_id = chunk_id
   )
   
-  cat("Finished chunk", chunk_id, "\n")
   gc()
 }
 
-
-end_time <- Sys.time()
-cat("NEBULA runtime:\n")
-print(end_time - start_time)
-
 diagnostics <- bind_rows(
-  lapply(
-    chunk_results,
-    function(x) {
-      tibble(
-        chunk_id = x$chunk_id,
-        gene = x$genes,
-        chunk_success = !is.null(x$fit),
-        warning = x$warning,
-        error = x$error
-      )
-    }
-  )
+  lapply(chunk_results, function(x) {
+    tibble(
+      chunk_id = x$chunk_id,
+      gene = x$genes,
+      chunk_success = !is.null(x$fit),
+      warning = x$warning,
+      error = x$error
+    )
+  })
 )
 
-successful_chunks <- Filter(
-  function(x) !is.null(x$fit),
-  chunk_results
-)
+successful_chunks <- Filter(function(x) !is.null(x$fit), chunk_results)
 
 if (length(successful_chunks) == 0) {
   
-  nebula_out <- list(
-    results = NULL,
-    diagnostics = diagnostics,
-    donor_table = donor_tab
-  )
+  tt <- NULL
   
 } else {
   
   tt <- bind_rows(
-  lapply(
-    successful_chunks,
-    function(x) {
+    lapply(successful_chunks, function(x) {
       
       df <- as.data.frame(x$fit$summary)
       
@@ -280,16 +236,15 @@ if (length(successful_chunks) == 0) {
           gene = rownames(x$fit$summary),
           convergence = x$fit$convergence
         )
-        
         df <- left_join(df, conv_df, by = "gene")
       } else {
         df$convergence <- NA_real_
       }
       
-      mutate(df, chunk_id = x$chunk_id)
-    }
+      df %>%
+        mutate(chunk_id = x$chunk_id)
+    })
   )
-)
   
   if (!"p_group_contrast" %in% colnames(tt)) {
     stop(
@@ -297,13 +252,13 @@ if (length(successful_chunks) == 0) {
       paste(colnames(tt), collapse = ", ")
     )
   }
-
   
   tt <- tt %>%
     mutate(
       stable_fit = is.na(convergence) | convergence >= -10,
       comparison = contrast_name,
       celltype = cell_name,
+      hvg_only = TRUE,
       contrast_level_0 = pair[1],
       contrast_level_1 = pair[2],
       logFC_direction = paste0(pair[2], "_vs_", pair[1]),
@@ -316,23 +271,43 @@ if (length(successful_chunks) == 0) {
       neg_log10_p = -log10(pmax(p_group_contrast, 1e-300)),
       neg_log10_fdr = -log10(pmax(p_adj, 1e-300))
     )
-  
-  nebula_out <- list(
-    results = tt,
-    diagnostics = diagnostics,
-    donor_table = donor_tab,
-    gene_filter_summary = list(
-      n_genes_after_light_filter = nrow(counts_sub)
-    )
-  )
 }
+
+convergence_summary <- tibble(
+  celltype = cell_name,
+  comparison = contrast_name,
+  hvg_only = TRUE,
+  n_cells = nrow(meta_sub),
+  n_donors = length(unique(meta_sub$record_id)),
+  n_genes_tested = nrow(counts_sub),
+  n_chunks = length(gene_chunks),
+  n_chunks_successful = length(successful_chunks),
+  n_genes_returned = ifelse(is.null(tt), 0, n_distinct(tt$gene)),
+  n_genes_stable = ifelse(is.null(tt), 0, sum(tt$stable_fit, na.rm = TRUE)),
+  convergence_rate = ifelse(
+    is.null(tt) || nrow(tt) == 0,
+    0,
+    mean(tt$stable_fit, na.rm = TRUE)
+  )
+)
+
+nebula_out <- list(
+  results = tt,
+  diagnostics = diagnostics,
+  donor_table = donor_tab,
+  convergence_summary = convergence_summary,
+  gene_filter_summary = list(
+    n_hvg_original = length(prep$hvg),
+    n_hvg_after_filter = nrow(counts_sub)
+  )
+)
 
 tmp_rds <- tempfile(fileext = ".rds")
 saveRDS(nebula_out, tmp_rds)
 
 out_object <- paste0(
-  "results/nebula/nebula_5/",
-  "nebula_",
+  "results/nebula/nebula_5_hvg/",
+  "nebula_hvg_",
   cell_name,
   "_",
   contrast_name,
@@ -352,5 +327,4 @@ put_object(
 
 unlink(tmp_rds)
 
-cat("Saved to:", out_object, "\n")
 cat("Done\n")

@@ -1,10 +1,8 @@
-#!/usr/bin/env Rscript
-
 args <- commandArgs(trailingOnly = TRUE)
 cell_name <- args[1]
 
 if (is.na(cell_name)) {
-  stop("Usage: Rscript prep_nebula_celltype.R <cell_name>")
+  stop("Usage: Rscript prep_nebula_celltype_hvg.R <cell_name>")
 }
 
 .libPaths("/mmfs1/gscratch/togo/leidholt/R_SLL_Seurat/")
@@ -17,6 +15,8 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
+n_hvg <- 3000
+
 keys <- jsonlite::fromJSON("/mmfs1/home/leidholt/keys.json")
 
 Sys.setenv(
@@ -27,9 +27,7 @@ Sys.setenv(
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
 
-cat("Preparing NEBULA input for cell type:")
-
-cat("Loading Seurat object from S3\n")
+cat("Preparing HVG NEBULA input for cell type:", cell_name, "\n")
 
 obj <- s3readRDS(
   object = "data/pb90_multiomics_SLL_subset_20260527.rds",
@@ -54,7 +52,6 @@ meta <- obj@meta.data %>%
     !is.na(group),
     !is.na(age),
     !is.na(sex),
-    !is.na(celltype),
     sex %in% c("Female", "Male")
   )
 
@@ -62,46 +59,55 @@ if (nrow(meta) == 0) {
   stop("No cells found for cell type: ", cell_name)
 }
 
-cat("Cells after metadata filtering:", nrow(meta), "\n")
-
-counts <- GetAssayData(
-  obj,
-  assay = "RNA",
-  layer = "counts"
-)
+counts <- GetAssayData(obj, assay = "RNA", layer = "counts")
 
 if (any(duplicated(rownames(counts)))) {
-  cat("Making duplicated gene names unique\n")
   rownames(counts) <- make.unique(rownames(counts))
 }
 
 counts <- counts[, meta$cell_barcode, drop = FALSE]
-
 stopifnot(identical(colnames(counts), meta$cell_barcode))
 
-rm(obj)
-gc()
+cat("Selecting HVGs\n")
+
+tmp_obj <- CreateSeuratObject(counts = counts, meta.data = meta)
+
+tmp_obj <- NormalizeData(tmp_obj, verbose = FALSE)
+tmp_obj <- FindVariableFeatures(
+  tmp_obj,
+  selection.method = "vst",
+  nfeatures = n_hvg,
+  verbose = FALSE
+)
+
+hvg <- VariableFeatures(tmp_obj)
+
+counts_hvg <- counts[hvg, , drop = FALSE]
 
 prep <- list(
-  count = counts,
+  count = counts_hvg,
   meta = meta,
+  hvg = hvg,
   cell_name = cell_name,
   n_cells = nrow(meta),
-  n_genes = nrow(counts),
+  n_genes_hvg = length(hvg),
   created = Sys.time()
 )
+
+rm(obj, tmp_obj, counts)
+gc()
 
 tmp_rds <- tempfile(fileext = ".rds")
 saveRDS(prep, tmp_rds)
 
 out_object <- paste0(
-  "data/nebula_prepped_inputs/",
-  "nebula_input_",
+  "data/nebula_prepped_inputs_hvg/",
+  "nebula_input_hvg_",
   cell_name,
   ".rds"
 )
 
-cat("Saving prepped input to S3:", out_object, "\n")
+cat("Saving HVG prepped input to S3:", out_object, "\n")
 
 put_object(
   file = tmp_rds,
