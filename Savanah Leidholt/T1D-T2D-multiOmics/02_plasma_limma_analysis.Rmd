@@ -246,10 +246,10 @@ stopifnot(!any(outliers %in% meta4$record_id))
 stopifnot(!any(outliers %in% rownames(prot_log2)))
 stopifnot(identical(rownames(prot_log2), meta4$record_id))
 
-saveRDS(prot_log2,
-  file = file.path(root_path,"Savanah Leidholt","TRIAD","Data","prot_log2.rds"
-  )
-)
+#saveRDS(prot_log2,
+#  file = file.path(root_path,"Savanah Leidholt","TRIAD","Data","prot_log2.rds"
+#  )
+#)
 ```
 
 #---------------
@@ -363,7 +363,7 @@ stopifnot(identical(colnames(Y1), meta4$record_id))
 meta_m0 <- meta3
 Y_m0 <- Y0[, meta_m0$record_id, drop = FALSE]
 
-design_m0 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m0)
+design_m0 <- model.matrix(~ 0 + group4 + age + sex + group4:age, data = meta_m0)
 colnames(design_m0) <- sub("^group4", "", colnames(design_m0))
 colnames(design_m0) <- make.names(colnames(design_m0))
 
@@ -390,7 +390,7 @@ sig_m0
 meta_m1 <- meta4
 Y_m1 <- Y1[, meta_m1$record_id, drop = FALSE]
 
-design_m1 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m1)
+design_m1 <- model.matrix(~ 0 + group4 + age + sex + group4:age, data = meta_m1)
 colnames(design_m1) <- sub("^group4", "", colnames(design_m1))
 colnames(design_m1) <- make.names(colnames(design_m1))
 
@@ -419,7 +419,7 @@ meta_m2 <- meta3 %>%
 
 Y_m2 <- Y0[, meta_m2$record_id, drop = FALSE]
 
-design_m2 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m2)
+design_m2 <- model.matrix(~ 0 + group4 + age + sex + group4:age + study6, data = meta_m2)
 colnames(design_m2) <- sub("^group4", "", colnames(design_m2))
 colnames(design_m2) <- make.names(colnames(design_m2))
 
@@ -618,7 +618,7 @@ stopifnot(identical(colnames(Y_sens), meta5$record_id))
 meta_m4 <- meta5
 Y_m4 <- Y_sens[, meta_m4$record_id, drop = FALSE]
 
-design_m4 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m4)
+design_m4 <- model.matrix(~ 0 + group4 + age + sex + group4:age, data = meta_m4)
 colnames(design_m4) <- sub("^group4", "", colnames(design_m4))
 colnames(design_m4) <- make.names(colnames(design_m4))
 
@@ -644,7 +644,7 @@ meta_m5 <- meta5 %>%
 
 Y_m5 <- Y_sens[, meta_m5$record_id, drop = FALSE]
 
-design_m5 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m5)
+design_m5 <- model.matrix(~ 0 + group4 + age + sex + group4:age + study6, data = meta_m5)
 colnames(design_m5) <- sub("^group4", "", colnames(design_m5))
 colnames(design_m5) <- make.names(colnames(design_m5))
 
@@ -663,8 +663,8 @@ sig_m5
 ##-------------------------------------------------
 ```{r}
 summary_sensitivity <- bind_rows(
-  sig_m1 %>% mutate(model = "primary: age + sex"),
-  sig_m3 %>% mutate(model = "primary: age + sex + study"),
+  sig_m0 %>% mutate(model = "primary: age + sex"),
+  sig_m2 %>% mutate(model = "primary: age + sex + study"),
   sig_m4,
   sig_m5
 ) %>%
@@ -679,11 +679,36 @@ summary_sensitivity_wide <- summary_sensitivity %>%
 
 summary_sensitivity_wide
 
+sig_overlap_int <- bind_rows(
+  lapply(names(out_m0), function(cc) {
+
+    primary_ids <- out_m0[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    sens_ids <- out_m4[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    n_primary <- length(primary_ids)
+    n_overlap <- length(intersect(primary_ids, sens_ids))
+
+    tibble(
+      contrast = cc,
+      n_primary = n_primary,
+      n_sensitivity = length(sens_ids),
+      n_overlap = n_overlap,
+      pct_overlap = round(100 * n_overlap / n_primary, 1)
+    )
+  })
+)
+
+sig_overlap_int
 
 sig_overlap_study <- bind_rows(
-  lapply(names(out_m3), function(cc) {
+  lapply(names(out_m2), function(cc) {
 
-    primary_ids <- out_m3[[cc]] %>%
+    primary_ids <- out_m2[[cc]] %>%
       filter(adj.P.Val < 0.05) %>%
       pull(feature_id)
 
@@ -708,7 +733,7 @@ sig_overlap_study
 ```
 #--------------------------------------------------------
 # SENSITIVITY ANALYSIS:
-# Exclude ATTEMPT study (different sequencing platform)
+# Exclude ATTEMPT study (different sequencing panel)
 #--------------------------------------------------------
 ```{r}
 meta6 <- meta4 %>%
@@ -804,7 +829,7 @@ stopifnot(identical(colnames(Y_noATT), meta6$record_id))
 meta_m6 <- meta6
 Y_m6 <- Y_noATT[, meta_m6$record_id, drop = FALSE]
 
-design_m6 <- model.matrix(~ 0 + group4 + age + sex, data = meta_m6)
+design_m6 <- model.matrix(~ 0 + group4 + age + sex + group4:age, data = meta_m6)
 colnames(design_m6) <- sub("^group4", "", colnames(design_m6))
 colnames(design_m6) <- make.names(colnames(design_m6))
 
@@ -826,7 +851,7 @@ meta_m7 <- meta6 %>%
 
 Y_m7 <- Y_noATT[, meta_m7$record_id, drop = FALSE]
 
-design_m7 <- model.matrix(~ 0 + group4 + age + sex + study6, data = meta_m7)
+design_m7 <- model.matrix(~ 0 + group4 + age + sex + group4:age + study6, data = meta_m7)
 colnames(design_m7) <- sub("^group4", "", colnames(design_m7))
 colnames(design_m7) <- make.names(colnames(design_m7))
 
@@ -846,8 +871,8 @@ sig_m7
 ## -----------------------------
 ```{r}
 summary_noATT <- bind_rows(
-  sig_m1 %>% mutate(model = "primary: age + sex"),
-  sig_m3 %>% mutate(model = "primary: age + sex + study"),
+  sig_m0 %>% mutate(model = "primary: age + sex"),
+  sig_m2 %>% mutate(model = "primary: age + sex + study"),
   sig_m6,
   sig_m7
 ) %>%
@@ -862,10 +887,36 @@ summary_noATT_wide <- summary_noATT %>%
 
 summary_noATT_wide
 
-sig_overlap_noATT_study <- bind_rows(
-  lapply(names(out_m3), function(cc) {
+sig_overlap_noATT_int <- bind_rows(
+  lapply(names(out_m0), function(cc) {
 
-    primary_ids <- out_m3[[cc]] %>%
+    primary_ids <- out_m0[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    noATT_ids <- out_m6[[cc]] %>%
+      filter(adj.P.Val < 0.05) %>%
+      pull(feature_id)
+
+    n_primary <- length(primary_ids)
+    n_overlap <- length(intersect(primary_ids, noATT_ids))
+
+    tibble(
+      contrast = cc,
+      n_primary = n_primary,
+      n_noATT = length(noATT_ids),
+      n_overlap = n_overlap,
+      pct_overlap = round(100 * n_overlap / n_primary, 1)
+    )
+  })
+)
+
+sig_overlap_noATT_int
+
+sig_overlap_noATT_study <- bind_rows(
+  lapply(names(out_m2), function(cc) {
+
+    primary_ids <- out_m2[[cc]] %>%
       filter(adj.P.Val < 0.05) %>%
       pull(feature_id)
 
@@ -1003,16 +1054,16 @@ meta_mp <- meta_prot %>%
   arrange(record_id) %>%
   droplevels()
 
-saveRDS(
-  meta_mp,
-  file = file.path(
-    root_path,
-    "Savanah Leidholt",
-    "TRIAD",
-    "Data",
-    "paired_metadata.rds"
-  )
-)
+#saveRDS(
+#  meta_mp,
+#  file = file.path(
+#    root_path,
+#    "Savanah Leidholt",
+#    "TRIAD",
+#    "Data",
+#    "paired_metadata.rds"
+#  )
+#)
 ```
 
 
@@ -1084,12 +1135,12 @@ p_all2 <- make_pca_plot(prot_all2,meta_mp,"Sensitivity: Age + Sex + Study, all o
 pca_allomics <- p_all0 | p_all1 | p_all2
 pca_allomics
 
-ggsave(
-  filename = file.path(root_path, "Savanah Leidholt", "TRIAD", "figures","Proteomics Figures","Limma","pca_allomics_sensitivity.pdf"),
-  plot = pca_allomics,
-  width = 16,
-  height = 14
-)
+#ggsave(
+#  filename = file.path(root_path, "Savanah Leidholt", "TRIAD", "figures","Proteomics Figures","Limma","pca_allomics_sensitivity.pdf"),
+#  plot = pca_allomics,
+#  width = 16,
+#  height = 14
+#)
 ```
 ##--------------------------------------------------
 ##limma using all omics subset
@@ -1104,7 +1155,7 @@ stopifnot(identical(colnames(Y_allomics), meta_mp$record_id))
 meta_m8 <- meta_mp
 Y_m8 <- Y_allomics[, meta_m8$record_id, drop = FALSE]
 
-design_m8 <- model.matrix(~ 0 + group4 + age + sex,data = meta_m8)
+design_m8 <- model.matrix(~ 0 + group4 + age + sex +group:age,data = meta_m8)
 colnames(design_m8) <- sub("^group4", "", colnames(design_m8))
 colnames(design_m8) <- make.names(colnames(design_m8))
 
@@ -1129,7 +1180,7 @@ sig_m8
 # Model 2: age + sex + study
 Y_m9 <- Y_allomics[, meta_m8$record_id, drop = FALSE]
 
-design_m9 <- model.matrix(~ 0 + group4 + age + sex + study6,data = meta_m8)
+design_m9 <- model.matrix(~ 0 + group4 + age + sex + group:age + study6,data = meta_m8)
 colnames(design_m9) <- sub("^group4", "", colnames(design_m9))
 colnames(design_m9) <- make.names(colnames(design_m9))
 
@@ -1155,8 +1206,8 @@ sig_m9
 ##--------------------------------------------------
 ```{r}
 summary_allomics <- bind_rows(
-  sig_m1 %>% mutate(model = "primary: age + sex"),
-  sig_m3 %>% mutate(model = "primary: age + sex + study"),
+  sig_m0 %>% mutate(model = "primary: age + sex"),
+  sig_m2 %>% mutate(model = "primary: age + sex + study"),
   sig_m8,
   sig_m9
 ) %>%
@@ -1175,9 +1226,9 @@ summary_allomics_wide <- summary_allomics %>%
 summary_allomics_wide
 
 sig_overlap_allomics_study <- bind_rows(
-  lapply(names(out_m3), function(cc) {
+  lapply(names(out_m2), function(cc) {
 
-    primary_ids <- out_m3[[cc]] %>%
+    primary_ids <- out_m2[[cc]] %>%
       filter(adj.P.Val < 0.05) %>%
       pull(feature_id)
 
@@ -1238,19 +1289,19 @@ compare_to_primary <- function(primary_out, sens_out, analysis_name){
 
 ```{r}
 tab_obesity <- compare_to_primary(
-  primary_out = out_m3,
+  primary_out = out_m2,
   sens_out = out_m5,
   analysis_name = "Remove obese T1D"
 )
 
 tab_noATT <- compare_to_primary(
-  primary_out = out_m3,
+  primary_out = out_m2,
   sens_out = out_m7,
   analysis_name = "Exclude ATTEMPT"
 )
 
 tab_allomics <- compare_to_primary(
-  primary_out = out_m3,
+  primary_out = out_m2,
   sens_out = out_m9,
   analysis_name = "Paired multi-omics subset"
 )
@@ -1352,7 +1403,7 @@ gtsave(
 #--------------------
 ```{r}
 # Primary + sensitivity objects
-primary_out <- out_m3
+primary_out <- out_m2
 
 sensitivity_outs <- list(
   no_obese_T1D = out_m5,
@@ -1562,7 +1613,7 @@ top100_summary <- imap_dfr(
     map_dfr(
       contrast_order,
       ~compare_top100(
-        primary_out = out_m3,
+        primary_out = out_m2,
         sens_out = sens_out,
         sens_name = sens_name,
         contrast_name = .x,
@@ -1574,11 +1625,11 @@ top100_summary <- imap_dfr(
 )
 
 top100_summary
-write.csv(
-  top100_summary,
-  file.path(dir.results, "Proteomics Results", "Limma", "top_overlap_summary.csv"),
-  row.names = FALSE
-)
+#write.csv(
+#  top100_summary,
+#  file.path(dir.results, "Proteomics Results", "Limma", "top_overlap_summary.csv"),
+#  row.names = FALSE
+#)
 ```
 
 ```{r}
@@ -1754,4 +1805,173 @@ saveRDS(
 cat("Saved: limma_gsea_inputs_age_sex.rds\n")
 
 ```
+#-------------------------------------------------
+#summary tables of sensitivity anlaysis covariates
+#--------------------------------------------------
+```{r}
+library(gtsummary)
+library(gt)
+
+analyses <- list(
+  primary     = limma_gsea_inputs$primary$samples,
+  noObeseT1D = limma_gsea_inputs$noObeseT1D$samples,
+  no_ATTEMPT = limma_gsea_inputs$no_ATTEMPT$samples,
+  all_omics  = limma_gsea_inputs$all_omics$samples
+)
+
+covars_keep <- c(
+  "record_id",
+  "group4",
+  "study",
+  "study6",
+  "age",
+  "sex",
+  "bmi",
+  "hba1c",
+  "eGFR_fas_cr",
+  "avg_c_r2",
+  "avg_k_r2",
+  "acr_u"
+)
+
+# One row per participant per analysis
+meta_long <- purrr::imap_dfr(
+  analyses,
+  ~ .x %>%
+    dplyr::select(any_of(covars_keep)) %>%
+    dplyr::mutate(analysis = .y)
+)
+
+```
+
+```{r}
+study_group_counts_wide <- meta_long %>%
+  count(study6, group4, analysis, name = "n") %>%
+  pivot_wider(
+    names_from = analysis,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  select(
+    study6,
+    group4,
+    primary,
+    noObeseT1D,
+    no_ATTEMPT,
+    all_omics
+  ) %>%
+  arrange(study6, group4)
+
+study_group_counts_wide %>%
+  gt(groupname_col = "study6") %>%
+  cols_label(
+    group4 = "Group",
+    primary = "Primary",
+    noObeseT1D = "No obese T1D",
+    no_ATTEMPT = "No ATTEMPT",
+    all_omics = "All omics"
+  )
+
+
+```
+```{r}
+group_covariate_summary_wide <- meta_long %>%
+  group_by(group4, analysis) %>%
+  summarise(
+    N = n(),
+    `Median age` = median(age, na.rm = TRUE),
+    `% female` = round(
+      100 * mean(sex %in% c("Female", "F", "female", "f"), na.rm = TRUE),
+      1
+    ),
+    `Median HbA1c` = median(hba1c, na.rm = TRUE),
+    `Median uACR` = median(acr_u, na.rm = TRUE),
+    `Median BMI` = median(bmi, na.rm = TRUE),
+    `Median eGFR` = median(eGFR_fas_cr, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(
+      N,
+      `Median age`,
+      `% female`,
+      `Median HbA1c`,
+      `Median uACR`,
+      `Median BMI`,
+      `Median eGFR`
+    ),
+    names_to = "Characteristic",
+    values_to = "value"
+  ) %>%
+  mutate(
+    analysis = factor(
+      analysis,
+      levels = c(
+        "primary",
+        "noObeseT1D",
+        "no_ATTEMPT",
+        "all_omics"
+      )
+    ),
+    Characteristic = factor(
+      Characteristic,
+      levels = c(
+        "N",
+        "Median age",
+        "% female",
+        "Median HbA1c",
+        "Median uACR",
+        "Median BMI",
+        "Median eGFR"
+      )
+    )
+  ) %>%
+  pivot_wider(
+    names_from = analysis,
+    values_from = value
+  ) %>%
+  arrange(group4, Characteristic)
+
+group_covariate_summary_wide %>%
+  gt(groupname_col = "group4") %>%
+  cols_label(
+    Characteristic = "",
+    primary = "Primary",
+    noObeseT1D = "No obese T1D",
+    no_ATTEMPT = "No ATTEMPT",
+    all_omics = "All omics"
+  )
+```
+
+```{r}
+ggplot(
+    meta_long,
+    aes(analysis, age, fill=analysis)
+) +
+geom_boxplot() +
+facet_wrap(~group4) + theme_bw()
+
+
+sex_summary <- meta_long %>%
+  group_by(group4, analysis) %>%
+  summarise(
+    pct_female = 100 * mean(sex %in% c("Female"), na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(
+  sex_summary,
+  aes(x = analysis, y = pct_female, fill = analysis)
+) +
+  geom_col() +
+  facet_wrap(~group4) +
+  labs(
+    x = NULL,
+    y = "% Female"
+  ) +
+  theme_bw()
+```
+
+
+
 
