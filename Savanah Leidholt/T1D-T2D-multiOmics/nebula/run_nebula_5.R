@@ -19,13 +19,13 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-ncore <- min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
+ncore <- 1 #min(8, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", "8")))
 chunk_size <- 1000
 
 min_cells_per_donor_celltype <- 20
 min_donors_per_group <- 3
-min_cells_gene <- 50
-min_mean_gene <- 0.005
+min_cells_gene <- 100
+
 
 keys <- jsonlite::fromJSON("/mmfs1/home/leidholt/keys.json")
 
@@ -116,8 +116,7 @@ meta_sub <- meta_sub %>%
 counts_sub <- counts_sub[, meta_sub$cell_barcode, drop = FALSE]
 offset <- meta_sub$lib_size
 
-keep_genes <- Matrix::rowSums(counts_sub > 0) >= min_cells_gene &
-  Matrix::rowMeans(counts_sub) > min_mean_gene
+keep_genes <- Matrix::rowSums(counts_sub > 0) >= min_cells_gene 
 
 counts_sub <- counts_sub[keep_genes, , drop = FALSE]
 
@@ -307,7 +306,7 @@ saveRDS(nebula_out, tmp_rds)
 
 out_object <- paste0(
   "results/nebula/nebula_5_hvg/",
-  "nebula_hvg_",
+  "nebula_",
   cell_name,
   "_",
   contrast_name,
