@@ -456,17 +456,7 @@ baseline_group_outcome_pairwise
 ##-----------------------------------
 
 ```{r fig.height=18}
-#pdf(file = file.path(dir.results, "group_outcomes.pdf"), width = 10, height = 8)
-
-#for (outcome in baseline_model_outcomes) {
- # print(
-  #  plot_baseline_group_boxplot(
-   #   data = dat_baseline,
-    #  outcome = outcome,
-     # results_list = baseline_group_outcome_results
-    #)
-  #)
-#}
+#pdf(file = file.path(dir.results, "figures", "group_outcomes.pdf"), width = 16, height = 12)
 
 plot_list <- lapply(baseline_model_outcomes, function(outcome) {
   plot_baseline_group_boxplot(
@@ -480,10 +470,7 @@ plot_list <- lapply(baseline_model_outcomes, function(outcome) {
 combined_plot <- wrap_plots(plot_list, ncol = 3)
 combined_plot
 
-# Save to PDF
-#pdf(file.path(dir.results, "group_outcomes.pdf"), width = 18, height = 16)
-#print(combined_plot)
-#dev.off()
+dev.off()
 
 ```
 #---------------------------------------------------------
@@ -492,17 +479,6 @@ combined_plot
 #----------------------------------------------------------
 ```{r}
 pfas_group_vars <- c(ln_pfas_bl_vars, "ln_total_pfas_bl")
-
-baseline_group_pfas_results <- lapply(
-  pfas_group_vars,
-  function(outcome) {
-    run_baseline_group_model(
-      data = dat_baseline,
-      outcome = outcome,
-      covars = c("age", "sex")
-    )
-  }
-)
 names(baseline_group_pfas_results) <- pfas_group_vars
 
 baseline_group_pfas_omnibus <- bind_rows(
@@ -527,66 +503,7 @@ baseline_group_pfas_omnibus
 baseline_group_pfas_pairwise
 ```
 
-```{r}
-plot_baseline_pfas_group_boxplot <- function(data,
-                                             exposure,
-                                             results_list) {
-  
-  plot_data <- data %>%
-    dplyr::select(group, sex, age, all_of(exposure)) %>%
-    tidyr::drop_na()
-  
-  pair_tbl <- results_list[[exposure]]$pairwise %>%
-    dplyr::mutate(
-      group1 = stringr::str_trim(stringr::word(contrast, 1, sep = " - ")),
-      group2 = stringr::str_trim(stringr::word(contrast, 2, sep = " - "))
-    )
-  
-  y_max <- max(plot_data[[exposure]], na.rm = TRUE)
-  y_min <- min(plot_data[[exposure]], na.rm = TRUE)
-  y_step <- 0.08 * (y_max - y_min)
-  
-  pair_tbl <- pair_tbl %>%
-    dplyr::mutate(
-      y.position = y_max + seq_len(n()) * y_step,
-      p_label = dplyr::case_when(
-        p.value < 0.001 ~ "***",
-        p.value < 0.01  ~ "**",
-        p.value < 0.05  ~ "*",
-        TRUE ~ "ns"
-      )
-    )
-  
-  omnibus_p <- results_list[[exposure]]$omnibus$p.value[1]
-  
-  ggplot(plot_data, aes(x = group, y = .data[[exposure]], fill = group)) +
-    scale_fill_viridis_d(option = "C") +
-    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.12, alpha = 0.6, size = 2) +
-    ggpubr::stat_pvalue_manual(
-      pair_tbl,
-      label = "p_label",
-      xmin = "group1",
-      xmax = "group2",
-      y.position = "y.position",
-      tip.length = 0.01,
-      hide.ns = TRUE
-    ) +
-    theme_bw() +
-    labs(
-      title = paste("Baseline", get_pfas_label(exposure), "by group"),
-      subtitle = paste0("Omnibus group p = ", fmt_p(omnibus_p), "; pairwise p adjusted by Tukey"),
-      x = "Group",
-      y = get_pfas_label(exposure)
-    ) +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(face = "bold")
-    )
-}
-```
-
-```{r}
+```{r fig.width=18}
 plots_by_group <- lapply(
   pfas_group_vars,
   function(pfas) {
@@ -598,11 +515,10 @@ plots_by_group <- lapply(
   }
 )
 
-plots_by_group
 combined_plot2 <- wrap_plots(plots_by_group, ncol = 3)
 combined_plot2
 
-#pdf(file.path(dir.results, "pfas_by_group.pdf"), width = 18, height = 16)
+#pdf(file.path(dir.results, "figures", "pfas_by_group.pdf"), width = 18, height = 16)
 #print(combined_plot2)
 #dev.off()
 
@@ -611,31 +527,6 @@ combined_plot2
 # Model 1: Baseline PFAS Cross-Sectional Analysis
 # no uACR adjustment at baseline
 #------------------------------------------------
-```{r}
-run_baseline_pfas_lm <- function(data, outcome, exposure) {
-  
-  rhs <- c(exposure, "age", "sex")
-  
-  m0 <- as.formula(paste0(outcome, " ~ ", paste(rhs, collapse = " + ")))
-  
-  model_data <- data %>%
-    dplyr::select(all.vars(m0)) %>%
-    tidyr::drop_na()
-  
-  m1 <- lm(m0, data = model_data)
-  
-  list(
-    model = m1,
-    tidy = broom::tidy(m1) %>%
-      dplyr::mutate(
-        analysis = "baseline_cross_sectional",
-        outcome = outcome,
-        exposure = exposure,
-        model_formula = paste(deparse(m0), collapse = " ")
-      )
-  )
-}
-```
 
 ```{r}
 baseline_results_list <- lapply(baseline_model_outcomes, function(outcome) {
