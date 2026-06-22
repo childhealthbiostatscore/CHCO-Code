@@ -90,6 +90,15 @@ pb90_TAL <- s3readRDS(
   region = ""
 )
 
+meta <- pb90_PT@meta.data
+rh <- meta %>% select(study, group, record_id)
+rh$study
+rh <- rh %>% filter(study == "RENAL-HEIRitage") 
+rh <- rh %>% select(group) %>%
+  unique()
+rh
+
+
 #pb90_EC_PTC <- s3readRDS(
 #  object = "data/disease trajectory/pb90_multiomics_EC_PTC_20260529.rds",
 #  bucket = "triad",
@@ -321,22 +330,22 @@ VlnPlot(
 #  group.by = "group"
 #)
 
-p10 <-DimPlot(
-  pb90_EC_PTC,
-  reduction = "umap.TRIAD",
-  group.by = "KPMP_celltype"
-)
+#p10 <-DimPlot(
+#  pb90_EC_PTC,
+#  reduction = "umap.TRIAD",
+#  group.by = "KPMP_celltype"
+#)
 
-p11 <- DimPlot(
-  pb90_EC_PTC,
-  reduction = "umap.TRIAD",
-  split.by = "group",
-  group.by = "KPMP_celltype",
-  ncol = 2
-)
-p9
-p10
-p11
+#p11 <- DimPlot(
+#  pb90_EC_PTC,
+#  reduction = "umap.TRIAD",
+#  split.by = "group",
+#  group.by = "KPMP_celltype",
+#  ncol = 2
+#)
+#p9
+#p10
+#p11
 ```
 
 #-----------------
@@ -430,11 +439,11 @@ slingshot_setup <- function(
     colData = seurat_obj@meta.data
   )
   
-  # gene filtering
+  #gene filtering
   gene_filter <- Matrix::rowSums(assays(sce)$counts >= 3) >= 10
   sce <- sce[gene_filter, ]
   
-  # quantile normalization from workflow
+  #quantile normalization from workflow
   FQnorm <- function(counts) {
     counts <- as.matrix(counts)
     rk <- apply(counts, 2, rank, ties.method = "min")
@@ -448,7 +457,7 @@ slingshot_setup <- function(
   
   assays(sce)$norm <- FQnorm(assays(sce)$counts)
   
-  # PCA on normalized counts
+  #pca
   pca <- prcomp(
     t(log1p(assays(sce)$norm)),
     scale. = FALSE
@@ -628,7 +637,9 @@ VlnPlot(
 
 ```{r}
 slingLineages(sce_PT_sl)
+pt <- slingPseudotime(sce_PT_sl)
 ```
+
 ```{r}
 pb90_PT2$PT_lineage1<- pt[, 1]
 plot_df <- FetchData(
@@ -655,13 +666,26 @@ pairwise.wilcox.test(
   p.adjust.method = "BH"
 )
 
+tmp <- tempfile(fileext = ".csv")
+
+write.csv("PT_pairwise_ttest.csv", tmp)
+
+put_object(file = tmp,
+  object = "results/trajectory_analysis/PT_pairwsie_ttest.csv",
+  bucket = "triad",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE
+)
+
+
 ```
 
 
 ```{r}
 pt_donor <- pb90_PT2@meta.data %>%
   filter(!is.na(pseudotime)) %>%
-  group_by(record_id, group) %>%
+  group_by(record_id, group, study) %>%
   summarise(
     median_pt = median(pseudotime),
     pct_high_pt = mean(pseudotime > 40),
@@ -676,14 +700,34 @@ ggplot(
   aes(group, median_pt, fill = group)
 ) +
   geom_boxplot() +
-  geom_jitter(width = 0.1)
+  geom_jitter(width = 0.1) + theme_classic()
 
 ggplot(
   pt_donor,
   aes(group, pct_high_pt, fill = group)
 ) +
   geom_boxplot() +
-  geom_jitter(width = 0.1)
+  geom_jitter(width = 0.1) + theme_classic()
+
+
+ggplot(
+  pt_donor,
+  aes(study, median_pt, fill = study)
+) +
+  geom_boxplot() +
+  geom_jitter(
+    aes(shape = group),
+    width = 0.1,
+    size = 2) + theme_classic()
+
+ggplot(
+  pt_donor,
+  aes(study, pct_high_pt, fill = study)
+) +
+  geom_boxplot() +
+  geom_jitter(aes(shape = group),
+    width = 0.1,
+    size = 2) + theme_classic()
 ```
 
 #------------------

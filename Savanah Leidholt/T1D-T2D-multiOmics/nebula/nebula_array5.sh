@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=triad_nebula5
-#SBATCH --array=1-5%2
+#SBATCH --array=1-84%2
 #SBATCH --time=72:00:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=ckpt
+#SBATCH --partition=cpu-g2
 #SBATCH --account=togo
-#SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.5/neb_output/nebula_%A_%a.out"
-#SBATCH --error="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.5/neb_error/nebula_%A_%a.err"
+#SBATCH --output="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula_hvg.5/neb_output/nebula_%A_%a.out"
+#SBATCH --error="/mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula_hvg.5/neb_error/nebula_%A_%a.err"
 
 module purge
 module load apptainer
@@ -16,8 +16,8 @@ CONTAINER="/mmfs1/gscratch/togo/yzhangtufts_r_scrnaseq.sif"
 BASE_DIR="/mmfs1/gscratch/togo/leidholt/CHCO-Code/Savanah Leidholt/T1D-T2D-multiOmics/nebula"
 CONFIG_FILE="${BASE_DIR}/nebula_array.tsv"
 
-mkdir -p /mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.5/neb_output
-mkdir -p /mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula.5/neb_error
+mkdir -p /mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula_hvg.5/neb_output
+mkdir -p /mmfs1/gscratch/togo/leidholt/project_logs/triad_nebula_hvg.5/neb_error
 
 cd "${BASE_DIR}"
 
