@@ -602,7 +602,7 @@ plot_model_2b <- function(data,
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = paste("model 2a: age + sex + group + baseline uACR"),
+        subtitle = paste("model 2b: age + sex + group + baseline uACR"),
        # x = "Visit",
       #  y = get_outcome_label(outcome),
       #  color = "Group"
