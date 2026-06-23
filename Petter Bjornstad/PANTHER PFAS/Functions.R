@@ -700,7 +700,7 @@ plot_model_2c <- function(data,
       theme_bw() +
       labs(
         title = paste("Tanner-adjusted", get_outcome_label(outcome), "over time by group"),
-        subtitle = paste("model 2a: age + sex + group + tanner stage"),
+        subtitle = paste("model 2a:" get_outcome_label(outcome), "~ age + sex + group + tanner stage + (1|record_id)"),
        # x = "Visit",
         #y = get_outcome_label(outcome),
         #color = "Group"
