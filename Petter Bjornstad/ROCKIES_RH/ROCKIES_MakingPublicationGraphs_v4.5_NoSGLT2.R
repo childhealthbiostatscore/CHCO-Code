@@ -534,13 +534,13 @@ pv_h <- pval_raw("K2_medulla_mean_Sherbrook_PLB",   "K2_medulla_mean_Sherbrook_S
 pv_i <- pval_raw("K2_F_medulla_mean_Sherbrook_PLB", "K2_F_medulla_mean_Sherbrook_SGLT2")
 
 fig1f <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2",
-                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "F", p_override = pv_f)
+                          expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "E", p_override = pv_f)
 fig1g <- plot_paired_rawp(rockies_long, "id", "treatment", "cortical_k2f",
-                          expression(bold("Cortical k"[2]*"/F")), "G", p_override = pv_g)
+                          expression(bold("Cortical k"[2]*"/F")), "F", p_override = pv_g)
 fig1h <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2",
-                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "H", p_override = pv_h)
+                          expression(bold("Medullary k"[2]*" (min"^{-1}*")")), "G", p_override = pv_h)
 fig1i <- plot_paired_rawp(rockies_long, "id", "treatment", "medullary_k2f",
-                          expression(bold("Medullary k"[2]*"/F")), "I", p_override = pv_i)
+                          expression(bold("Medullary k"[2]*"/F")), "H", p_override = pv_i)
 
 # Panel J: Delta-delta heatmap — Δ on both axes, k2 subscripts via element_markdown
 dd_rho <- matrix(
@@ -550,7 +550,7 @@ dd_rho <- matrix(
     0.31, 0.64, 0.42, 0.52),
   nrow = 4, ncol = 4, byrow = TRUE,
   dimnames = list(pet_labels,
-                  c("Delta HbA1c", "Delta HOMA-IR", "Delta Glucose", "Delta Sodium Load"))
+                  c("Delta HbA1c", "Delta HOMA-IR", "Delta Glucose", "Delta Sodium Transport"))
 )
 dd_cell <- matrix(
   c("0.48*", "0.77***", "0.36",  "0.20",
@@ -564,7 +564,7 @@ delta_col_labels <- c(
   "Delta HbA1c"       = "\u0394 HbA1c",
   "Delta HOMA-IR"     = "\u0394 HOMA-IR",
   "Delta Glucose"     = "\u0394 Glucose",
-  "Delta Sodium Load" = "\u0394 Sodium Load"
+  "Delta Sodium Transport" = "\u0394 Sodium Transport"
 )
 
 fig1j_long <- data.frame(
@@ -582,7 +582,7 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
                        midpoint = 0, limits = c(-1, 1), name = "Pearson") +
   scale_x_discrete(labels = delta_col_labels) +
   scale_y_discrete(labels = pet_delta_md_labels) +
-  labs(x = NULL, y = NULL, tag = "E") +
+  labs(x = NULL, y = NULL, tag = "I") +
   theme_rockies +
   theme(legend.position = "right",
         axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
@@ -591,9 +591,10 @@ fig1j <- ggplot(fig1j_long, aes(x = delta, y = pet, fill = rho)) +
 # Assemble Figure 1
 fig1_full <-
   (fig1a + fig1b + plot_layout(widths = c(1, 1))) /
-  (plot_spacer() + fig1d + plot_spacer() + plot_layout(widths = c(1, 1.8, 1))) /
-  (fig1e + fig1j + plot_layout(widths = c(1.4, 1.0))) /
-  (fig1f + fig1g + fig1h + fig1i + plot_layout(widths = c(1, 1, 1, 1))) +
+  (fig1d + fig1e +  plot_layout(widths = c(1, 1))) /
+#  ( fig1j + plot_layout(widths = c(1.4, 1.0))) /
+  (fig1f + fig1g + fig1h + fig1i + plot_layout(widths = c(1, 1, 1, 1))) /
+  (plot_spacer() + fig1j + plot_spacer() + plot_layout(widths = c(1, 1.8, 1)))+
   plot_layout(heights = c(3.5, 3.5, 3.0, 2.5)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
@@ -873,4 +874,717 @@ qpdf::pdf_combine(pages, output = combined_path)
 file.remove(pages)
 
 cat("\nCombined PDF saved:", combined_path, "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####Supplemental Voxel-wise analysis 
+
+library(tidyverse)
+library(ggpubr)
+library(patchwork)
+library(data.table)
+library(ggtext)
+library(haven)
+library(conflicted)
+conflicts_prefer(dplyr::last)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+
+if (.Platform$OS.type == "windows") {
+  tryCatch({
+    library(extrafont)
+    loadfonts(device = "pdf", quiet = TRUE)
+    loadfonts(device = "win", quiet = TRUE)
+  }, error = function(e) message("extrafont loading skipped"))
+}
+
+########################################################################
+# PATHS
+########################################################################
+
+base_path       <- "C:/Users/netio/Documents/UofW/Rockies/publication_figures/"
+sav_path        <- "C:/Users/netio/Downloads/ROCKIES_Hoofddatabase__jan2026.sav"
+harmonized_path <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv"
+
+########################################################################
+# THEME & COLORS
+########################################################################
+
+theme_rockies <- theme_classic(base_size = 14) +
+  theme(
+    text              = element_text(family = "sans"),
+    axis.title        = element_text(size = 13, face = "bold"),
+    axis.text         = element_text(size = 12, color = "black"),
+    plot.title        = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.tag          = element_text(size = 16, face = "bold"),
+    plot.tag.position = "topleft",
+    strip.text        = element_text(size = 13, face = "bold"),
+    strip.background  = element_blank(),
+    legend.position   = "none",
+    plot.margin       = margin(5, 10, 5, 10)
+  )
+
+cols <- list(
+  placebo     = "#3f78c1",
+  ertu        = "#ce9a28",
+  paired_line = "gray60",
+  control     = "#00A99D",
+  obese_ctrl  = "#FFC000",
+  t2d         = "#C55A11"
+)
+
+########################################################################
+# HELPER FUNCTIONS
+########################################################################
+
+save_fig <- function(plot, name, width, height, dpi = 300) {
+  ggsave(paste0(base_path, name, ".png"), plot, width = width, height = height, dpi = dpi)
+  tryCatch(
+    ggsave(paste0(base_path, name, ".pdf"), plot,
+           width = width, height = height, dpi = dpi, device = cairo_pdf),
+    error = function(e) {
+      tryCatch(
+        ggsave(paste0(base_path, name, ".pdf"), plot, width = width, height = height, dpi = dpi),
+        error = function(e2) message("PDF failed: ", e2$message, " — PNG saved.")
+      )
+    }
+  )
+}
+
+plot_paired_rawp <- function(data, id_col, trt_col, val_col, ylab, tag,
+                             p_override = NULL) {
+  df <- data.frame(id = data[[id_col]], trt = data[[trt_col]], val = data[[val_col]])
+  df <- df[!is.na(df$val), ]
+  df$trt <- factor(df$trt, levels = c("Placebo", "Ertugliflozin"))
+  
+  summ <- df %>%
+    group_by(trt) %>%
+    summarise(m = mean(val), se = sd(val) / sqrt(n()), .groups = "drop")
+  
+  pv <- if (!is.null(p_override)) p_override else {
+    wide <- df %>% pivot_wider(names_from = trt, values_from = val) %>% arrange(id)
+    t.test(wide$Placebo, wide$Ertugliflozin, paired = TRUE)$p.value
+  }
+  
+  plab <- ifelse(pv < 0.001, "p<0.001", paste0("p=", sprintf("%.3f", pv)))
+  
+  ymax <- max(df$val, na.rm = TRUE)
+  ymin <- min(df$val, na.rm = TRUE)
+  yr   <- ymax - ymin
+  
+  ggplot(df, aes(trt, val)) +
+    geom_line(aes(group = id), color = cols$paired_line, alpha = 0.5, linewidth = 0.4) +
+    geom_point(aes(color = trt), size = 2.5, alpha = 0.7) +
+    geom_errorbar(data = summ, aes(trt, m, ymin = m - se, ymax = m + se),
+                  width = 0.15, linewidth = 0.8, inherit.aes = FALSE) +
+    geom_point(data = summ, aes(trt, m), size = 4, shape = 18, inherit.aes = FALSE) +
+    annotate("segment", x = 1, xend = 2,
+             y = ymax + yr * 0.05, yend = ymax + yr * 0.05, linewidth = 0.4) +
+    annotate("text", x = 1.5, y = ymax + yr * 0.1,
+             label = plab, size = 3.5, fontface = "italic") +
+    scale_color_manual(values = c(cols$placebo, cols$ertu)) +
+    coord_cartesian(ylim = c(ymin - yr * 0.05, ymax + yr * 0.15)) +
+    labs(x = NULL, y = ylab, tag = tag) +
+    theme_rockies
+}
+
+plot_three_group <- function(data, group_var, value_var,
+                             group_colors, ylab, tag, group_order = NULL) {
+  df <- data.frame(grp = data[[group_var]], val = data[[value_var]])
+  df <- df[!is.na(df$val) & !is.na(df$grp), ]
+  df$grp <- factor(df$grp, levels = if (!is.null(group_order)) group_order else levels(factor(df$grp)))
+  lvls   <- levels(df$grp)
+  
+  kw_p   <- kruskal.test(val ~ grp, data = df)$p.value
+  kw_lab <- ifelse(kw_p < 0.0001, "KW p<0.0001",
+                   ifelse(kw_p < 0.001,  "KW p<0.001",
+                          paste0("KW p=", sprintf("%.3f", kw_p))))
+  
+  pairs    <- combn(lvls, 2, simplify = FALSE)
+  pair_pvs <- sapply(pairs, function(pr)
+    wilcox.test(val ~ grp, data = df[df$grp %in% pr, ], exact = FALSE)$p.value)
+  
+  ymax    <- max(df$val, na.rm = TRUE)
+  ymin    <- min(df$val, na.rm = TRUE)
+  yr      <- ymax - ymin
+  n_pairs <- length(pairs)
+  step    <- yr * 0.13
+  y_brack <- ymax + yr * 0.05 + (seq_len(n_pairs) - 1) * step
+  
+  p <- ggplot(df, aes(grp, val, fill = grp)) +
+    geom_boxplot(alpha = 0.3, outlier.shape = NA, width = 0.5) +
+    geom_jitter(aes(color = grp), width = 0.12, size = 2, alpha = 0.7) +
+    annotate("text", x = 2,
+             y = ymax + yr * 0.05 + n_pairs * step + yr * 0.04,
+             label = kw_lab, size = 3.5, fontface = "italic") +
+    scale_fill_manual(values  = group_colors) +
+    scale_color_manual(values = group_colors) +
+    coord_cartesian(ylim = c(ymin - yr * 0.05,
+                             ymax + yr * 0.05 + n_pairs * step + yr * 0.14)) +
+    labs(x = NULL, y = ylab, tag = tag) +
+    theme_rockies
+  
+  for (k in seq_along(pairs)) {
+    pr   <- pairs[[k]]
+    pv   <- pair_pvs[k]
+    plab <- ifelse(pv < 0.0001, "p<0.0001",
+                   ifelse(pv < 0.001,  "p<0.001",
+                          paste0("p=", sprintf("%.3f", pv))))
+    x1 <- which(lvls == pr[1])
+    x2 <- which(lvls == pr[2])
+    ys <- y_brack[k]
+    p  <- p +
+      annotate("segment", x = x1, xend = x2, y = ys, yend = ys, linewidth = 0.4) +
+      annotate("text", x = (x1 + x2) / 2, y = ys + yr * 0.03,
+               label = plab, size = 3, fontface = "italic")
+  }
+  p
+}
+
+########################################################################
+# LOAD DATA
+########################################################################
+
+cat("Loading ROCKIES SAV...\n")
+rockies_wide      <- read_sav(sav_path) %>% zap_labels()
+names(rockies_wide) <- make.names(trimws(names(rockies_wide)))
+rockies_crossover <- rockies_wide %>% filter(Group == 1)
+
+cat("Loading harmonized dataset...\n")
+harmonized_data <- read.csv(harmonized_path, na = "")
+
+dat <- harmonized_data %>%
+  dplyr::select(-dob) %>%
+  arrange(date_of_screen) %>%
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric),         ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm = TRUE))),
+    .by = c(record_id, visit)
+  )
+
+########################################################################
+# VOXEL-WISE AVERAGES — cross-sectional cohort
+########################################################################
+
+dat_vw <- dat %>%
+  mutate(
+    avg_c_k2_vw = rowMeans(dplyr::select(., lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw), na.rm = TRUE),
+    avg_m_k2_vw = rowMeans(dplyr::select(., lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw), na.rm = TRUE)
+  )
+
+dat_fig_supp <- dat_vw %>%
+  filter(!is.na(avg_c_k2_vw) & is.finite(avg_c_k2_vw)) %>%
+  filter(group %in% c("Lean Control", "Obese Control", "Type 2 Diabetes")) %>%
+  mutate(Cohort = case_when(
+    group == "Lean Control"    ~ "Healthy Control",
+    group == "Obese Control"   ~ "Obese Control",
+    group == "Type 2 Diabetes" ~ "T2D"
+  )) %>%
+  filter(record_id != "CRC-55") %>%
+  filter(Cohort == "Healthy Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != "Yes")
+
+cohort_ns_vw <- dat_fig_supp %>% count(Cohort)
+get_n_vw     <- function(grp) cohort_ns_vw$n[cohort_ns_vw$Cohort == grp]
+
+lbl_hc_vw  <- paste0("Healthy Control\n(n=", get_n_vw("Healthy Control"), ")")
+lbl_oc_vw  <- paste0("Obese Control\n(n=",   get_n_vw("Obese Control"),   ")")
+lbl_t2d_vw <- paste0("T2D\n(n=",             get_n_vw("T2D"),             ")")
+
+dat_fig_supp <- dat_fig_supp %>%
+  mutate(
+    Cohort_label = case_when(
+      Cohort == "Healthy Control" ~ lbl_hc_vw,
+      Cohort == "Obese Control"   ~ lbl_oc_vw,
+      Cohort == "T2D"             ~ lbl_t2d_vw
+    ),
+    Cohort_label = factor(Cohort_label, levels = c(lbl_hc_vw, lbl_oc_vw, lbl_t2d_vw))
+  )
+
+grp_order_vw    <- c(lbl_hc_vw, lbl_oc_vw, lbl_t2d_vw)
+fig_supp_colors <- setNames(c(cols$control, cols$obese_ctrl, cols$t2d), grp_order_vw)
+
+########################################################################
+# ROCKIES VOXEL-WISE LONG FORMAT
+# Column names confirmed from ROCKIES_Hoofddatabase__jan2026.sav:
+#   Cortex  PLB:   voxel_wise_PET_K2_Cortex_Mean_Sherbrook_PB
+#   Cortex  ERTU:  voxel_wise_PET_K2_Cortex_Mean_Sherbrook_SGLT2i
+#   Medulla PLB:   voxel_wise_PET_K2_Medulla_Mean_Sherbrook_PB
+#   Medulla ERTU:  voxel_wise_PET_K2_Medulla_right_sherbrook_SGLT2i
+########################################################################
+
+rockies_vw <- bind_rows(
+  rockies_crossover %>% transmute(
+    id              = Participant,
+    treatment       = "Placebo",
+    cortical_k2_vw  = voxel_wise_PET_K2_Cortex_Mean_Sherbrook_PB,
+    medullary_k2_vw = voxel_wise_PET_K2_Medulla_Mean_Sherbrook_PB
+  ),
+  rockies_crossover %>% transmute(
+    id              = Participant,
+    treatment       = "Ertugliflozin",
+    cortical_k2_vw  = voxel_wise_PET_K2_Cortex_Mean_Sherbrook_SGLT2i,
+    medullary_k2_vw = voxel_wise_PET_K2_Medulla_right_sherbrook_SGLT2i
+  )
+)
+rockies_vw$treatment <- factor(rockies_vw$treatment, levels = c("Placebo", "Ertugliflozin"))
+
+########################################################################
+# BUILD PANELS
+########################################################################
+
+cat("Building panels...\n")
+
+fig_supp_a <- plot_three_group(
+  data         = dat_fig_supp,
+  group_var    = "Cohort_label",
+  value_var    = "avg_c_k2_vw",
+  group_colors = fig_supp_colors,
+  ylab         = expression(bold("Cortical k"[2]*" Voxel-Wise (min"^{-1}*")")),
+  tag          = "A",
+  group_order  = grp_order_vw
+)
+
+fig_supp_b <- plot_three_group(
+  data         = dat_fig_supp,
+  group_var    = "Cohort_label",
+  value_var    = "avg_m_k2_vw",
+  group_colors = fig_supp_colors,
+  ylab         = expression(bold("Medullary k"[2]*" Voxel-Wise (min"^{-1}*")")),
+  tag          = "B",
+  group_order  = grp_order_vw
+)
+
+# Paired t-test p-values using the confirmed column names
+pval_vw <- function(plb_col, ertu_col)
+  t.test(rockies_crossover[[plb_col]], rockies_crossover[[ertu_col]], paired = TRUE)$p.value
+
+pv_c <- pval_vw("voxel_wise_PET_K2_Cortex_Mean_Sherbrook_PB",
+                "voxel_wise_PET_K2_Cortex_Mean_Sherbrook_SGLT2i")
+pv_d <- pval_vw("voxel_wise_PET_K2_Medulla_Mean_Sherbrook_PB",
+                "voxel_wise_PET_K2_Medulla_right_sherbrook_SGLT2i")
+
+fig_supp_c <- plot_paired_rawp(
+  data       = rockies_vw,
+  id_col     = "id",
+  trt_col    = "treatment",
+  val_col    = "cortical_k2_vw",
+  ylab       = expression(bold("Cortical k"[2]*" Voxel-Wise (min"^{-1}*")")),
+  tag        = "C",
+  p_override = pv_c
+)
+
+fig_supp_d <- plot_paired_rawp(
+  data       = rockies_vw,
+  id_col     = "id",
+  trt_col    = "treatment",
+  val_col    = "medullary_k2_vw",
+  ylab       = expression(bold("Medullary k"[2]*" Voxel-Wise (min"^{-1}*")")),
+  tag        = "D",
+  p_override = pv_d
+)
+
+########################################################################
+# ASSEMBLE & SAVE
+########################################################################
+
+supp_fig <- (fig_supp_a | fig_supp_b) /
+  (fig_supp_c | fig_supp_d)
+
+save_fig(supp_fig, "Supplementary_Figure_VoxelWise_K2", width = 12, height = 12)
+cat("Supplementary figure saved!\n")
+
+########################################################################
+# SUMMARY STATS
+########################################################################
+
+cat("\n--- Cross-sectional voxel-wise cortical k2 (median [Q1, Q3] by group) ---\n")
+dat_fig_supp %>%
+  group_by(Cohort) %>%
+  summarise(n      = sum(!is.na(avg_c_k2_vw)),
+            median = round(median(avg_c_k2_vw, na.rm = TRUE), 4),
+            Q1     = round(quantile(avg_c_k2_vw, 0.25, na.rm = TRUE), 4),
+            Q3     = round(quantile(avg_c_k2_vw, 0.75, na.rm = TRUE), 4)) %>% print()
+
+cat("\n--- Cross-sectional voxel-wise medullary k2 (median [Q1, Q3] by group) ---\n")
+dat_fig_supp %>%
+  group_by(Cohort) %>%
+  summarise(n      = sum(!is.na(avg_m_k2_vw)),
+            median = round(median(avg_m_k2_vw, na.rm = TRUE), 4),
+            Q1     = round(quantile(avg_m_k2_vw, 0.25, na.rm = TRUE), 4),
+            Q3     = round(quantile(avg_m_k2_vw, 0.75, na.rm = TRUE), 4)) %>% print()
+
+cat("\n--- ROCKIES voxel-wise cortical k2 (mean +/- SD by treatment) ---\n")
+rockies_vw %>%
+  group_by(treatment) %>%
+  summarise(n    = sum(!is.na(cortical_k2_vw)),
+            mean = round(mean(cortical_k2_vw, na.rm = TRUE), 4),
+            sd   = round(sd(cortical_k2_vw,   na.rm = TRUE), 4)) %>% print()
+
+cat("\n--- ROCKIES voxel-wise medullary k2 (mean +/- SD by treatment) ---\n")
+rockies_vw %>%
+  group_by(treatment) %>%
+  summarise(n    = sum(!is.na(medullary_k2_vw)),
+            mean = round(mean(medullary_k2_vw, na.rm = TRUE), 4),
+            sd   = round(sd(medullary_k2_vw,   na.rm = TRUE), 4)) %>% print()
+
+cat(sprintf("\nCortical k2 voxel-wise paired t:  p = %.4f\n", pv_c))
+cat(sprintf("Medullary k2 voxel-wise paired t: p = %.4f\n", pv_d))
+
+
+
+
+
+
+########################################################################
+# SUPPLEMENTARY FIGURE — PT Cell Type Bar Plots + Stats Tables
+#
+# For each pathway (TCA / OxPhos) and each PT cell type:
+#   Left:  bar plot (same style as Figures 6 & 7)
+#   Right: clean ggplot table (italic genes, no borders, sig rows bold)
+#
+# Output: one PDF/PNG per pathway (TCA and OxPhos), each with 4 rows
+########################################################################
+
+library(tidyverse)
+library(patchwork)
+library(data.table)
+library(cowplot)
+library(ggplotify)
+library(conflicted)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+
+if (.Platform$OS.type == "windows") {
+  tryCatch({
+    library(extrafont)
+    loadfonts(device = "pdf", quiet = TRUE)
+    loadfonts(device = "win", quiet = TRUE)
+  }, error = function(e) message("extrafont loading skipped"))
+}
+
+########################################################################
+# PATHS
+########################################################################
+
+base_path  <- "C:/Users/netio/Documents/UofW/Rockies/publication_figures/"
+scrna_path <- "C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/"
+
+########################################################################
+# COLORS
+########################################################################
+
+cols <- list(
+  up   = "#4A90D9",
+  down = "#E74C3C"
+)
+
+########################################################################
+# FILE LISTS
+########################################################################
+
+tca_files <- list(
+  "PT"       = paste0(scrna_path, "NEBULA_TCA_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "PT-S1/S2" = paste0(scrna_path, "NEBULA_TCA_cycle_PT_S1_S2_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "PT-S3"    = paste0(scrna_path, "NEBULA_TCA_cycle_PT_S3_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "aPT"      = paste0(scrna_path, "NEBULA_TCA_cycle_aPT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")
+)
+
+oxphos_files <- list(
+  "PT"       = paste0(scrna_path, "NEBULA_OX_PHOS_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "PT-S1/S2" = paste0(scrna_path, "NEBULA_OX_PHOS_cycle_PT_S1_S2_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "PT-S3"    = paste0(scrna_path, "NEBULA_OX_PHOS_cycle_PT_S3_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"),
+  "aPT"      = paste0(scrna_path, "NEBULA_OX_PHOS_cycle_aPT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")
+)
+
+########################################################################
+# HELPER: load and standardise a NEBULA CSV
+########################################################################
+
+load_nebula <- function(filepath) {
+  dt <- fread(filepath)
+  setnames(dt, "logFC_groupType_2_Diabetes", "logFC")
+  setnames(dt, "p_groupType_2_Diabetes",     "pvalue")
+  if ("se_groupType_2_Diabetes" %in% names(dt))
+    setnames(dt, "se_groupType_2_Diabetes", "SE")
+  dt <- dt[order(dt$gene), ]
+  dt
+}
+
+########################################################################
+# HELPER: bar plot (identical style to Figures 6 & 7)
+########################################################################
+
+make_barplot <- function(dt, celltype_label, panel_tag) {
+  dt <- dt %>%
+    mutate(
+      gene      = factor(gene, levels = gene),   # preserve alphabetical order
+      direction = factor(ifelse(logFC >= 0, "Up-regulated", "Down-regulated"),
+                         levels = c("Up-regulated", "Down-regulated")),
+      sig_label = ifelse(pvalue < 0.05, "*", ""),
+      label_y   = ifelse(logFC >= 0,
+                         logFC + max(abs(logFC), na.rm = TRUE) * 0.04,
+                         logFC - max(abs(logFC), na.rm = TRUE) * 0.04)
+    )
+  ggplot(dt, aes(x = gene, y = logFC, fill = direction)) +
+    geom_col(width = 0.7) +
+    geom_text(aes(y = label_y, label = sig_label),
+              size = 4, fontface = "bold", vjust = 0.5) +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    scale_fill_manual(
+      name   = "Regulation",
+      values = c("Up-regulated" = cols$up, "Down-regulated" = cols$down),
+      drop   = FALSE
+    ) +
+    labs(x = NULL, y = "Log2 Fold Change",
+         subtitle = celltype_label, tag = panel_tag) +
+    theme_classic(base_size = 11) +
+    theme(
+      axis.text.x       = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+      axis.title.y      = element_text(size = 10, face = "bold"),
+      plot.subtitle     = element_text(size = 10, hjust = 0.5, face = "bold"),
+      plot.tag          = element_text(size = 14, face = "bold"),
+      plot.tag.position = "topleft",
+      legend.position   = "none",
+      plot.margin       = margin(5, 10, 5, 10)
+    )
+}
+
+########################################################################
+# HELPER: ggplot-based stats table (matches image 2 style)
+#   - italic gene names
+#   - significant rows (p<0.05) in bold
+#   - clean minimal look, no black background
+########################################################################
+
+make_gg_table <- function(dt) {
+  
+  tbl <- dt %>%
+    dplyr::select(Gene = gene, `Log2FC` = logFC, SE, `p-value` = pvalue) %>%
+    mutate(
+      sig      = `p-value` < 0.05,
+      row_idx  = row_number(),                          # top = row 1
+      log2_fmt = sprintf("%.3f", `Log2FC`),
+      se_fmt   = sprintf("%.3f", SE),
+      p_fmt    = ifelse(`p-value` < 0.001, "<0.001", sprintf("%.3f", `p-value`)),
+      fontface = ifelse(sig, "bold.italic", "italic")
+    )
+  
+  n_rows  <- nrow(tbl)
+  y_vals  <- rev(seq_len(n_rows))      # row 1 at top
+  
+  # Header y-position: one step above the first data row
+  y_header <- max(y_vals) + 1
+  
+  # Highlight band for significant rows
+  sig_df <- tbl %>% filter(sig)
+  
+  p <- ggplot() +
+    # Significance highlight bands
+    { if (nrow(sig_df) > 0)
+      geom_rect(data = sig_df,
+                aes(xmin = -Inf, xmax = Inf,
+                    ymin = rev(sig_df$row_idx) - 0.45,
+                    ymax = rev(sig_df$row_idx) + 0.45),
+                fill = "#DDEEFF", inherit.aes = FALSE)
+      else list() } +
+    # Header row background
+    annotate("rect", xmin = -Inf, xmax = Inf,
+             ymin = y_header - 0.5, ymax = y_header + 0.5,
+             fill = "grey90") +
+    # Header labels
+    annotate("text", x = 1, y = y_header, label = "Gene",
+             fontface = "bold", size = 3, hjust = 0.5) +
+    annotate("text", x = 2, y = y_header, label = "Log2FC",
+             fontface = "bold", size = 3, hjust = 0.5) +
+    annotate("text", x = 3, y = y_header, label = "SE",
+             fontface = "bold", size = 3, hjust = 0.5) +
+    annotate("text", x = 4, y = y_header, label = "p-value",
+             fontface = "bold", size = 3, hjust = 0.5) +
+    # Data rows — gene names italic (bold if sig)
+    geom_text(data = tbl,
+              aes(x = 1, y = rev(row_idx),
+                  label = Gene, fontface = fontface),
+              size = 2.8, hjust = 0.5) +
+    geom_text(data = tbl,
+              aes(x = 2, y = rev(row_idx),
+                  label = log2_fmt, fontface = fontface),
+              size = 2.8, hjust = 0.5) +
+    geom_text(data = tbl,
+              aes(x = 3, y = rev(row_idx),
+                  label = se_fmt, fontface = fontface),
+              size = 2.8, hjust = 0.5) +
+    geom_text(data = tbl,
+              aes(x = 4, y = rev(row_idx),
+                  label = p_fmt, fontface = fontface),
+              size = 2.8, hjust = 0.5) +
+    # Thin horizontal separator under header
+    annotate("segment", x = 0.5, xend = 4.5,
+             y = y_header - 0.5, yend = y_header - 0.5,
+             color = "grey60", linewidth = 0.4) +
+    scale_x_continuous(limits = c(0.5, 4.5), expand = c(0, 0)) +
+    scale_y_continuous(limits = c(0.4, y_header + 0.6), expand = c(0, 0)) +
+    theme_void() +
+    theme(plot.margin = margin(5, 5, 5, 5))
+  
+  p
+}
+
+########################################################################
+# HELPER: save figure
+########################################################################
+
+save_fig <- function(plot, name, width, height, dpi = 300) {
+  ggsave(paste0(base_path, name, ".png"), plot,
+         width = width, height = height, dpi = dpi)
+  tryCatch(
+    ggsave(paste0(base_path, name, ".pdf"), plot,
+           width = width, height = height, dpi = dpi, device = cairo_pdf),
+    error = function(e) {
+      tryCatch(
+        ggsave(paste0(base_path, name, ".pdf"), plot,
+               width = width, height = height, dpi = dpi),
+        error = function(e2) message("PDF failed — PNG saved.")
+      )
+    }
+  )
+}
+
+########################################################################
+# BUILD ONE SUPPLEMENTARY FIGURE PER PATHWAY
+########################################################################
+
+build_supp_fig <- function(file_list, panel_tags) {
+  cell_types <- names(file_list)
+  row_grobs  <- vector("list", length(cell_types))
+  
+  for (i in seq_along(cell_types)) {
+    ct  <- cell_types[[i]]
+    dt  <- load_nebula(file_list[[ct]])
+    bar <- make_barplot(dt, ct, panel_tags[[i]])
+    tbl <- make_gg_table(dt)
+    
+    row_grobs[[i]] <- bar + tbl +
+      plot_layout(widths = c(1.8, 1))
+  }
+  
+  wrap_plots(row_grobs, ncol = 1)
+}
+
+########################################################################
+# TCA CYCLE
+########################################################################
+
+cat("Building TCA figure...\n")
+supp_tca <- build_supp_fig(tca_files, list("A", "B", "C", "D"))
+save_fig(supp_tca, "Supplementary_Figure_TCA_BarPlots_Tables", width = 14, height = 18)
+cat("TCA supplementary figure saved!\n")
+
+########################################################################
+# OxPhos
+########################################################################
+
+cat("Building OxPhos figure...\n")
+supp_oxphos <- build_supp_fig(oxphos_files, list("A", "B", "C", "D"))
+save_fig(supp_oxphos, "Supplementary_Figure_OxPhos_BarPlots_Tables", width = 14, height = 18)
+cat("OxPhos supplementary figure saved!\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###Changed script if needed
+plot_three_group <- function(data, group_var, value_var,
+                             group_colors, ylab, tag, group_order = NULL) {
+  df <- data.frame(grp = data[[group_var]], val = data[[value_var]])
+  df <- df[!is.na(df$val) & !is.na(df$grp), ]
+  df$grp <- factor(df$grp, levels = if (!is.null(group_order)) group_order else levels(factor(df$grp)))
+  lvls   <- levels(df$grp)
+  
+  kw_p   <- kruskal.test(val ~ grp, data = df)$p.value
+  kw_lab <- ifelse(kw_p < 0.0001, "KW p<0.0001",
+                   ifelse(kw_p < 0.001,  "KW p<0.001",
+                          paste0("KW p=", sprintf("%.3f", kw_p))))
+  
+  # Dunn's test as post-hoc, BH-corrected, using the shared rank structure from KW
+  dunn_res <- FSA::dunnTest(val ~ grp, data = df, method = "bh")$res
+  
+  # dunnTest's Comparison column is formatted "GroupA - GroupB" using factor level order.
+  # Split it so we can match each row back to our `pairs` list regardless of order.
+  dunn_pairs <- strsplit(dunn_res$Comparison, " - ")
+  
+  pairs <- combn(lvls, 2, simplify = FALSE)
+  
+  pair_pvs <- sapply(pairs, function(pr) {
+    match_idx <- which(sapply(dunn_pairs, function(dp) all(sort(dp) == sort(pr))))
+    if (length(match_idx) != 1) {
+      stop("Could not uniquely match pair (", paste(pr, collapse = ", "),
+           ") to Dunn's test output. Check group labels for special characters.")
+    }
+    dunn_res$P.adj[match_idx]
+  })
+  
+  ymax    <- max(df$val, na.rm = TRUE)
+  ymin    <- min(df$val, na.rm = TRUE)
+  yr      <- ymax - ymin
+  n_pairs <- length(pairs)
+  step    <- yr * 0.13
+  y_brack <- ymax + yr * 0.05 + (seq_len(n_pairs) - 1) * step
+  
+  p <- ggplot(df, aes(grp, val, fill = grp)) +
+    geom_boxplot(alpha = 0.3, outlier.shape = NA, width = 0.5) +
+    geom_jitter(aes(color = grp), width = 0.12, size = 2, alpha = 0.7) +
+    annotate("text", x = 2,
+             y = ymax + yr * 0.05 + n_pairs * step + yr * 0.04,
+             label = kw_lab, size = 3.5, fontface = "italic") +
+    scale_fill_manual(values  = group_colors) +
+    scale_color_manual(values = group_colors) +
+    coord_cartesian(ylim = c(ymin - yr * 0.05,
+                             ymax + yr * 0.05 + n_pairs * step + yr * 0.14)) +
+    labs(x = NULL, y = ylab, tag = tag) +
+    theme_rockies
+  
+  for (k in seq_along(pairs)) {
+    pr   <- pairs[[k]]
+    pv   <- pair_pvs[k]
+    plab <- ifelse(pv < 0.0001, "padj<0.0001",
+                   ifelse(pv < 0.001,  "padj<0.001",
+                          paste0("padj=", sprintf("%.3f", pv))))
+    x1 <- which(lvls == pr[1])
+    x2 <- which(lvls == pr[2])
+    ys <- y_brack[k]
+    p  <- p +
+      annotate("segment", x = x1, xend = x2, y = ys, yend = ys, linewidth = 0.4) +
+      annotate("text", x = (x1 + x2) / 2, y = ys + yr * 0.03,
+               label = plab, size = 3, fontface = "italic")
+  }
+  p
+}
 
