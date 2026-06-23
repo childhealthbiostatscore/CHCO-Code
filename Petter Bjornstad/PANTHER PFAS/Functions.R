@@ -496,7 +496,7 @@ plot_model_2a <- function(data,outcomes = group_time_outcomes,save_pdf = FALSE,o
       theme_bw() +
       labs(
         title = paste("Unadjusted", get_outcome_label(outcome), "over time by group"),
-        #subtitle = subtitle_text,
+        subtitle = paste("model 2a: age + sex + group"),
         #x = "Visit",
         #y = get_outcome_label(outcome),
         #color = "Group"
@@ -710,18 +710,6 @@ plot_model_2c <- function(data,
   }
   
   plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes_tanner.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
   
   return(plot_list)
 }
