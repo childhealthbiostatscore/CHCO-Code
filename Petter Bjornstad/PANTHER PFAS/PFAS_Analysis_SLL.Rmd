@@ -818,6 +818,74 @@ mod3a_results_fdr <- mod3a_results %>%
 #results vis heatmaps
 #-----------------
 ```{r}
+#------------------------------
+#plotting model 3a: heatmaps
+#------------------------------
+hm_mod3a <- mod3a_results_fdr %>%
+  dplyr::group_by(outcome, exposure) %>%
+  dplyr::summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  dplyr::select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  dplyr::mutate(
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = dplyr::case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
+```
+
+```{r}
 beta_mod3a <- max(abs(hm_mod3a$beta), na.rm = TRUE)
 
 plot_model_3a<- ggplot(
@@ -894,6 +962,74 @@ mod3b_results_fdr <- mod_3b_results %>%
     )
   ) %>%
   dplyr::ungroup()
+```
+
+```{r}
+#-----------
+#plotting 3b
+#-----------
+hm_mod3b <- mod3b_results_fdr %>%
+  dplyr::group_by(outcome, exposure) %>%
+  dplyr::summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  dplyr::select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  dplyr::mutate(
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = dplyr::case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
 ```
 
 ```{r}
@@ -976,6 +1112,72 @@ mod3c_results_fdr <- mod3c_results %>%
 ```
 
 ```{r}
+hm_mod3c <- mod3c_results_fdr %>%
+  dplyr::group_by(outcome, exposure) %>%
+  dplyr::summarise(
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  dplyr::select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  dplyr::mutate(
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    sig = dplyr::case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
+
+```
+
+```{r}
 beta_mod3c <- max(abs(hm_mod3c$beta), na.rm = TRUE)
 
 plot_mod3c <- ggplot(
@@ -1051,6 +1253,95 @@ mod3d_results_fdr<- mod3d_results %>%
     )
   ) %>%
   dplyr::ungroup()
+```
+
+
+```{r}
+#--------------------
+#heatmap for model 3d
+#---------------------
+hm_mod3d <- mod3d_results_fdr %>%
+  dplyr::group_by(outcome, exposure) %>%
+  dplyr::summarise(
+    
+    # Main PFAS effect (baseline)
+    beta_main = estimate[term == exposure][1],
+    pval_main = p.value[term == exposure][1],
+    pval_main_fdr = p_fdr[term == exposure][1],
+    
+    # Interaction (change over time)
+    beta_int = estimate[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    
+    pval_int = p.value[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    
+    pval_int_fdr = p_fdr[
+      term == paste0(exposure, ":visit_num") |
+        term == paste0("visit_num:", exposure)
+    ][1],
+    
+    .groups = "drop"
+  ) %>%
+  
+  # Convert to visit-specific effects
+  dplyr::mutate(
+    beta_visit0 = beta_main,
+    beta_visit1 = beta_main + beta_int,
+    beta_visit2 = beta_main + 2 * beta_int
+  ) %>%
+  
+  dplyr::select(
+    outcome, exposure,
+    beta_visit0, beta_visit1, beta_visit2,
+    pval_main, pval_main_fdr,
+    pval_int, pval_int_fdr
+  ) %>%
+  
+  # Long format for plotting
+  tidyr::pivot_longer(
+    cols = c(beta_visit0, beta_visit1, beta_visit2),
+    names_to = "visit",
+    values_to = "beta"
+  ) %>%
+  
+  dplyr::mutate(
+    
+    visit = factor(
+      visit,
+      levels = c("beta_visit0", "beta_visit1", "beta_visit2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    
+    # Significance stars
+    sig = dplyr::case_when(
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.001 ~ "***",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.01  ~ "**",
+      visit == "Baseline" & !is.na(pval_main_fdr) & pval_main_fdr < 0.05  ~ "*",
+      
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.001 ~ "***",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.01  ~ "**",
+      visit %in% c("Year 1", "Year 2") & !is.na(pval_int_fdr) & pval_int_fdr < 0.05  ~ "*",
+      
+      TRUE ~ ""
+    ),
+    
+    exposure = factor(
+      exposure,
+      levels = pfas_group_vars,
+      labels = sapply(pfas_group_vars, get_pfas_label)
+    ),
+    
+    outcome = factor(
+      outcome,
+      levels = group_time_outcomes,
+      labels = sapply(group_time_outcomes, get_outcome_label)
+    )
+  )
 ```
 
 ```{r}
