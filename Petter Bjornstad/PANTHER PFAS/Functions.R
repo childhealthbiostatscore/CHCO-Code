@@ -613,17 +613,6 @@ plot_model_2b <- function(data,
   
   plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
   
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
   
   return(plot_list)
 }
@@ -835,18 +824,6 @@ plot_model_2d <- function(data,
   }
   
   plot_list <- plot_list[!vapply(plot_list, is.null, logical(1))]
-  
-  if (save_pdf && length(plot_list) > 0) {
-    pdf(
-      file.path(out_dir, "group_time_all_outcomes.pdf"),
-      width = 8,
-      height = 6
-    )
-    for (nm in names(plot_list)) {
-      print(plot_list[[nm]])
-    }
-    dev.off()
-  }
   
   return(plot_list)
 }
