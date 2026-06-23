@@ -27,7 +27,7 @@ library(knitr)
 library(survival)
 library(broom)
 library(stringr)
-
+library(table1)
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
 
 user <- Sys.info()[["user"]]
@@ -325,11 +325,144 @@ saveWorkbook(wb,"./Results/Metabolomics Linear and Cox models/TODAY plasma metab
 
 ```
 
-# Results
+# Methods
 
+Patient demographics, covariates included in modeling, and outcomes were summarized for the TODAY cohort with available metabolomics data. Summary statistics included median (interquartile range, IQR) and frequency (percentage). 
+
+Multivariable Cox Proportional Hazard (PH) models were fit for each outcome of interest. Covariates for each model are located here: iostatistics Core Shared Drive/TODAY subaward/Metabolomic data/TODAY metabolomics covariates.xlsx. The detailed model results are here: Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/TODAY plasma metabolomics Cox models scaled baseline adjusted_march2026.xlsx and Biostatistics Core Shared Drive/TODAY subaward/Results/Metabolomics linear and Cox models/TODAY urine metabolomics Cox models scaled baseline adjusted_march2026.xlsx. 
+
+Volcano plots were created for the multivariable Cox PH models, using the hazard ratios for each metabolite. FDR adjusted p-values and unajdusted p-values were plotted in separate figures. 
+
+# Summary Statistics
+
+```{r echo=FALSE, include=FALSE}
+tab1<-table1(~ #pt demographics:   
+               AGEBASE+sex_char+racedesc+bmi+bmipct+
+               dxtime+
+               HbA1c+log_trig+sbp+dbp+si_1_ins0,
+                  data=base,
+                  overall=c(left="Total"),
+                  render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)"))
+tab1
+
+tab_outcomes<-table1(~
+             factor(MAC)+factor(MIC)+factor(HYP)+factor(RAPID)+factor(HTN)+factor(NEURO)+factor(RETINO)+factor(GLYC),
+                  data=base,
+                  overall=c(left="Total"),
+                  render.continuous=c("Median (IQR)"="MEDIAN (Q1, Q3)"))
+tab_outcomes
+
+```
+
+**Table 1: Demographics of TODAY metabolomics cohort**
+```{r,echo=FALSE,message=FALSE,results='asis',warning=FALSE}
+kable(tab1, align = c("l", "l"))
+``` 
+
+**Table 2: Outcomes of TODAY metabolomics cohort**
+```{r,echo=FALSE,message=FALSE,results='asis',warning=FALSE}
+kable(tab_outcomes, align = c("l", "l"))
+``` 
+
+# Volcano plots 
 Need to remember that the interpretation of the hazard ratios is as follows: for a one SD increase in the log of seqXXX, the risk is multiplied by....
 
-```{r echo=FALSE, include=TRUE}
+```{r echo=FALSE, include=TRUE, fig.width = 10, fig.height = 7}
+### looped code for all volcano plots (from Claude):
+
+# Define your datasets and their labels as a named list
+datasets <- list(
+  "MAC"          = result_MAC,
+  "MIC"          = result_MIC,
+  "HYP"          = result_HYP,
+  "RAPID"        = result_RAPID,
+  "HTN with SBP" = results_htn_bp,
+  "HTN"          = result_HTN,
+  "NEURO"        = result_NEURO,
+  "RETINO"       = result_RETINO,
+  "GLYC"         = result_GLYC,
+  "GLYC with A1c"= results_glyc_a1c
+)
+
+# Store plots if you want to access them later
+volcano_plots <- list()
+
+for (label in names(datasets)) {
+  
+  full_results <- datasets[[label]]
+  
+  # ---- P-value columns ----
+  full_results$p_unadjusted <- full_results$p.value
+  full_results$p_adjusted   <- full_results$adj.p.value
+  
+  # ---- -log10 transformation ----
+  full_results$p10_unadjusted <- -log10(pmax(full_results$p_unadjusted, 1e-10))
+  full_results$p10_adjusted   <- -log10(pmax(full_results$p_adjusted,   1e-10))
+  
+  # ---- Color assignment ----
+  full_results$color_unadjusted <- ifelse(
+    full_results$p_unadjusted < 0.05 & full_results$estimate > 1, "lightcoral",
+    ifelse(full_results$p_unadjusted < 0.05 & full_results$estimate < 1, "lightblue", "gray"))
+  
+  full_results$color_adjusted <- ifelse(
+    full_results$p_adjusted < 0.05 & full_results$estimate > 1, "lightcoral",
+    ifelse(full_results$p_adjusted < 0.05 & full_results$estimate < 1, "lightblue", "gray"))
+  
+  # ---- Significant subsets ----
+  significant_df_adjusted   <- full_results[full_results$p_adjusted   < 0.05, ]
+  significant_df_unadjusted <- full_results[full_results$p_unadjusted < 0.05, ]
+  
+  # ---- X-axis limits ----
+  x_min <- min(full_results$estimate)
+  x_max <- max(full_results$estimate)
+  
+  # ---- Adjusted volcano plot ----
+  p_adjusted <- ggplot(full_results, aes(x = estimate, y = p10_adjusted, color = color_adjusted)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title    = paste0(label, ": Adjusted P-values"),
+      x        = "HR",
+      y        = "-log10(P-Value)",
+      color    = "LogFC Direction") +
+    theme(
+      plot.title   = element_text(hjust = 0),
+      axis.text.x  = element_text(angle = 0, hjust = 1)) +
+    scale_x_continuous(limits = c(x_min, x_max), expand = expansion(mult = 0.2)) +
+    coord_cartesian(clip = "off") +
+    geom_text(data = significant_df_adjusted, aes(label = term),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  # ---- Unadjusted volcano plot ----
+  p_unadjusted <- ggplot(full_results, aes(x = estimate, y = p10_unadjusted, color = color_unadjusted)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title    = paste0(label, ": Unadjusted P-values"),
+      x        = "HR",
+      y        = "-log10(P-Value)",
+      color    = "LogFC Direction") +
+    theme(
+      plot.title   = element_text(hjust = 0),
+      axis.text.x  = element_text(angle = 0, hjust = 1)) +
+    scale_x_continuous(limits = c(x_min, x_max), expand = expansion(mult = 0.2)) +
+    coord_cartesian(clip = "off") +
+    geom_text(data = significant_df_unadjusted, aes(label = term),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  # ---- Print both plots ----
+  print(p_adjusted)
+  print(p_unadjusted)
+  
+  # ---- Store in list (optional) ----
+  volcano_plots[[paste0(label, "_adjusted")]]   <- p_adjusted
+  volcano_plots[[paste0(label, "_unadjusted")]] <- p_unadjusted
+}
+```
+
+```{r echo=FALSE, include=FALSE}
 # kaplan meier plot for ASN abstract: 
 library(survminer)
 base$yearsMAC<-base$DAYSTOMAC/365.25

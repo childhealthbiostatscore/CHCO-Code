@@ -658,6 +658,7 @@ echo_keep <- echo_keep %>%
                       LA_volume_est / BSA_dubois,
                       NA_real_)
   )
+
 # =============================================================================
 # HFpEF SCORING SYSTEM
 # =============================================================================
@@ -770,6 +771,9 @@ pedsQL_all <- bind_rows(
   pedsQL_T_today %>% select(all_of(cols_to_keep))
 )
 
+# there are some duplicates - in the absence of information, just keep the first
+pedsQL_all <- pedsQL_all %>% distinct(RELEASEID, DAYS, .keep_all = TRUE)
+
 # Define PedsQL items
 pedsQL_items <- c("G01WALK", "G02RUN", "G03SPORT", "G04LIFT", 
                   "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
@@ -806,7 +810,7 @@ pedsQL_summary <- pedsQL_all %>%
 # set any days <0 to zero
 baseline$days <- 0
 baserisk$days <- 0
-biom_ckm$days <- ifelse(biom_ckm$days <0, 0, biom_ckm$days)
+biom_ckm <- biom_ckm[biom_ckm$days >=0,]
 
 # Fix the column name first
 baseline <- baseline %>% 

@@ -147,11 +147,13 @@ urine <- rbind(nih_urine,lead_urine)
 # added on 5/1: merge in MTA data with urine:
 niddk_mta_2026$current_label <-niddk_mta_2026$Filename
 niddk_mta_2026 <- merge(niddk_mta_2026,ids_niddk,by="current_label",all.x = T, all.y = F)
+
 lead_mta_2026$releaseid<-lead_mta_2026$Filename
+lead_mta_2026 <- merge(lead_mta_2026,ids_lead,by="releaseid",all.x=T, all.y = F)
 
-mta<-rbind(niddk_mta_2026[,c("releaseid","Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")],
-                lead_mta_2026[,c("releaseid","Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")])
-
+mta<-rbind(niddk_mta_2026[,c("releaseid","Date.Drawn","Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")],
+                lead_mta_2026[,c("releaseid","Date.Drawn", "Adenine.(ng/mL)","MTA.(ng/mL)","Adenine/MTA.Ratio")])
+names(mta)<-c("releaseid","Date.Drawn","Adenine.ng/mL","MTA.ng/mL","Adenine.MTA.ratio")
 # merge to plasma
 # first NIH
 nih_plasma$current_label <- nih_plasma$Freezerworks.ID
@@ -195,11 +197,10 @@ plasma_ceramides$c18_c24_ratio.in.uM<-plasma_ceramides$C18d18_1_18_0.in.uM/plasm
 plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
 plasma_ceramides$Date.Drawn<-as.Date(plasma_ceramides$Date.Drawn,format = "%m/%d/%Y")
 
-plasma_all<-merge(plasma,plasma_ceramides,by=c("releaseid","Date.Drawn"),all=T)
-
 # Save
 save(urine,file = "./Metabolomic data/urine.Rdata")
-save(plasma_all,file = "./Metabolomic data/plasma_all.Rdata")
+save(plasma,file = "./Metabolomic data/plasma.Rdata")
+save(plasma_ceramides,file = "./Metabolomic data/plasma_ceramides.Rdata")
 save(mta,file = "./Metabolomic data/mta.Rdata")
 
 

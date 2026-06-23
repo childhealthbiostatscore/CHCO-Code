@@ -173,7 +173,9 @@ rpc2_dat <- harm_dat %>%
   dplyr::mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
          eGFR_CKD_epi_cr_cysc = ckd_epi_cr_cysc_2021(creatinine_s, cystatin_c_s, age, sex),
          eGFR_CKD_epi_cysc = ckd_epi_cysc_2012(cystatin_c_s, age, sex),
-         eGFR_CKD_epi_manual = ckd_epi_cr_2021(creatinine_s, age, sex)) %>%
+         eGFR_CKD_epi_manual = ckd_epi_cr_2021(creatinine_s, age, sex),
+         albuminuria_cat_binary = case_when(acr_u < 30 ~ "A1",
+                                            acr_u >=30 ~ "A2 + A3")) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit))
@@ -182,7 +184,9 @@ hc_dat <- harm_dat %>%
   filter(study == "CROCODILE" & group == "Lean Control") %>%
   dplyr::mutate(eGFR_CKD_epi_cr_cysc = ckd_epi_cr_cysc_2021(creatinine_s, cystatin_c_s, age, sex),
          eGFR_CKD_epi_cysc = ckd_epi_cysc_2012(cystatin_c_s, age, sex),
-         eGFR_CKD_epi_manual = ckd_epi_cr_2021(creatinine_s, age, sex)) %>%
+         eGFR_CKD_epi_manual = ckd_epi_cr_2021(creatinine_s, age, sex),
+         albuminuria_cat_binary = case_when(acr_u < 30 ~ "A1",
+                                                     acr_u >=30 ~ "A2 + A3")) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit))
@@ -246,6 +250,11 @@ rpc_nonbx_dat_michigan <- rpc_nonbx_dat %>%
                 gfr_raw_plasma, gfr_bsa_plasma_blht,
                 erpf_raw_plasma, erpf_bsa_plasma_blht)
 # write.csv(rpc_nonbx_dat_michigan, file.path(root_path, "RPC2/Data Clean/rpc2_michigan_052826.csv"), row.names = F, na = "")
+
+rpc_nonbx_dat_deid <- rpc_nonbx_dat %>%
+  dplyr::select(-mrn, -dob, -dob_month, -dob_year) %>%
+  dplyr::select(where(~ !all(is.na(.))))
+write.csv(rpc_nonbx_dat_deid, file.path(root_path, "RPC2/Data Clean/rpc2_full_deid.csv"), row.names = F, na = "")
 ```
 
 # Biopsy in at least baseline
@@ -437,12 +446,14 @@ summary(arsenal::paired(visit ~ age  + weight + height + bmi +
                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + 
                           signed.rank(triglycerides, "Nmiss", "medianq1q3") + 
                           eGFR_CKD_epi + eGFR_CKD_epi_cr_cysc + signed.rank(acr_u, "Nmiss", "median", "q1q3") +  
+                          mcnemar(albuminuria_cat_binary) +
                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
                           glomerular_pressure + ff + 
                           avg_pcascl + avg_c_adc + total_kidney_volume_ml + 
                           avg_c_r2 + bold_l_bl_cortex + bold_r_bl_cortex + avg_k_r2, 
                         data = rpc_nonbx_dat, id = record_id), digits = 1)
 
+kidney_function_vars <- c(kidney_function_vars, "")
 # missing_uacr <- subset(rpc_nonbx_dat, is.na(acr_u))$record_id
 # subset(rpc_nonbx_dat, record_id %in% missing_uacr, 
 #        select = c(record_id, visit, mrn, date))
@@ -463,6 +474,10 @@ summary(arsenal::paired(visit ~ age  + weight + height + bmi +
 #                            avg_pcascl + avg_c_adc + total_kidney_volume_ml + 
 #                           avg_c_r2 + bold_l_bl_cortex + bold_r_bl_cortex + avg_k_r2, 
 #                          data = subset(rpc_nonbx_dat, record_id %in% uacr_30_bl), id = record_id), digits = 1)
+
+?mcnemar.test
+
+mcnemar.test
 ```
 
 ```{r echo = F, warning = F, results='asis'}
@@ -489,6 +504,7 @@ kidney_function_plots <- purrr::imap(kidney_function_vars, ~ plot_rpc_box(rpc_no
 
 purrr::walk(kidney_function_plots, print)
 ```
+
 
 ```{r echo = F, warning = F, results='asis'}
 mm_kidney_function <- map(names(kidney_function_vars), 

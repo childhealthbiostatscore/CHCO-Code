@@ -1,0 +1,952 @@
+---
+title: "scRNA transcript search (config-driven)"
+author: "Ye Ji Choi"
+format: html
+---
+
+<!--
+================================================================================
+HOW TO USE THIS SCRIPT
+================================================================================
+This file is split into two parts:
+
+  1. CONFIG  — the only block you normally edit. Add transcripts, cell-type
+               views, covariates/stratifications, cohorts, and palettes here.
+  2. ENGINE  — stable helper functions + drivers. You should not need to touch
+               this to add a new transcript or covariate.
+
+To add a NEW TRANSCRIPT:
+  - Add the gene symbol to `genes`.
+  - That's it for NEBULA: every covariate model below is fit on ALL genes at
+    once, so new genes automatically appear in every *_neb.csv.
+  - For figures, cell types are auto-detected (top expressers per gene per
+    dataset). To force specific cell types for a gene, add an entry to
+    `gene_views_manual`.
+
+To add a NEW COVARIATE / STRATIFICATION:
+  - Add an entry to `pb90_covariates` and/or `attempt_covariates`.
+  - type = "categorical" -> boxplot + dotplot (pb90) / handled per dataset
+    type = "continuous"  -> scatter of per-subject mean expression vs covariate
+    type = "did"         -> ATTEMPT difference-in-differences (treatment*visit):
+                            spaghetti + delta boxplot + dotplot
+  - Each covariate drives BOTH the NEBULA model (CSV) and its figure.
+
+Outputs:
+  - CSVs   -> s3://scrna/<base_dir>/<dataset>_<covariate>[_<celltype>]_neb.csv
+  - Figures-> s3://scrna/<fig_dir>/...   and UMAP feature plots under <umap_dir>
+================================================================================
+-->
+
+```{r echo = F}
+library(dplyr)
+library(Seurat)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(nebula)
+library(openxlsx)
+library(table1)
+library(lme4)
+library(lmerTest)
+library(purrr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(Hmisc)
+library(ggtext)
+library(corrplot)
+library(gtools)
+library(foreach)
+library(emmeans)
+library(knitr)
+library(kableExtra)
+library(future)
+library(BiocParallel)
+library(SingleCellExperiment)
+library(scran)
+library(fgsea)
+library(msigdbr)
+```
+
+```{r echo = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F}
+# ---- S3 read/write helpers (region-aware) ----------------------------------
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+
+  on.exit(unlink(tmp))
+
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket,
+                                       object = object,
+                                       file = tmp), opts))
+  }
+
+  return(FUN(tmp, ...))
+}
+
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                 region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+```
+
+# ============================================================================
+# CONFIG  — edit this block
+# ============================================================================
+
+```{r}
+## --- Transcripts -----------------------------------------------------------
+## NEBULA fits ALL of these at once, so adding a gene here automatically adds
+## it to every *_neb.csv. Only genes present in a dataset are used (missing
+## ones are silently dropped per dataset).
+genes <- c("SLC6A19", "NNMT", "SHISA5", "STRA6", "LTBP3", "NPLOC4", "NRP1")
+
+## --- Output locations (S3) -------------------------------------------------
+base_dir <- "Projects/transcript search/Results/"
+fig_dir  <- "Projects/transcript search/Results/Figures/Box Plots/"
+umap_dir <- "Projects/transcript search/Results/Figures/UMAP/"
+
+## --- Auto cell-type detection ----------------------------------------------
+## For figures, cell types are chosen automatically per gene per dataset:
+## any cell type expressing the gene in > pct_threshold of cells, capped at
+## max_auto_celltypes (ranked by % expressed). Override per gene below.
+pct_threshold     <- 10    # % of cells expressing to be "of interest"
+max_auto_celltypes <- 6    # cap so facet plots stay readable
+
+## --- Manual cell-type overrides (optional) ---------------------------------
+## Map gene -> list of views. Each view: celltypes, ct_col, tag.
+## Views whose cell types are absent from a dataset are skipped automatically.
+## Anything NOT listed here is auto-detected.
+gene_views_manual <- list(
+  SLC6A19 = list(
+    list(celltypes = c("PT-S1/S2", "PT-S3", "aPT"), ct_col = "KPMP_celltype",         tag = "PT_sub"),
+    list(celltypes = "PT",                          ct_col = "KPMP_celltype_general", tag = "PT")
+  )
+  # NNMT and the 5 new genes are auto-detected (top expressers per dataset).
+)
+
+## --- Palettes --------------------------------------------------------------
+group_pal  <- c("Type 2 Diabetes" = "#e07a5f", "Type 1 Diabetes" = "#f2cc8f",
+                "Lean Control"    = "#81b29a", "Obese Control"   = "#3d405b")
+dkd_pal    <- c("DKD" = "#f1856a", "non_DKD" = "#a3b18a")
+sglt2i_pal <- c("Yes" = "#4f6d7a", "No" = "#c0d6df", "1" = "#4f6d7a", "0" = "#c0d6df")
+arm_cols   <- c("Dapagliflozin 5mg" = "#a7b298", "Placebo" = "#f8ae9d")
+
+## ===========================================================================
+## PB90 covariates / stratifications
+##   var        : NEBULA predictor & plot grouping column (the modelled column)
+##   type        : "categorical" | "continuous"
+##   cohort      : `group` levels to keep (NULL = all cohorts)
+##   transform   : NULL, or a function applied to `source_var` to create `var`
+##   source_var  : raw column the transform reads (continuous-with-transform)
+##   palette     : named fill colors (categorical)
+##   label       : x-axis label (continuous)
+##   nebula/plot : TRUE/FALSE toggles (default TRUE)
+## ===========================================================================
+pb90_covariates <- list(
+  group_all = list(var = "group",          type = "categorical",
+                   cohort = NULL,           palette = group_pal),
+
+  sglt2i_ever_t2d = list(var = "sglt2i_ever",  type = "categorical",
+                   cohort = "Type 2 Diabetes", palette = sglt2i_pal),
+
+  sglt2i_timepoint_t2d = list(var = "sglt2i_timepoint", type = "categorical",
+                   cohort = "Type 2 Diabetes", palette = sglt2i_pal),
+
+  dkd30_t2d = list(var = "dkd_group_30",    type = "categorical",
+                   cohort = c("Type 2 Diabetes", "Obese Control"), palette = dkd_pal),
+
+  dkd100_t2d = list(var = "dkd_group_100",  type = "categorical",
+                   cohort = c("Type 2 Diabetes", "Obese Control"), palette = dkd_pal),
+
+  egfr = list(var = "eGFR_CKD_epi",         type = "continuous",
+                   cohort = NULL,           label = "eGFR (CKD-EPI)"),
+
+  log_uacr = list(var = "log_acr_u",        type = "continuous",
+                   cohort = NULL,           source_var = "acr_u", transform = log,
+                   label = "log(uACR)")
+)
+
+## ===========================================================================
+## ATTEMPT covariates (T1D only; pre/post; dapagliflozin vs placebo)
+##   type "did"        : difference-in-differences, var = "treatment*visit"
+##   type "continuous" : baseline-only association (visit == PRE)
+## ===========================================================================
+attempt_covariates <- list(
+  treatment_did = list(var = "treatment*visit", type = "did", palette = arm_cols),
+
+  egfr_bl = list(var = "eGFR_CKD_epi",      type = "continuous",
+                 baseline_only = TRUE,       label = "eGFR (CKD-EPI)"),
+
+  log_uacr_bl = list(var = "log_uacr",      type = "continuous",
+                 baseline_only = TRUE,       source_var = "emu_urine_acr_mean",
+                 transform = log,            label = "log(uACR)")
+)
+```
+
+# ============================================================================
+# ENGINE  — stable helpers & drivers (no edits needed to add transcripts)
+# ============================================================================
+
+```{r}
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
+theme_transparent <- theme(
+  plot.background   = element_rect(fill = "transparent", color = NA),
+  panel.background  = element_rect(fill = "transparent", color = NA),
+  legend.background = element_rect(fill = "transparent", color = NA)
+)
+
+# genes actually present in an object (avoids subset errors for absent symbols)
+genes_in <- function(obj) intersect(genes, rownames(obj))
+
+# ---------------------------------------------------------------------------
+# Cell-type view resolution: manual override else auto-detect top expressers
+# ---------------------------------------------------------------------------
+auto_gene_views <- function(obj, gene, ct_col = "KPMP_celltype") {
+  if (!gene %in% rownames(obj)) return(list())
+  expr <- Seurat::FetchData(obj, vars = gene)[[1]]
+  ct   <- obj@meta.data[[ct_col]]
+  pct  <- tapply(expr > 0, ct, function(x) mean(x, na.rm = TRUE) * 100)
+  pct  <- pct[!is.na(pct) & pct > pct_threshold]
+  if (length(pct) == 0) return(list())
+  hits <- names(sort(pct, decreasing = TRUE))
+  hits <- head(hits, max_auto_celltypes)
+  list(list(celltypes = hits, ct_col = ct_col, tag = "auto"))
+}
+
+build_gene_views <- function(obj, gene) {
+  if (!is.null(gene_views_manual[[gene]])) {
+    vs <- gene_views_manual[[gene]]
+    vs <- Filter(function(v) any(v$celltypes %in% obj@meta.data[[v$ct_col]]), vs)
+    if (length(vs) > 0) return(vs)
+  }
+  auto_gene_views(obj, gene)
+}
+
+# all views for all genes on a given object
+build_all_views <- function(obj) setNames(lapply(genes_in(obj), function(g) build_gene_views(obj, g)),
+                                          genes_in(obj))
+
+# flatten gene views -> named vector ct -> ct_col (for per-cell-type NEBULA)
+flatten_ct_col <- function(all_views) {
+  m <- list()
+  for (g in names(all_views)) for (v in all_views[[g]]) for (ct in v$celltypes) m[[ct]] <- v$ct_col
+  unlist(m)
+}
+
+# ---------------------------------------------------------------------------
+# NEBULA core (unchanged logic)
+# ---------------------------------------------------------------------------
+run_nebula_var <- function(var, seurat_obj, ncore = 4, record_id = "record_id") {
+  meta <- seurat_obj@meta.data
+  form <- if (inherits(var, "formula")) var else as.formula(paste("~", var))
+  vars_used <- all.vars(form)
+  keep <- stats::complete.cases(meta[, vars_used, drop = FALSE])
+
+  if (sum(keep) < 2 || dplyr::n_distinct(meta[[record_id]][keep]) < 2) return(NULL)
+
+  meta_v   <- droplevels(meta[keep, , drop = FALSE])
+  counts_v <- round(GetAssayData(seurat_obj, layer = "counts"))[, keep, drop = FALSE]
+  offset_v <- seurat_obj$pooled_offset[keep]
+  pred     <- model.matrix(form, data = meta_v)
+
+  data_g <- group_cell(count = counts_v, id = meta_v[[record_id]], pred = pred, offset = offset_v)
+  if (is.null(data_g)) data_g <- list(count = counts_v, id = meta_v[[record_id]], pred = pred, offset = offset_v)
+
+  nebula(count = data_g$count, id = data_g$id, pred = data_g$pred,
+         offset = data_g$offset, ncore = ncore, reml = 1, model = "NBLMM")
+}
+
+neb_run_and_save <- function(seurat_obj, var, out_object,
+                             record_id = NULL, person_col, visit_col = NULL, ncore = 1) {
+  md      <- seurat_obj@meta.data
+  n_cells <- ncol(seurat_obj)
+  people  <- md[[person_col]]
+
+  args <- list(var = var, seurat_obj = seurat_obj, ncore = ncore)
+  if (!is.null(record_id)) args$record_id <- record_id
+  res <- do.call(run_nebula_var, args)
+  if (is.null(res)) stop("NEBULA returned NULL (too few cells/subjects with complete data)")
+
+  if (!is.null(visit_col) && visit_col %in% names(md)) {
+    per_person <- as.integer(table(interaction(people, md[[visit_col]], drop = TRUE)))
+  } else {
+    per_person <- as.integer(table(people))
+  }
+
+  stats <- data.frame(
+    n_cells = n_cells,
+    n_people = length(unique(people)),
+    median_cells_per_person = median(per_person)
+  )
+
+  terms      <- trimws(strsplit(var, "[*:+]")[[1]])
+  terms      <- terms[terms %in% names(md)]
+  group_vars <- terms[!vapply(terms, function(t) is.numeric(md[[t]]), logical(1))]
+  if (length(group_vars) > 0) {
+    grp       <- do.call(interaction, c(md[group_vars], list(drop = TRUE, sep = "_")))
+    cells_by  <- table(grp)
+    people_by <- tapply(people, grp, function(x) length(unique(x)))
+    for (g in names(cells_by)) {
+      stats[[paste0("cells_",  g)]] <- as.integer(cells_by[[g]])
+      stats[[paste0("people_", g)]] <- as.integer(people_by[[g]])
+    }
+  }
+
+  out_df <- cbind(res$summary, stats[rep(1, nrow(res$summary)), , drop = FALSE], row.names = NULL)
+  s3write_using_region(out_df, FUN = write.csv, bucket = "scrna",
+                       object = out_object, row.names = FALSE, region = "")
+  message("saved: ", out_object, " | cells: ", n_cells, " | people: ", stats$n_people,
+          " | converged: ", sum(res$convergence == 1), "/", length(res$convergence))
+  invisible(list(summary = out_df, convergence = res$convergence, stats = stats))
+}
+
+# ---------------------------------------------------------------------------
+# Prep builders: turn a covariate spec into a subsetting function
+# ---------------------------------------------------------------------------
+build_prep_pb90 <- function(spec) {
+  function(obj) {
+    keep <- if (is.null(spec$cohort)) rep(TRUE, ncol(obj)) else obj$group %in% spec$cohort
+    o    <- subset(obj, cells = colnames(obj)[keep], features = genes_in(obj))
+    if (!is.null(spec$transform)) {
+      o[[spec$var]] <- spec$transform(o@meta.data[[spec$source_var]])
+      o <- subset(o, cells = colnames(o)[is.finite(o@meta.data[[spec$var]])])
+    }
+    o
+  }
+}
+
+build_prep_attempt <- function(spec) {
+  function(obj) {
+    o <- subset(obj, features = genes_in(obj))
+    if (isTRUE(spec$baseline_only)) o <- subset(o, subset = visit == "PRE")
+    if (!is.null(spec$transform)) {
+      o[[spec$var]] <- spec$transform(o@meta.data[[spec$source_var]])
+      o <- subset(o, cells = colnames(o)[is.finite(o@meta.data[[spec$var]])])
+    }
+    o
+  }
+}
+
+# wrap a base spec so its prep additionally subsets to one cell type
+add_celltype <- function(spec, ct, ct_col) {
+  force(ct); force(ct_col)
+  ct_safe   <- gsub("[^A-Za-z0-9]+", "_", ct)
+  orig_prep <- spec$prep
+  list(
+    var       = spec$var,
+    out       = sub("_neb\\.csv$", paste0("_", ct_safe, "_neb.csv"), spec$out),
+    record_id = spec$record_id,
+    prep      = function(obj) {
+      o <- orig_prep(obj)
+      keep <- o@meta.data[[ct_col]] %in% ct
+      subset(o, cells = colnames(o)[keep])
+    }
+  )
+}
+
+# Build {overall + per-cell-type} specs for every NEBULA-enabled covariate,
+# then run them all and save CSVs.
+run_nebula_suite <- function(obj, covariates, dataset, prep_builder,
+                             person_col, record_id = NULL, visit_col = NULL) {
+  all_views <- build_all_views(obj)
+  ct_to_col <- flatten_ct_col(all_views)
+
+  base_specs <- list()
+  for (nm in names(covariates)) {
+    cv <- covariates[[nm]]
+    if (isFALSE(cv$nebula)) next
+    base_specs[[nm]] <- list(
+      var       = cv$var,
+      out       = paste0(base_dir, dataset, "_", nm, "_neb.csv"),
+      record_id = record_id,
+      prep      = prep_builder(cv)
+    )
+  }
+
+  ct_specs <- list()
+  for (ct in names(ct_to_col)) {
+    ct_col <- ct_to_col[[ct]]
+    for (nm in names(base_specs)) {
+      key <- paste0(nm, "_", gsub("[^A-Za-z0-9]+", "_", ct))
+      ct_specs[[key]] <- add_celltype(base_specs[[nm]], ct, ct_col)
+    }
+  }
+
+  specs   <- c(base_specs, ct_specs)
+  results <- list()
+  for (nm in names(specs)) {
+    message("\n=== NEBULA [", dataset, "]: ", nm, " ===")
+    spec <- specs[[nm]]
+    obj_s <- tryCatch(spec$prep(obj), error = function(e) NULL)
+    if (is.null(obj_s) || ncol(obj_s) == 0) { message("  skipped: no cells"); next }
+    results[[nm]] <- tryCatch(
+      neb_run_and_save(obj_s, var = spec$var, out_object = spec$out,
+                       record_id = spec$record_id, person_col = person_col, visit_col = visit_col),
+      error = function(e) { message("  skipped: ", conditionMessage(e)); NULL }
+    )
+  }
+  invisible(results)
+}
+```
+
+```{r}
+# ---------------------------------------------------------------------------
+# UMAP feature plots (loops over all present genes)
+# ---------------------------------------------------------------------------
+prepare_umap_metadata <- function(seurat_obj, genes,
+                                  celltype_col = "KPMP_celltype",
+                                  umap_reduction = "umap.harmony",
+                                  color_palette = "Set3", custom_colors = NULL) {
+  ct_col_vals <- seurat_obj@meta.data[[celltype_col]]
+  celltypes   <- if (is.factor(ct_col_vals)) levels(ct_col_vals) else sort(unique(as.character(ct_col_vals)))
+  celltypes   <- celltypes[!is.na(celltypes)]
+  n_celltypes <- length(celltypes)
+  if (!is.null(custom_colors)) {
+    celltype_colors <- custom_colors
+  } else {
+    umap_colors <- colorRampPalette(brewer.pal(min(brewer.pal.info[color_palette, "maxcolors"], n_celltypes), color_palette))(n_celltypes)
+    celltype_colors <- setNames(umap_colors, celltypes)
+  }
+  expr_df <- Seurat::FetchData(seurat_obj, vars = genes) %>% as.data.frame()
+  colnames(expr_df) <- genes
+  umap_embed_cols <- colnames(seurat_obj@reductions[[umap_reduction]]@cell.embeddings)
+  metadata <- seurat_obj@meta.data %>%
+    cbind(seurat_obj@reductions[[umap_reduction]]@cell.embeddings) %>%
+    cbind(expr_df)
+  colnames(metadata)[colnames(metadata) %in% umap_embed_cols] <- c("umapharmony_1", "umapharmony_2")
+  centers <- metadata %>% dplyr::group_by(.data[[celltype_col]]) %>%
+    summarise(x = median(umapharmony_1), y = median(umapharmony_2), .groups = "drop")
+  list(metadata = metadata, centers = centers, celltype_colors = celltype_colors)
+}
+
+plot_feature_umap <- function(genes, metadata, centers, celltype_colors,
+                              pct_threshold = 10, save_to_s3 = FALSE,
+                              s3_prefix = umap_dir, s3_suffix = "", s3_bucket = "scrna",
+                              plot_height = 10, plot_width = 10) {
+  plots <- list()
+  for (gene in genes) {
+    expr_stats <- metadata %>% dplyr::group_by(KPMP_celltype) %>%
+      dplyr::summarise(pct_expressed = round(mean(.data[[gene]] > 0) * 100, 1),
+                       n_total = n(), .groups = "drop") %>%
+      filter(pct_expressed > pct_threshold)
+    centers_filtered <- centers %>%
+      mutate(pct_expressed_5 = case_when(KPMP_celltype %in% expr_stats$KPMP_celltype ~ "Y", TRUE ~ "N"))
+    caption_text <- expr_stats %>% arrange(desc(pct_expressed)) %>%
+      mutate(color = celltype_colors[KPMP_celltype],
+             label = paste0("<span style='color:", color, "'>&#9679; </span>**", KPMP_celltype, "**: ", pct_expressed, "%"),
+             group = ceiling(row_number() / 5)) %>%
+      dplyr::group_by(group) %>% summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
+      rbind(data.frame(group = 0, line = paste0("**% Expressed (>", pct_threshold, "%):**"))) %>%
+      arrange(group) %>% pull(line) %>% paste(collapse = "<br><br>")
+    feature_p <- metadata %>%
+      dplyr::mutate(feature_color_logic = case_when(.data[[gene]] > 0 ~ KPMP_celltype, TRUE ~ "No")) %>%
+      ggplot(aes(x = umapharmony_1, y = umapharmony_2, color = feature_color_logic)) +
+      geom_point(alpha = 0.4) +
+      geom_text_repel(data = centers_filtered, aes(x = x, y = y, label = KPMP_celltype),
+                      inherit.aes = FALSE, size = 4,
+                      fontface = ifelse(centers_filtered$pct_expressed_5 == "Y", "bold", "plain"),
+                      color = ifelse(centers_filtered$pct_expressed_5 == "Y", "black", "#495057"),
+                      max.overlaps = Inf) +
+      scale_color_manual(values = c(celltype_colors, "No" = "#edede9")) +
+      theme_minimal() +
+      theme(panel.grid = element_blank(), text = element_text(size = 15), legend.position = "none",
+            plot.title = element_text(hjust = 0.5, face = "bold"),
+            plot.caption = element_markdown(size = 12, hjust = 0.5),
+            axis.title.x = element_text(hjust = 0), axis.title.y = element_text(hjust = 0)) +
+      theme_transparent +
+      labs(x = "UMAP1", y = "UMAP2", title = gene, caption = caption_text)
+    print(feature_p)
+    plots[[gene]] <- feature_p
+    if (save_to_s3) {
+      s3write_using_region(feature_p, FUN = ggsave,
+        object = paste0(s3_prefix, gene, "_FeaturePlot", s3_suffix, ".png"),
+        bucket = s3_bucket, region = "", height = plot_height, width = plot_width)
+    }
+  }
+  invisible(plots)
+}
+```
+
+```{r}
+# ---------------------------------------------------------------------------
+# PB90 figure functions
+# ---------------------------------------------------------------------------
+# categorical: per-person boxplot + dotplot
+plot_pb90_box <- function(obj, gene, celltypes, ct_col, tag, out_dir,
+                          group_col = "group", person_col = "record_id",
+                          cohort = NULL, cohort_col = "group", fill_values = NULL) {
+  df <- FetchData(obj, vars = unique(c(gene, person_col, group_col, ct_col)))
+  names(df)[names(df) == gene]       <- "expr"
+  names(df)[names(df) == person_col] <- "person"
+  names(df)[names(df) == group_col]  <- "strat"
+  names(df)[names(df) == ct_col]     <- "celltype"
+  df$cohort <- obj@meta.data[rownames(df), cohort_col]
+  if (!is.null(cohort)) df <- df %>% filter(.data$cohort %in% .env$cohort)
+  df <- df %>% filter(celltype %in% celltypes, !is.na(strat))
+
+  pb <- df %>% group_by(strat, celltype, person) %>%
+    summarise(mean_expr = mean(expr), .groups = "drop") %>% mutate(strat = factor(strat))
+
+  p1 <- ggplot(pb, aes(strat, mean_expr, fill = strat)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+    geom_jitter(width = 0.15, alpha = 0.6) +
+    facet_wrap(~ celltype, scales = "free_y") +
+    labs(y = paste("Mean", gene, "(log-norm)"), x = NULL) +
+    theme_minimal() +
+    theme(text = element_text(size = 15), legend.position = "none",
+          axis.text.x = element_text(angle = 60, hjust = 1), panel.grid = element_blank()) +
+    theme_transparent
+  if (!is.null(fill_values)) p1 <- p1 + scale_fill_manual(values = fill_values)
+  print(p1)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "pb90_", gene, "_", tag, "_box.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+
+  o <- obj
+  if (!is.null(cohort)) o <- subset(o, cells = colnames(o)[o@meta.data[[cohort_col]] %in% cohort])
+  o$grp <- paste(o@meta.data[[ct_col]], o@meta.data[[group_col]], sep = "__")
+  p2 <- DotPlot(o, features = gene, group.by = "grp")@data %>%
+    separate_wider_delim(id, delim = "__", names = c("celltype", "strat")) %>%
+    filter(celltype %in% celltypes, strat != "NA") %>%
+    ggplot(aes(celltype, strat, size = pct.exp, color = avg.exp.scaled)) +
+    geom_point() +
+    scale_color_gradient2(low = "#fff0f3", mid = "#fff0f3", high = "#ee7674") +
+    theme_minimal() + theme(panel.grid = element_blank(), text = element_text(size = 15)) +
+    theme_transparent + labs(y = NULL, x = NULL, size = "% expr", color = "Avg expr")
+  print(p2)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "pb90_", gene, "_", tag, "_dotplot.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+}
+
+# continuous: per-person mean expression vs covariate, with lm trend
+plot_pb90_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
+                              covar_var, transform = NULL, label = NULL,
+                              person_col = "record_id", cohort = NULL, cohort_col = "group") {
+  df <- FetchData(obj, vars = unique(c(gene, person_col, covar_var, ct_col)))
+  names(df)[names(df) == gene]       <- "expr"
+  names(df)[names(df) == person_col] <- "person"
+  names(df)[names(df) == covar_var]  <- "covar"
+  names(df)[names(df) == ct_col]     <- "celltype"
+  df$cohort <- obj@meta.data[rownames(df), cohort_col]
+  if (!is.null(cohort)) df <- df %>% filter(.data$cohort %in% .env$cohort)
+  if (!is.null(transform)) df$covar <- transform(df$covar)
+  df <- df %>% filter(celltype %in% celltypes, is.finite(covar))
+  if (nrow(df) == 0) { message("  no data for scatter: ", gene, " / ", tag); return(invisible()) }
+
+  pb <- df %>% group_by(celltype, person) %>%
+    dplyr::summarise(mean_expr = mean(expr), covar = dplyr::first(covar), .groups = "drop")
+
+  p <- ggplot(pb, aes(covar, mean_expr)) +
+    geom_point(alpha = 0.6, color = "#3d405b") +
+    geom_smooth(method = "lm", se = TRUE, color = "#e07a5f", fill = "#f2cc8f") +
+    facet_wrap(~ celltype, scales = "free") +
+    labs(x = label %||% covar_var, y = paste("Mean", gene, "(log-norm)")) +
+    theme_minimal() + theme(text = element_text(size = 15), panel.grid = element_blank()) +
+    theme_transparent
+  print(p)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "pb90_", gene, "_", tag, "_scatter.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+}
+
+# ---------------------------------------------------------------------------
+# ATTEMPT figure functions
+# ---------------------------------------------------------------------------
+# DiD: spaghetti (PRE->POST by arm) + delta boxplot + dotplot
+plot_attempt_did <- function(obj, gene, celltypes, ct_col, tag, out_dir, fill_values = arm_cols) {
+  df <- FetchData(obj, vars = c(gene, "subject_id", "visit", "treatment", ct_col))
+  names(df)[names(df) == gene]   <- "expr"
+  names(df)[names(df) == ct_col] <- "celltype"
+  df <- df %>% mutate(visit = factor(visit, levels = c("PRE", "POST"))) %>%
+    filter(celltype %in% celltypes)
+  pb <- df %>% group_by(treatment, celltype, subject_id, visit) %>%
+    summarise(mean_expr = mean(expr), .groups = "drop")
+
+  base_thm <- theme_minimal() +
+    theme(text = element_text(size = 15), legend.position = "none",
+          axis.text.x = element_text(angle = 60, hjust = 1), panel.grid = element_blank()) +
+    theme_transparent
+
+  p1 <- ggplot(pb, aes(visit, mean_expr, color = treatment)) +
+    geom_line(aes(group = subject_id), alpha = 0.25) +
+    stat_summary(aes(group = treatment), fun = mean, geom = "line", linewidth = 1.3) +
+    stat_summary(aes(group = treatment), fun = mean, geom = "point", size = 2.5) +
+    facet_wrap(~ celltype, scales = "free_y") +
+    labs(y = paste("Mean", gene, "(log-norm)"), x = NULL) +
+    base_thm + scale_color_manual(values = fill_values)
+  print(p1)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "attempt_", gene, "_", tag, "_spaghetti.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+
+  delta <- pb %>% pivot_wider(names_from = visit, values_from = mean_expr) %>% mutate(delta = POST - PRE)
+  p2 <- ggplot(delta, aes(treatment, delta, fill = treatment)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+    geom_jitter(width = 0.15, alpha = 0.6) +
+    geom_hline(yintercept = 0, linetype = 2) +
+    facet_wrap(~ celltype, scales = "free_y") +
+    labs(y = paste0("\U0394 ", gene, " (POST - PRE)"), x = NULL) +
+    base_thm + scale_fill_manual(values = fill_values)
+  print(p2)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "attempt_", gene, "_", tag, ".png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+
+  obj$grp <- paste(obj@meta.data[[ct_col]], obj$treatment, obj$visit, sep = "_")
+  p3 <- DotPlot(obj, features = gene, group.by = "grp")@data %>%
+    separate_wider_delim(id, delim = "_", names = c("celltype", "treatment", "visit")) %>%
+    filter(celltype %in% celltypes) %>%
+    ggplot(aes(celltype, paste0(treatment, "-", visit), size = pct.exp, color = avg.exp.scaled)) +
+    geom_point() +
+    scale_color_gradient2(low = "#fff0f3", mid = "#fff0f3", high = "#ee7674") +
+    theme_minimal() + theme(panel.grid = element_blank(), text = element_text(size = 15)) +
+    labs(y = NULL, x = NULL, size = "% expr", color = "Avg expr") + theme_transparent
+  print(p3)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "attempt_", gene, "_", tag, "_dotplot.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+}
+
+# continuous baseline association
+plot_attempt_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
+                                 covar_var, transform = NULL, label = NULL) {
+  o  <- subset(obj, subset = visit == "PRE")
+  df <- FetchData(o, vars = unique(c(gene, "subject_id", covar_var, ct_col)))
+  names(df)[names(df) == gene]   <- "expr"
+  names(df)[names(df) == covar_var] <- "covar"
+  names(df)[names(df) == ct_col] <- "celltype"
+  if (!is.null(transform)) df$covar <- transform(df$covar)
+  df <- df %>% filter(celltype %in% celltypes, is.finite(covar))
+  if (nrow(df) == 0) { message("  no data for scatter: ", gene, " / ", tag); return(invisible()) }
+  pb <- df %>% group_by(celltype, subject_id) %>%
+    dplyr::summarise(mean_expr = mean(expr), covar = dplyr::first(covar), .groups = "drop")
+  p <- ggplot(pb, aes(covar, mean_expr)) +
+    geom_point(alpha = 0.6, color = "#3d405b") +
+    geom_smooth(method = "lm", se = TRUE, color = "#a7b298", fill = "#f8ae9d") +
+    facet_wrap(~ celltype, scales = "free") +
+    labs(x = label %||% covar_var, y = paste("Mean", gene, "(log-norm)")) +
+    theme_minimal() + theme(text = element_text(size = 15), panel.grid = element_blank()) +
+    theme_transparent
+  print(p)
+  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+    object = paste0(out_dir, "attempt_", gene, "_", tag, "_scatter.png"),
+    width = 7, height = 5, dpi = 300, bg = "transparent")
+}
+
+# ---------------------------------------------------------------------------
+# Figure drivers: loop genes x views x covariates
+# ---------------------------------------------------------------------------
+run_figs_pb90 <- function(obj, covariates, out_dir = fig_dir) {
+  all_views <- build_all_views(obj)
+  for (gene in names(all_views)) {
+    for (v in all_views[[gene]]) {
+      for (nm in names(covariates)) {
+        cv <- covariates[[nm]]
+        if (isFALSE(cv$plot)) next
+        tag <- paste0(v$tag, "_", nm)
+        if (identical(cv$type, "categorical")) {
+          plot_pb90_box(obj, gene, v$celltypes, v$ct_col, tag, out_dir,
+                        group_col = cv$var, cohort = cv$cohort,
+                        fill_values = cv$palette)
+        } else if (identical(cv$type, "continuous")) {
+          plot_pb90_scatter(obj, gene, v$celltypes, v$ct_col, tag, out_dir,
+                            covar_var = cv$source_var %||% cv$var,
+                            transform = cv$transform, label = cv$label,
+                            cohort = cv$cohort)
+        }
+      }
+    }
+  }
+}
+
+run_figs_attempt <- function(obj, covariates, out_dir = fig_dir) {
+  all_views <- build_all_views(obj)
+  for (gene in names(all_views)) {
+    for (v in all_views[[gene]]) {
+      for (nm in names(covariates)) {
+        cv <- covariates[[nm]]
+        if (isFALSE(cv$plot)) next
+        tag <- paste0(v$tag, "_", nm)
+        if (identical(cv$type, "did")) {
+          plot_attempt_did(obj, gene, v$celltypes, v$ct_col, tag, out_dir,
+                           fill_values = cv$palette %||% arm_cols)
+        } else if (identical(cv$type, "continuous")) {
+          plot_attempt_scatter(obj, gene, v$celltypes, v$ct_col, tag, out_dir,
+                              covar_var = cv$source_var %||% cv$var,
+                              transform = cv$transform, label = cv$label)
+        }
+      }
+    }
+  }
+}
+```
+
+# ============================================================================
+# PB90
+# ============================================================================
+
+```{r echo = F}
+pb90 <- s3readRDS(bucket = "scrna", object = 'data_clean/pb90_processed.rds', region = "")
+
+# derived covariate columns used by config (DKD groups + log uACR)
+pb90@meta.data <- pb90@meta.data %>%
+  mutate(
+    dkd_group_30 = case_when(
+      eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+      eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD",
+      TRUE ~ NA_character_),
+    dkd_group_30 = factor(dkd_group_30, levels = c("non_DKD", "DKD")),
+    dkd_group_100 = case_when(
+      eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+      eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
+      TRUE ~ NA_character_),
+    dkd_group_100 = factor(dkd_group_100, levels = c("non_DKD", "DKD"))
+  )
+```
+
+## UMAP feature plots (T2D)
+
+```{r}
+pb90_umap_meta <- prepare_umap_metadata(
+  seurat_obj = subset(pb90, group == "Type 2 Diabetes"),
+  genes = genes_in(pb90))
+
+plot_feature_umap(
+  genes = genes_in(pb90),
+  metadata = pb90_umap_meta$metadata,
+  centers = pb90_umap_meta$centers,
+  celltype_colors = pb90_umap_meta$celltype_colors,
+  pct_threshold = pct_threshold,
+  save_to_s3 = TRUE, s3_prefix = umap_dir, s3_suffix = "_t2d")
+```
+
+## NEBULA models (CSV per covariate, overall + per cell type)
+
+```{r}
+pb90_neb_results <- run_nebula_suite(
+  obj          = pb90,
+  covariates   = pb90_covariates,
+  dataset      = "pb90",
+  prep_builder = build_prep_pb90,
+  person_col   = "record_id",
+  record_id    = NULL)
+```
+
+## Figures (boxplots for categorical, scatter for continuous)
+
+```{r}
+run_figs_pb90(pb90, pb90_covariates)
+```
+
+# ============================================================================
+# ATTEMPT
+# ============================================================================
+
+```{r}
+# ---- one-time cleaning (then cached to S3; skip to reload chunk below) ------
+attempt_so_raw <- s3readRDS(bucket = "scrna", object = "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", region = "")
+
+mito_genes <- grep("^MT-", rownames(attempt_so_raw), value = TRUE)
+attempt_so_raw[["percent.mt"]] <- PercentageFeatureSet(attempt_so_raw, pattern = "^MT-")
+hist(attempt_so_raw$percent.mt)
+
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27",
+  "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34",
+  "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A",
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6",
+  "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0",
+  "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27",
+  "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16",
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9",
+  "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39",
+  "RPL10", "RPS4Y1"
+)
+
+# initialise working object from raw, carrying percent.mt
+attempt_so <- attempt_so_raw
+attempt_so[["percent.ribo"]] <- PercentageFeatureSet(attempt_so, features = ribo_genes)
+
+# remove MT- and ribosomal genes, then renormalize
+attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), mito_genes))
+attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), ribo_genes))
+attempt_so <- NormalizeData(attempt_so)
+
+# pooled offset (size factors)
+bp <- MulticoreParam(workers = 4)
+counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce, BPPARAM = bp)
+attempt_so$pooled_offset <- sizeFactors(sce)
+
+# merge clinical data
+attempt_dat <- s3readRDS(bucket = "harmonized.dataset", object = "attempt_clinical_data.RDS", region = "")
+attempt_denver_dat <- s3read_using_region(FUN = read.csv, bucket = "attempt",
+  object = "Clinical Data/ATTEMPT_DenverDataRequest_20250314.csv", region = "")
+harm_dat <- s3read_using_region(FUN = read.csv, bucket = "harmonized.dataset",
+  object = "harmonized_dataset.csv", region = "", na = "")
+dat <- harm_dat %>%
+  filter(study == "ATTEMPT") %>%
+  mutate(visit = case_when(visit %in% c("screening", "baseline") ~ "PRE",
+                           visit %in% c("4_months_post", "follow_up") ~ "POST")) %>%
+  dplyr::summarise(
+    across(
+      where(negate(is.numeric)),
+      ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))
+    ),
+    across(
+      where(is.numeric),
+      ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))
+    ),
+    .by = c(record_id, visit)
+  )
+
+attempt_denver_dat <- attempt_denver_dat %>%
+  mutate(visit = case_when(str_detect(visit, "V1|V2|R1") ~ "PRE",
+                           str_detect(visit, "V3") ~ "Safety",
+                           str_detect(visit, "V4|V5|R3") ~ "POST")) %>%
+  filter(site == "Denver") %>%
+  select(-c("site", "treatment_arm", "age", "sex")) %>%
+  filter(visit != "Safety") %>%
+  dplyr::group_by(subject_id, visit) %>%
+  dplyr::summarise(dplyr::across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
+                   dplyr::across(where(~ !is.numeric(.x)), dplyr::first), .groups = "drop")
+
+attempt_so_meta <- attempt_so@meta.data %>%
+  mutate(subject_id = Subject.ID,
+         visit = case_when(Visit == "BL" ~ "PRE", Visit == "4M" ~ "POST"))
+attempt_so_meta <- left_join(attempt_so_meta, attempt_dat, by = c("subject_id", "visit"))
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+attempt_so_meta <- left_join(attempt_so_meta, attempt_denver_dat, by = c("subject_id", "visit"))
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+
+dat_new <- dat %>%
+  rename(subject_id = record_id) %>%
+  select(subject_id, visit, !any_of(names(attempt_so_meta)))
+attempt_so_meta <- left_join(attempt_so_meta, dat_new, by = c("subject_id", "visit"))
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+
+assignInNamespace("FilterObjects", SeuratObject:::.FilterObjects, ns = "SeuratObject")
+attempt_so <- AddMetaData(attempt_so, attempt_so_meta)
+options(future.globals.maxSize = 3000 * 1024^3)
+
+attempt_so$KPMP_celltype_general <- case_when(
+  attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT") ~ "PT",
+  attempt_so$KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL") ~ "TAL",
+  attempt_so$KPMP_celltype %in% c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC") ~ "PC",
+  attempt_so$KPMP_celltype %in% c("IC-A", "IC-B", "aIC") ~ "IC",
+  attempt_so$KPMP_celltype %in% c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC") ~ "EC",
+  attempt_so$KPMP_celltype %in% c("MAC", "MON", "cDC", "pDC") ~ "Immune (M)",
+  attempt_so$KPMP_celltype %in% c("CD4+ T", "CD8+ T", "B", "NK") ~ "Immune (L)",
+  attempt_so$KPMP_celltype %in% c("VSMC/P", "FIB") ~ "VSMC/P, FIB",
+  attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
+  TRUE ~ "Other"
+)
+
+s3saveRDS(attempt_so, object = "cleaned_data/attempt_clean_unfiltered_so.rds",
+          bucket = "attempt", region = "", multipart = TRUE)
+```
+
+```{r}
+# reload cleaned object (skip the one-time cleaning chunk above on reruns)
+attempt_so <- s3readRDS(object = "cleaned_data/attempt_clean_unfiltered_so.rds",
+                        bucket = "attempt", region = "")
+```
+
+## UMAP feature plots (POST visit)
+
+```{r}
+attempt_umap_meta <- prepare_umap_metadata(
+  seurat_obj = subset(attempt_so, visit == "POST"),
+  genes = genes_in(attempt_so))
+
+plot_feature_umap(
+  genes = genes_in(attempt_so),
+  metadata = attempt_umap_meta$metadata,
+  centers = attempt_umap_meta$centers,
+  celltype_colors = attempt_umap_meta$celltype_colors,
+  pct_threshold = pct_threshold,
+  save_to_s3 = TRUE, s3_prefix = umap_dir, s3_suffix = "_attempt_post")
+```
+
+## NEBULA models (DiD + baseline associations, overall + per cell type)
+
+```{r}
+attempt_neb_results <- run_nebula_suite(
+  obj          = attempt_so,
+  covariates   = attempt_covariates,
+  dataset      = "attempt",
+  prep_builder = build_prep_attempt,
+  person_col   = "subject_id",
+  record_id    = "subject_id",
+  visit_col    = "visit")
+```
+
+## Figures (DiD spaghetti/delta + baseline scatter)
+
+```{r}
+run_figs_attempt(attempt_so, attempt_covariates)
+```

@@ -1,0 +1,283 @@
+---
+title: "13_multi_omic_factor_analysis"
+format: html
+editor: source
+---
+
+```{r}
+# ---- packages ----
+library(dplyr)
+library(tidyr)
+library(limma)
+library(EnhancedVolcano)
+library(ggplot2)
+library(patchwork)
+library(ggrepel)
+library(vegan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+library(haven)
+library(ggVennDiagram)
+library(caret)
+library(jsonlite)
+library(mixOmics)
+library(circlize)
+#BiocManager::install("MOFA2")
+library(MOFA2)
+#BiocManager::install("GGally")
+library(GGally)
+#BiocManager::install("psych")
+library(psych)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- "/mmfs1/gscratch/togo/leidholt/"
+  git_path  <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys      <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+  root_path <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+limma_prot <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_gsea_inputs_age_sex_study.rds"
+))
+prot_out  <- limma_prot$all_omics$out
+prot_log <- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "proteomics_paired_matrix.rds"))
+
+
+
+limma_metab <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_metabolomics_inputs_age_sex_study.rds"
+))
+metab_out <- limma_metab$all_omics$out
+metab_log <- readRDS(file = file.path(root_path,"Savanah Leidholt","TRIAD","Data","metabolomics_paired_matrix.rds"))
+
+
+
+meta_paired<- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "paired_metadata.rds"))
+```
+#----------------------------
+#function for top 50 features
+#---------------------------
+```{r}
+get_top_abs_t <- function(out_list, contrast_name, n = 50) {
+  out_list[[contrast_name]] %>%
+    dplyr::mutate(abs_t = abs(t)) %>%
+    dplyr::arrange(dplyr::desc(abs_t)) %>%
+    dplyr::slice_head(n = n) %>%
+    dplyr::pull(feature_id)
+}
+```
+
+```{r}
+contrast_order <- c(
+  "T1D_vs_LC",
+  "T2D_vs_LC",
+  "T1D_vs_T2D",
+  "OC_vs_LC",
+  "T1D_vs_OC",
+  "T2D_vs_OC"
+)
+
+top_prot <- purrr::map(
+  contrast_order,
+  ~ get_top_abs_t(prot_out, .x, n = 50)
+) %>%
+  unlist() %>%
+  unique()
+
+top_metab <- purrr::map(
+  contrast_order,
+  ~ get_top_abs_t(metab_out, .x, n = 50)
+) %>%
+  unlist() %>%
+  unique()
+```
+
+#----------------------------
+# subset paired matrices
+#----------------------------
+```{r}
+common_ids <- Reduce(
+  intersect,
+  list(
+    rownames(prot_log),
+    rownames(metab_log),
+    rownames(meta_paired)
+  )
+)
+
+prot_mofa <- prot_log[common_ids, top_prot, drop = FALSE]
+metab_mofa <- metab_log[common_ids, top_metab, drop = FALSE]
+meta_mofa <- meta_paired[common_ids, , drop = FALSE]
+
+prot_mofa <- prot_mofa[, intersect(colnames(prot_mofa), top_prot), drop = FALSE]
+metab_mofa <- metab_mofa[, intersect(colnames(metab_mofa), top_metab), drop = FALSE]
+meta_mofa2 <- meta_mofa %>%
+  tibble::rownames_to_column("sample") %>%
+  dplyr::mutate(
+    sample = as.character(sample),
+    group = "group1"
+  ) %>%
+  dplyr::filter(sample %in% samples_names(MOFAobject)[[1]]) %>%
+  dplyr::arrange(match(sample, samples_names(MOFAobject)[[1]]))
+
+samples_metadata(MOFAobject) <- meta_mofa2
+```
+
+#------------------------------------------------
+# clean matrices
+# MOFA wants samples as columns, features as rows
+#------------------------------------------------
+```{r}
+clean_for_mofa <- function(mat) {
+  mat <- as.matrix(mat)
+  storage.mode(mat) <- "numeric"
+  
+  # remove all-missing features
+  mat <- mat[, colSums(!is.na(mat)) > 0, drop = FALSE]
+  
+  # remove zero variance features
+  keep_var <- apply(mat, 2, function(x) {
+    var(x, na.rm = TRUE) > 0
+  })
+  mat <- mat[, keep_var, drop = FALSE]
+  
+  # scale features
+  mat <- scale(mat)
+  
+  # transpose: features x samples
+  t(mat)
+}
+
+prot_mofa_t <- clean_for_mofa(prot_mofa)
+#prot_mofa_t
+metab_mofa_t <- clean_for_mofa(metab_mofa)
+#metab_mofa_t
+```
+#-----------
+#mofa object
+#-----------
+```{r}
+data_mofa <- list(
+  proteomics = prot_mofa_t,
+  metabolomics = metab_mofa_t
+)
+
+MOFAobject <- create_mofa(data_mofa)
+samples_names(MOFAobject)
+
+mofa_samples <- samples_names(MOFAobject)$group1
+
+meta_mofa2 <- meta_mofa %>%
+  tibble::rownames_to_column("sample") %>%
+  dplyr::mutate(
+    sample = as.character(sample),
+    group = "group1"
+  ) %>%
+  dplyr::filter(sample %in% mofa_samples) %>%
+  dplyr::arrange(match(sample, mofa_samples))
+
+stopifnot(identical(meta_mofa2$sample, mofa_samples))
+
+samples_metadata(MOFAobject) <- meta_mofa2
+```
+
+```{r}
+data_opts <- get_default_data_options(MOFAobject)
+model_opts <- get_default_model_options(MOFAobject)
+train_opts <- get_default_training_options(MOFAobject)
+
+model_opts$num_factors <- 10
+
+train_opts$convergence_mode <- "medium"
+train_opts$seed <- 1835
+train_opts$maxiter <- 1000
+```
+
+```{r}
+MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts
+)
+```
+
+```{r}
+mofa_dir <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "TRIAD",
+  "Results",
+  "Integrated",
+  "MOFA",
+  "mofa_prot_metab_top50_abs_t.hdf5"
+)
+
+#dir.create(dirname(mofa_dir), recursive = TRUE, showWarnings = FALSE)
+
+MOFAmodel <- run_mofa(
+  object = MOFAobject,
+  outfile = mofa_dir,
+  use_basilisk = TRUE
+)
+```
+#-------------
+#summary plots
+#-------------
+```{r}
+plot_variance_explained(MOFAmodel)
+
+plot_factors(
+  MOFAmodel,
+  factors = 1:6,
+  color_by = "group4"
+)
+
+plot_factor(
+  MOFAmodel,
+  factor = 1,
+  color_by = "group4"
+)
+
+plot_weights(
+  MOFAmodel,
+  view = "proteomics",
+  factor = 1,
+  nfeatures = 20
+)
+
+plot_weights(
+  MOFAmodel,
+  view = "metabolomics",
+  factor = 1,
+  nfeatures = 20
+)
+```
+
+```{r}
+correlate_factors_with_covariates(
+  MOFAmodel,
+  covariates = c("age", "bmi", "hba1c", "eGFR_fas_cr", "acr_u") 
+)
+```
+
