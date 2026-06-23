@@ -602,7 +602,7 @@ plot_model_2b <- function(data,
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = paste("model 2a: age + sex + group"),
+        subtitle = paste("model 2a: age + sex + group + baseline uACR"),
        # x = "Visit",
       #  y = get_outcome_label(outcome),
       #  color = "Group"
@@ -700,7 +700,7 @@ plot_model_2c <- function(data,
       theme_bw() +
       labs(
         title = paste("Tanner-adjusted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle = paste("model 2a: age + sex + group"),
+        subtitle = subtitle = paste("model 2a: age + sex + group + tanner stage"),
        # x = "Visit",
         #y = get_outcome_label(outcome),
         #color = "Group"
@@ -802,7 +802,7 @@ plot_model_2d <- function(data,
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = paste("model 2a: age + sex + group"),
+        subtitle = paste("model 2d: age + sex + group + baseline uACR + tanner stage"),
         #x = "Visit",
         #y = get_outcome_label(outcome),
         #color = "Group"
