@@ -224,21 +224,6 @@ plot_baseline_group_boxplot <- function(data,
 }
 
 
-#----------------------------
-#baseline PFAS across groups
-#----------------------------
-baseline_group_pfas_results <- lapply(
-  pfas_group_vars,
-  function(outcome) {
-    run_baseline_group_model(
-      data = dat_baseline,
-      outcome = outcome,
-      covars = c("age", "sex")
-    )
-  }
-)
-
-
 #------------------------------------------------------
 #plotting baseline PFAS across groups--individual plots
 #------------------------------------------------------
