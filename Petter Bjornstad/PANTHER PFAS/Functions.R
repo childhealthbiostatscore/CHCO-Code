@@ -159,37 +159,6 @@ run_baseline_group_model <- function(data, outcome, covars = c("age", "sex")) {
   )
 }
 
-baseline_group_outcome_results <- lapply(
-  baseline_model_outcomes,
-  function(outcome) {
-    run_baseline_group_model(
-      data = dat_baseline,
-      outcome = outcome,
-      covars = c("age", "sex")
-    )
-  }
-)
-
-names(baseline_group_outcome_results) <- baseline_model_outcomes
-
-baseline_group_outcome_omnibus <- bind_rows(
-  lapply(baseline_group_outcome_results, `[[`, "omnibus")
-) %>%
-  dplyr::mutate(
-    outcome_label = sapply(outcome, get_outcome_label),
-    p_fdr = p.adjust(p.value, method = "fdr"),
-    p_fmt = fmt_p(p.value),
-    p_fdr_fmt = fmt_p(p_fdr)
-  )
-
-baseline_group_outcome_pairwise <- bind_rows(
-  lapply(baseline_group_outcome_results, `[[`, "pairwise")
-) %>%
-  dplyr::mutate(
-    outcome_label = sapply(outcome, get_outcome_label),
-    p_fmt = fmt_p(p.value)
-  )
-
 
 
 #------------------------------------
