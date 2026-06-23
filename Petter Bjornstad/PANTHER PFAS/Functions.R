@@ -827,10 +827,11 @@ model_3a <- function(data, outcome, exposure) {
   covars <- c("age", "sex", "group")
 
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
-  
+
   model_data <- data %>%
     dplyr::select(dplyr::all_of(needed_vars)) %>%
-    tidyr::drop_na()
+    tidyr::drop_na()  %>%
+    dplyr::mutate(outcome_scaled = as.numeric(scale(.data[[outcome]])))
   
   # -----------------------------
   # Outlier removal per outcome
@@ -857,7 +858,7 @@ model_3a <- function(data, outcome, exposure) {
   rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
   
   m0 <- as.formula(paste0(
-    outcome, " ~ ",
+    outcome_scaled, " ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
   ))
