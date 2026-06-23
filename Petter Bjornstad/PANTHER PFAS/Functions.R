@@ -602,10 +602,10 @@ plot_model_2b <- function(data,
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
+        subtitle = paste("model 2a: age + sex + group"),
+       # x = "Visit",
+      #  y = get_outcome_label(outcome),
+      #  color = "Group"
       )
     
     plot_list[[i]] <- p
@@ -700,10 +700,10 @@ plot_model_2c <- function(data,
       theme_bw() +
       labs(
         title = paste("Tanner-adjusted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
+        subtitle = subtitle = paste("model 2a: age + sex + group"),
+       # x = "Visit",
+        #y = get_outcome_label(outcome),
+        #color = "Group"
       )
     
     plot_list[[i]] <- p
@@ -802,10 +802,10 @@ plot_model_2d <- function(data,
       theme_bw() +
       labs(
         title = paste("PFAS predicted", get_outcome_label(outcome), "over time by group"),
-        subtitle = subtitle_text,
-        x = "Visit",
-        y = get_outcome_label(outcome),
-        color = "Group"
+        subtitle = paste("model 2a: age + sex + group"),
+        #x = "Visit",
+        #y = get_outcome_label(outcome),
+        #color = "Group"
       )
     
     plot_list[[i]] <- p
