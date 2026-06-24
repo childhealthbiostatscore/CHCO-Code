@@ -31,6 +31,7 @@ library(table1)
 library(stringr)
 library(ggpubr)
 library(jsonlite)
+library(influence.ME)
 ```
 
 ```{r}
@@ -801,6 +802,414 @@ mod2d_plots <- plot_model_2d(data = dat_long)
 #pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2d_plots.pdf"), width = 22, height = 20)
 wrap_plots(mod2d_plots, ncol=3)
 ```
+#--------------------------------------------
+# Outlier diagnostics for longitudinal models
+# Models 2a-2d: group outcomes only
+#--------------------------------------------
+```{r}
+#model adjustment
+make_model2_formula <- function(outcome, model = "2d") {
+  rhs <- c("visit_f", "group", "visit_f:group", "age", "sex")
+  
+  if (model %in% c("2c", "2d")) {
+    rhs <- c(rhs, "tan_stage")
+  }
+  
+  if (model %in% c("2b", "2d") &&
+      !outcome %in% c("acr_u", "log_acr_u")) {
+    rhs <- c(rhs, "log_acr_u_bl")
+  }
+  
+  as.formula(
+    paste0(outcome, " ~ ", paste(rhs, collapse = " + "),
+           " + (1 | record_id)")
+  )
+}
+
+```
+
+```{r}
+run_longitudinal_outlier_check <- function(data,
+                                           outcome,
+                                           model = "2b",
+                                           resid_cutoff = 3) {
+  
+  form <- make_model2_formula(outcome, model = model)
+  
+  needed_vars <- unique(
+    c("record_id", "group", "visit_f", "visit_num", all.vars(form))
+  )
+  
+  model_data <- data %>%
+    dplyr::select(dplyr::all_of(needed_vars)) %>%
+    tidyr::drop_na()
+  
+  mod <- lmerTest::lmer(
+    formula = form,
+    data = model_data,
+    REML = FALSE
+  )
+  
+  #Raw outcome outliers by group x visit
+  outcome_outliers <- model_data %>%
+    dplyr::group_by(group, visit_f) %>%
+    dplyr::mutate(
+      outcome_z = as.numeric(scale(.data[[outcome]])),
+      outcome_outlier = abs(outcome_z) > resid_cutoff
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(outcome_outlier)
+  
+  #Model residual outliers
+  resid_tbl <- model_data %>%
+    dplyr::mutate(
+      outcome = outcome,
+      model = model,
+      fitted = fitted(mod),
+      resid = resid(mod),
+      std_resid = as.numeric(scale(resid)),
+      resid_outlier = abs(std_resid) > resid_cutoff
+    )
+  
+  residual_outliers <- resid_tbl %>%
+    dplyr::filter(resid_outlier)
+  
+  #Random intercept outliers
+  random_effects <- ranef(mod)$record_id %>%
+    tibble::rownames_to_column("record_id") %>%
+    dplyr::rename(random_intercept = `(Intercept)`) %>%
+    dplyr::mutate(
+      outcome = outcome,
+      model = model,
+      random_intercept_z = as.numeric(scale(random_intercept)),
+      random_intercept_outlier =
+        abs(random_intercept_z) > resid_cutoff
+    ) %>%
+    dplyr::arrange(dplyr::desc(abs(random_intercept_z)))
+  
+  random_effect_outliers <- random_effects %>%
+    dplyr::filter(random_intercept_outlier)
+  
+  # 4. Leave-one-subject-out sensitivity
+  ids <- unique(model_data$record_id)
+  
+  loo_results <- purrr::map_dfr(ids, function(id) {
+    
+    dat_sub <- model_data %>%
+      dplyr::filter(record_id != id)
+    
+    mod_sub <- tryCatch(
+      lmerTest::lmer(
+        formula = form,
+        data = dat_sub,
+        REML = FALSE
+      ),
+      error = function(e) NULL
+    )
+    
+    if (is.null(mod_sub)) {
+      return(NULL)
+    }
+    
+    broom.mixed::tidy(
+      mod_sub,
+      effects = "fixed"
+    ) %>%
+      dplyr::mutate(
+        outcome = outcome,
+        model = model,
+        removed_record_id = id
+      )
+  })
+  
+  primary_tidy <- broom.mixed::tidy(
+    mod,
+    effects = "fixed"
+  ) %>%
+    dplyr::mutate(
+      outcome = outcome,
+      model = model,
+      removed_record_id = NA_character_
+    )
+  
+  list(
+    model = mod,
+    model_data = model_data,
+    primary_tidy = primary_tidy,
+    outcome_outliers = outcome_outliers,
+    residuals = resid_tbl,
+    residual_outliers = residual_outliers,
+    random_effects = random_effects,
+    random_effect_outliers = random_effect_outliers,
+    loo_results = loo_results
+  )
+}
+```
+
+```{r}
+outlier_list <- lapply(group_time_outcomes, function(outcome) {
+  
+  message("Running outlier diagnostics for: ", outcome)
+  
+  tryCatch(
+    run_longitudinal_outlier_check(
+      data = dat_long,
+      outcome = outcome,
+      model = "2b"
+    ),
+    error = function(e) {
+      message("FAILED: ", outcome)
+      message(conditionMessage(e))
+      NULL
+    }
+  )
+})
+
+names(outlier_list) <- group_time_outcomes
+
+failed_outcomes <- names(outlier_list)[
+  sapply(outlier_list, is.null)
+]
+
+failed_outcomes
+
+outlier_list <- outlier_list[
+  !sapply(outlier_list, is.null)
+]
+
+```
+```{r}
+outcome_outliers <- bind_rows(
+  lapply(outlier_list, `[[`, "outcome_outliers") #is the value unusual for others in the same group and visit?
+)
+
+residual_outliers <- bind_rows(
+  lapply(outlier_list, `[[`, "residual_outliers") #is the value unusual after accounting for the model
+)
+
+random_effects<- bind_rows(
+  lapply(outlier_list, `[[`, "random_effects") #is the participent consistently different across visits? are they always different from everyone else
+)
+
+loo_results <- bind_rows(
+  lapply(outlier_list, `[[`, "loo_results") #leaving one participant out sensitivity analysis
+)
+
+primary_results <- bind_rows(
+  lapply(outlier_list, `[[`, "primary_tidy")
+)
+```
+
+```{r}
+loo_key_terms <- loo_results %>%
+  filter(grepl(c("group",":"), term))
+  
+
+loo_summary<- loo_key_terms %>%
+  left_join(
+    primary_results %>%
+      select(outcome, term, primary_estimate = estimate),
+    by = c("outcome", "term")
+  ) %>%
+  mutate(
+    estimate_change = estimate - primary_estimate,
+    abs_change = abs(estimate_change),
+    percent_change = 100 * abs_change / abs(primary_estimate)
+  ) %>%
+  group_by(outcome, term) %>%
+  summarise(
+    primary_estimate = first(primary_estimate),
+    min_loo_estimate = min(estimate, na.rm = TRUE),
+    max_loo_estimate = max(estimate, na.rm = TRUE),
+    max_abs_change = max(abs_change, na.rm = TRUE),
+    max_percent_change = max(percent_change, na.rm = TRUE),
+    most_influential_id = removed_record_id[which.max(abs_change)],
+    .groups = "drop"
+  ) %>%
+  arrange(desc(max_abs_change))
+
+loo_summary <- loo_summary %>% 
+  filter(max_percent_change > 50)
+```
+
+```{r}
+plot_loo_summary <- function(loo_summary_df,
+                             outcome_keep = NULL,
+                             term_keep = "visit_fYear 2:groupType 2 Diabetes") {
+  
+  plot_df <- loo_summary_df %>%
+    dplyr::filter(term == term_keep)
+  
+  if (!is.null(outcome_keep)) {
+    plot_df <- plot_df %>%
+      dplyr::filter(outcome %in% outcome_keep)
+  }
+  
+  plot_df <- plot_df %>%
+    dplyr::mutate(
+      outcome = factor(outcome, levels = outcome[order(primary_estimate)])
+    )
+  
+  ggplot(
+    plot_df,
+    aes(y = outcome)
+  ) +
+    geom_segment(
+      aes(
+        x = min_loo_estimate,
+        xend = max_loo_estimate,
+        yend = outcome
+      ),
+      linewidth = 1
+    ) +
+    geom_point(
+      aes(x = primary_estimate),
+      size = 3
+    ) +
+    geom_vline(
+      xintercept = 0,
+      linetype = "dashed"
+    ) +
+    theme_bw() +
+    labs(
+      title = paste0("Leave-one-out sensitivity: ", term_keep),
+      x = "Coefficient estimate",
+      y = "Outcome"
+    )
+}
+```
+
+```{r}
+plot_loo_summary(
+  loo_summary,
+  term_keep = "visit_fYear 2:groupType 2 Diabetes"
+)
+```
+```{r}
+plot_loo_percent_change <- function(loo_summary_df,
+                                    term_keep = "visit_fYear 2:groupType 2 Diabetes") {
+  
+  loo_summary_df %>%
+    dplyr::filter(term == term_keep) %>%
+    dplyr::mutate(
+      outcome = factor(
+        outcome,
+        levels = outcome[order(max_percent_change)]
+      )
+    ) %>%
+    ggplot(
+      aes(
+        x = max_percent_change,
+        y = outcome
+      )
+    ) +
+    geom_col() +
+    geom_vline(
+      xintercept = c(25, 50, 100),
+      linetype = "dashed"
+    ) +
+    theme_bw() +
+    labs(
+      title = paste0("Maximum leave-one-out percent change: ", term_keep),
+      x = "Maximum percent change from primary estimate",
+      y = "Outcome"
+    )
+}
+```
+
+```{r}
+plot_loo_percent_change(
+  loo_summary,
+  term_keep = "visit_fYear 2:groupType 2 Diabetes"
+)
+```
+```{r}
+dat_long %>% select(record_id, bmi, group) %>%
+  filter(group == "Lean Control")
+plot_influential_trajectories <- function(data,
+                                          outcome,
+                                          ids,
+                                          y_label = outcome) {
+  
+  data %>%
+    dplyr::filter(!is.na(.data[[outcome]])) %>%
+    dplyr::mutate(
+      highlight = record_id %in% ids
+    ) %>%
+    ggplot(
+      aes(
+        x = visit_num,
+        y = .data[[outcome]],
+        group = record_id
+      )
+    ) +
+    geom_line(
+      data = . %>% dplyr::filter(!highlight),
+      alpha = 0.2
+    ) +
+    geom_point(
+      data = . %>% dplyr::filter(!highlight),
+      alpha = 0.2
+    ) +
+    geom_line(
+      data = . %>% dplyr::filter(highlight),
+      aes(color = record_id),
+      linewidth = 1.2
+    ) +
+    geom_point(
+      data = . %>% dplyr::filter(highlight),
+      aes(color = record_id),
+      size = 2.5
+    ) +
+    facet_wrap(~ group) +
+    theme_bw() +
+    labs(
+      title = paste("Influential participant trajectories:", y_label),
+      x = "Visit",
+      y = y_label,
+      color = "Participant"
+    )
+}
+```
+```{r}
+harm <- read.csv(file = file.path("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv"))
+
+harm %>% select(record_id, bmi, group, study, visit) %>%
+  filter(study == "PANTHER") %>%
+  filter(record_id == "PAN-46-C")
+```
+
+```{r}
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "erpf_bsa_plasma",
+  ids = c("PAN-40-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "pah_clear_bsa",
+  ids = c("PAN-40-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "bl_dheas",
+  ids = c("PAN-08-T", "PAN-01-T", "PAN-75-O", "PAN-48-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "bmi",
+  ids = c("PAN-08-T", "PAN-46-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "dexa_fat_kg",
+  ids = c("PAN-08-T", "PAN-60-O")
+)
+```
 
 
 #-------------------------------------------------------------------------------
@@ -1301,9 +1710,6 @@ mod3d_results_fdr<- mod3d_results %>%
 
 
 ```{r}
-#--------------------
-#heatmap for model 3d
-#---------------------
 hm_mod3d <- mod3d_results_fdr %>%
   dplyr::group_by(outcome, exposure) %>%
   dplyr::summarise(
