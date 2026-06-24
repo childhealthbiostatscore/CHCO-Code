@@ -68,83 +68,12 @@ library(SingleCellExperiment)
 library(scran)
 library(fgsea)
 library(msigdbr)
+library(togolab)
+library(togolab.scrna)
 ```
 
 ```{r echo = F}
-user <- Sys.info()[["user"]]
-
-if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-} else if (user == "rameshsh") { # hyak version
-  root_path <- ""
-  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
-} else if (user == "yejichoi") { # hyak version
-  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
-} else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-} else {
-  stop("Unknown user: please specify root path for this user.")
-}
-
-Sys.setenv(
-  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
-  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
-  "AWS_DEFAULT_REGION" = "",
-  "AWS_REGION" = "",
-  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
-)
-```
-
-```{r echo = F}
-# ---- S3 read/write helpers (region-aware) ----------------------------------
-s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
-  if (missing(bucket)) {
-    bucket <- get_bucketname(object)
-  }
-  object <- get_objectkey(object)
-
-  tmp <- if (is.character(filename)) {
-    file.path(tempdir(TRUE), filename)
-  } else {
-    tempfile(fileext = paste0(".", tools::file_ext(object)))
-  }
-
-  on.exit(unlink(tmp))
-
-  if (!is.null(region)) {
-    if (is.null(opts)) {
-      opts <- list(region = region)
-    } else {
-      opts$region <- region
-    }
-  }
-
-  if (is.null(opts)) {
-    r <- save_object(bucket = bucket, object = object, file = tmp)
-  } else {
-    r <- do.call("save_object", c(list(bucket = bucket,
-                                       object = object,
-                                       file = tmp), opts))
-  }
-
-  return(FUN(tmp, ...))
-}
-
-s3write_using_region <- function(FUN, ..., object, bucket,
-                                 region = NULL, opts = NULL, filename = NULL) {
-  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
-  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
-  on.exit(unlink(tmp))
-  FUN(..., file = tmp)
-  args <- list(file = tmp, object = object, bucket = bucket)
-  if (!is.null(region)) args$region <- region
-  if (!is.null(opts))   args        <- c(args, opts)
-  do.call(aws.s3::put_object, args)
-}
+togo_paths()
 ```
 
 # ============================================================================
@@ -156,12 +85,19 @@ s3write_using_region <- function(FUN, ..., object, bucket,
 ## NEBULA fits ALL of these at once, so adding a gene here automatically adds
 ## it to every *_neb.csv. Only genes present in a dataset are used (missing
 ## ones are silently dropped per dataset).
-genes <- c("SLC6A19", "NNMT", "SHISA5", "STRA6", "LTBP3", "NPLOC4", "NRP1")
+genes <- c("SLC6A19", 
+           "NNMT", 
+           "SHISA5", 
+           "STRA6", 
+           "LTBP3", 
+           "NPLOC4", 
+           "NRP1", 
+           "ARL4C")
 
 ## --- Output locations (S3) -------------------------------------------------
-base_dir <- "Projects/transcript search/Results/"
-fig_dir  <- "Projects/transcript search/Results/Figures/Box Plots/"
-umap_dir <- "Projects/transcript search/Results/Figures/UMAP/"
+base_dir <- "P047_scRNA_transcript_search_yc/results/"
+fig_dir  <- "P047_scRNA_transcript_search_yc/results/temp_figures/Box Plots/"
+umap_dir <- "P047_scRNA_transcript_search_yc/results/temp_figures/UMAP/"
 
 ## --- Auto cell-type detection ----------------------------------------------
 ## For figures, cell types are chosen automatically per gene per dataset:
@@ -237,7 +173,13 @@ attempt_covariates <- list(
 
   log_uacr_bl = list(var = "log_uacr",      type = "continuous",
                  baseline_only = TRUE,       source_var = "emu_urine_acr_mean",
-                 transform = log,            label = "log(uACR)")
+                 transform = log,            label = "log(uACR)"),
+  
+  dkd30_bl = list(var = "dkd_group_30",    type = "categorical",
+                      baseline_only = TRUE, palette = dkd_pal),
+  
+  dkd100_bl = list(var = "dkd_group_100",  type = "categorical",
+                       baseline_only = TRUE, palette = dkd_pal)
 )
 ```
 
@@ -352,7 +294,7 @@ neb_run_and_save <- function(seurat_obj, var, out_object,
   }
 
   out_df <- cbind(res$summary, stats[rep(1, nrow(res$summary)), , drop = FALSE], row.names = NULL)
-  s3write_using_region(out_df, FUN = write.csv, bucket = "scrna",
+  s3write_using_region(out_df, FUN = write.csv, bucket = "togo.projects",
                        object = out_object, row.names = FALSE, region = "")
   message("saved: ", out_object, " | cells: ", n_cells, " | people: ", stats$n_people,
           " | converged: ", sum(res$convergence == 1), "/", length(res$convergence))
@@ -480,7 +422,7 @@ prepare_umap_metadata <- function(seurat_obj, genes,
 
 plot_feature_umap <- function(genes, metadata, centers, celltype_colors,
                               pct_threshold = 10, save_to_s3 = FALSE,
-                              s3_prefix = umap_dir, s3_suffix = "", s3_bucket = "scrna",
+                              s3_prefix = umap_dir, s3_suffix = "", s3_bucket = "togo.projects",
                               plot_height = 10, plot_width = 10) {
   plots <- list()
   for (gene in genes) {
@@ -557,7 +499,7 @@ plot_pb90_box <- function(obj, gene, celltypes, ct_col, tag, out_dir,
     theme_transparent
   if (!is.null(fill_values)) p1 <- p1 + scale_fill_manual(values = fill_values)
   print(p1)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "pb90_", gene, "_", tag, "_box.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 
@@ -573,7 +515,7 @@ plot_pb90_box <- function(obj, gene, celltypes, ct_col, tag, out_dir,
     theme_minimal() + theme(panel.grid = element_blank(), text = element_text(size = 15)) +
     theme_transparent + labs(y = NULL, x = NULL, size = "% expr", color = "Avg expr")
   print(p2)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "pb90_", gene, "_", tag, "_dotplot.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 }
@@ -604,7 +546,7 @@ plot_pb90_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
     theme_minimal() + theme(text = element_text(size = 15), panel.grid = element_blank()) +
     theme_transparent
   print(p)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "pb90_", gene, "_", tag, "_scatter.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 }
@@ -635,7 +577,7 @@ plot_attempt_did <- function(obj, gene, celltypes, ct_col, tag, out_dir, fill_va
     labs(y = paste("Mean", gene, "(log-norm)"), x = NULL) +
     base_thm + scale_color_manual(values = fill_values)
   print(p1)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "attempt_", gene, "_", tag, "_spaghetti.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 
@@ -648,7 +590,7 @@ plot_attempt_did <- function(obj, gene, celltypes, ct_col, tag, out_dir, fill_va
     labs(y = paste0("\U0394 ", gene, " (POST - PRE)"), x = NULL) +
     base_thm + scale_fill_manual(values = fill_values)
   print(p2)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "attempt_", gene, "_", tag, ".png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 
@@ -662,7 +604,7 @@ plot_attempt_did <- function(obj, gene, celltypes, ct_col, tag, out_dir, fill_va
     theme_minimal() + theme(panel.grid = element_blank(), text = element_text(size = 15)) +
     labs(y = NULL, x = NULL, size = "% expr", color = "Avg expr") + theme_transparent
   print(p3)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "attempt_", gene, "_", tag, "_dotplot.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 }
@@ -688,7 +630,7 @@ plot_attempt_scatter <- function(obj, gene, celltypes, ct_col, tag, out_dir,
     theme_minimal() + theme(text = element_text(size = 15), panel.grid = element_blank()) +
     theme_transparent
   print(p)
-  s3write_using_region(FUN = ggsave, bucket = "scrna", region = "",
+  s3write_using_region(FUN = ggsave, bucket = "togo.projects", region = "",
     object = paste0(out_dir, "attempt_", gene, "_", tag, "_scatter.png"),
     width = 7, height = 5, dpi = 300, bg = "transparent")
 }
@@ -746,7 +688,7 @@ run_figs_attempt <- function(obj, covariates, out_dir = fig_dir) {
 # ============================================================================
 
 ```{r echo = F}
-pb90 <- s3readRDS(bucket = "scrna", object = 'data_clean/pb90_processed.rds', region = "")
+pb90 <- s3readRDS(bucket = "core.data", object = 'scRNA/Seurat/pb90_processed_full.rds', region = "")
 
 # derived covariate columns used by config (DKD groups + log uACR)
 pb90@meta.data <- pb90@meta.data %>%
@@ -804,116 +746,24 @@ run_figs_pb90(pb90, pb90_covariates)
 
 ```{r}
 # ---- one-time cleaning (then cached to S3; skip to reload chunk below) ------
-attempt_so_raw <- s3readRDS(bucket = "scrna", object = "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", region = "")
-
-mito_genes <- grep("^MT-", rownames(attempt_so_raw), value = TRUE)
-attempt_so_raw[["percent.mt"]] <- PercentageFeatureSet(attempt_so_raw, pattern = "^MT-")
-hist(attempt_so_raw$percent.mt)
-
-ribo_genes <- c(
-  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27",
-  "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
-  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34",
-  "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A",
-  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6",
-  "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
-  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0",
-  "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
-  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27",
-  "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16",
-  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9",
-  "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39",
-  "RPL10", "RPS4Y1"
-)
-
-# initialise working object from raw, carrying percent.mt
-attempt_so <- attempt_so_raw
-attempt_so[["percent.ribo"]] <- PercentageFeatureSet(attempt_so, features = ribo_genes)
-
-# remove MT- and ribosomal genes, then renormalize
-attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), mito_genes))
-attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), ribo_genes))
-attempt_so <- NormalizeData(attempt_so)
-
-# pooled offset (size factors)
-bp <- MulticoreParam(workers = 4)
-counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce, BPPARAM = bp)
-attempt_so$pooled_offset <- sizeFactors(sce)
-
-# merge clinical data
-attempt_dat <- s3readRDS(bucket = "harmonized.dataset", object = "attempt_clinical_data.RDS", region = "")
-attempt_denver_dat <- s3read_using_region(FUN = read.csv, bucket = "attempt",
-  object = "Clinical Data/ATTEMPT_DenverDataRequest_20250314.csv", region = "")
-harm_dat <- s3read_using_region(FUN = read.csv, bucket = "harmonized.dataset",
-  object = "harmonized_dataset.csv", region = "", na = "")
-dat <- harm_dat %>%
-  filter(study == "ATTEMPT") %>%
-  mutate(visit = case_when(visit %in% c("screening", "baseline") ~ "PRE",
-                           visit %in% c("4_months_post", "follow_up") ~ "POST")) %>%
-  dplyr::summarise(
-    across(
-      where(negate(is.numeric)),
-      ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))
-    ),
-    across(
-      where(is.numeric),
-      ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))
-    ),
-    .by = c(record_id, visit)
-  )
-
-attempt_denver_dat <- attempt_denver_dat %>%
-  mutate(visit = case_when(str_detect(visit, "V1|V2|R1") ~ "PRE",
-                           str_detect(visit, "V3") ~ "Safety",
-                           str_detect(visit, "V4|V5|R3") ~ "POST")) %>%
-  filter(site == "Denver") %>%
-  select(-c("site", "treatment_arm", "age", "sex")) %>%
-  filter(visit != "Safety") %>%
-  dplyr::group_by(subject_id, visit) %>%
-  dplyr::summarise(dplyr::across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
-                   dplyr::across(where(~ !is.numeric(.x)), dplyr::first), .groups = "drop")
+attempt_so <- s3readRDS(bucket = "core.data", 
+                            object = "scRNA/Seurat/attempt_processed_full", region = "")
 
 attempt_so_meta <- attempt_so@meta.data %>%
-  mutate(subject_id = Subject.ID,
-         visit = case_when(Visit == "BL" ~ "PRE", Visit == "4M" ~ "POST"))
-attempt_so_meta <- left_join(attempt_so_meta, attempt_dat, by = c("subject_id", "visit"))
-rownames(attempt_so_meta) <- attempt_so_meta$barcode
-attempt_so_meta <- left_join(attempt_so_meta, attempt_denver_dat, by = c("subject_id", "visit"))
-rownames(attempt_so_meta) <- attempt_so_meta$barcode
-
-dat_new <- dat %>%
-  rename(subject_id = record_id) %>%
-  select(subject_id, visit, !any_of(names(attempt_so_meta)))
-attempt_so_meta <- left_join(attempt_so_meta, dat_new, by = c("subject_id", "visit"))
-rownames(attempt_so_meta) <- attempt_so_meta$barcode
+  mutate(dkd_group_30 = case_when(
+           eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+           eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD",
+           TRUE ~ NA_character_),
+         dkd_group_30 = factor(dkd_group_30, levels = c("non_DKD", "DKD")),
+         dkd_group_100 = case_when(
+           eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+           eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
+           TRUE ~ NA_character_),
+         dkd_group_100 = factor(dkd_group_100, levels = c("non_DKD", "DKD"))
+  )
 
 assignInNamespace("FilterObjects", SeuratObject:::.FilterObjects, ns = "SeuratObject")
 attempt_so <- AddMetaData(attempt_so, attempt_so_meta)
-options(future.globals.maxSize = 3000 * 1024^3)
-
-attempt_so$KPMP_celltype_general <- case_when(
-  attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT") ~ "PT",
-  attempt_so$KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL") ~ "TAL",
-  attempt_so$KPMP_celltype %in% c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC") ~ "PC",
-  attempt_so$KPMP_celltype %in% c("IC-A", "IC-B", "aIC") ~ "IC",
-  attempt_so$KPMP_celltype %in% c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC") ~ "EC",
-  attempt_so$KPMP_celltype %in% c("MAC", "MON", "cDC", "pDC") ~ "Immune (M)",
-  attempt_so$KPMP_celltype %in% c("CD4+ T", "CD8+ T", "B", "NK") ~ "Immune (L)",
-  attempt_so$KPMP_celltype %in% c("VSMC/P", "FIB") ~ "VSMC/P, FIB",
-  attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
-  TRUE ~ "Other"
-)
-
-s3saveRDS(attempt_so, object = "cleaned_data/attempt_clean_unfiltered_so.rds",
-          bucket = "attempt", region = "", multipart = TRUE)
-```
-
-```{r}
-# reload cleaned object (skip the one-time cleaning chunk above on reruns)
-attempt_so <- s3readRDS(object = "cleaned_data/attempt_clean_unfiltered_so.rds",
-                        bucket = "attempt", region = "")
 ```
 
 ## UMAP feature plots (POST visit)
