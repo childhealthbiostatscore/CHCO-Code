@@ -107,42 +107,41 @@ def clean_t1disco():
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
-    # var =  [v for v in meta.loc[meta["form_name"] == "medical_history", "field_name"]]
-    # med_hist = pd.DataFrame(proj.export_records(fields=var))
-    # med_hist.replace(rep, np.nan, inplace=True)
-    # med_hist["visit"] = med_hist["redcap_event_name"].replace({"visit_1__screen_arm_1": "Screening", "visit_2__baseline_arm_1": "Baseline", 
-    #                                                "visit_3__1_month_arm_1": "1_month", "visit_4__2_month_arm_1": "2_month", 
-    #                                                "visit_5__4_month_arm_1": "4_month", "visit_6__6_month_arm_1": "6_month",
-    #                                                "visit_7__posttreat_arm_1": "Post-Treatment", "visit_8__9_month_arm_1": "9_month"})
-    # med_hist.drop(redcap_cols + ["htn_med___6", "cholesterol_med___3", "cgm_model", "htn_med_other", "abnormal_cholesterol_yn", 
-    #                              "hx_cv_positive___4", "hx_cv_other", "hx_cv_meds", "hx_cv_medlist", "hx_met", 
-    #                              "hx_met_positive___1", "hx_met_positive___2", "hx_met_positive___3", "hx_met_positive___5", "hx_met_positive___6", 
-    #                              "hx_met_positive___7", "hx_met_other", "steroids", "steroid_type___1", "steroid_type___2", "steroid_type___3", 
-    #                              "steroid_type___4", "steroid_type___5", "antipsychotics", "which_glp1_ra", "when_was_glp1_ra_stopped", "thyroid_med",
-    #                              "antipsychotic_type___1", "antipsychotic_type___2", "thyroid_hx", "recent_dka", "recent_hh",
-    #                              "bleeding_dx", "clotting_dx", "allergies", "mri", "tobacco_amount", "vape_years", "vape_amount", "regular_cycles_yn",
-    #                              "sexually_active_yn"], axis=1, inplace=True)
+    var =  [v for v in meta.loc[meta["form_name"] == "medical_history", "field_name"]]
+    med_hist = pd.DataFrame(proj.export_records(fields=var))
+    med_hist.replace(rep, np.nan, inplace=True)
+    med_hist["visit"] = med_hist["redcap_event_name"].replace({"visit_1__screen_arm_1": "screening"})
+    med_hist.drop(redcap_cols + ["htn_med___6", "cholesterol_med___3", "cgm_model", "htn_med_other", "abnormal_cholesterol_yn",
+                                 "hx_cv_positive___4", "hx_cv_other", "hx_cv_meds", "hx_cv_medlist", "hx_met",
+                                 "hx_met_positive___1", "hx_met_positive___2", "hx_met_positive___3", "hx_met_positive___5", "hx_met_positive___6",
+                                 "hx_met_positive___7", "hx_met_other", "steroids", "steroid_type___1", "steroid_type___2", "steroid_type___3",
+                                 "steroid_type___4", "steroid_type___5", "antipsychotics", "which_glp1_ra", "when_was_glp1_ra_stopped", "thyroid_med",
+                                 "antipsychotic_type___1", "antipsychotic_type___2", "thyroid_hx", "recent_dka", "recent_hh",
+                                 "bleeding_dx", "clotting_dx", "allergies", "mri", "tobacco_amount", "vape_years", "vape_amount", "regular_cycles_yn",
+                                 "sexually_active_yn"], axis=1, inplace=True)
 
-    # med_hist = med_hist.rename({"cgm_use_yn": "cgm_yn", "cgm_brand": "cgm_type","recent_severe_hypo": "hypoglycemia", "hx_htn": "hypertension", 
-                                
-    #                             "htn_med___1": "ace_inhibitor", "htn_med___2": "angiotensin_receptor_blocker", 
-    #                             "htn_med___3": "beta_blocker", "htn_med___4": "calcium_channel_blocker", "htn_med___5": "diuretic", 
-    #                             "cholesterol_med___1": "statin", "cholesterol_med___2": "fibrates", "hx_met_medlist": "met_meds_yes", 
-    #                             "glp1ra_hx": "epic_ever_glp1ra_1", "actively_taking_glp1_ra": "epic_glp1ra_1"}, axis = 1)
+    med_hist = med_hist.rename({"cgm_use_yn": "cgm_yn", "cgm_brand": "cgm_type","recent_severe_hypo": "hypoglycemia", "hx_htn": "hypertension",
+                                "htn_med___1": "ace_inhibitor", "htn_med___2": "angiotensin_receptor_blocker",
+                                "htn_med___3": "beta_blocker", "htn_med___4": "calcium_channel_blocker", "htn_med___5": "diuretic",
+                                "cholesterol_med___1": "statin", "cholesterol_med___2": "fibrates", "hx_met_medlist": "met_meds_yes",
+                                "glp1ra_hx": "epic_ever_glp1ra_1", "actively_taking_glp1_ra": "epic_glp1ra_1"}, axis = 1)
 
-    # med_hist["cgm_type"] = med_hist["cgm_type"].replace({"1": "Dexcom", "2": "Medtronic", "3": "Abbott", "4": "Other"})
-    # med_hist = med_hist.rename({
-    #     "hx_cv_positive___1": "congestive_heart_failure", "hx_cv_positive___2": "coronary_artery_disease", 
-    #     "hx_cv_positive___3": "peripheral_vascular_disease"}, axis=1)
-    # med_hist = med_hist.rename({
-    #     "hx_met_positive___4": "apnea"}, axis = 1)
+    med_hist["cgm_type"] = med_hist["cgm_type"].replace({"1": "Dexcom", "2": "Medtronic", "3": "Abbott", "4": "Other"})
+    med_hist = med_hist.rename({
+        "hx_cv_positive___1": "congestive_heart_failure", "hx_cv_positive___2": "coronary_artery_disease",
+        "hx_cv_positive___3": "peripheral_vascular_disease"}, axis=1)
+    med_hist = med_hist.rename({
+        "hx_met_positive___4": "apnea"}, axis = 1)
+    med_hist["sglti_timepoint"] = 0
 
-    # meds_yn = ["cgm_yn", "ace_inhibitor", "angiotensin_receptor_blocker", "beta_blocker", "calcium_channel_blocker", "diuretic", "hypertension", 
-    #            "hx_htn_control", "statin", "fibrates", "hypoglycemia", "hx_cv", "congestive_heart_failure", "coronary_artery_disease", 
-    #            "peripheral_vascular_disease", "apnea", "hx_met_meds", "epic_ever_glp1ra_1", "epic_glp1ra_1", "hx_anemia", "tobacco", "vape"]
-    # med_hist[meds_yn] = med_hist[meds_yn].apply(lambda col: col.map(
-    #      lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
-    #      ))
+    meds_yn = ["cgm_yn", "ace_inhibitor", "angiotensin_receptor_blocker", "beta_blocker", "calcium_channel_blocker", "diuretic", "hypertension",
+               "hx_htn_control", "statin", "fibrates", "hypoglycemia", "hx_cv", "congestive_heart_failure", "coronary_artery_disease", "sglti_timepoint",
+               "peripheral_vascular_disease", "apnea", "hx_met_meds", "epic_ever_glp1ra_1", "epic_glp1ra_1", "hx_anemia", "tobacco", "vape"]
+    med_hist[meds_yn] = med_hist[meds_yn].apply(lambda col: col.map(
+         lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+         ))
+    med_hist["procedure"] = "medications"
+         
     # ----------------------------------------------------------------------------
     # Vitals
     # ----------------------------------------------------------------------------
@@ -152,7 +151,7 @@ def clean_t1disco():
     vitals["visit_type"] = vitals["visit_type"].replace({"1": "screening", "2": "baseline", "3": "2_month", "4": "4_month", "5": "6_month", "6": "9_month"})
     vitals = vitals.rename({"visit_type": "visit", "anthro_date": "date", "anthro_height": "height", "anthro_weight": "weight", "anthro_bmi": "bmi"}, axis=1)
     vitals.replace(rep, np.nan, inplace=True)
-    vitals["procedure"] = "labs"
+    vitals["procedure"] = "vitals"
 
     # ----------------------------------------------------------------------------
     #Labs
@@ -197,6 +196,7 @@ def clean_t1disco():
     vitals.dropna(thresh=3, axis=0, inplace=True)
     labs.dropna(thresh=3, axis=0, inplace=True)
     clamp.dropna(thresh=4, axis=0, inplace=True)
+    med_hist.dropna(thresh=5, axis=0, inplace=True)
     rc.dropna(thresh=3, axis=0, inplace=True)
 
     # ----------------------------------------------------------------------------
@@ -206,6 +206,7 @@ def clean_t1disco():
     df = pd.concat([vitals, labs], join='outer', ignore_index=True)
     df = pd.concat([df, clamp], join='outer', ignore_index=True)
     df = pd.concat([df, rc], join='outer', ignore_index=True)
+    df = pd.concat([df, med_hist], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
     df = df.copy()
 

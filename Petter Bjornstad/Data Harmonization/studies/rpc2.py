@@ -140,6 +140,10 @@ def clean_rpc2_redcap():
     # RAASi
     med = med.assign(raasi_timepoint=np.maximum(pd.to_numeric(
         med["ace_inhibitor"]), pd.to_numeric(med["angiotensin_receptor_blocker"])))
+        
+    # SGLT2i (no one at screening)
+    med.sglti_timepoint = 0
+    
     # Replace 0/1 values with yes/no
     for col in med.columns[1:]:
         med[col] = med[col].astype(object).replace(
@@ -406,7 +410,7 @@ def clean_rpc2_redcap():
 
     demo.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace = True)
-    med.dropna(thresh=5, axis=0, inplace=True)
+    med.dropna(thresh=6, axis=0, inplace=True)
     # disp.dropna(thresh=4, axis=0, inplace=True)
     phys.dropna(thresh=5, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
