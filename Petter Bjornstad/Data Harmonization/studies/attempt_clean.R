@@ -20,6 +20,9 @@ if (user == "choiyej") {
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "kristenmiller") {
+  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
+  git_path <- "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "hhampson") {
   root_path <- "/Volumes/Peds Endo"
 } else if (user == "shivaniramesh") {

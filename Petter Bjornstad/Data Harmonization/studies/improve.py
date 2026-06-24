@@ -59,6 +59,10 @@ def clean_improve():
             "base_data_path": "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/",
             "git_path": "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
         },
+        "kristenmiller": {
+            "base_data_path": "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/",
+            "git_path": "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        },
         "shivaniramesh": {
             "base_data_path": os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"),
             "git_path": "/Users/shivaniramesh/Documents/GitHub/CHCO-Code/Petter Bjornstad/"

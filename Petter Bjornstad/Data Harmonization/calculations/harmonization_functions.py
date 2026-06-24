@@ -179,6 +179,9 @@ def create_study_id_columns(harmonized):
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "kristenmiller":
+        base_data_path = "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+        git_path = "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "shivaniramesh":
         base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
@@ -221,6 +224,9 @@ def biopsy_merge(harmonized):
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "kristenmiller":
+        base_data_path = "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+        git_path = "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "shivaniramesh":
         base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
