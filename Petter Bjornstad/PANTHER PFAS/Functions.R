@@ -519,7 +519,7 @@ model_2b <- function(data, outcome, adjust_acr = TRUE) {
   rhs <- c("visit_f", "group", "visit_f:group", "age", "sex") 
   
   if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-    rhs <- c(rhs, "log_acr_u_bl")
+    rhs <- c(rhs, "log_uACR_base")
   }
   
   m0 <- as.formula(
@@ -562,7 +562,7 @@ plot_model_2b <- function(data,
     rhs <- c("visit_f", "group", "visit_f:group", "age", "sex") 
     
     if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
+      rhs <- c(rhs, "log_uACR_base")
     }
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
@@ -721,7 +721,7 @@ model_2d <- function(data, outcome, adjust_acr = TRUE) {
   rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
   
   if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-    rhs <- c(rhs, "log_acr_u_bl")
+    rhs <- c(rhs, "log_uACR_base")
   }
   
   m0 <- as.formula(
@@ -762,7 +762,7 @@ plot_model_2d <- function(data,
     rhs <- c("visit_f", "group", "visit_f:group", "age", "sex", "tan_stage") 
     
     if (adjust_acr && outcome != "acr_u" && outcome != "log_acr_u") {
-      rhs <- c(rhs, "log_acr_u_bl")
+      rhs <- c(rhs, "log_uACR_base")
     }
     m0 <- as.formula(
       paste0(outcome, " ~ ", paste(rhs, collapse = " + "), " + (1 | record_id)")
