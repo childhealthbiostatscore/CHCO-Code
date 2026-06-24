@@ -32,6 +32,8 @@ library(stringr)
 library(ggpubr)
 library(jsonlite)
 library(influence.ME)
+library(aws.s3)
+library(readr)
 ```
 
 ```{r}
@@ -60,10 +62,42 @@ if (user == "leidholt") {
 }
 ```
 
+```{r}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
 
 ```{r}
-#dat_raw <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
-#lod_raw <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+obj <- aws.s3::get_object(
+  object = "harmonized dataset/harmonized_dataset.csv",
+  bucket = "core.data",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+dat_raw <- readr::read_csv(
+  rawConnection(obj)
+)
+
+obj2 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/clean_data/PFAS_LODs.csv",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+lod_raw <- readr::read_csv(
+  rawConnection(obj2)
+)
 ```
 
 ```{r}
@@ -81,14 +115,14 @@ pfas_vars <- c(
 
 
 baseline_model_outcomes <- c(
-  "log_acr_u",
+  "log_uACR",
   #"log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
   "avg_c_r2",
   "avg_k_r2",
   "bmi",
-  "pah_clear_bsa",
+  #"pah_clear_bsa",
   "dexa_lean_kg",
   "dexa_fat_kg",
   "igf_1",
@@ -100,11 +134,11 @@ baseline_model_outcomes <- c(
 
 
 group_time_outcomes <- c(
-  "log_acr_u",
+  "log_uACR",
  # "log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
-  "pah_clear_bsa",
+  #"pah_clear_bsa",
   "avg_c_r2",
   "avg_k_r2",
   "bmi",
@@ -119,15 +153,15 @@ group_time_outcomes <- c(
 outcome_label_map <- c(
   #kidney function
   acr_u = "uACR",
-  log_acr_u = "log1p(uACR)",
+  log_uACR = "log1p(uACR)",
  # microalbumin_u = "Microalbuminuria",
 #  log_microalbumin_u = "log1p(Microalbuminuria)",
   eGFR_CKiD_U25_avg = "eGFR",
   erpf_bsa_plasma = "ERPF",
-  pah_clear_bsa = "PAH clearance",
+  #pah_clear_bsa = "PAH clearance", #functionally the same as erpf
   #kidney oxygenation
-  avg_c_r2 = "Cortical R2",
-  avg_k_r2= "Kidney R2",
+  avg_c_r2 = "Cortical Oxygenation",
+  avg_k_r2= "Medullary Oxygenation",
   #metabolism
   bmi = "Body Mass Index",
   dexa_lean_kg = "DEXA Lean Mass (kg)",
@@ -166,111 +200,172 @@ source(file.path(git_path, "Functions.R"))
 #------------------------------------------------------
 ```{r}
 #baseline only
-#dat_base <- dat_raw %>%
- # filter(study == "PANTHER", visit %in% c("baseline", "screening")) %>%
-  #collapse_visit(by_vars = "record_id") %>%
-  #mutate(visit = "baseline_screening") %>%
-  #make_race_ethnicity()
+dat_base <- dat_raw %>%
+  filter(study == "PANTHER", visit %in% c("baseline", "screening")) %>%
+  collapse_visit(by_vars = "record_id") %>%
+  mutate(visit = "baseline_screening") %>%
+  make_race_ethnicity()
 
 
 #all data
-#dat_full <- dat_raw %>%
- # filter(study == "PANTHER", visit %in% c("year_1", "year_2")) %>%
-  #collapse_visit(by_vars = c("record_id", "visit")) %>%
-  #make_race_ethnicity()
+dat_full <- dat_raw %>%
+  filter(study == "PANTHER", visit %in% c("year_1", "year_2")) %>%
+  collapse_visit(by_vars = c("record_id", "visit")) %>%
+  make_race_ethnicity()
 
-#meta <- bind_rows(dat_base, dat_full) %>%
- # mutate(
-  #  sex_lower = stringr::str_to_lower(as.character(sex)),
-   # tan_stage = case_when(
-    #  sex_lower == "male" ~ tan_mgd,
-     # sex_lower == "female" ~ tan_fgd,
-    #  TRUE ~ dplyr::coalesce(tan_mgd, tan_fgd)
-  #  ),
-   # tan_stage = as.numeric(as.character(tan_stage))
-  #)
+meta <- bind_rows(dat_base, dat_full) %>%
+  mutate(
+    sex_lower = stringr::str_to_lower(as.character(sex)),
+    tan_stage = case_when(
+      sex_lower == "male" ~ tan_mgd,
+      sex_lower == "female" ~ tan_fgd,
+      TRUE ~ dplyr::coalesce(tan_mgd, tan_fgd)
+    ),
+    tan_stage = as.numeric(as.character(tan_stage))
+  )
 ```
 #---------------------------------
 #Baseline PFAS VALUES & Dataframe
 #---------------------------------
 ```{r}
-#pfas_raw <- dat_raw %>%
- # filter(study == "PANTHER", visit == "baseline") %>%
-  #dplyr::select(record_id, all_of(pfas_all)) %>%
-  #collapse_visit(by_vars = "record_id")
+lod_raw <- lod_raw %>%
+  mutate(
+    Compound = dplyr::recode(
+      Compound,
+      "N.MeFOSAA" = "N-MeFOSAA",
+      "N.EtFOSAA" = "N-EtFOSAA"
+    )
+  )
+unique(lod_raw$Compound)
 
-#lod <- lod_raw %>%
- # t() %>%
-  #as.data.frame() %>%
-  #tibble::rownames_to_column("row_id")
+dat_raw <- dat_raw %>%
+  dplyr::rename(
+    N.EtFOSAA = `N-EtFOSAA`,
+    N.MeFOSAA = `N-MeFOSAA`
+  )
 
-#colnames(lod) <- lod[1, ]
-#lod <- lod[-1, , drop = FALSE] %>%
- # mutate(across(everything(), as.numeric))
+pfas_raw <- dat_raw %>%
+  dplyr::filter(study == "PANTHER", visit == "baseline") %>%
+  dplyr::select(record_id, all_of(pfas_all)) %>%
+  collapse_visit(by_vars = "record_id") %>%
+  dplyr::summarise(
+    across(
+      where(negate(is.numeric)),
+      ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))
+    ),
+    across(
+      where(is.numeric),
+      ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))
+    ),
+    .by = record_id
+  ) %>%
+  dplyr::filter(
+    rowSums(!is.na(dplyr::across(all_of(pfas_all)))) > 0
+  )
 
-#colnames(lod) <- str_replace_all(colnames(lod), "-", ".")
+pfas_raw
+
+lod <- lod_raw %>%
+  t() %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("row_id")
+
+colnames(lod) <- lod[1, ]
+lod <- lod[-1, , drop = FALSE] %>%
+  dplyr::mutate(across(everything(), as.numeric))
+
+colnames(lod) <- str_replace_all(colnames(lod), "-", ".")
+lod
 ```
 #---------------------------------------------------------
 #PFAS level of Detection (LOD) based off Hailey's LOD Step
 #---------------------------------------------------------
 ```{r}
 #pfas_results <- impute_pfas_lod(
- # pfas_dat = pfas_raw,
-  #lod = lod,
-  #pfas_vars = pfas_all
+#  pfas_dat = pfas_raw,
+#  lod = lod,
+#  pfas_vars = pfas_all
 #)
 
 #pfas_imputed <- pfas_results$imputed_data %>%
- # dplyr::select(record_id, all_of(pfas_vars)) %>%
-  #rename_with(~ paste0(.x, "_bl"), -record_id)
+#  dplyr::select(record_id, all_of(pfas_vars)) %>%
+#  rename_with(~ paste0(.x, "_baseline"), -record_id)
 
-#write_rds(x = pfas_imputed, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
-pfas_imputed <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
+#tmp <- tempfile(fileext = "csv")
+
+#write.csv(
+#  pfas_imputed,
+#  tmp,
+#  row.names = FALSE
+#)
+
+#httr::set_config(httr::config(ssl_verifypeer = FALSE))
+#put_object(
+#  file = tmp,
+#  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/pfas_imputed.csv",
+#  bucket = "togo.projects",
+#  base_url = "s3.kopah.uw.edu",
+#  region = "",
+#  use_https = TRUE
+#)
+
+obj3 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/pfas_imputed_06242026.csv",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+pfas_imputed <- readr::read_csv(
+  rawConnection(obj3)
+)
 ```
 
 #-------------------------------------------------------------
 #Joining PFAS data to metadata--Should have someone check this
 #-------------------------------------------------------------
 ```{r}
-#baseline_acru <- meta %>%
- # dplyr::filter(visit == "baseline_screening") %>%
-  #dplyr::select(record_id, acr_u) %>%
-  #dplyr::rename(acr_u_bl = acr_u)
+baseline_acru <- meta %>%
+  dplyr::filter(visit == "baseline_screening") %>%
+  dplyr::select(record_id, acr_u) %>%
+  dplyr::rename(uACR_baseline = acr_u)
 
-#meta_nopfas <- meta %>%
- # dplyr::select(-any_of(pfas_all))
+meta_nopfas <- meta %>%
+  dplyr::select(-any_of(pfas_all))
 
-#dat_baseline <- meta_nopfas %>%
-#  filter(visit == "baseline_screening") %>%
- # left_join(pfas_imputed, by = "record_id") %>%
-  #left_join(baseline_acru, by = "record_id") # %>% left_join(baseline_tanner, by = "record_id")
+dat_baseline <- meta_nopfas %>%
+  filter(visit == "baseline_screening") %>%
+  left_join(pfas_imputed, by = "record_id") %>%
+  left_join(baseline_acru, by = "record_id") # %>% left_join(baseline_tanner, by = "record_id")
 
-#dat_long <- meta_nopfas %>%
- # left_join(pfas_imputed, by = "record_id") %>%
-  #left_join(baseline_acru, by = "record_id") %>%
- # mutate(
-  #  visit_f = factor(
-   #   visit,
-    #  levels = c("baseline_screening", "year_1", "year_2"),
-     # labels = c("Baseline", "Year 1", "Year 2")
-    #),
-    #visit_num = case_when(
-     # visit == "baseline_screening" ~ 0,
-    #  visit == "year_1" ~ 1,
-     # visit == "year_2" ~ 2,
-    #  TRUE ~ NA_real_
-    #)
-  #)
+dat_long <- meta_nopfas %>%
+  left_join(pfas_imputed, by = "record_id") %>%
+  left_join(baseline_acru, by = "record_id") %>%
+  mutate(
+    visit_f = factor(
+      visit,
+      levels = c("baseline_screening", "year_1", "year_2"),
+      labels = c("Baseline", "Year 1", "Year 2")
+    ),
+    visit_num = case_when(
+      visit == "baseline_screening" ~ 0,
+      visit == "year_1" ~ 1,
+      visit == "year_2" ~ 2,
+      TRUE ~ NA_real_
+    )
+  )
 
 #write_rds(baseline_acru, file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
 #write_rds(meta_nopfas,   file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
 #write_rds(dat_baseline,  file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
 #write_rds(dat_long,      file = file.path(dir.dat, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
 
-baseline_acru <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
-meta_nopfas <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
-dat_baseline <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
-dat_long <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
+#baseline_acru <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
+#meta_nopfas <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
+#dat_baseline <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
+#dat_long <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
 
 ```
 #---------------------------------------------------------------------------------
@@ -282,56 +377,56 @@ dat_long <- readRDS(file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "da
 dat_baseline <- dat_baseline %>%
   mutate(
     #microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
-    acr_u = ifelse(acr_u > 2367, NA, acr_u),
-    log_acr_u = log1p(acr_u),
+ #   acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_uACR = log1p(acr_u),
     #log_microalbumin_u = log1p(microalbumin_u),
-    log_acr_u_bl = log1p(acr_u_bl)
+    log_uACR_base = log1p(log_uACR)
   )
 
 dat_long <- dat_long %>%
   mutate(
     #microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
-    acr_u = ifelse(acr_u > 2367, NA, acr_u),
-    log_acr_u = log1p(acr_u),
+#    acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_uACR = log1p(acr_u),
     #log_microalbumin_u = log1p(microalbumin_u),
-    log_acr_u_bl = log1p(acr_u_bl)
+    log_uACR_base = log1p(log_uACR)
   )
 
 # Creating column of total PFAS burden and ln transforming all PFAS data
 # ln because that is what most epidiomology studies use (rather than log2)
-pfas_bl_vars <- paste0(pfas_vars, "_bl")
+pfas_base_vars <- paste0(pfas_vars, "_baseline")
 
 dat_baseline <- dat_baseline %>%
   mutate(
-    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
-    total_pfas_bl = ifelse(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_base_vars)))),
+    total_pfas_baseline = ifelse(
       n_pfas_nonmiss == 0,
       NA_real_,
-      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+      rowSums(across(all_of(pfas_base_vars)), na.rm = TRUE)
     ),
-    ln_total_pfas_bl = ifelse(total_pfas_bl > 0, log(total_pfas_bl), NA_real_)
+    ln_total_pfas_baseline = ifelse(total_pfas_baseline > 0, log(total_pfas_baseline), NA_real_)
   ) %>%
   dplyr::select(-n_pfas_nonmiss)
 
 dat_long <- dat_long %>%
   mutate(
-    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_bl_vars)))),
-    total_pfas_bl = ifelse(
+    n_pfas_nonmiss = rowSums(!is.na(across(all_of(pfas_base_vars)))),
+    total_pfas_baseline = ifelse(
       n_pfas_nonmiss == 0,
       NA_real_,
-      rowSums(across(all_of(pfas_bl_vars)), na.rm = TRUE)
+      rowSums(across(all_of(pfas_base_vars)), na.rm = TRUE)
     ),
-    ln_total_pfas_bl = ifelse(total_pfas_bl > 0, log(total_pfas_bl), NA_real_)
+    ln_total_pfas_baseline = ifelse(total_pfas_baseline > 0, log(total_pfas_baseline), NA_real_)
   ) %>%
   dplyr::select(-n_pfas_nonmiss)
 
 dat_baseline <- dat_baseline %>%
-  mutate(across(all_of(pfas_bl_vars), ~ log(.x), .names = "ln_{.col}"))
+  mutate(across(all_of(pfas_base_vars), ~ log(.x), .names = "ln_{.col}"))
 
 dat_long <- dat_long %>%
-  mutate(across(all_of(pfas_bl_vars), ~ log(.x), .names = "ln_{.col}"))
+  mutate(across(all_of(pfas_base_vars), ~ log(.x), .names = "ln_{.col}"))
 
-ln_pfas_bl_vars <- paste0("ln_", pfas_bl_vars)
+ln_pfas_base_vars <- paste0("ln_", pfas_base_vars)
 ```
 #---------------------------------------------------------------------
 #Correlation matrix of PFAS
@@ -340,7 +435,7 @@ ln_pfas_bl_vars <- paste0("ln_", pfas_bl_vars)
 ```{r}
 # data for correlation matrix
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(ln_pfas_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_base_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 # correlation matrix using pairwise complete observations
@@ -355,8 +450,8 @@ pfas_corr_mat
 
 ```{r}
 pfas_cor_tests <- expand.grid(
-  var1 = ln_pfas_bl_vars,
-  var2 = ln_pfas_bl_vars,
+  var1 = ln_pfas_base_vars,
+  var2 = ln_pfas_base_vars,
   stringsAsFactors = FALSE
 ) %>%
   dplyr::filter(var1 < var2) %>%
@@ -387,7 +482,7 @@ pfas_cor_tests
 
 ```{r}
 pfas_corr_df <- dat_baseline %>%
-  dplyr::select(all_of(ln_pfas_bl_vars)) %>%
+  dplyr::select(all_of(ln_pfas_base_vars)) %>%
   dplyr::rename_with(~ sapply(.x, get_pfas_label))
 
 pfas_corr_mat <- cor(
@@ -427,10 +522,10 @@ corrplot::corrplot(
 #-------------------------------
 ```{r}
 dat_baseline_pfas <- dat_baseline %>%
-  filter(if_any(all_of(pfas_bl_vars), ~ !is.na(.)))
+  filter(if_any(all_of(pfas_base_vars), ~ !is.na(.)))
 
 participant_data <- table1(
-  ~ age + sex + bmi + race_ethnicity_condensed + hba1c + acr_u +
+  ~ age + sex + bmi + race_ethnicity_condensed + hba1c + acr_u + erpf_bsa_plasma +
     eGFR_CKiD_U25_avg + avg_c_r2 + avg_k_r2 + mm_ir + bl_dheas | group,
   data = dat_baseline_pfas
 )
@@ -438,9 +533,9 @@ participant_data
 #participant_data_save <- as.data.frame(participant_data)
 
 pfas_data <- table1(
-  ~ N.MeFOSAA_bl + PFDA_bl + PFHpA_bl + PFNA_bl +
-    PFBS_bl + PFHps_bl + PFHxS_bl + PFOA_bl +
-    PFOS_bl + PFPeAS_bl | group,
+  ~ N.MeFOSAA_baseline + PFDA_baseline + PFHpA_baseline + PFNA_baseline +
+    PFBS_baseline + PFHps_baseline + PFHxS_baseline + PFOA_baseline +
+    PFOS_baseline + PFPeAS_baseline | group,
   data = dat_baseline_pfas,
   render.continuous = render.geometric
 )
@@ -524,7 +619,7 @@ combined_plot
 # Hypotheizing equal PFAS exposures so no group differences
 #----------------------------------------------------------
 ```{r}
-pfas_group_vars <- c(ln_pfas_bl_vars, "ln_total_pfas_bl")
+pfas_group_vars <- c(ln_pfas_base_vars, "ln_total_pfas_baseline")
 
 
 baseline_group_pfas_results <- lapply(
@@ -725,8 +820,8 @@ names(mod2a_results_list) <- group_time_outcomes
 mod2a_results <- dplyr::bind_rows(
   lapply(mod2a_results_list, `[[`, "tidy"))
 
-mod2a_results 
-#WriteXLS(mod2a_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2a_results.xlsx"))
+#mod2a_results 
+WriteXLS(mod2a_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2a_results.2.xlsx"))
 
 
 
@@ -738,7 +833,7 @@ mod2a_plot <- plot_model_2a(
 )
 
 #mod2a_plot
-#pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2a_plots.pdf"), width = 22, height = 20)
+pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2a_plots.2.pdf"), width = 22, height = 20)
 wrap_plots(mod2a_plot, ncol=3)
 
 ```
@@ -754,18 +849,18 @@ mod2b_results <- bind_rows(
   lapply(mod2b_list, `[[`, "tidy")
 )
 
-mod2b_results 
-#WriteXLS(mod2b_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2b_results.xlsx"))
+#mod2b_results 
+WriteXLS(mod2b_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2b_results.2.xlsx"))
 
 mod2b_plot <- plot_model_2b(data = dat_long)
 #mod2b_plot
 
-#pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2b_plots.pdf"), width = 22, height = 20)
+pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2b_plots.2.pdf"), width = 22, height = 20)
 wrap_plots(mod2b_plot, ncol=3)
 ```
 
 #model 2c results + plots
-```{r}
+```{r fig.height=16}
 mod2c_list <- lapply(group_time_outcomes, function(outcome) {
   model_2c(dat_long, outcome)
 })
@@ -774,13 +869,13 @@ names(mod2c_list) <- group_time_outcomes
 mod2c_results <- dplyr::bind_rows(
   lapply(mod2c_list, `[[`, "tidy")
 )
-mod2c_results
-#WriteXLS(mod2c_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2c_results.xlsx"))
+#mod2c_results
+WriteXLS(mod2c_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2c_results.2.xlsx"))
 
 
 mod2c_plots <- plot_model_2c(data = dat_long)
 
-#pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2c_plots.pdf"), width = 22, height = 20)
+pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2c_plots.2.pdf"), width = 22, height = 20)
 wrap_plots(mod2c_plots, ncol=3)
 ```
 
@@ -795,11 +890,11 @@ mod2d_results<- bind_rows(
   lapply(mod2d_list, `[[`, "tidy")
 )
 mod2d_results
-#WriteXLS(mod2d_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2d_results.xlsx"))
+WriteXLS(mod2d_results,file.path(dir.results, "csv", "plasma_pfas_unadjusted","longitudinal_group_outcomes", "model_2d_results.2.xlsx"))
 
 mod2d_plots <- plot_model_2d(data = dat_long)
 
-#pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2d_plots.pdf"), width = 22, height = 20)
+pdf(file.path(dir.results, "figures", "plasma_pfas_unadjusted", "longitudinal_group_outcomes", "model_2d_plots.2.pdf"), width = 22, height = 20)
 wrap_plots(mod2d_plots, ncol=3)
 ```
 #--------------------------------------------
@@ -817,7 +912,7 @@ make_model2_formula <- function(outcome, model = "2d") {
   
   if (model %in% c("2b", "2d") &&
       !outcome %in% c("acr_u", "log_acr_u")) {
-    rhs <- c(rhs, "log_acr_u_bl")
+    rhs <- c(rhs, "log_uACR_base")
   }
   
   as.formula(
@@ -831,7 +926,7 @@ make_model2_formula <- function(outcome, model = "2d") {
 ```{r}
 run_longitudinal_outlier_check <- function(data,
                                            outcome,
-                                           model = "2b",
+                                           model = "2a",
                                            resid_cutoff = 3) {
   
   form <- make_model2_formula(outcome, model = model)
@@ -955,7 +1050,7 @@ outlier_list <- lapply(group_time_outcomes, function(outcome) {
     run_longitudinal_outlier_check(
       data = dat_long,
       outcome = outcome,
-      model = "2b"
+      model = "2a"
     ),
     error = function(e) {
       message("FAILED: ", outcome)
@@ -1028,14 +1123,14 @@ loo_summary<- loo_key_terms %>%
   ) %>%
   arrange(desc(max_abs_change))
 
-loo_summary <- loo_summary %>% 
-  filter(max_percent_change > 50)
+loo_summary <- loo_summary2 %>% 
+  filter(max_percent_change >= 50)
 ```
 
 ```{r}
 plot_loo_summary <- function(loo_summary_df,
                              outcome_keep = NULL,
-                             term_keep = "visit_fYear 2:groupType 2 Diabetes") {
+                             term_keep = "visit_fYear 2:groupObese Control") {
   
   plot_df <- loo_summary_df %>%
     dplyr::filter(term == term_keep)
@@ -1081,8 +1176,8 @@ plot_loo_summary <- function(loo_summary_df,
 
 ```{r}
 plot_loo_summary(
-  loo_summary,
-  term_keep = "visit_fYear 2:groupType 2 Diabetes"
+  loo_summary2,
+  term_keep = "visit_fYear 2:groupObese Control"
 )
 ```
 ```{r}
@@ -1119,13 +1214,11 @@ plot_loo_percent_change <- function(loo_summary_df,
 
 ```{r}
 plot_loo_percent_change(
-  loo_summary,
+  loo_summary2,
   term_keep = "visit_fYear 2:groupType 2 Diabetes"
 )
 ```
 ```{r}
-dat_long %>% select(record_id, bmi, group) %>%
-  filter(group == "Lean Control")
 plot_influential_trajectories <- function(data,
                                           outcome,
                                           ids,
@@ -1171,15 +1264,44 @@ plot_influential_trajectories <- function(data,
     )
 }
 ```
-```{r}
-harm <- read.csv(file = file.path("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv"))
-
-harm %>% select(record_id, bmi, group, study, visit) %>%
-  filter(study == "PANTHER") %>%
-  filter(record_id == "PAN-46-C")
-```
 
 ```{r}
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "bl_dheas",
+  ids = c("PAN-08-T", "PAN-01-T", "PAN-75-O", "PAN-98-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "igf_1",
+  ids = c("PAN-08-T", "PAN-36-O", "PAN-21-C")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "bmi",
+  ids = c("PAN-08-T", "PAN-38-O", "PAN-5-T"))
+
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "dexa_fat_kg",
+  ids = c("PAN-08-T", "PAN-94-O")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "dexa_lean_kg",
+  ids = c("PAN-02-T", "PAN-5-T", "PAN-90-O", "PAN-60-O")
+)
+
+plot_influential_trajectories(
+  data = dat_long,
+  outcome = "eGFR_CKiD_U25_avg",
+  ids = c("PAN-05-T", "PAN-24-T", "PAN-28-C")
+)
+
 plot_influential_trajectories(
   data = dat_long,
   outcome = "erpf_bsa_plasma",
@@ -1188,27 +1310,30 @@ plot_influential_trajectories(
 
 plot_influential_trajectories(
   data = dat_long,
-  outcome = "pah_clear_bsa",
-  ids = c("PAN-40-C")
+  outcome = "avg_k_r2",
+  ids = c("PAN-94-O")
 )
 
-plot_influential_trajectories(
-  data = dat_long,
-  outcome = "bl_dheas",
-  ids = c("PAN-08-T", "PAN-01-T", "PAN-75-O", "PAN-48-C")
-)
 
-plot_influential_trajectories(
-  data = dat_long,
-  outcome = "bmi",
-  ids = c("PAN-08-T", "PAN-46-C")
-)
+dat_long %>% select(record_id, visit, group, avg_k_r2, bmi, eGFR_CKiD_U25_avg) %>%
+  filter(group == "Obese Control")
+```
 
-plot_influential_trajectories(
-  data = dat_long,
-  outcome = "dexa_fat_kg",
-  ids = c("PAN-08-T", "PAN-60-O")
-)
+
+```{r}
+PAN05 <- dat_long %>% 
+  filter(record_id == "PAN-05-T")
+PAN05$dexa_lean_kg
+
+
+PAN40 <- dat_long %>% 
+  filter(record_id == "PAN-40-C")
+
+PAN28 <- dat_long %>% 
+  filter(record_id == "PAN-28-C")
+
+PAN28 %>% select(visit, creatinine_s, cystatin_c_s, sex, age, height)
+PAN40 %>% select(visit, creatinine_s, cystatin_c_s, sex, age, height)
 ```
 
 
