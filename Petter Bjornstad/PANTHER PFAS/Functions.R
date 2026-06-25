@@ -823,19 +823,15 @@ plot_model_2d <- function(data,
 #taken from hailey's code in archived folder
 #----------------------------------------------------
 model_3a <- function(data, outcome, exposure) {
-
+  
   covars <- c("age", "sex", "group")
-
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
-
+  
   model_data <- data %>%
     dplyr::select(dplyr::all_of(needed_vars)) %>%
-    tidyr::drop_na()  %>%
-    dplyr::mutate(outcome_scaled = as.numeric(scale(.data[[outcome]])))
+    tidyr::drop_na()
   
-  # -----------------------------
-  # Outlier removal per outcome
-  # -----------------------------
+  # Remove outliers based on original outcome
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
@@ -845,60 +841,56 @@ model_3a <- function(data, outcome, exposure) {
     unique()
   
   model_data <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out) %>%
+    dplyr::mutate(
+      outcome_scaled = as.numeric(scale(.data[[outcome]]))
+    )
   
-  # -----------------------------
-  # Sample size info
-  # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
+  rhs <- c(
+    exposure,
+    "visit_num",
+    paste0(exposure, ":visit_num"),
+    covars
+  )
   
-  #formula
-  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
-  
-  m0 <- as.formula(paste0(
-    outcome_scaled, " ~ ",
+  full_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
   ))
   
-  # -----------------------------
-  # Fit model with fallback
-  # -----------------------------
+  fallback_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 | record_id)"
+  ))
+  
   m1 <- tryCatch(
-    lmerTest::lmer(m0, data = model_data, REML = TRUE),
+    lmerTest::lmer(full_formula, data = model_data, REML = TRUE),
     error = function(e) {
-      fallback_formula <- as.formula(
-        paste0(
-          outcome, " ~ ",
-          paste(rhs, collapse = " + "),
-          " + (1 | record_id)"
-        )
-      )
       lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
     }
   )
   
   if (lme4::isSingular(m1, tol = 1e-4)) {
-    fallback_formula <- as.formula(
-      paste0(
-        outcome, " ~ ",
-        paste(rhs, collapse = " + "),
-        " + (1 | record_id)"
-      )
-    )
     m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
   }
   
   tidy_tbl <- broom.mixed::tidy(m1, effects = "fixed") %>%
     dplyr::mutate(
-      analysis = "baseline_pfas_longitudinal_base",
+      analysis = "baseline_pfas_longitudinal",
       outcome = outcome,
       exposure = exposure,
       n_subj = n_subj,
       n_obs = n_obs,
-      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      removed_ids = ifelse(
+        length(removed_ids) > 0,
+        paste(removed_ids, collapse = ", "),
+        NA_character_
+      ),
       model_formula = paste(deparse(formula(m1)), collapse = " ")
     )
   
@@ -913,10 +905,11 @@ model_3a <- function(data, outcome, exposure) {
 #model 3b adjustin for baseline uACR
 #-----------------------------------
 model_3b <- function(data, outcome, exposure) {
+  
   covars <- c("age", "sex", "group")
   
-  if (!outcome %in% c("acr_u", "log_acr_u")) {
-    covars <- c(covars, "log_acr_u_bl")
+  if (!outcome %in% c("acr_u", "log_uACR")) {
+    covars <- c(covars, "log_uACR_base")
   }
   
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
@@ -925,9 +918,7 @@ model_3b <- function(data, outcome, exposure) {
     dplyr::select(dplyr::all_of(needed_vars)) %>%
     tidyr::drop_na()
   
-  # -----------------------------
-  # Outlier removal per outcome
-  # -----------------------------
+  # Outlier removal based on original outcome
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
@@ -937,50 +928,41 @@ model_3b <- function(data, outcome, exposure) {
     unique()
   
   model_data <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out) %>%
+    dplyr::mutate(
+      outcome_scaled = as.numeric(scale(.data[[outcome]]))
+    )
   
-  # -----------------------------
-  # Sample size info
-  # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
-  # -----------------------------
-  # Formula
-  # -----------------------------
-  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
+  rhs <- c(
+    exposure,
+    "visit_num",
+    paste0(exposure, ":visit_num"),
+    covars
+  )
   
-  m0 <- as.formula(paste0(
-    outcome, " ~ ",
+  full_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
   ))
   
-  # -----------------------------
-  # Fit model with fallback
-  # -----------------------------
+  fallback_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 | record_id)"
+  ))
+  
   m1 <- tryCatch(
-    lmerTest::lmer(m0, data = model_data, REML = TRUE),
+    lmerTest::lmer(full_formula, data = model_data, REML = TRUE),
     error = function(e) {
-      fallback_formula <- as.formula(
-        paste0(
-          outcome, " ~ ",
-          paste(rhs, collapse = " + "),
-          " + (1 | record_id)"
-        )
-      )
       lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
     }
   )
   
   if (lme4::isSingular(m1, tol = 1e-4)) {
-    fallback_formula <- as.formula(
-      paste0(
-        outcome, " ~ ",
-        paste(rhs, collapse = " + "),
-        " + (1 | record_id)"
-      )
-    )
     m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
   }
   
@@ -991,7 +973,11 @@ model_3b <- function(data, outcome, exposure) {
       exposure = exposure,
       n_subj = n_subj,
       n_obs = n_obs,
-      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      removed_ids = ifelse(
+        length(removed_ids) > 0,
+        paste(removed_ids, collapse = ", "),
+        NA_character_
+      ),
       model_formula = paste(deparse(formula(m1)), collapse = " ")
     )
   
@@ -1014,9 +1000,7 @@ model_3c <- function(data, outcome, exposure) {
     dplyr::select(dplyr::all_of(needed_vars)) %>%
     tidyr::drop_na()
   
-  # -----------------------------
-  # Outlier removal per outcome
-  # -----------------------------
+  # Outlier removal based on original outcome
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
@@ -1026,51 +1010,41 @@ model_3c <- function(data, outcome, exposure) {
     unique()
   
   model_data <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out) %>%
+    dplyr::mutate(
+      outcome_scaled = as.numeric(scale(.data[[outcome]]))
+    )
   
-  # -----------------------------
-  # Sample size info
-  # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
-  # -----------------------------
-  # Formula
-  # -----------------------------
-  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
+  rhs <- c(
+    exposure,
+    "visit_num",
+    paste0(exposure, ":visit_num"),
+    covars
+  )
   
-  m0 <- as.formula(paste0(
-    outcome, " ~ ",
+  full_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
   ))
   
+  fallback_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 | record_id)"
+  ))
   
-  # -----------------------------
-  # Fit model with fallback
-  # -----------------------------
   m1 <- tryCatch(
-    lmerTest::lmer(m0, data = model_data, REML = TRUE),
+    lmerTest::lmer(full_formula, data = model_data, REML = TRUE),
     error = function(e) {
-      fallback_formula <- as.formula(
-        paste0(
-          outcome, " ~ ",
-          paste(rhs, collapse = " + "),
-          " + (1 | record_id)"
-        )
-      )
       lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
     }
   )
   
   if (lme4::isSingular(m1, tol = 1e-4)) {
-    fallback_formula <- as.formula(
-      paste0(
-        outcome, " ~ ",
-        paste(rhs, collapse = " + "),
-        " + (1 | record_id)"
-      )
-    )
     m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
   }
   
@@ -1081,7 +1055,11 @@ model_3c <- function(data, outcome, exposure) {
       exposure = exposure,
       n_subj = n_subj,
       n_obs = n_obs,
-      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      removed_ids = ifelse(
+        length(removed_ids) > 0,
+        paste(removed_ids, collapse = ", "),
+        NA_character_
+      ),
       model_formula = paste(deparse(formula(m1)), collapse = " ")
     )
   
@@ -1100,19 +1078,17 @@ model_3d <- function(data, outcome, exposure) {
   
   covars <- c("age", "sex", "group", "tan_stage")
   
-  if (!outcome %in% c("acr_u", "log_acr_u")) {
-    covars <- c(covars, "log_acr_u_bl")
+  if (!outcome %in% c("acr_u", "log_uACR")) {
+    covars <- c(covars, "log_uACR_base")
   }
-
+  
   needed_vars <- c("record_id", outcome, exposure, "visit_num", covars)
   
   model_data <- data %>%
     dplyr::select(dplyr::all_of(needed_vars)) %>%
     tidyr::drop_na()
   
-  # -----------------------------
-  # Outlier removal per outcome
-  # -----------------------------
+  # Outlier removal based on original outcome
   m_out <- mean(model_data[[outcome]], na.rm = TRUE)
   s_out <- sd(model_data[[outcome]], na.rm = TRUE)
   
@@ -1122,48 +1098,41 @@ model_3d <- function(data, outcome, exposure) {
     unique()
   
   model_data <- model_data %>%
-    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out)
+    dplyr::filter(abs(.data[[outcome]] - m_out) <= 3 * s_out) %>%
+    dplyr::mutate(
+      outcome_scaled = as.numeric(scale(.data[[outcome]]))
+    )
   
-  # -----------------------------
-  # Sample size info
-  # -----------------------------
   n_subj <- dplyr::n_distinct(model_data$record_id)
   n_obs  <- nrow(model_data)
   
-  # -----------------------------
-  # Formula
-  # -----------------------------
-  rhs <- c(exposure, "visit_num", paste0(exposure, ":visit_num"), covars)
+  rhs <- c(
+    exposure,
+    "visit_num",
+    paste0(exposure, ":visit_num"),
+    covars
+  )
   
-  m0 <- as.formula(paste0(
-    outcome, " ~ ",
+  full_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
     paste(rhs, collapse = " + "),
     " + (1 + visit_num | record_id)"
   ))
   
-
+  fallback_formula <- as.formula(paste0(
+    "outcome_scaled ~ ",
+    paste(rhs, collapse = " + "),
+    " + (1 | record_id)"
+  ))
+  
   m1 <- tryCatch(
-    lmerTest::lmer(m0, data = model_data, REML = TRUE),
+    lmerTest::lmer(full_formula, data = model_data, REML = TRUE),
     error = function(e) {
-      fallback_formula <- as.formula(
-        paste0(
-          outcome, " ~ ",
-          paste(rhs, collapse = " + "),
-          " + (1 | record_id)"
-        )
-      )
       lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
     }
   )
   
   if (lme4::isSingular(m1, tol = 1e-4)) {
-    fallback_formula <- as.formula(
-      paste0(
-        outcome, " ~ ",
-        paste(rhs, collapse = " + "),
-        " + (1 | record_id)"
-      )
-    )
     m1 <- lmerTest::lmer(fallback_formula, data = model_data, REML = TRUE)
   }
   
@@ -1174,7 +1143,11 @@ model_3d <- function(data, outcome, exposure) {
       exposure = exposure,
       n_subj = n_subj,
       n_obs = n_obs,
-      removed_ids = if (length(removed_ids) > 0) paste(removed_ids, collapse = ", ") else NA_character_,
+      removed_ids = ifelse(
+        length(removed_ids) > 0,
+        paste(removed_ids, collapse = ", "),
+        NA_character_
+      ),
       model_formula = paste(deparse(formula(m1)), collapse = " ")
     )
   
