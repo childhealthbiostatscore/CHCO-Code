@@ -11,6 +11,7 @@ here <- dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = T
 if (length(here) == 0 || here == "") here <- "R"
 source(file.path(here, "setup.R"))
 source(file.path(dirname(here), "config.R"))
+source(file.path(here, "nebula_core.R"))   # for s3_get_csv / s3_put_csv
 
 g <- CONFIG$global
 
@@ -33,8 +34,7 @@ for (contrast in contrasts) {
 
   message("[", contrast, "] combining ", length(keys), " partials")
   dfs <- lapply(keys, function(k)
-    s3read_using_region(FUN = read.csv, bucket = g$s3_bucket, region = "",
-                        object = k, check.names = FALSE, stringsAsFactors = FALSE))
+    s3_get_csv(k, g$s3_bucket, check.names = FALSE, stringsAsFactors = FALSE))
   combined <- dplyr::bind_rows(dfs)   # tolerates differing per-group count cols
 
   # tidy column order: descriptors first, then everything else
@@ -45,8 +45,7 @@ for (contrast in contrasts) {
   combined <- combined[, c(lead, setdiff(names(combined), lead))]
 
   out_key <- paste0(g$results_prefix, contrast, "_neb.csv")
-  s3write_using_region(combined, FUN = write.csv, bucket = g$s3_bucket, region = "",
-                       object = out_key, row.names = FALSE)
+  s3_put_csv(combined, out_key, g$s3_bucket)
   message("[", contrast, "] wrote ", nrow(combined), " rows -> ", out_key)
 }
 

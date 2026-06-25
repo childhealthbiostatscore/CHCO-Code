@@ -90,10 +90,10 @@ manifest <- do.call(rbind, rows)
 
 manifest_path <- file.path(g$work_dir, "jobs.tsv")
 write.table(manifest, manifest_path, sep = "\t", quote = FALSE, row.names = FALSE)
-# also keep a copy on S3 for the record
-s3write_using_region(manifest, FUN = function(x, file) write.table(x, file, sep = "\t",
-                     quote = FALSE, row.names = FALSE),
-                     bucket = g$s3_bucket, region = "",
-                     object = paste0(g$results_prefix, "jobs_manifest.tsv"))
+# also keep a copy on S3 for the record (best-effort: the local jobs.tsv above
+# is what the array uses, so a failed upload here must not abort the pipeline)
+tryCatch(
+  s3_put_tsv(manifest, paste0(g$results_prefix, "jobs_manifest.tsv"), g$s3_bucket),
+  error = function(e) message("  (manifest S3 upload skipped: ", conditionMessage(e), ")"))
 
 message("\n=== Manifest written: ", nrow(manifest), " runs -> ", manifest_path, " ===")

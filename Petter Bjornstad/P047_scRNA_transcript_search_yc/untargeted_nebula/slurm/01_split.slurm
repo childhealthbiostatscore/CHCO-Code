@@ -17,21 +17,43 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-# EDIT THESE TWO PATHS for your checkout / scratch location:
+# EDIT THESE TWO PATHS for your checkout / scratch location.
+# WORK_DIR must match config.R -> global$work_dir (00_split writes jobs.tsv
+# there and this script reads it back to size the array).
 PROJECT_DIR="/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/P047_scRNA_transcript_search_yc/untargeted_nebula"
-WORK_DIR="/gscratch/togo/yejichoi/scrna_untargeted"
+WORK_DIR="/mmfs1/gscratch/togo/yejichoi/project_logs/untargeted_nebula_logs"
 
-# --- R environment (adjust to your Hyak setup) -----------------------------
-# module load <your R module>            # e.g. module load r/4.3.2
-# or: source ~/miniconda3/bin/activate <your-env>
-RSCRIPT="${RSCRIPT:-Rscript}"
+# --- R via Apptainer container ---------------------------------------------
+module load apptainer
+CONTAINER="${CONTAINER:-/mmfs1/gscratch/togo/YC_scRNA.sif}"
+# The container's site-library is read-only, so togolab/togolab.scrna install
+# into this writable user library on /gscratch instead. It is passed in as
+# NEB_RLIB (setup.R puts it first on .libPaths). PRE-INSTALL ONCE on a login
+# node (has internet) so jobs only load — use an EXPLICIT lib= (don't rely on
+# env vars, which the container's Renviron overrides):
+#   module load apptainer
+#   apptainer exec --bind /gscratch,/mmfs1 /mmfs1/gscratch/togo/YC_scRNA.sif Rscript -e '
+#     lib <- "/mmfs1/gscratch/togo/yejichoi/R_libs/YC_scRNA";
+#     dir.create(lib, recursive=TRUE, showWarnings=FALSE); .libPaths(c(lib,.libPaths()));
+#     remotes::install_github(c("uwmdi-togo/togolab","uwmdi-togo/togolab.scrna"), lib=lib, upgrade="never")'
+NEB_RLIB="${NEB_RLIB:-/mmfs1/gscratch/togo/yejichoi/R_libs/YC_scRNA}"
+mkdir -p "$NEB_RLIB"
+# bind the gscratch + mmfs1 trees and pass the user lib into the container.
+# RSCRIPT is used unquoted below, so it expands to the full apptainer command.
+RSCRIPT="apptainer exec --bind /gscratch,/mmfs1 --env NEB_RLIB=${NEB_RLIB} ${CONTAINER} Rscript"
 
 cd "$PROJECT_DIR"
 mkdir -p "$WORK_DIR"
 
-echo "[split] starting $(date)"
-$RSCRIPT R/00_split_celltypes.R
-echo "[split] done $(date)"
+# Set SKIP_SPLIT=1 to reuse the existing splits + jobs.tsv (e.g. after fixing a
+# downstream bug) and jump straight to submitting the array.
+if [ "${SKIP_SPLIT:-0}" = "1" ]; then
+  echo "[split] SKIP_SPLIT=1 -> reusing existing $WORK_DIR/jobs.tsv"
+else
+  echo "[split] starting $(date)"
+  $RSCRIPT R/00_split_celltypes.R
+  echo "[split] done $(date)"
+fi
 
 # number of runs = data lines in jobs.tsv (minus header)
 NJOBS=$(($(wc -l < "$WORK_DIR/jobs.tsv") - 1))

@@ -3,12 +3,22 @@
 # Sourced by every script. Does NOT load Seurat objects.
 # =============================================================================
 
+# The container's site-library is read-only. The SLURM scripts pass a writable
+# library path via the NEB_RLIB env var (custom name so the container's
+# Renviron can't clobber it, unlike R_LIBS_USER). Put it FIRST on .libPaths so
+# both installs and library() use it.
+.userlib <- Sys.getenv("NEB_RLIB")
+if (nzchar(.userlib)) {
+  dir.create(.userlib, recursive = TRUE, showWarnings = FALSE)
+  .libPaths(c(.userlib, .libPaths()))
+}
+
 .ensure_github <- function(pkg, repo) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
     if (!requireNamespace("remotes", quietly = TRUE))
       install.packages("remotes", repos = "https://cloud.r-project.org")
-    message("Installing ", repo, " ...")
-    remotes::install_github(repo, upgrade = "never")
+    message("Installing ", repo, " into ", .libPaths()[1], " ...")
+    remotes::install_github(repo, lib = .libPaths()[1], upgrade = "never")
   }
 }
 .ensure_github("togolab",       "uwmdi-togo/togolab")

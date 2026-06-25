@@ -65,6 +65,5 @@ if (is.null(out)) {
 partial_key <- paste0(g$partials_prefix, job$contrast, "/",
                       job$subset, "__", job$resolution, "__",
                       job$celltype_safe, ".csv")
-s3write_using_region(out, FUN = write.csv, bucket = g$s3_bucket, region = "",
-                     object = partial_key, row.names = FALSE)
+s3_put_csv(out, partial_key, g$s3_bucket)
 message("=== saved partial -> ", partial_key, " (", nrow(out), " genes) ===")
