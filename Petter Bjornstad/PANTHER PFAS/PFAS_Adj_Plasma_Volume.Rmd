@@ -57,23 +57,9 @@ if (user == "leidholt") {
 }
 ```
 
-#---------------------------------------------
-#loading cleaned data from original analysis
-#---------------------------------------------
 ```{r}
-source(file.path(git_path, "Functions.R"))
-
-pfas_imputed <- read_rds(file = file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "pfas_imputed.rds"))
-baseline_acru <- read_rds(file = file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "baseline_acru.rds"))
-meta_nopfas <- read_rds(file = file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "meta_nopfas.rds"))
-dat_baseline <- read_rds(file = file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_baseline.rds"))
-dat_long <- read_rds(file = file.path(root_path, "Savanah Leidholt", "PFAS", "Data", "dat_long.rds"))
-```
-#------------------------------------------
-#creating pfas and outocme variables
-#------------------------------------------
 ```{r}
-
+#setting up PFAS that passed LOD, outcomes, labels, and covariates
 pfas_all <- c(
   "N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFOA",
   "PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFDoS","PFHps","PFHxS","PFNS",
@@ -85,15 +71,16 @@ pfas_vars <- c(
   "PFHps","PFHxS","PFOA","PFOS","PFPeAS"
 )
 
+
 baseline_model_outcomes <- c(
-  "log_acr_u",
- # "log_microalbumin_u",
+  "log_uACR",
+  #"log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
   "avg_c_r2",
   "avg_k_r2",
   "bmi",
-  "pah_clear_bsa",
+  #"pah_clear_bsa",
   "dexa_lean_kg",
   "dexa_fat_kg",
   "igf_1",
@@ -103,12 +90,13 @@ baseline_model_outcomes <- c(
   "mm_di"
 )
 
+
 group_time_outcomes <- c(
-  "log_acr_u",
-  #"log_microalbumin_u",
+  "log_uACR",
+ # "log_microalbumin_u",
   "eGFR_CKiD_U25_avg",
   "erpf_bsa_plasma",
-  "pah_clear_bsa",
+  #"pah_clear_bsa",
   "avg_c_r2",
   "avg_k_r2",
   "bmi",
@@ -119,18 +107,19 @@ group_time_outcomes <- c(
 )
 
 
+
 outcome_label_map <- c(
   #kidney function
   acr_u = "uACR",
-  log_acr_u = "log1p(uACR)",
+  log_uACR = "log1p(uACR)",
  # microalbumin_u = "Microalbuminuria",
- # log_microalbumin_u = "log1p(Microalbuminuria)",
+#  log_microalbumin_u = "log1p(Microalbuminuria)",
   eGFR_CKiD_U25_avg = "eGFR",
   erpf_bsa_plasma = "ERPF",
-  pah_clear_bsa = "PAH clearance",
+  #pah_clear_bsa = "PAH clearance", #functionally the same as erpf
   #kidney oxygenation
-  avg_c_r2 = "Cortical R2",
-  avg_k_r2= "Kidney R2",
+  avg_c_r2 = "Cortical Oxygenation",
+  avg_k_r2= "Medullary Oxygenation",
   #metabolism
   bmi = "Body Mass Index",
   dexa_lean_kg = "DEXA Lean Mass (kg)",
@@ -145,75 +134,127 @@ outcome_label_map <- c(
   tan_fgd = "Tanner Stage"
 )
 
+
 pfas_label_map <- c(
-  log2_N.MeFOSAA_bl = "log2(N-MeFOSAA)",
-  log2_PFDA_bl = "log2(PFDA)",
-  log2_PFHpA_bl = "log2(PFHpA)",
-  log2_PFNA_bl = "log2(PFNA)",
-  log2_PFBS_bl = "log2(PFBS)",
-  log2_PFHps_bl = "log2(PFHpS)",
-  log2_PFHxS_bl = "log2(PFHxS)",
-  log2_PFOA_bl = "log2(PFOA)",
-  log2_PFOS_bl = "log2(PFOS)",
-  log2_PFPeAS_bl = "log2(PFPeAS)"
+  log2_N.MeFOSAA = "log2(N-MeFOSAA)",
+  log2_PFDA = "log2(PFDA)",
+  log2_PFHpA = "log2(PFHpA)",
+  log2_PFNA = "log2(PFNA)",
+  log2_PFBS = "log2(PFBS)",
+  log2_PFHps = "log2(PFHpS)",
+  log2_PFHxS = "log2(PFHxS)",
+  log2_PFOA = "log2(PFOA)",
+  log2_PFOS = "log2(PFOS)",
+  log2_PFPeAS = "log2(PFPeAS)"
+)
+```
+
+#---------------------------------------------
+#loading cleaned data from original analysis
+#---------------------------------------------
+```{r}
+source(file.path(git_path, "Functions.R"))
+
+obj <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/pfas_imputed_06242026.csv",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
 )
 
-```
-#---------------------------------------
-#Helper fucntions for pvalues and labels
-#---------------------------------------
-```{r}
-fmt_p <- function(p) {
-  case_when(
-    is.na(p) ~ NA_character_,
-    p < 0.001 ~ "<0.001",
-    TRUE ~ formatC(p, format = "f", digits = 3)
-  )
-}
+pfas_imputed <- readr::read_csv(
+  rawConnection(obj3)
+)
 
-get_pfas_label <- function(x) {
-  dplyr::recode(x, !!!pfas_label_map, .default = x)
-}
 
-get_outcome_label <- function(outcome) {
-  dplyr::recode(outcome, !!!outcome_label_map, .default = outcome)
-}
+obj2 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/baseline_acru.rds",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+baseline_acru <- readr::read_csv(
+  rawConnection(obj2)
+)
+
+obj3 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/meta_nopfas.rds",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+meta_nopfas <- readr::read_csv(
+  rawConnection(obj3)
+)
+
+
+obj4 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/dat_baseline.rds",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+dat_baseline <- readr::read_csv(
+  rawConnection(obj4)
+)
+
+obj5 <- aws.s3::get_object(
+  object = "P015_PANTHER_PFAS_dw_sl/data_freeze/Plasma PFAS/dat_long.rds",
+  bucket = "togo.projects",
+  base_url = "s3.kopah.uw.edu",
+  region = "",
+  use_https = TRUE,
+  url_style = "path"
+)
+
+dat_long <- readr::read_csv(
+  rawConnection(obj5)
+)
 ```
+
 #-------------------------------
 #merge PFAS & baseline metadata
 #-------------------------------
 ```{r}
-# Outcome cleaning / log transforms
-
 dat_baseline <- dat_baseline %>%
   mutate(
-    microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
-    acr_u = ifelse(acr_u > 2367, NA, acr_u),
-    log_acr_u = log1p(acr_u),
-    log_microalbumin_u = log1p(microalbumin_u),
-    log_acr_u_bl = log1p(acr_u_bl)
+    #microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
+ #   acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_uACR = log1p(acr_u),
+    #log_microalbumin_u = log1p(microalbumin_u),
+    log_uACR_base = log1p(log_uACR)
   )
 
 dat_long <- dat_long %>%
   mutate(
-    microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
-    acr_u = ifelse(acr_u > 2367, NA, acr_u),
-    log_acr_u = log1p(acr_u),
-    log_microalbumin_u = log1p(microalbumin_u),
-    log_acr_u_bl = log1p(acr_u_bl)
+    #microalbumin_u = ifelse(microalbumin_u > 3000, NA, microalbumin_u),
+#    acr_u = ifelse(acr_u > 2367, NA, acr_u),
+    log_uACR = log1p(acr_u),
+    #log_microalbumin_u = log1p(microalbumin_u),
+    log_uACR_base = log1p(log_uACR)
   )
 ```
 
 ```{r}
 # Define baseline PFAS variable names
-pfas_bl_vars <- paste0(pfas_vars, "_bl")
+#pfas_bl_vars <- paste0(pfas_vars, "_bl")
 
 # names for plasma-total PFAS columns
-pfas_total_ng_bl_vars <- paste0(pfas_bl_vars, "_total_ng")
+pfas_adj_blood_vars <- paste0(pfas_vars, "_adj_conc")
 
 
 # Add blood/plasma volume and plasma-total PFAS
-
 dat_baseline <- dat_baseline %>%
   mutate(
     blood_vol_ml = case_when(
@@ -224,9 +265,9 @@ dat_baseline <- dat_baseline %>%
   ) %>%
   mutate(
     across(
-      all_of(pfas_bl_vars),
+      all_of(pfas_vars),
       ~ .x * plasma_vol_ml,
-      .names = "{.col}_total_ng"
+      .names = "{.col}_adj_conc"
     )
   )
 
@@ -240,9 +281,9 @@ dat_long <- dat_long %>%
   ) %>%
   mutate(
     across(
-      all_of(pfas_bl_vars),
+      all_of(pfas_vars),
       ~ .x * plasma_vol_ml,
-      .names = "{.col}_total_ng"
+      .names = "{.col}_adj_conc"
     )
   )
 
