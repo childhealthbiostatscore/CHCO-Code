@@ -3,6 +3,27 @@
 # Sourced after setup.R + config.R.
 # =============================================================================
 
+# ---------------------------------------------------------------------------
+# Robust S3 table IO. These call aws.s3::put_object / save_object directly so
+# they do NOT depend on the argument convention of any s3*_using helper (which
+# differs between aws.s3 and togolab and bit us on the manifest write).
+# ---------------------------------------------------------------------------
+s3_put_csv <- function(df, object, bucket, region = "") {
+  tmp <- tempfile(fileext = ".csv"); on.exit(unlink(tmp))
+  utils::write.csv(df, tmp, row.names = FALSE)
+  aws.s3::put_object(file = tmp, object = object, bucket = bucket, region = region)
+}
+s3_put_tsv <- function(df, object, bucket, region = "") {
+  tmp <- tempfile(fileext = ".tsv"); on.exit(unlink(tmp))
+  utils::write.table(df, tmp, sep = "\t", quote = FALSE, row.names = FALSE)
+  aws.s3::put_object(file = tmp, object = object, bucket = bucket, region = region)
+}
+s3_get_csv <- function(object, bucket, region = "", ...) {
+  tmp <- tempfile(fileext = ".csv"); on.exit(unlink(tmp))
+  aws.s3::save_object(object = object, bucket = bucket, file = tmp, region = region)
+  utils::read.csv(tmp, ...)
+}
+
 # KPMP general (low-res) mapping, identical to transcript_search.qmd
 kpmp_general_map <- function(ct) {
   dplyr::case_when(

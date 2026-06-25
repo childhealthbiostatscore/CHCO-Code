@@ -17,8 +17,12 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/P047_scRNA_transcript_search_yc/untargeted_nebula}"
 
-# module load <your R module>
-RSCRIPT="${RSCRIPT:-Rscript}"
+# --- R via Apptainer container ---------------------------------------------
+module load apptainer
+CONTAINER="${CONTAINER:-/mmfs1/gscratch/togo/YC_scRNA.sif}"
+NEB_RLIB="${NEB_RLIB:-/mmfs1/gscratch/togo/yejichoi/R_libs/YC_scRNA}"
+mkdir -p "$NEB_RLIB"
+RSCRIPT="apptainer exec --bind /gscratch,/mmfs1 --env NEB_RLIB=${NEB_RLIB} ${CONTAINER} Rscript"
 
 cd "$PROJECT_DIR"
 echo "[aggregate] starting $(date)"
