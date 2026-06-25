@@ -47,6 +47,8 @@ library(gtable)
 library(extrafont)
 library(readxl)
 library(growthcleanr)
+library(openxlsx)
+library(ggtext)
 ```
 
 ```{r include = F}
@@ -346,6 +348,19 @@ kable(summary(arsenal::tableby(
   data = subset(attempt_dat, visit == 0 & site == "Denver"),
   control = table_controls, test = F), labelTranslations = table_labs), 
   digits = 1)
+
+wb <- createWorkbook()
+addWorksheet(wb, "Table 1")
+writeData(wb, sheet = "Table 1", 
+          x = subset(attempt_dat, visit == 0 & site == "Denver",
+                     select = c(treatment, age, sex, weight, height, bmi, hba1c, 
+                                emu_urine_acr_mean_mgg, creatinine_s_mgdl, 
+                                cystatin_c_s, albumin_serum_gl, cgm_tir, 
+                                diabetes_dx_duration, sbp, dbp, 
+                                cholesterol_serum_mmoll, triglycerides_serum_mmoll,
+                                pulse, ldl_serum_mmoll, hdl_serum_mmoll,
+                                mgfr_jodal_bsa, mgfr_jodal, 
+                             avg_c_r2, avg_k_r2, avg_m_r2, tkv)))
 ```
 
 Abbreviations: BMI, body mass index; HbA1c, hemoglobin A1c; ACR, albumin-to-creatinine ratio; CGM, continuous glucose monitor; BP, blood pressure; LDL, low density lipoprotein cholesterol; HDL, high density lipoprotein cholesterol; mGFR, measured glomerular filtration rate; BSA, body surface adjusted.
@@ -368,6 +383,11 @@ kable(summary(arsenal::tableby(
   data = subset(attempt_dat, visit == 0 & site == "Denver" & biopsy_yn == "Yes"),
   control = table_controls, test = F), labelTranslations = table_labs), 
   digits = 1)
+addWorksheet(wb, "Table 2")
+writeData(wb, sheet = "Table 2", 
+          x = subset(attempt_dat, visit == 0 & site == "Denver" & biopsy_yn == "Yes",
+                     select = c(`Glomeruli number`, `Glomeruli sclerosed`,
+                                `GBM thickening`, `Tubular atrophy`, `Vessel pathology`)))
 
 ```
 
@@ -406,7 +426,13 @@ mgfr_jodal_bsa_category_bars <- plot_delta_by_category(
   fill_colors = c("Placebo" = "#f8ae9d", 
                   "Dapagliflozin" = "#a7b298",
                   "DiD" = "#669bbc")
-) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+)
+
+write.csv(mgfr_jodal_bsa_category_bars$plot_data,
+          file.path(root_path, "ATTEMPT/Results/PB/MS/Supplemental Materials/fig1a.csv"),
+          row.names = F)
+mgfr_jodal_bsa_category_bars$plot <- mgfr_jodal_bsa_category_bars$plot + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 # (B)
 delta_mgfr_jodal_bsa_denver <- plot_mean_ci_stars(subset(delta_df, visit %in% c(-4,16) & site == "Denver"),
@@ -677,7 +703,7 @@ knitr::include_graphics(file.path(base_path, "Panels/full_mgfr_r2.png"))
 ggarrange(delta_mgfr_jodal_bsa_denver, delta_hba1c_overtime_2_denver, delta_tir_overtime_denver,
           delta_avg_k_r2_overtime_denver, delta_avg_m_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=3, nrow=2, common.legend = TRUE, legend="bottom", labels = "AUTO", label.y = 1.01)
 
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/denver_mgfr_r2_panel.pdf"), width = 12, height = 8, dpi = 300)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/denver_mgfr_r2_panel.pdf"), width = 12, height = 8, dpi = 600)
 ```
 
 
@@ -699,7 +725,7 @@ knitr::include_graphics(file.path(base_path, "Panels/denver_mgfr_r2_panel.png"))
 # delta_avg_m_r2_overtime_denver = H
 # delta_avg_c_r2_overtime_denver = I
 
-ggarrange(mgfr_jodal_bsa_category_bars,
+ggarrange(mgfr_jodal_bsa_category_bars$plot,
           delta_mgfr_jodal_bsa_denver, 
           delta_hba1c_overtime_2_denver, 
           delta_tir_overtime_denver,
@@ -710,8 +736,39 @@ ggarrange(mgfr_jodal_bsa_category_bars,
           ncol=4, nrow=2, common.legend = TRUE, 
           legend="bottom", labels = "AUTO", label.y = 1.01)
 
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/Revised/fig1_panel.pdf"), width = 18, height = 8, dpi = 300,
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/Revised/fig1_panel.pdf"), width = 18, height = 8, dpi = 600,
        device = cairo_pdf)
+
+
+compute_means <- function(data, y) {
+  y_sym <- sym(y)
+  data %>%
+    group_by(treatment, visit) %>%
+    dplyr::summarise(
+      variable = y,
+      n        = sum(!is.na(!!y_sym)),
+      mean_y   = mean(!!y_sym, na.rm = TRUE),
+      sd_y     = sd(!!y_sym, na.rm = TRUE),
+      t_crit   = qt(0.975, df = n - 1),
+      lower    = mean_y - (t_crit * sd_y / sqrt(n)),
+      upper    = mean_y + (t_crit * sd_y / sqrt(n)),
+      .groups  = "drop"
+    )
+}
+
+fig1_means <- map_dfr(c("mgfr_jodal_bsa",
+                        "hba1c",
+                        "tir",
+                        "avg_k_r2",
+                        "avg_m_r2",
+                        "avg_c_r2"), 
+                      ~ compute_means(subset(delta_df, visit %in% c(-4, 4, 16) & site == "Denver"), .x)) %>%
+  filter(n != 0) %>%
+  dplyr::select(-t_crit)
+
+# addWorksheet(wb, "Figure 1")
+# writeData(wb, sheet = "Figure 1", 
+#           x = fig1_means)
 ```
 
 ```{r echo = F, eval = F}
@@ -724,7 +781,7 @@ ggarrange(ggarrange(mgfr_jodal_bsa_category_bars, delta_avg_k_r2_overtime, croc_
                     labels = c("D", "E", "F",
                                "G", "H", "I"), label.y = 1.01),
           nrow = 2, heights = c(1, 2))
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/fig1_2_combined.pdf"), width = 12, height = 12)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/fig1_2_combined.pdf"), width = 12, height = 12, dpi = 600)
 
 ```
 
@@ -1889,7 +1946,7 @@ for (cell in names(celltype_groups)) {
   df <- get(paste0(tolower(cell), "_kpmp_ipa"))
   
   df_top <- df %>%
-    plyr::arrange(desc(neg_log_p)) %>%
+    plyr::arrange(dplyr::desc(neg_log_p)) %>%
     filter(!is.na(z)) %>%
     head(20)
   
@@ -2027,7 +2084,7 @@ pt_plots <- create_gene_expression_plots(
 
 pt_dot_legend <- get_legend(pt_plots$dot_plot)
 pt_plots$dot_plot <- pt_plots$dot_plot + theme(legend.position = "none")
-pt_plots$heatmap_plot <- pt_plots$heatmap_plot + theme(legend.position = "top")
+pt_plots$heatmap_plot <- pt_plots$heatmap_plot + theme(legend.position = "top") 
 
 get_legend <- function(myplot) {
   tmp <- ggplot_gtable(ggplot_build(myplot))
@@ -2065,7 +2122,7 @@ p <- ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot,
                          font.label = list(size = 25)),
                nrow = 3, ncol = 1,
                heights = c(2,1,1))
-ggsave(file.path(base_path, "Panels/Revised/fig2_pt.pdf"), p, height = 26, width = 20, device = cairo_pdf)
+ggsave(file.path(base_path, "Panels/Revised/fig2_pt.png"), p, height = 26, width = 20, dpi = 600)
 
 ```
 
@@ -2137,7 +2194,7 @@ p <- ggarrange(ggarrange(ggarrange(tal_plots$volcano_plot, tal_plots$heatmap_plo
                          font.label = list(size = 25)),
                nrow = 3, ncol = 1,
                heights = c(2,1,1))
-ggsave(file.path(base_path, "Panels/Revised/fig3_tal.pdf"), p, height = 26, width = 20, device = cairo_pdf)
+ggsave(file.path(base_path, "Panels/Revised/fig4_tal.png"), p, height = 26, width = 20, dpi = 600)
 
 ```
 
@@ -2147,7 +2204,7 @@ for (cell in "EC") {
   df <- get(paste0(tolower(cell), "_kpmp_ipa"))
   
   df_top <- df %>%
-    plyr::arrange(desc(neg_log_p)) %>%
+    plyr::arrange(dplyr::desc(neg_log_p)) %>%
     filter(!is.na(z)) %>%
     head(20)
   
@@ -2288,7 +2345,7 @@ p <- ggarrange(ggarrange(ggarrange(ec_plots$volcano_plot, ec_plots$heatmap_plot,
                          font.label = list(size = 25)),
                nrow = 3, ncol = 1,
                heights = c(2,1,1))
-ggsave(file.path(base_path, "Panels/Revised/fig4_ec.pdf"), p, height = 26, width = 20, device = cairo_pdf)
+ggsave(file.path(base_path, "Panels/Revised/fig5_ec.png"), p, height = 26, width = 20, dpi = 600)
 
 ```
 
@@ -2360,7 +2417,7 @@ p <- ggarrange(ggarrange(ggarrange(ic_plots$volcano_plot, ic_plots$heatmap_plot,
                          font.label = list(size = 25)),
                nrow = 3, ncol = 1,
                heights = c(2,1,1))
-ggsave(file.path(base_path, "Panels/Revised/fig5_ic.pdf"), p, height = 26, width = 20, device = cairo_pdf)
+ggsave(file.path(base_path, "Panels/Revised/fig6_ic.png"), p, height = 26, width = 20, dpi = 600)
 
 ```
 
@@ -2370,7 +2427,7 @@ for (cell in "POD") {
   df <- get(paste0(tolower(cell), "_kpmp_ipa"))
   
   df_top <- df %>%
-    plyr::arrange(desc(neg_log_p)) %>%
+    plyr::arrange(dplyr::desc(neg_log_p)) %>%
     filter(!is.na(z)) %>%
     head(20)
   
@@ -2506,8 +2563,8 @@ p <- ggarrange(ggarrange(ggarrange(pod_plots$volcano_plot, pod_plots$heatmap_plo
                          font.label = list(size = 25)),
                nrow = 3, ncol = 1,
                heights = c(2,1,1))
-ggsave(file.path(base_path, "Panels/Revised/fig6_pod.pdf"), p, height = 26, width = 20, device = cairo_pdf)
-ggsave(file.path(base_path, "Panels/Revised/figS11_m_r2.png"), croc_r2_p, height = 4, width = 3, dpi = 600)
+ggsave(file.path(base_path, "Panels/Revised/fig7_pod.png"), p, height = 26, width = 20, dpi = 600)
+ggsave(file.path(base_path, "Panels/Revised/figS13_m_r2.png"), croc_r2_p, height = 4, width = 3, dpi = 600)
 ```
 
 
@@ -2843,7 +2900,7 @@ ggarrange(ggarrange(ggarrange(pc_plots$volcano_plot + labs(title = "Principal Ce
                     #                                        nrow = 2, heights = c(1,2), align = "v"),
                     #           nrow = 2, heights = c(1, 30)),
                     # nrow = 2, heights = c(3,1), 
-                    labels = "C", font.label = list(size = 30)), 
+                    labels = "D", font.label = list(size = 30)), 
           nrow = 2, ncol = 2)
 
 ggsave(file.path(base_path, "Panels/other_celltypes_panel.png"), height = 22, width = 20)
@@ -3284,6 +3341,26 @@ combined_go <- ggarrange(pt_go, tal_go, ec_go, ic_go, pod_go, ncol = 3, nrow = 2
 ggsave(file.path(base_path, "Panels/key_combined_go.png"), combined_go, height = 12, width = 12)
 ggsave(file.path(base_path, "Panels/key_combined_go.pdf"), combined_go, height = 12, width = 12)
 
+# --- Cell type specific files ---
+# PT
+pt_gsea <- ggarrange(pt_reactome, pt_hallmark, pt_go, ncol = 3, nrow = 1, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/Revised/figS5_pt_gsea.pdf"), pt_gsea, height = 12, width = 12, dpi = 600)
+
+# TAL
+tal_gsea <- ggarrange(tal_reactome, tal_hallmark, tal_go, ncol = 3, nrow = 1, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/Revised/figS6_tal_gsea.pdf"), tal_gsea, height = 12, width = 12, dpi = 600)
+
+# EC
+ec_gsea <- ggarrange(ec_reactome, ec_hallmark, ec_go, ncol = 3, nrow = 1, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/Revised/figS7_ec_gsea.pdf"), ec_gsea, height = 12, width = 12, dpi = 600)
+
+# IC
+ic_gsea <- ggarrange(ic_reactome, ic_hallmark, ic_go, ncol = 3, nrow = 1, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/Revised/figS8_ic_gsea.pdf"), ic_gsea, height = 12, width = 12, dpi = 600)
+
+# POD
+pod_gsea <- ggarrange(pod_reactome, pod_hallmark, pod_go, ncol = 3, nrow = 1, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/Revised/figS9_pod_gsea.pdf"), pod_gsea, height = 12, width = 12, dpi = 600)
 ```
 
 
@@ -3303,3 +3380,6 @@ Figure S8: Gene set enrichment using Gene Ontology on key cell types. Pathway na
 
 Figure S9: Cross-cohort concordance between case-control (CROCODILE) and treatment response (ATTEMPT) in (A) PT, (B) TAL, (C) EC, (D) IC, and (E) POD. Significantly altered genes from the ATTEMPT analysis (P<0.05) from each cell type were analyzed in the CROCODILE cohort. Up to top 50 altered genes from CROCODILE analysis (P<0.05) are listed in the heatmap. Genes are grouped by general functions with abbreviations: Adhes, adhesion; Channel, ion channels; Metab, metabolism/metabolic; Signal, signaling or kinases; Struct, structure; TF, transcription factors; Transport, transport/transporters.
 
+```{r}
+saveWorkbook(wb, "ATTEMPT/Results/PB/MS/Supplemental Materials/supp_data.xlsx", overwrite = TRUE)
+```

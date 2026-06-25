@@ -192,6 +192,22 @@ rockies_plac <- rockies_long %>% filter(treatment == "Placebo")
 # =====================================================================
 # Harmonized data (Figures 2-5)
 # =====================================================================
+
+id_tally <- list(
+  lean_control   = character(0),
+  obese_control  = character(0),
+  t2d            = character(0),
+  rockies        = character(0)
+)
+
+# Helper: append new IDs and keep only unique values
+tally_add <- function(tally_list, group_key, new_ids) {
+  tally_list[[group_key]] <- unique(c(tally_list[[group_key]],
+                                      as.character(na.omit(new_ids))))
+  tally_list
+}
+
+
 harmonized_data <- read.csv(
   "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",
   na = ''
@@ -232,6 +248,22 @@ dat_with_pet <- cbind(dat_clean, PET_avg(dat_clean))
 
 dat_pet_slim <- dat_with_pet[!is.na(dat_with_pet$avg_c_k2) & is.finite(dat_with_pet$avg_c_k2),
                              c("record_id", "avg_c_k2", "avg_c_f", "avg_c_k2_f")]
+
+
+harmonized_ids <- dat_with_pet %>%
+  filter(!is.na(avg_c_k2) & is.finite(avg_c_k2)) %>%
+  dplyr::select(record_id, group)
+
+id_tally <- tally_add(id_tally, "lean_control",
+                      harmonized_ids %>% filter(group == "Lean Control") %>% pull(record_id))
+
+id_tally <- tally_add(id_tally, "obese_control",
+                      harmonized_ids %>% filter(group == "Obese Control") %>% pull(record_id))
+
+id_tally <- tally_add(id_tally, "t2d",
+                      harmonized_ids %>% filter(group == "Type 2 Diabetes") %>% pull(record_id))
+
+
 
 cat("dat_with_pet:", nrow(dat_with_pet), "rows\n")
 cat("dat_pet_slim:", nrow(dat_pet_slim), "rows with PET data\n\n")
@@ -597,7 +629,7 @@ fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan.png", "A"
 ########################################################################
 
 fig1b <- load_image_panel(
-  "C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram.png", "B")
+  "C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram (3).png", "B")
 
 ########################################################################
 # PANEL C — Baseline correlation heatmap (Spearman)
@@ -929,9 +961,9 @@ plot_corr_log <- function(data, xvar_raw, xvar_log, yvar, xlab, ylab, tag,
                                formatC(ct$p.value, format = "f", digits = 3)))
   
   ggplot(df, aes(x_log, y)) +
-    geom_point(size = 2.5, alpha = 0.7, color = point_col) +
-    geom_smooth(method = "lm", se = TRUE, color = "black",
-                linewidth = 0.8, fill = "gray85", formula = y ~ x) +
+    geom_smooth(method = "lm", se = TRUE, color = "lightblue4",
+                linewidth = 0.8, fill = "lightblue1", formula = y ~ x) +
+        geom_point(size = 2.5, alpha = 0.7, color = 'lightblue4') +
     annotate("text", x = min(df$x_log) + diff(range(df$x_log)) * 0.02,
              y = max(df$y) - diff(range(df$y)) * 0.02,
              label = lab, hjust = 0, size = 3, fontface = "italic") +
@@ -1091,6 +1123,32 @@ fig5 <- (fig5a | fig5b | fig5c) +
 
 save_fig(fig5, "Figure5_Arteriosclerosis", width = 12, height = 5)
 cat("Figure 5 saved!\n")
+
+if (exists("dat_fig4")) {
+  merged_fig4_ids <- dat_fig4 %>%
+    left_join(dat_with_pet %>% dplyr::select(record_id, group),
+              by = "record_id")
+  id_tally <- tally_add(id_tally, "lean_control",
+                        merged_fig4_ids %>% filter(group == "Lean Control") %>% pull(record_id))
+  id_tally <- tally_add(id_tally, "obese_control",
+                        merged_fig4_ids %>% filter(group == "Obese Control") %>% pull(record_id))
+  id_tally <- tally_add(id_tally, "t2d",
+                        merged_fig4_ids %>% filter(group == "Type 2 Diabetes") %>% pull(record_id))
+}
+
+if (exists("dat_fig5")) {
+  merged_fig5_ids <- dat_fig5 %>%
+    left_join(dat_with_pet %>% dplyr::select(record_id, group),
+              by = "record_id")
+  id_tally <- tally_add(id_tally, "lean_control",
+                        merged_fig5_ids %>% filter(group == "Lean Control") %>% pull(record_id))
+  id_tally <- tally_add(id_tally, "obese_control",
+                        merged_fig5_ids %>% filter(group == "Obese Control") %>% pull(record_id))
+  id_tally <- tally_add(id_tally, "t2d",
+                        merged_fig5_ids %>% filter(group == "Type 2 Diabetes") %>% pull(record_id))
+}
+
+
 
 ########################################################################
 # =====================================================================
@@ -1693,7 +1751,7 @@ fig1a <- load_image_panel("C:/Users/netio/Downloads/ROCKIES study plan.png", "A"
 ########################################################################
 
 fig1b <- load_image_panel(
-  "C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram.png", "B")
+  "C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram (3).png", "B")
 
 ########################################################################
 # PANEL C — Baseline correlation heatmap (Spearman)
@@ -2338,6 +2396,55 @@ cat("\n========================================================\n")
 cat("  Combined PDF saved (per-figure page sizes):\n")
 cat("  ", combined_path, "\n")
 cat("========================================================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ── scRNAseq participants (Figures 6 & 7) ─────────────────────────────
+
+load("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata")
+
+tmp_meta <- so_kpmp_sc@meta.data
+scrnaseq_ids <- tmp_meta %>%
+  dplyr::select(record_id, group) %>%
+  filter(!duplicated(record_id)) %>%
+  filter(record_id != "RH2-14-T")   # remove co-enrolled participant (second biopsy)
+
+remove(so_kpmp_sc)   # free memory
+
+id_tally <- tally_add(id_tally, "lean_control",
+                      scrnaseq_ids %>% filter(group == "Lean_Control") %>% pull(record_id))
+id_tally <- tally_add(id_tally, "t2d",
+                      scrnaseq_ids %>% filter(group == "Type_2_Diabetes") %>% pull(record_id))
+
+cat("scRNAseq donors loaded: LC =",
+    sum(scrnaseq_ids$group == "Lean Control"), ", T2D =",
+    sum(scrnaseq_ids$group == "Type_2_Diabetes"), "\n")
+cat(sprintf("  Lean Controls          : %d unique IDs\n", length(id_tally$lean_control)))
+cat(sprintf("  Obese Controls         : %d unique IDs\n", length(id_tally$obese_control)))
+cat(sprintf("  Type 2 Diabetes        : %d unique IDs\n", length(id_tally$t2d)))
+cat(sprintf("  ROCKIES crossover arm  : %d unique participants\n", length(id_tally$rockies)))
+cat(sprintf("  TOTAL (non-ROCKIES)    : %d unique IDs\n",
+            length(unique(c(id_tally$lean_control,
+                            id_tally$obese_control,
+                            id_tally$t2d)))))
+cat("----------------------------------------------------------------\n")
+cat("  Lean Control IDs:\n  ", paste(sort(id_tally$lean_control), collapse = ", "), "\n\n")
+cat("  Obese Control IDs:\n  ", paste(sort(id_tally$obese_control), collapse = ", "), "\n\n")
+cat("  T2D IDs:\n  ", paste(sort(id_tally$t2d), collapse = ", "), "\n\n")
+cat("  ROCKIES Participant IDs:\n  ", paste(sort(id_tally$rockies), collapse = ", "), "\n")
+cat("================================================================\n")
+
 
 
 

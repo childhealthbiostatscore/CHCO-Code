@@ -85,7 +85,7 @@ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_On
 
 so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
 so_subset <- subset(so_subset, subset = group == 'Type_2_Diabetes')
-test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+test <- so_subset@meta.data %>% dplyr::select(record_id, group, mrn) %>% filter(!duplicated(record_id))
 
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 

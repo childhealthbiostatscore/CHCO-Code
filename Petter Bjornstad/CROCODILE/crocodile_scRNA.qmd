@@ -37,6 +37,38 @@ library(GSEABase)
 library(msigdbr)
 library(kableExtra)
 library(knitr)
+library(aws.s3)
+library(jsonlite)
+
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "yejichoi") {
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo"
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
 ```
 
 ```{r scRNA data setup}
@@ -45,7 +77,7 @@ library(knitr)
 plan(multicore, workers = 16)
 options(future.globals.maxSize=2e9)
 # Import
-so <- readRDS("/run/user/1023/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/scRNA/data_clean/seurat_data_no_computations.RDS")
+so <- s3readRDS("data_clean/seurat_data_no_computations.RDS", "scrna", region = "")
 # CROCODILE only
 so <- so[, grepl("CRC", so$michigan_id)]
 # Exclude control with IgA
@@ -76,7 +108,7 @@ so$tubular_id <- paste0(so$celltype_tubular, "_", so$michigan_id)
 
 ```{r pseudobulk data setup}
 # Pseudobulk (modified code from Fadhl)
-# raw_data = Seurat::GetAssayData(so, assay = "RNA", slot = "counts")
+# raw_data = Seurat::GetAssayData(so, assay = "RNA", layer = "counts")
 # av_counts <- apply(raw_data, 1, function(raw_data) {
 #   by(raw_data, so$tubular_id, sum)
 # })
@@ -93,7 +125,7 @@ so$tubular_id <- paste0(so$celltype_tubular, "_", so$michigan_id)
 # Pseudobulk (PT only)
 so_pt <- subset(so, LR_clusters == "PT")
 sample_id <- so_pt$michigan_id
-raw_data = Seurat::GetAssayData(so_pt, assay = "RNA", slot = "counts")
+raw_data = Seurat::GetAssayData(so_pt, assay = "RNA", layer = "counts")
 av_counts <- apply(raw_data, 1, function(raw_data) {
   by(raw_data, sample_id , sum)
 })
@@ -107,7 +139,7 @@ Idents(so_pseudobulk) <- so_pseudobulk$orig.ident
 # Fadhl's alternative psudobulk method
 so_subset <- subset(so, subset = LR_clusters %in% tubular_cells)
 sample_id <- so_subset$michigan_id
-raw_data = Seurat::GetAssayData(so_subset, assay = "RNA", slot = "counts")
+raw_data = Seurat::GetAssayData(so_subset, assay = "RNA", layer = "counts")
 av_counts <- apply(raw_data, 1, function(raw_data) {
   by(raw_data, sample_id, sum)
 })
@@ -185,8 +217,21 @@ umap = gp_umap + theme(plot.title = element_blank(),
                        legend.text = element_text(size = 20))
 umap
 # Save image
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_Group_1200x900.jpeg",
-        plot = umap,scale = 3,width = 1200,height = 900,units = "px")
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_Group_1200x900.jpeg",
+#         plot = umap,scale = 3,width = 1200,height = 900,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = umap, scale = 3,width = 1200,height = 900,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/UMAP_Group_1200x900.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
+
 ```
 
 ## By cell type (general)
@@ -205,14 +250,39 @@ p = DimPlot(so,
   theme(legend.text = element_text(size = 20))
 p 
 #Save image
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Labeled.jpeg",
-       plot = p,scale = 3,width = 1200,height = 900,units = "px")
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Labeled.jpeg",
+#        plot = p,scale = 3,width = 1200,height = 900,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = p, scale = 3,width = 1200,height = 900,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/UMAP_General_Cell_Type_Labeled.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
+
 # Save with group
 gg.umap <- ggarrange(umap, p)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Labeled_Combined.jpeg",
-       plot = gg.umap, scale = 3.5,
-       width = 2400,height = 900, units = "px")
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Labeled_Combined.jpeg",
+#        plot = gg.umap, scale = 3.5,
+#        width = 2400,height = 900, units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = gg.umap, scale = 3.5,
+        width = 2400,height = 900, units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/UMAP_General_Cell_Type_Labeled_Combined.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 
 p = DimPlot(so,
   reduction = "umap",
@@ -220,8 +290,19 @@ p = DimPlot(so,
 ) + scale_color_discrete_qualitative(palette = "Pastel 1")
 p
 #Save image
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Unlabeled.jpeg",
-       plot = p, scale = 3,width = 1200,height = 900,units = "px")
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_General_Cell_Type_Unlabeled.jpeg",
+#        plot = p, scale = 3,width = 1200,height = 900,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = p, scale = 3,width = 1200,height = 900,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/UMAP_General_Cell_Type_Unlabeled.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ## By cell type
@@ -239,8 +320,20 @@ p = DimPlot(so,
 ) + scale_color_discrete_qualitative(palette = "Pastel 1")
 p
 # Save image
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_Cell_Type_1200x900.jpeg",
-       plot = p,scale = 3,width = 1200,height = 900,units = "px")
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/UMAP_Cell_Type_1200x900.jpeg",
+#        plot = p,scale = 3,width = 1200,height = 900,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = p, scale = 3,width = 1200,height = 900,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/UMAP_Cell_Type_1200x900.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 Idents(so) <- so$LR_clusters
 ```
 
@@ -279,9 +372,20 @@ cellcount<- so@meta.data %>%
         text = element_text(size = 20)) +
   ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-ggsave(plot = cellcount, filename = "/home/yejichoi/Documents/lin_temp_folder/PT_cell_proportions.jpg", 
-       scale = 3,
-       width = 500,height = 1000,units = "px")
+# ggsave(plot = cellcount, filename = "/home/yejichoi/Documents/lin_temp_folder/PT_cell_proportions.jpg", 
+#        scale = 3,
+#        width = 500,height = 1000,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = cellcount, scale = 3,width = 500,height = 1000,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/PT_cell_proportions.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 
 n_HC <- nrow(so@meta.data %>% filter(generaltype == "PT" & celltype != "PT_lowQuality" & Group == "HC"))
 n_T1D <- nrow(so@meta.data %>% filter(generaltype == "PT" & celltype != "PT_lowQuality" & Group == "T1D"))
@@ -307,9 +411,20 @@ cellcount<- so@meta.data %>%
         text = element_text(size = 20)) +
   ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-ggsave(plot = cellcount, filename = "/home/yejichoi2/Documents/lin_temp_folder/PT_cell_proportions_by_grp.jpg", 
-       scale = 3,
-       width = 500,height = 1000,units = "px")
+# ggsave(plot = cellcount, filename = "/home/yejichoi2/Documents/lin_temp_folder/PT_cell_proportions_by_grp.jpg", 
+#        scale = 3,
+#        width = 500,height = 1000,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = cellcount, scale = 3,width = 500,height = 1000,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/PT_cell_proportions_by_grp.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 
 # By PT subtypes (by celltype (S subtypes))
 cellcount_kpmp <- so@meta.data %>% 
@@ -332,9 +447,20 @@ cellcount_kpmp <- so@meta.data %>%
         text = element_text(size = 20)) +
   ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-ggsave(plot = cellcount_kpmp, filename = "/home/yejichoi2/Documents/lin_temp_folder/PT_cell_proportions_by_kpmp.jpg", 
-       scale = 3,
-       width = 500,height = 1000,units = "px")
+# ggsave(plot = cellcount_kpmp, filename = "/home/yejichoi2/Documents/lin_temp_folder/PT_cell_proportions_by_kpmp.jpg", 
+#        scale = 3,
+#        width = 500,height = 1000,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = cellcount_kpmp, scale = 3,width = 500,height = 1000,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/PT_cell_proportions_by_kpmp.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 
 
 # By cell type
@@ -350,9 +476,20 @@ cellcount_svg <- so@meta.data %>%
   theme(plot.title = element_text(hjust=0.5, face="bold")) +
   ggtitle("Cell type distribution") +
   scale_fill_manual(values = c("#264653", "#e9c46a"))
-ggsave(plot = cellcount_svg, filename = "/home/yejichoi/Documents/lin_temp_folder/celltype_distribution.jpg", 
-       scale = 3,
-       width = 1000,height = 500,units = "px")
+# ggsave(plot = cellcount_svg, filename = "/home/yejichoi/Documents/lin_temp_folder/celltype_distribution.jpg", 
+#        scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = cellcount_svg, scale = 3,width = 500,height = 1000,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/celltype_distribution.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 # Differential expression
@@ -581,8 +718,20 @@ split.vp <- function(seurat_object, genes, filepath, color1 = "#6c9a8b", color2 
     print(p)
     cat("\n")
     # Save
-    ggsave(filename = paste0(filepath,"Violin_",genes[i],".jpeg"),plot = p,scale = 5,
-         width = 800,height = 600,units = "px")
+    # ggsave(filename = paste0(filepath,"Violin_",genes[i],".jpeg"),plot = p,scale = 5,
+    #        width = 800,height = 600,units = "px")
+    
+    tmp <- tempfile(fileext = ".jpeg")
+    ggsave(tmp, plot = p, scale = 5,
+           width = 800,height = 600,units = "px")
+    
+    # Upload directly
+    put_object(
+      file = tmp,
+      object = paste0("Projects/CROCODILE scRNA/results/figures/", filepath, "Violin_",genes[i],".jpeg"),
+      bucket = "scrna",
+      region = ""
+    )
   }
 }
 
@@ -610,9 +759,21 @@ split.vp.combined <- function(seurat_object, genes, filepath, color1 = "#6c9a8b"
     scale_color_manual(values=c(color1, color2))
   print(p)
   cat("\n")
- # Save
-  ggsave(filename = paste0(filepath,"Violin_combined",".jpeg"),plot = p,scale = 5,
-        width = 1000,height = 600,units = "px")
+  # Save
+  # ggsave(filename = paste0(filepath,"Violin_combined",".jpeg"),plot = p,scale = 5,
+  #        width = 1000,height = 600,units = "px")
+  
+  tmp <- tempfile(fileext = ".jpeg")
+  ggsave(tmp, plot = p, scale = 5,
+         width = 800,height = 600,units = "px")
+  
+  # Upload directly
+  put_object(
+    file = tmp,
+    object = paste0("Projects/CROCODILE scRNA/results/figures/", filepath, "Violin_combined.jpeg"),
+    bucket = "scrna",
+    region = ""
+  )
 
 }
 ```
@@ -620,8 +781,8 @@ split.vp.combined <- function(seurat_object, genes, filepath, color1 = "#6c9a8b"
 ### In PT cells
 
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
+split.vp(seurat_object = so, genes = genes_subset, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset, filepath = "tca_")
 ```
 
 ## Ridge plots
@@ -632,9 +793,21 @@ split.vp.combined(seurat_object = so, genes = genes_subset, filepath = "/home/ye
 #| message: false
 rp = RidgePlot(so, features = genes_subset, group.by = "Group", idents = "PT")
 rp
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Ridge_Group_1920x1080.jpeg",
-       plot = rp,scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Ridge_Group_1920x1080.jpeg",
+#        plot = rp,scale = 3,
+#        width = 1920,height = 1080,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = rp,scale = 3,
        width = 1920,height = 1080,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Ridge_Group_1920x1080.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ## Dot plots
@@ -645,9 +818,21 @@ ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Ridge_Group_1920x108
 dp = DotPlot(so,
   features = genes_subset, scale = T,scale.by= "size",dot.scale = 10)
 dp
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_All_1600x900.jpeg",
-       plot = dp,scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_All_1600x900.jpeg",
+#        plot = dp,scale = 3,
+#        width = 1600,height = 900,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = dp,scale = 3,
        width = 1600,height = 900,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_All_1600x900.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ### PT cells only
@@ -656,21 +841,22 @@ ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_All_1600x900.jpe
 # Formatted dot plot function
 # colorlow = "#8ecae6", colormid = "#fcbf49", colorhigh = "#d90429"
 dp.formatted <- function(seurat_object, genes, celltype, group.by, m,
-                         colorlow = "#83c5be", colormid = "#f4f1bb", colorhigh = "#d90429"
+                         colorlow = "#83c5be", colormid = "#f4f1bb", colorhigh = "#d90429",
+                         limit_low = 10, limit_high = 100,
+                         show_qvalue = TRUE, pct_as_percent = FALSE
                          ){
   pt.combined <- DotPlot(seurat_object,
-  features = genes,idents = celltype, group.by = group.by,
-  scale = F, cols = "RdYlBu"
-)$data 
-
+    features = genes, idents = celltype, group.by = group.by,
+    scale = F, cols = "RdYlBu"
+  )$data 
   pt.plot <- pt.combined %>% 
-    ggplot(aes(x=features.plot, y = id, color = avg.exp.scaled, size = pct.exp)) + 
+    ggplot(aes(x = features.plot, y = id, color = avg.exp.scaled, size = pct.exp)) + 
     geom_point() +
     theme_bw() +
     scale_color_gradient2(low = colorlow, mid = colormid, high = colorhigh, midpoint = 2,
                           guide = guide_colorbar(label.vjust = 0.8, ticks = F, draw.ulim = T, draw.llim = T),
-                          limits = c(0,4)) +
-    scale_size(range = c(0,15), limits = c(10,100)) +
+                          limits = c(0, 4)) +
+    scale_size(range = c(0, 15), limits = c(limit_low, limit_high)) +
     theme(panel.grid = element_blank(),
           axis.title.x = element_blank(),
           axis.title.y = element_blank(),
@@ -682,34 +868,64 @@ dp.formatted <- function(seurat_object, genes, celltype, group.by, m,
     guides(size = guide_legend(label.position = "bottom",
                                title.position = "top"),
            color = guide_colorbar(label.position = "bottom",
-                                title.position = "top")) +
+                                  title.position = "top")) +
     labs(color = "Count (Log-scaled) ",
          size = "Expression (%) ") + 
-    scale_y_discrete(limits=rev)
-
+    scale_y_discrete(limits = rev)
+  
+  # Build the table data
   pt.table <- m %>%
     filter(rownames(m) %in% genes) %>%
     dplyr::mutate(p_val = p_format(p_val),
-                  p_val_adj = p_format(p_val_adj)) %>% 
-    dplyr::select(pct.1, pct.2, avg_log2FC, p_val, p_val_adj) 
+                  p_val_adj = p_format(p_val_adj))
+  
+  # Optionally multiply pct.1 and pct.2 by 100
+  if (pct_as_percent) {
+    pt.table <- pt.table %>%
+      dplyr::mutate(pct.1 = pct.1 * 100,
+                    pct.2 = pct.2 * 100)
+  }
+  
+  # Select columns and set headers based on show_qvalue
+  if (show_qvalue) {
+    pt.table <- pt.table %>%
+      dplyr::select(pct.1, pct.2, avg_log2FC, p_val, p_val_adj)
+    col_names <- c("T1D", "HC", "Log2FC", "p-value", "q-value")
+  } else {
+    pt.table <- pt.table %>%
+      dplyr::select(pct.1, pct.2, avg_log2FC, p_val)
+    col_names <- c("T1D", "HC", "Log2FC", "p-value")
+  }
+  
   gg.pt.table <- ggtexttable(format(pt.table, digits = 3, scientific = F),
-              cols = c("T1D", "HC", "Log2FC", "p-value", "q-value"),
-              theme = ttheme("blank")) %>%
+                             cols = col_names,
+                             theme = ttheme("blank")) %>%
     tab_add_hline(at.row = 1:2, row.side = "top", linewidth = 1) %>%
     tab_add_title("% Expressed in PT Cells")
   
   pt.plot_table <- ggarrange(pt.plot, NULL, gg.pt.table,
-            nrow = 1, widths = c(1,-0.1,1), common.legend = F,
-            legend = "top")
-
+                             nrow = 1, widths = c(1, -0.1, 1), common.legend = F,
+                             legend = "top")
 }
-
 pt.plot_table <- dp.formatted(seurat_object = so, genes = genes_subset, group.by = "Group",
                    celltype = "PT", m = m)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_1920x1080.jpeg",
-       plot = pt.plot_table, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_1920x1080.jpeg",
+#        plot = pt.plot_table, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_1920x1080.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 pt.plot_table
 ```
 ## Dot plot of PT subtypes combined
@@ -836,25 +1052,51 @@ gg.pt.table <- ggarrange(table_list[[1]], table_list[[3]], table_list[[4]], tabl
 ptsub.plot_table <- ggarrange(pt.plot.subset, NULL, gg.pt.table,
           nrow = 1, widths = c(1.5,-0.1,1), common.legend = T)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_tca.jpeg",
-       plot = ptsub.plot_table, scale = 3.5,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_tca.jpeg",
+#        plot = ptsub.plot_table, scale = 3.5,
+#        width = 1200,height = 700,units = "px")
+
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = ptsub.plot_table, scale = 3.5,
        width = 1200,height = 700,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_subcells_tca.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 ptsub.plot_table
 ```
 # Acetyl CoA genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_acetylcoa, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_acetylcoa, filepath = "/home/yejichoi/Documents/lin_temp_folder/acetylcoa_")
+split.vp(seurat_object = so, genes = genes_subset_acetylcoa, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_acetylcoa, filepath = "acetylcoa_")
 ```
 ## Dot Plot
 ```{r}
 pt.plot_table_acetylcoa <- dp.formatted(seurat_object = so, genes = genes_subset_acetylcoa, group.by = "Group",
                    celltype = "PT", m = m_acetylcoa)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_acetylcoa.jpeg",
-       plot = pt.plot_table_acetylcoa, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_acetylcoa.jpeg",
+#        plot = pt.plot_table_acetylcoa, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table_acetylcoa, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_acetylcoa.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 pt.plot_table_acetylcoa
 ```
 ## Dot plot of PT subtypes combined
@@ -982,9 +1224,22 @@ gg.pt.table <- ggarrange(table_list[[1]], table_list[[2]], table_list[[3]], tabl
 ptsub.plot_table <- ggarrange(pt.plot.subset, NULL, gg.pt.table,
           nrow = 1, widths = c(1.5,-0.1,1), common.legend = T)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_acetylcoa.jpeg",
-       plot = ptsub.plot_table, scale = 3.5,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_acetylcoa.jpeg",
+#        plot = ptsub.plot_table, scale = 3.5,
+#        width = 1200,height = 700,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = ptsub.plot_table, scale = 3.5,
        width = 1200,height = 700,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_subcells_acetylcoa.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 ptsub.plot_table
 ```
 
@@ -992,8 +1247,8 @@ ptsub.plot_table
 # Insulin resistance genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_ir, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_ir, filepath = "/home/yejichoi/Documents/lin_temp_folder/ir_")
+split.vp(seurat_object = so, genes = genes_subset_ir, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_ir, filepath = "ir_")
 ```
 
 ## Dot Plot
@@ -1001,42 +1256,80 @@ split.vp.combined(seurat_object = so, genes = genes_subset_ir, filepath = "/home
 pt.plot_table_ir <- dp.formatted(seurat_object = so, genes = genes_subset_ir, group.by = "Group",
                    celltype = "PT", m = m_ir)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_IR.jpeg",
-       plot = pt.plot_table_ir, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_IR.jpeg",
+#        plot = pt.plot_table_ir, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = ptsub.plot_table, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_IR.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 pt.plot_table_ir
 ```
 # Chronic kidney disesase genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_ckd, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_ckd, filepath = "/home/yejichoi/Documents/lin_temp_folder/ckd_")
+split.vp(seurat_object = so, genes = genes_subset_ckd, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_ckd, filepath = "ckd_")
 ```
 ## Dot Plot
 ```{r}
 pt.plot_table_ckd <- dp.formatted(seurat_object = so, genes = genes_subset_ckd, group.by = "Group",
                    celltype = "PT", m = m_ckd)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_ckd.jpeg",
-       plot = pt.plot_table_ckd, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_ckd.jpeg",
+#        plot = pt.plot_table_ckd, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table_ckd, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_ckd.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 pt.plot_table_ckd
 ```
 
 # Oxygen phosphorylation genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_oxy_phos, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_oxy_phos, filepath = "/home/yejichoi/Documents/lin_temp_folder/oxy_phos_")
+split.vp(seurat_object = so, genes = genes_subset_oxy_phos, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_oxy_phos, filepath = "oxy_phos_")
 ```
 ## Dot Plot
 ```{r}
 pt.plot_table_oxy_phos <- dp.formatted(seurat_object = so, genes = genes_subset_oxy_phos, group.by = "Group",
                    celltype = "PT", m = m_oxy_phos)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_oxy_phos.jpeg",
-       plot = pt.plot_table_oxy_phos, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_oxy_phos.jpeg",
+#        plot = pt.plot_table_oxy_phos, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table_oxy_phos, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_oxy_phos.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 pt.plot_table_oxy_phos
 ```
 ## Dot plot of PT subtypes combined
@@ -1163,9 +1456,22 @@ gg.pt.table <- ggarrange(table_list[[1]], table_list[[2]], table_list[[3]], tabl
 ptsub.plot_table <- ggarrange(pt.plot.subset, NULL, gg.pt.table,
           nrow = 1, widths = c(1.5,-0.1,1), common.legend = T)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_oxphos.jpeg",
-       plot = ptsub.plot_table, scale = 3.5,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_subcells_oxphos.jpeg",
+#        plot = ptsub.plot_table, scale = 3.5,
+#        width = 1200,height = 700,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = ptsub.plot_table, scale = 3.5,
        width = 1200,height = 700,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_subcells_oxphos.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 ptsub.plot_table
 ```
 
@@ -1173,42 +1479,107 @@ ptsub.plot_table
 # SGLT2i genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_sglt2, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_sglt2, filepath = "/home/yejichoi/Documents/lin_temp_folder/sglt2_")
+split.vp(seurat_object = so, genes = genes_subset_sglt2, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_sglt2, filepath = "sglt2_")
 ```
 ## Dot Plot
 ```{r}
 pt.plot_table_sglt2 <- dp.formatted(seurat_object = so, genes = genes_subset_sglt2, group.by = "Group",
                    celltype = "PT", m = m_sglt2)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_sglt2.jpeg",
-       plot = pt.plot_table_sglt2, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_sglt2.jpeg",
+#        plot = pt.plot_table_sglt2, scale = 3,
+#        width = 1000,height = 500,units = "px")
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table_sglt2, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_sglt2.jpeg",
+  bucket = "scrna",
+  region = ""
+)
 
 pt.plot_table_sglt2
 ```
 # Leptin & adiponectin genes
 ## Violin plots
 ```{r}
-split.vp(seurat_object = so, genes = genes_subset_leptin_adipo, filepath = "/home/yejichoi/Documents/lin_temp_folder/")
-split.vp.combined(seurat_object = so, genes = genes_subset_leptin_adipo, filepath = "/home/yejichoi/Documents/lin_temp_folder/leptin_adipo_")
+split.vp(seurat_object = so, genes = genes_subset_leptin_adipo, filepath = "")
+split.vp.combined(seurat_object = so, genes = genes_subset_leptin_adipo, filepath = "leptin_adipo_")
 ```
 ## Dot Plot
 ```{r}
 pt.plot_table_leptin_adipo <- dp.formatted(seurat_object = so, genes = genes_subset_leptin_adipo, group.by = "Group",
                    celltype = "PT", m = m_leptin_adipo)
 
-ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_leptin_adipo.jpeg",
-       plot = pt.plot_table_leptin_adipo, scale = 3,
+# ggsave(filename = "/home/yejichoi/Documents/lin_temp_folder/Dot_PT_cells_leptin_adipo.jpeg",
+#        plot = pt.plot_table_leptin_adipo, scale = 3,
+#        width = 1000,height = 500,units = "px")
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = pt.plot_table_leptin_adipo, scale = 3,
        width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_leptin_adipo.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
 pt.plot_table_leptin_adipo
 ```
 
 # Import CROC data from RedCap
 ```{r}
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+  
+  on.exit(unlink(tmp))
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket, 
+                                       object = object, 
+                                       file = tmp), opts))
+  }
+  
+  return(FUN(tmp, ...))
+}
+```
+
+```{r}
 load("/run/user/1023/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/CROCODILE/Data_Cleaned/croc_data.RData")
-dict <- read.csv("/run/user/1023/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Data Harmonization/data_dictionary_master.csv")
-source("/home/yejichoi2/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+s3load(object = "data_clean/croc_data.RData", 
+                    bucket = "harmonized.dataset", region = "")
+dict <- s3read_using_region(FUN = read.csv, 
+                    object = "data_clean/data_dictionary_master.csv", 
+                    bucket = "harmonized.dataset", region = "")
+
+source(file.path(git_path, "Resources/YC/R Functions/label_harmonized_function.R"))
 
 # Blood metabolomics
 blood_metab <- c("citrate", "two_oxoglutarate", "succinate", 
@@ -1235,10 +1606,8 @@ spatial_metab_tca <- c("isocitric_citric_acid_tissue",
 meta_features <- so[["RNA"]]@meta.features
 a <- rownames(meta_features)
 var_list <- c("sample", "ident", "michigan_id", a)
-pt_md <- FetchData(so, vars = var_list) %>%
-  filter(ident == "PT")
-ec_md <- FetchData(so, vars = var_list) %>%
-  filter(ident == "EC")
+pt_md <- FetchData(subset(so, LR_clusters == "PT"), vars = var_list)
+ec_md <- FetchData(subset(so, LR_clusters == "EC"), vars = var_list)
 tubular_pb_md <- FetchData(so_pseudobulk, vars = var_list)
 # %>% filter(ident=="tubular")
 subset_pb_md <- FetchData(so_subset, vars = var_list) 
@@ -1300,7 +1669,7 @@ subset_pb_md_leptin_adipo <- subset_pb_md %>%
 ## Associations: sc PT, spatial metabolomics, blood metabolites
 ### Associate spatial metabolomics with sc PT transcripts
 ```{r}
-dict <- label_harmonized_dict(dat, dict)
+dict <- label_harmonized_dict(dat, dict)[1,]
 # Modify some labels
 dict <- dict %>%
   mutate(avg_c_k2 = "Average cortical k2 (global)",
@@ -1532,7 +1901,7 @@ metabo_sc(data = pt_md_tca, gene = "p2_raw_m",
 # Correlations
 ## Spatial metabolomics and transcripts
 ```{r, warning=F}
-source("/home/yejichoi/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
 for (i in 1:length(genes_subset)) {
   dict[1, genes_subset[i]] <- genes_subset[i]
 }
@@ -1545,13 +1914,22 @@ correlation_table_minimal(data = pt_md_tca,
                    n_cols = length(spatial_metab_tca),
                    dict = dict)
 
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNA.png", res = 170)
-corr_plot_modified(pt_md_tca,
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNA.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
+corr_plot_modified(data = pt_md_tca,
                    X = genes_subset, 
                    Y = spatial_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_scRNA.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and transcripts
 ```{r message = F, warning=F}
@@ -1559,13 +1937,22 @@ correlation_table_minimal(data = pt_md_tca,
                    relevant_vars = c(blood_metab_tca, genes_subset),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNA.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNA.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
 corr_plot_modified(pt_md_tca,
                    X = genes_subset, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_scRNA.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and spatial metabolomics
 ```{r message = F, warning = F}
@@ -1573,13 +1960,22 @@ correlation_table_minimal(data = pt_md_tca,
                    relevant_vars = c(blood_metab_tca, spatial_metab_tca),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissue.png", res = 170)
+# png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissue.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
 corr_plot_modified(pt_md_tca,
                    X = spatial_metab_tca, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_tissue.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## scRNA and clinical data
 ### T1D and LC
@@ -1593,14 +1989,23 @@ correlation_table_minimal(data = pt_md_tca,
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlc.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlc.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
 corr_plot_modified(pt_md_tca,
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1dlc.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -1610,14 +2015,23 @@ correlation_table_minimal(data = subset(pt_md_tca, group == "Type 1 Diabetes"),
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1d.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1d.png", res = 170)
 corr_plot_modified(data = subset(pt_md_tca, group == "Type 1 Diabetes"),
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1d.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ## Spatial metabolomics and clinical data
@@ -1629,23 +2043,42 @@ correlation_table_minimal(data = pt_md_tca,
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc.png", res = 170)
+
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200, 
+    file = temp_file, res = 170)
 corr_plot_modified(data = pt_md_tca,
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced.png", res = 170)
+# temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500, 
+    file = temp_file, res = 170)
 corr_plot_modified(data = pt_md_tca,
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reduced.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -1655,23 +2088,41 @@ correlation_table_minimal(data = subset(pt_md_tca, group == "Type 1 Diabetes"),
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1d.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1d.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(pt_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1d.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(pt_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reduced.png",
+  bucket = "scrna",
+  region = ""
+)
 
 ```
 ## Leptin and adiponectin and clinical data
@@ -1687,7 +2138,7 @@ correlation_table_minimal(data = pt_md_leptin_adipo,
 #                    X = leptin_adipo_genes, 
 #                    Y = c("bmi",
 #                          "p2_raw_m"),
-#                    adj_var = NA,
+#                    adj_var = NULL,
 #                    dict = dict)
 ```
 ### T1D only
@@ -1702,7 +2153,7 @@ corr_plot_modified(data = subset(pt_md_leptin_adipo, group == "Type 1 Diabetes")
                    X = leptin_adipo_genes, 
                    Y = c("bmi",
                          "p2_raw_m"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 ```
 
@@ -2012,7 +2463,6 @@ metabo_sc(data = tubular_pb_md_tca, gene = "p2_raw_m",
 # Correlations
 ## Spatial metabolomics and transcripts
 ```{r, warning=F}
-source("/home/yejichoi/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 for (i in 1:length(genes_subset)) {
   dict[1, genes_subset[i]] <- genes_subset[i]
 }
@@ -2025,13 +2475,22 @@ correlation_table_minimal(data = tubular_pb_md_tca,
                    n_cols = length(spatial_metab_tca),
                    dict = dict)
 
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNA.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNA.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(tubular_pb_md_tca,
                    X = genes_subset, 
                    Y = spatial_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_scRNA.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and transcripts
 ```{r message = F, warning=F}
@@ -2039,13 +2498,22 @@ correlation_table_minimal(data = tubular_pb_md_tca,
                    relevant_vars = c(blood_metab_tca, genes_subset),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNA_pseudobulk.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNA_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(tubular_pb_md_tca,
                    X = genes_subset, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_scRNA_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and spatial metabolomics
 ```{r message = F, warning = F}
@@ -2053,13 +2521,22 @@ correlation_table_minimal(data = tubular_pb_md_tca,
                    relevant_vars = c(blood_metab_tca, spatial_metab_tca),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissue_pseudobulk.png", res = 170)
+# png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissue_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(tubular_pb_md_tca,
                    X = spatial_metab_tca, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_tissue_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## scRNA and clinical data
 ### T1D and LC
@@ -2073,14 +2550,24 @@ correlation_table_minimal(data = tubular_pb_md_tca,
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlc_pseudobulk.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlc_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
+
 corr_plot_modified(tubular_pb_md_tca,
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1dlc_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -2090,14 +2577,23 @@ correlation_table_minimal(data = subset(tubular_pb_md_tca, group == "Type 1 Diab
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1d_pseudobulk.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1d_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(tubular_pb_md_tca, group == "Type 1 Diabetes"),
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1d_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ## Spatial metabolomics and clinical data
@@ -2109,23 +2605,41 @@ correlation_table_minimal(data = tubular_pb_md_tca,
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_pseudobulk.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(data = tubular_pb_md_tca,
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = tubular_pb_md_tca,
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -2135,23 +2649,42 @@ correlation_table_minimal(data = subset(tubular_pb_md_tca, group == "Type 1 Diab
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1d_pseudobulk.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1d_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
+
 corr_plot_modified(data = subset(tubular_pb_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1d_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(tubular_pb_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reduced_pseudobulk.png",
+  bucket = "scrna",
+  region = ""
+)
 
 ```
 ## Leptin and adiponectin and clinical data
@@ -2167,7 +2700,7 @@ correlation_table_minimal(data = tubular_pb_md_leptin_adipo,
 #                    X = leptin_adipo_genes, 
 #                    Y = c("bmi",
 #                          "p2_raw_m"),
-#                    adj_var = NA,
+#                    adj_var = NULL,
 #                    dict = dict)
 ```
 ### T1D only
@@ -2182,7 +2715,7 @@ corr_plot_modified(data = subset(tubular_pb_md_leptin_adipo, group == "Type 1 Di
                    X = leptin_adipo_genes, 
                    Y = c("bmi",
                          "p2_raw_m"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 ```
 
@@ -2399,7 +2932,6 @@ metabo_sc(data = subset_pb_md_tca, gene = "p2_raw_m",
 # Correlations
 ## Spatial metabolomics and transcripts
 ```{r, warning=F}
-source("/home/yejichoi/Documents/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 for (i in 1:length(genes_subset)) {
   dict[1, genes_subset[i]] <- genes_subset[i]
 }
@@ -2412,13 +2944,22 @@ correlation_table_minimal(data = subset_pb_md_tca,
                    n_cols = length(spatial_metab_tca),
                    dict = dict)
 
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNAsubset_pb.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_scRNAsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(subset_pb_md_tca,
                    X = genes_subset, 
                    Y = spatial_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_scRNAsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and transcripts
 ```{r message = F, warning=F}
@@ -2426,13 +2967,22 @@ correlation_table_minimal(data = subset_pb_md_tca,
                    relevant_vars = c(blood_metab_tca, genes_subset),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNAsubset_pb.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_scRNAsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(subset_pb_md_tca,
                    X = genes_subset, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_scRNAsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## Blood metabolites and spatial metabolomics
 ```{r message = F, warning = F}
@@ -2440,13 +2990,23 @@ correlation_table_minimal(data = subset_pb_md_tca,
                    relevant_vars = c(blood_metab_tca, spatial_metab_tca),
                    n_cols = length(blood_metab_tca),
                    dict = dict)
-png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissuesubset_pb.png", res = 170)
+# png(height = 1200, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_blood_tissuesubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1200,
+    file = temp_file, res = 170)
+
 corr_plot_modified(subset_pb_md_tca,
                    X = spatial_metab_tca, 
                    Y = blood_metab_tca,
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_blood_tissuesubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ## scRNA and clinical data
 ### T1D and LC
@@ -2460,14 +3020,23 @@ correlation_table_minimal(data = subset_pb_md_tca,
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlcsubset_pb.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dlcsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(subset_pb_md_tca,
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1dlcsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -2477,14 +3046,23 @@ correlation_table_minimal(data = subset(subset_pb_md_tca, group == "Type 1 Diabe
                                      genes_subset),
                    n_cols = 2,
                    dict = dict)
-png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dsubset_pb.png", res = 170)
+# png(height = 2000, width = 1200, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_scRNA_clin_t1dsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 2000, width = 1200,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(subset_pb_md_tca, group == "Type 1 Diabetes"),
                    X = genes_subset, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_scRNA_clin_t1dsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 
 ## Spatial metabolomics and clinical data
@@ -2496,23 +3074,41 @@ correlation_table_minimal(data = subset_pb_md_tca,
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlcsubset_pb.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlcsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset_pb_md_tca,
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlcsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset_pb_md_tca,
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 ```
 ### T1D only
 ```{r}
@@ -2522,23 +3118,41 @@ correlation_table_minimal(data = subset(subset_pb_md_tca, group == "Type 1 Diabe
                                      spatial_metab_tca),
                    n_cols = 2,
                    dict = dict)
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dsubset_pb.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(subset_pb_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca, 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 # Reduced version for EDNSG abstract
-png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png", res = 170)
+# png(height = 1200, width = 1500, file = "/home/yejichoi/Documents/lin_temp_folder/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png", res = 170)
+temp_file <- tempfile(fileext = ".png")
+png(height = 1200, width = 1500,
+    file = temp_file, res = 170)
 corr_plot_modified(data = subset(subset_pb_md_tca, group == "Type 1 Diabetes"),
                    X = spatial_metab_tca[-c(7)], 
                    Y = c("gbm_thick_artmean",
                          "avg_c_k2"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/Correlation_tissue_clin_t1dlc_reducedsubset_pb.png",
+  bucket = "scrna",
+  region = ""
+)
 
 ```
 ## Leptin and adiponectin and clinical data
@@ -2554,7 +3168,7 @@ correlation_table_minimal(data = subset_pb_md_leptin_adipo,
 #                    X = leptin_adipo_genes, 
 #                    Y = c("bmi",
 #                          "p2_raw_m"),
-#                    adj_var = NA,
+#                    adj_var = NULL,
 #                    dict = dict)
 ```
 ### T1D only
@@ -2569,7 +3183,7 @@ corr_plot_modified(data = subset(subset_pb_md_leptin_adipo, group == "Type 1 Dia
                    X = leptin_adipo_genes, 
                    Y = c("bmi",
                          "p2_raw_m"),
-                   adj_var = NA,
+                   adj_var = NULL,
                    dict = dict)
 ```
 
@@ -2670,3 +3284,51 @@ corr_plot_modified(data = subset(subset_pb_md_leptin_adipo, group == "Type 1 Dia
 # kable(head(gsva_full_annotated, n = 10), caption = "Top positive delta (Higher expression in T1D)")
 ```
 
+# MTAP related figures for Petter (Kumar's) EDNSG presentation
+```{r}
+de.markers(so, "MTAP", "Group", id2 = "HC", id1 = "T1D", "PT", "")
+
+mtap_dp <- dp.formatted(subset(so, LR_clusters == "PT"), 
+                        "MTAP", "PT", "Group", m,
+                        limit_low = 5, limit_high = 10,
+                        show_qvalue = F, pct_as_percent = T)
+mtap_dp
+
+tmp <- tempfile(fileext = ".jpeg")
+ggsave(tmp, plot = mtap_dp, scale = 3,
+       width = 1000,height = 500,units = "px")
+
+# Upload directly
+put_object(
+  file = tmp,
+  object = "Projects/CROCODILE scRNA/results/figures/Dot_PT_cells_MTAP.jpeg",
+  bucket = "scrna",
+  region = ""
+)
+
+
+
+
+dict$adnine_tissue <- "Adenine"
+dict$p2_raw_leanm <- "Insulin sensitivity (mg/lean kg/min)"
+
+temp_file <- tempfile(fileext = ".png")
+png(height = 700, width = 900,
+    file = temp_file, res = 170)
+corr_plot_modified(data = dat,
+                   X = c("adnine_tissue"), 
+                   Y = c("p2_raw_leanm",
+                         "bmi"),
+                   adj_var = NULL,
+                   dict = dict)
+dev.off()
+put_object(
+  file = temp_file,
+  object = "Projects/CROCODILE scRNA/results/figures/adenine_mvalue_corr.png",
+  bucket = "scrna",
+  region = ""
+)
+
+t.test(subset(dat, group == "Lean Control")$p2_raw_leanm,
+       subset(dat, group == "Type 1 Diabetes")$p2_raw_leanm)
+```

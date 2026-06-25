@@ -1,30 +1,10 @@
 # Run this script to pull IDs of people with MRI in the BIC
-# specify user for paths
-user <- Sys.info()[["user"]]
-
-if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-} else if (user == "yejichoi") { # hyak version
-  root_path <- ""
-  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
-} else if (user == "rameshsh") { # hyak version
-  root_path <- ""
-  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
-} else if (user == "shivaniramesh") { # hyak version
-  root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
-  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad"
-} else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-} else {
-  stop("Unknown user: please specify root path for this user.")
-}
-
 library(tidyverse)
 library(purrr)
 library(Hmisc)
 library(stringr)
+library(togolab)
+togo_paths()
 
 get_filtered_subfolders <- function(root_path, keywords = c("bjornstad", "nadeau", 
                                                             "kendrick", "kelsey")) {
@@ -110,7 +90,7 @@ get_filtered_subfolders <- function(root_path, keywords = c("bjornstad", "nadeau
   return(df)
 }
 
-# Set your folder path
+# Set your folder path AFTER CONNECTING TO THE BIC
 folder_path <- "/Volumes/bic-server"
 
 extract_num <- function(x) {
@@ -170,11 +150,19 @@ bic_folders_clean <- bic_folders %>%
   filter(record_number != 0) %>%
   dplyr::select(bic_id, record_id_bic = record_id, record_number, visit_id, study)
 
-write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean/MRI/bic_folders_list.csv"), row.names = F)
+s3write_using_region(x = bic_folders_clean,
+                     FUN = write.csv,
+                     object = "MRI/bic_folders_list.csv",
+                     bucket = "raw.data",
+                     row.names = F,
+                     region = "")
 
-# pull in data from harmonized dataset
-bic_folders_clean <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/MRI/bic_folders_list.csv"))
-harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+###### START HERE IF YOU DO NOT HAVE ACCESS TO THE CU BIC
+bic_folders_clean <- s3read_using_region(FUN = read.csv,
+                                         object = "MRI/bic_folders_list.csv",
+                                         bucket = "raw.data",
+                                         region = "")
+harm_dat <- togo_load_harmonized(summarize = F)
 
 mri_dat <- harm_dat %>%
   dplyr::mutate(visit = case_when(study == "ATTEMPT" & visit == "screening" ~ "baseline", T ~ visit)) %>%
@@ -245,6 +233,12 @@ mri_dat_combined <- full_join(mri_dat, bic_folders_clean,
   dplyr::select(record_id, bic_id, visit_id, study, visit, data_in_redcap, data_in_bic, status) %>%
   arrange(status)
 
-write.csv(mri_dat_combined, file.path(root_path, "Data Harmonization/Data Clean/MRI/mri_data_compiled.csv"), row.names = F, na = "")
+s3write_using_region(x = mri_dat_combined,
+                     FUN = write.csv,
+                     object = "MRI/mri_data_compiled.csv",
+                     bucket = "raw.data",
+                     row.names = F,
+                     na = "",
+                     region = "")
 
 table(subset(mri_dat_combined, status == "Awaiting analysis")$study)

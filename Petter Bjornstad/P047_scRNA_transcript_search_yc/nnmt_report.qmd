@@ -1,0 +1,232 @@
+---
+title: "NNMT — scRNA transcript expression results"
+author: "Ye Ji Choi"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(dplyr)
+library(tidyr)
+library(aws.s3)
+library(jsonlite)
+library(knitr)
+library(kableExtra)
+
+# ---- per-report parameters -------------------------------------------------
+gene           <- "NNMT"
+bucket         <- "scrna"
+results_prefix <- "Projects/transcript search/Results/"
+figures_prefix <- "Projects/transcript search/Results/Figures/"
+
+# cell types this report focuses on (sanitized filename tokens) + pooled
+focus_ct <- c("EC_LYM", "aTAL", "ATL", "MC", "all")
+```
+
+```{r aws-env}
+# Standalone AWS/Kopah setup (mirrors the analysis doc) so this renders on its own
+user <- Sys.info()[["user"]]
+if (user == "yejichoi") {
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+  Sys.setenv(
+    "AWS_ACCESS_KEY_ID"     = keys$MY_ACCESS_KEY,
+    "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+    "AWS_DEFAULT_REGION"    = "",
+    "AWS_REGION"            = "",
+    "AWS_S3_ENDPOINT"       = "s3.kopah.uw.edu"
+  )
+}
+```
+
+```{r helpers}
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL) {
+  tmp <- tempfile(fileext = paste0(".", tools::file_ext(object)))
+  on.exit(unlink(tmp))
+  args <- list(bucket = bucket, object = object, file = tmp)
+  if (!is.null(region)) args$region <- region
+  do.call(aws.s3::save_object, args)
+  FUN(tmp, ...)
+}
+
+# readable labels for sanitized cell-type tokens
+ct_label <- c(EC_LYM = "EC-LYM", MC = "MC", aTAL = "aTAL", ATL = "ATL",
+              PT_S1_S2 = "PT-S1/S2", PT_S3 = "PT-S3", aPT = "aPT",
+              PT = "PT (general)", all = "all (pooled)")
+
+# recognized cell-type tokens in filenames, longest first (avoids PT matching PT_S3)
+ct_tokens <- c("PT_S1_S2", "EC_LYM", "PT_S3", "aTAL", "aPT", "ATL", "MC", "PT")
+
+parse_neb_name <- function(key) {
+  base    <- sub("_neb\\.csv$", "", basename(key))
+  dataset <- dplyr::case_when(startsWith(base, "pb90_")    ~ "pb90",
+                              startsWith(base, "attempt_") ~ "attempt",
+                              TRUE ~ NA_character_)
+  mid <- sub("^(pb90|attempt)_", "", base)
+  ct  <- "all"; analysis <- mid
+  for (tok in ct_tokens) {
+    if (grepl(paste0("_", tok, "$"), mid)) {
+      ct <- tok; analysis <- sub(paste0("_", tok, "$"), "", mid); break
+    }
+  }
+  data.frame(dataset = dataset, analysis = analysis,
+             cell_type = ct, key = key, stringsAsFactors = FALSE)
+}
+
+# read one NEBULA csv, keep this gene, reshape estimates to one row per term
+read_one <- function(key, gene) {
+  df <- tryCatch(
+    s3read_using_region(FUN = function(f) read.csv(f, check.names = FALSE),
+                        bucket = bucket, object = key, region = ""),
+    error = function(e) NULL)
+  if (is.null(df)) return(NULL)
+  gcol <- intersect(c("gene", "gene_id", "Gene"), names(df))[1]
+  if (is.na(gcol)) return(NULL)
+  df <- df[df[[gcol]] == gene, , drop = FALSE]
+  if (!nrow(df)) return(NULL)
+
+  est <- df %>%
+    dplyr::select(dplyr::starts_with("logFC_"),
+                  dplyr::starts_with("se_"),
+                  dplyr::starts_with("p_")) %>%
+    dplyr::slice(1) %>%
+    tidyr::pivot_longer(dplyr::everything(),
+                        names_to = c(".value", "term"),
+                        names_pattern = "^(logFC|se|p)_(.*)$") %>%
+    dplyr::filter(term != "(Intercept)")
+
+  est$n_cells  <- if ("n_cells"  %in% names(df)) df$n_cells[1]  else NA
+  est$n_people <- if ("n_people" %in% names(df)) df$n_people[1] else NA
+  est$key      <- key
+  est
+}
+
+# download S3 PNGs to temp, return local paths (skip any that fail)
+embed_s3_pngs <- function(keys) {
+  if (!length(keys)) return(character(0))
+  paths <- vapply(keys, function(k) {
+    tmp <- tempfile(fileext = ".png")
+    tryCatch({ aws.s3::save_object(object = k, bucket = bucket,
+                                   file = tmp, region = ""); tmp },
+             error = function(e) NA_character_)
+  }, character(1))
+  paths[!is.na(paths)]
+}
+```
+
+```{r compile}
+neb_keys <- aws.s3::get_bucket_df(bucket = bucket, prefix = results_prefix,
+                                  region = "", max = Inf)$Key
+neb_keys <- neb_keys[grepl("_neb\\.csv$", neb_keys)]
+
+meta_tbl <- if (length(neb_keys)) do.call(rbind, lapply(neb_keys, parse_neb_name)) else NULL
+
+est_list <- lapply(neb_keys, read_one, gene = gene)
+est_tbl  <- if (any(lengths(est_list))) {
+  do.call(rbind, est_list) %>% dplyr::left_join(meta_tbl, by = "key")
+} else NULL
+
+disp <- if (!is.null(est_tbl)) {
+  est_tbl %>%
+    dplyr::filter(cell_type %in% focus_ct) %>%
+    dplyr::transmute(
+      analysis,
+      `cell type` = dplyr::coalesce(ct_label[cell_type], cell_type),
+      term,
+      logFC   = round(logFC, 3),
+      se      = round(se, 3),
+      p       = signif(p, 3),
+      n_cells, n_people,
+      dataset
+    ) %>%
+    dplyr::arrange(dataset, analysis, `cell type`, term)
+} else NULL
+
+show_tbl <- function(d) {
+  sub <- dplyr::filter(disp, dataset == d) %>% dplyr::select(-dataset)
+  if (!nrow(sub)) return(cat("_No results found for", d, "._\n"))
+  sub %>% kbl(caption = paste0(d, " — ", gene, " NEBULA results")) %>%
+    kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+    print()
+}
+```
+
+# Overview
+
+NNMT (nicotinamide N-methyltransferase) is a metabolic enzyme tied to NAD⁺/methylation
+balance and, in kidney, to metabolic stress and fibrosis. This report compiles the NEBULA
+results for **`r gene`** across both datasets, focused on the top cell types for each
+(EC-LYM / aTAL / ATL in ATTEMPT, EC-LYM / MC in pb90), alongside the pooled runs.
+
+> **Multiplicity caution.** These tables aggregate many models (multiple contrasts × cell
+> types × datasets). The `p` values are raw per-model NEBULA p-values; interpret them with
+> the full size of the sweep in mind and apply a deliberate multiple-testing correction
+> before drawing firm conclusions. The `n_cells` / `n_people` columns flag runs thin enough
+> that estimates may be unstable.
+
+# Compiled NEBULA results
+
+## pb90
+
+```{r results-pb90, results = "asis"}
+show_tbl("pb90")
+```
+
+## ATTEMPT
+
+For the DiD model (`treatment*visit`), the term to read is the **treatment × visit
+interaction**; the main-effect rows are shown for completeness.
+
+```{r results-attempt, results = "asis"}
+show_tbl("attempt")
+```
+
+# Figures
+
+```{r fig-keys}
+fig_keys <- aws.s3::get_bucket_df(bucket = bucket, prefix = figures_prefix,
+                                  region = "", max = Inf)$Key
+fig_keys <- fig_keys[grepl(gene, fig_keys) & grepl("\\.png$", fig_keys)]
+
+umap_keys    <- fig_keys[grepl("UMAP",  fig_keys)]
+pb90_keys    <- fig_keys[grepl("pb90",  fig_keys)]
+attempt_keys <- fig_keys[grepl("attempt", fig_keys)]
+
+img_tag <- function(key, width = "70%") {
+  tmp <- tempfile(fileext = ".png")
+  ok  <- tryCatch({ aws.s3::save_object(object = key, bucket = bucket,
+                                        file = tmp, region = ""); TRUE },
+                  error = function(e) FALSE)
+  if (!ok) return(invisible(NULL))
+  cat(sprintf('<p><em>%s</em><br><img src="%s" style="width:%s"></p>\n\n',
+              basename(key), knitr::image_uri(tmp), width))
+}
+```
+
+## Feature UMAPs
+
+```{r fig-umap}
+#| label: fig-umap
+#| results: asis
+for (k in umap_keys) img_tag(k)
+```
+
+## pb90 — expression by group
+
+```{r fig-pb90}
+#| label: fig-pb90
+#| results: asis
+for (k in pb90_keys) img_tag(k)
+```
+
+## ATTEMPT — dapa vs. placebo, PRE vs. POST
+
+```{r fig-attempt}
+#| label: fig-attempt
+#| results: asis
+for (k in attempt_keys) img_tag(k)
+```

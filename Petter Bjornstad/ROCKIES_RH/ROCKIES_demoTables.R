@@ -108,8 +108,6 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 # Get scRNAseq participants from Seurat metadata
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-# Get scRNAseq participants from Seurat metadata
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 tmp_meta <- so_kpmp_sc@meta.data
 scrnaseq_ids <- tmp_meta %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
 
@@ -121,7 +119,8 @@ remove(so_kpmp_sc)
 dat_scrnaseq <- dat %>% 
   semi_join(scrnaseq_ids, by='record_id') %>% 
   filter(visit == 'baseline') %>%
-  filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+  filter(group %in% c('Lean Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55')
 
 cat("scRNAseq cohort N:", nrow(dat_scrnaseq), "\n")
 
@@ -135,9 +134,14 @@ table1 <- dat_scrnaseq %>%
     microalbuminuria = factor(ifelse(acr_u >= 30, "Yes", "No"), levels = c("No", "Yes")),
     sex = as.factor(sex),
     race_ethnicity = as.factor(race_ethnicity),
-    group = as.factor(group)
+    group = as.factor(group), 
+    sbp = as.numeric(sbp), 
+    dbp = as.numeric(dbp), 
+    mfm = as.factor(epic_mfm_1), 
+    raas = as.factor(epic_raasi_1), 
+    egfr = as.numeric(eGFR_CKD_epi)
   ) %>%
-  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, group) %>%
+  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, sbp, dbp, mfm, raas, egfr, group) %>%
   tbl_summary(
     by = group,
     statistic = list(
@@ -151,8 +155,13 @@ table1 <- dat_scrnaseq %>%
       sex ~ "Sex", 
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
+      sbp ~ 'Blood Pressure (Systolic), mmHg',
+      dbp ~ "Blood Pressure (Diastolic), mmHg",
       hba1c ~ "HbA1c, %",
       acr_u ~ "UACR, mg/g",
+      mfm ~ 'mfm', 
+      raas ~ 'raas', 
+      egfr ~ 'egfr', 
       microalbuminuria ~ "Microalbuminuria (UACR ≥30)"
     ),
     missing_text = "Missing"
@@ -182,7 +191,9 @@ dat <- dat %>% dplyr::select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m
 tmp_results <- PET_avg(dat)
 dat_results <- dat %>% bind_cols(tmp_results)
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55') %>% 
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes')
 
 dat2 <- get_sglt2_filtered_data(dat_results)
 
@@ -199,9 +210,14 @@ table2 <- dat2 %>%
     microalbuminuria = factor(ifelse(acr_u >= 30, "Yes", "No"), levels = c("No", "Yes")),
     sex = as.factor(sex),
     race_ethnicity = as.factor(race_ethnicity),
+    sbp = as.numeric(sbp), 
+    dbp = as.numeric(dbp), 
+    mfm = as.factor(epic_mfm_1), 
+    raas = as.factor(epic_raasi_1), 
+    egfr = as.numeric(eGFR_CKD_epi),
     group = as.factor(group)
   ) %>%
-  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, group) %>%
+  dplyr::select(age, sex, race_ethnicity, bmi, sbp, dbp, hba1c, acr_u, mfm, raas, egfr, microalbuminuria, group) %>%
   tbl_summary(
     by = group,
     statistic = list(
@@ -215,13 +231,18 @@ table2 <- dat2 %>%
       sex ~ "Sex", 
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
+      sbp ~ 'Blood Pressure (Systolic), mmHg',
+      dbp ~ 'Blood Pressure (Diastolic), mmHg', 
       hba1c ~ "HbA1c, %",
       acr_u ~ "UACR, mg/g",
+      mfm ~ 'mfm', 
+      raas ~ 'raas', 
+      egfr ~ 'egfr', 
       microalbuminuria ~ "Microalbuminuria (UACR ≥30)"
     ),
     missing_text = "Missing"
   ) %>%
-  add_p(test = list(all_continuous() ~ "wilcox.test", all_categorical() ~ "fisher.test")) %>%
+  add_p(test = list(all_continuous() ~ "kruskal.test", all_categorical() ~ "fisher.test")) %>% 
   add_overall() %>%
   modify_header(label ~ "**Characteristic**") %>%
   modify_footnote(all_stat_cols() ~ "Mean (SD); Median (Q1, Q3); n (%)")
@@ -246,7 +267,10 @@ dat <- dat %>% dplyr::select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m
 tmp_results <- PET_avg(dat)
 dat_results <- dat %>% bind_cols(tmp_results)
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
+  filter(record_id != 'CRC-55') %>% 
+  filter(group == "Lean Control" | is.na(epic_sglti2_1) | epic_sglti2_1 != 'Yes') %>%
+  filter(!is.na(acr_u))
 
 cat("UACR-PET cohort N:", nrow(dat_results), "\n")
 print(table(dat_results$group))
@@ -261,9 +285,14 @@ table3 <- dat_results %>%
     microalbuminuria = factor(ifelse(acr_u >= 30, "Yes", "No"), levels = c("No", "Yes")),
     sex = as.factor(sex),
     race_ethnicity = as.factor(race_ethnicity),
+    sbp = as.numeric(sbp), 
+    dbp = as.numeric(dbp), 
+    mfm = as.factor(epic_mfm_1), 
+    raas = as.factor(epic_raasi_1), 
+    egfr = as.numeric(eGFR_CKD_epi),
     group = as.factor(group)
   ) %>%
-  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, group) %>%
+  dplyr::select(age, sex, race_ethnicity, bmi, dbp, sbp, egfr, mfm, raas, hba1c, acr_u, microalbuminuria, group) %>%
   tbl_summary(
     by = group,
     statistic = list(
@@ -277,8 +306,13 @@ table3 <- dat_results %>%
       sex ~ "Sex", 
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
+      sbp ~ 'Blood Pressure (Systolic), mmHg',
+      dbp ~ 'Blood Pressure (Diastolic), mmHg',
       hba1c ~ "HbA1c, %",
       acr_u ~ "UACR, mg/g",
+      egfr ~ 'egfr', 
+      mfm ~ 'mfm', 
+      raas ~ 'raas', 
       microalbuminuria ~ "Microalbuminuria (UACR ≥30)"
     ),
     missing_text = "Missing"
@@ -320,7 +354,8 @@ cat("Overlapping record_ids:", length(intersect(dat_clinical$record_id, dat_base
 
 # Merge clinical data with demographics from harmonized data (including acr_u)
 dat_clinical_merged <- dat_clinical %>%
-  left_join(dat_baseline %>% dplyr::select(record_id, age, sex, race_ethnicity, bmi, hba1c, acr_u, group), 
+  left_join(dat_baseline %>% dplyr::select(record_id, age, sex, race_ethnicity, bmi, sbp, dbp, eGFR_CKD_epi, 
+                                           epic_mfm_1, epic_raasi_1, hba1c, acr_u, group), 
             by = "record_id")
 
 cat("GBM/Arteriosclerosis cohort N:", nrow(dat_clinical_merged), "\n")
@@ -332,6 +367,11 @@ dat_gbm <- dat_clinical_merged %>%
     GBM_Status = factor(ifelse(`GBM thickness` == "yes", "Yes", "No"), levels = c("No", "Yes")),
     age = as.numeric(age),
     bmi = as.numeric(bmi),
+    sbp = as.numeric(sbp), 
+    dbp = as.numeric(dbp),
+    mfm = as.factor(epic_mfm_1), 
+    raas = as.factor(epic_raasi_1), 
+    egfr = as.numeric(eGFR_CKD_epi),
     hba1c = as.numeric(hba1c),
     acr_u = as.numeric(acr_u),
     microalbuminuria = factor(ifelse(acr_u >= 30, "Yes", "No"), levels = c("No", "Yes")),
@@ -345,7 +385,7 @@ cat("Table 4 (GBM) N:", nrow(dat_gbm), "\n")
 
 # Create Table 4
 table4 <- dat_gbm %>%
-  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, group, 
+  dplyr::select(age, sex, race_ethnicity, sbp, dbp, bmi, hba1c, acr_u, egfr, mfm, raas, microalbuminuria, group, 
                 arteriosclerosis, GBM_Status) %>%
   tbl_summary(
     by = GBM_Status,
@@ -360,8 +400,13 @@ table4 <- dat_gbm %>%
       sex ~ "Sex", 
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
+      sbp ~ 'Blood Pressure (Systolic), mmHg',
+      dbp ~ 'Blood Pressure (Diastolic), mmHg', 
       hba1c ~ "HbA1c, %",
       acr_u ~ "UACR, mg/g",
+      egfr ~ 'egfr', 
+      mfm ~ 'mfm', 
+      raas ~ 'raas', 
       microalbuminuria ~ "Microalbuminuria (UACR ≥30)",
       group ~ "Group",
       arteriosclerosis ~ "Arteriosclerosis"
@@ -380,8 +425,13 @@ dat_arterio <- dat_clinical_merged %>%
     Arterio_Status = factor(ifelse(arteriosclerosis == "yes", "Yes", "No"), levels = c("No", "Yes")),
     age = as.numeric(age),
     bmi = as.numeric(bmi),
+    egfr = as.numeric(eGFR_CKD_epi), 
+    mfm = as.factor(epic_mfm_1), 
+    raas = as.factor(epic_raasi_1), 
     hba1c = as.numeric(hba1c),
     acr_u = as.numeric(acr_u),
+    sbp = as.numeric(sbp), 
+    dbp = as.numeric(dbp), 
     microalbuminuria = factor(ifelse(acr_u >= 30, "Yes", "No"), levels = c("No", "Yes")),
     sex = as.factor(sex),
     race_ethnicity = as.factor(race_ethnicity),
@@ -393,7 +443,7 @@ cat("Table 5 (Arteriosclerosis) N:", nrow(dat_arterio), "\n")
 
 # Create Table 5
 table5 <- dat_arterio %>%
-  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, acr_u, microalbuminuria, group,
+  dplyr::select(age, sex, race_ethnicity, bmi, sbp, dbp, hba1c, acr_u, egfr, mfm, raas, microalbuminuria, group,
                 `GBM thickness`, Arterio_Status) %>%
   tbl_summary(
     by = Arterio_Status,
@@ -408,6 +458,9 @@ table5 <- dat_arterio %>%
       sex ~ "Sex", 
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
+      egfr ~ 'egfr', 
+      sbp ~ 'Blood Pressure (Systolic), mmHg',
+      dbp ~ 'Blood Pressure (Diastolic), mmHg', 
       hba1c ~ "HbA1c, %",
       acr_u ~ "UACR, mg/g",
       microalbuminuria ~ "Microalbuminuria (UACR ≥30)",

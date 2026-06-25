@@ -1,0 +1,1131 @@
+---
+title: "12_Diablo2_omics_integration"
+format: html
+editor: source
+---
+
+```{r}
+# ---- packages ----
+library(dplyr)
+library(tidyr)
+library(limma)
+library(EnhancedVolcano)
+library(ggplot2)
+library(patchwork)
+library(ggrepel)
+library(vegan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+library(haven)
+library(ggVennDiagram)
+library(caret)
+library(jsonlite)
+#BiocManager::install("mixOmics")
+library(mixOmics)
+library(circlize)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "leidholt") {
+  root_path <- "/mmfs1/gscratch/togo/leidholt/"
+  git_path  <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  keys      <- fromJSON("/mmfs1/home/leidholt/keys.json")
+} else if (user == "sleidholt") {
+  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/Shared/OneDrive - UW/Personal_storage/keys.json")
+} else if (user == "savanahleidholt") {
+  root_path <- "/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  dir.results <- file.path(root_path, "Savanah Leidholt", "TRIAD", "Results")
+  git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/savanahleidholt/OneDrive - UW/Personal_storage/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+limma_prot <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_gsea_inputs_age_sex_study.rds"
+))
+prot_out  <- limma_prot$all_omics$out
+prot_log <- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "proteomics_paired_matrix.rds"))
+
+
+
+limma_metab <- readRDS(file.path(
+  root_path, "Savanah Leidholt", "TRIAD", "Data",
+  "limma_metabolomics_inputs_age_sex_study.rds"
+))
+metab_out <- limma_metab$all_omics$out
+metab_log <- readRDS(file = file.path(root_path,"Savanah Leidholt","TRIAD","Data","metabolomics_paired_matrix.rds"))
+
+
+
+meta_paired<- readRDS(file = file.path(root_path, "Savanah Leidholt", "TRIAD", "Data", "paired_metadata.rds"))
+```
+#----------------------------
+#function for top 50 features
+#---------------------------
+```{r}
+get_top_abs_t <- function(out_list, contrast_name, n = 50) {
+  out_list[[contrast_name]] %>%
+    dplyr::mutate(abs_t = abs(t)) %>%
+    dplyr::arrange(dplyr::desc(abs_t)) %>%
+    dplyr::slice_head(n = n) %>%
+    dplyr::pull(feature_id)
+}
+```
+
+```{r}
+top_prot_t1d_lc <- get_top_abs_t(prot_out,  "T1D_vs_T2D", n = 50)
+top_metab_t1d_lc <- get_top_abs_t(metab_out, "T1D_vs_T2D", n = 50)
+```
+
+```{r}
+X_prot <- prot_log[, top_prot_t1d_lc, drop = FALSE]
+X_metab <- metab_log[, top_metab_t1d_lc, drop = FALSE]
+```
+
+```{r}
+contrast_name <- "T1D_vs_T2D"
+
+groups_keep <- c("T2D", "T1D")
+
+meta_diablo <- meta_paired %>%
+  filter(group4 %in% groups_keep) %>%
+  mutate(group4 = factor(group4, levels = groups_keep))
+```
+
+```{r}
+common_ids <- Reduce(
+  intersect,
+  list(
+    rownames(meta_diablo),
+    rownames(X_prot),
+    rownames(X_metab)
+  )
+)
+
+meta_diablo <- meta_diablo[common_ids, , drop = FALSE]
+X_prot_d   <- X_prot[common_ids, , drop = FALSE]
+X_metab_d  <- X_metab[common_ids, , drop = FALSE]
+
+Y <- droplevels(meta_diablo$group4)
+
+table(Y)
+dim(X_prot_d)
+dim(X_metab_d)
+```
+#----------------------------
+# remove bad features
+#----------------------------
+```{r}
+clean_block <- function(x) {
+  x <- as.matrix(x)
+  x <- x[, colSums(is.na(x)) == 0, drop = FALSE]
+  x <- x[, apply(x, 2, sd, na.rm = TRUE) > 0, drop = FALSE]
+  x
+}
+
+X_prot_d  <- clean_block(X_prot_d)
+X_metab_d <- clean_block(X_metab_d)
+
+X <- list(
+  proteomics   = X_prot_d,
+  metabolomics = X_metab_d
+)
+```
+#----------------------------
+# design matrix
+# 0.1 = weak connection
+# 0.5 = moderate connection
+# 1 = force strong integration
+#----------------------------
+```{r}
+design <- matrix(
+  0.1,
+  ncol = length(X),
+  nrow = length(X),
+  dimnames = list(names(X), names(X))
+)
+
+diag(design) <- 0
+design
+```
+
+```{r}
+set.seed(1835)
+
+diablo_init <- block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = 2,
+  design = design
+)
+
+plotIndiv(
+  diablo_init,
+  comp = c(1, 2),
+  group = Y,
+  legend = TRUE,
+  title = paste0("DIABLO: ", contrast_name)
+)
+```
+```{r}
+set.seed(1835)
+
+test_keepX <- list(
+  proteomics   = c(5, 10, 15, 25, 50),
+  metabolomics = c(5, 10, 15, 25, 50)
+)
+
+tune_diablo <- tune.block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = 2,
+  test.keepX = test_keepX,
+  design = design,
+  validation = "Mfold",
+  folds = 5,
+  nrepeat = 50,
+  dist = "centroids.dist",
+  progressBar = TRUE
+)
+
+tune_diablo$choice.keepX
+tune_diablo$choice.ncomp
+```
+
+```{r}
+final_ncomp <- tune_diablo$choice.ncomp$ncomp
+
+final_keepX <- lapply(
+  tune_diablo$choice.keepX,
+  function(x) x[seq_len(final_ncomp)]
+)
+
+final_keepX
+
+
+diablo_final <- block.splsda(
+  X = X,
+  Y = Y,
+  ncomp = final_ncomp,
+  keepX = final_keepX,
+  design = design
+)
+
+diablo_final
+```
+#----------------------------
+# model performance
+#----------------------------
+```{r}
+set.seed(1835)
+
+perf_diablo <- perf(
+  diablo_final,
+  validation = "Mfold",
+  folds = 5,
+  nrepeat = 50,
+  dist = "centroids.dist",
+  progressBar = TRUE
+)
+
+perf_diablo$error.rate
+perf_diablo$auc
+```
+```{r}
+#plotIndiv(
+#  diablo_final,
+#  comp = c(1),
+#  group = Y,
+#  legend = TRUE,
+#  title = paste0("Final DIABLO: ", contrast_name)
+#)
+
+plotLoadings(
+  diablo_final,
+  block = "proteomics",
+  comp = 1,
+  contrib = "max",
+  method = "mean"
+)
+
+plotLoadings(
+  diablo_final,
+  block = "metabolomics",
+  comp = 1,
+  contrib = "max",
+  method = "mean"
+)
+
+circosPlot(
+  diablo_final,
+  cutoff = 0.7,
+  line = TRUE,
+  size.labels = 0.7
+)
+```
+
+```{r}
+pdf(
+  file.path(root_path, "Savanah Leidholt", "TRIAD", "Results", "Integrated",
+            paste0("network_", contrast_name, ".pdf")),
+  width = 12,
+  height = 10
+)
+
+network(
+  diablo_final,
+  cutoff = 0.7,
+  color.node = c("lightblue", "mistyrose")
+)
+
+dev.off()
+```
+```{r}
+quartz(width = 10, height = 8)
+
+network(
+  diablo_final,
+  cutoff = 0.7,
+  color.node = c("lightblue", "mistyrose")
+)
+```
+```{r}
+contrast_groups <- list(
+  T1D_vs_LC  = c("LC", "T1D"),
+  T2D_vs_LC  = c("LC", "T2D"),
+  T1D_vs_T2D = c("T2D", "T1D"),
+  OC_vs_LC   = c("LC", "OC"),
+  T1D_vs_OC  = c("OC", "T1D"),
+  T2D_vs_OC  = c("OC", "T2D")
+)
+
+diablo_dir <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "TRIAD",
+  "Results",
+  "Integrated",
+  "DIABLO"
+)
+
+diablo_fig <- file.path(
+  root_path,
+  "Savanah Leidholt",
+  "TRIAD",
+  "figures",
+  "Integrated",
+  "DIABLO"
+)
+```
+
+#----------------------------
+# run DIABLO per contrast
+#----------------------------
+```{r}
+run_diablo_contrast <- function(
+    contrast_name,
+    groups_keep,
+    prot_out,
+    metab_out,
+    prot_log,
+    metab_log,
+    meta_paired,
+    top_n = 50,
+    ncomp_tune = 2,
+    folds = 5,
+    nrepeat = 50,
+    cutoff = 0.7,
+    out_dir = diablo_dir,
+    seed = 1835
+) {
+
+  message("Running DIABLO for: ", contrast_name)
+
+  RNGkind("L'Ecuyer-CMRG")
+  set.seed(seed)
+
+  top_prot <- get_top_abs_t(prot_out, contrast_name, n = top_n)
+  top_metab <- get_top_abs_t(metab_out, contrast_name, n = top_n)
+
+  top_prot <- top_prot[top_prot %in% colnames(prot_log)]
+  top_metab <- top_metab[top_metab %in% colnames(metab_log)]
+
+  X_prot <- prot_log[, top_prot, drop = FALSE]
+  X_metab <- metab_log[, top_metab, drop = FALSE]
+
+  meta_diablo <- meta_paired %>%
+    dplyr::filter(group4 %in% groups_keep) %>%
+    dplyr::mutate(group4 = factor(group4, levels = groups_keep))
+
+  common_ids <- rownames(meta_diablo)
+  common_ids <- common_ids[
+    common_ids %in% rownames(X_prot) &
+      common_ids %in% rownames(X_metab)
+  ]
+
+  meta_diablo <- meta_diablo[common_ids, , drop = FALSE]
+  X_prot_d <- X_prot[common_ids, , drop = FALSE]
+  X_metab_d <- X_metab[common_ids, , drop = FALSE]
+
+  Y <- droplevels(meta_diablo$group4)
+
+  if (length(unique(Y)) < 2 || min(table(Y)) < folds) {
+    warning("Skipping ", contrast_name, ": not enough samples per group.")
+    return(NULL)
+  }
+
+  X_prot_d <- clean_block(X_prot_d)
+  X_metab_d <- clean_block(X_metab_d)
+
+  X <- list(
+    proteomics = X_prot_d,
+    metabolomics = X_metab_d
+  )
+
+  design <- matrix(
+    0.1,
+    ncol = length(X),
+    nrow = length(X),
+    dimnames = list(names(X), names(X))
+  )
+  diag(design) <- 0
+
+  test_keepX <- list(
+    proteomics = c(5, 10, 15, 25, 50),
+    metabolomics = c(5, 10, 15, 25, 50)
+  )
+
+  set.seed(seed)
+
+  tune_diablo <- tune.block.splsda(
+    X = X,
+    Y = Y,
+    ncomp = ncomp_tune,
+    test.keepX = test_keepX,
+    design = design,
+    validation = "Mfold",
+    folds = folds,
+    nrepeat = nrepeat,
+    dist = "centroids.dist",
+    progressBar = TRUE
+  )
+
+  final_ncomp <- tune_diablo$choice.ncomp$ncomp
+
+  final_keepX <- lapply(
+    tune_diablo$choice.keepX,
+    function(x) x[seq_len(final_ncomp)]
+  )
+
+  set.seed(seed)
+
+  diablo_final <- block.splsda(
+    X = X,
+    Y = Y,
+    ncomp = final_ncomp,
+    keepX = final_keepX,
+    design = design
+  )
+
+  set.seed(seed)
+
+  perf_diablo <- perf(
+    diablo_final,
+    validation = "Mfold",
+    folds = folds,
+    nrepeat = nrepeat,
+    dist = "centroids.dist",
+    progressBar = TRUE
+  )
+
+  selected <- selectVar(diablo_final, comp = 1)
+
+  selected_tbl <- dplyr::bind_rows(
+    tibble(
+      contrast = contrast_name,
+      block = "proteomics",
+      feature_id = selected$proteomics$name,
+      comp = 1
+    ),
+    tibble(
+      contrast = contrast_name,
+      block = "metabolomics",
+      feature_id = selected$metabolomics$name,
+      comp = 1
+    )
+  )
+
+  result <- list(
+    contrast = contrast_name,
+    groups = groups_keep,
+    metadata = meta_diablo,
+    X = X,
+    Y = Y,
+    top_prot = top_prot,
+    top_metab = top_metab,
+    tune = tune_diablo,
+    model = diablo_final,
+    performance = perf_diablo,
+    selected_features = selected_tbl,
+    final_ncomp = final_ncomp,
+    final_keepX = final_keepX,
+    seed = seed
+  )
+
+  saveRDS(
+    result,
+    file = file.path(out_dir, paste0("diablo_", contrast_name, "_top", top_n, "_abs_t.rds"))
+  )
+
+  readr::write_csv(
+    selected_tbl,
+    file.path(out_dir, paste0("diablo_selected_features_", contrast_name, ".csv"))
+  )
+
+  return(result)
+}
+```
+
+```{r}
+#diablo_results <- purrr::imap(
+#  contrast_groups,
+#  ~ run_diablo_contrast(
+#    contrast_name = .y,
+#    groups_keep = .x,
+#    prot_out = prot_out,
+#    metab_out = metab_out,
+#    prot_log = prot_log,
+#    metab_log = metab_log,
+#    meta_paired = meta_paired,
+#    top_n = 50,
+#    ncomp_tune = 2,
+#    folds = 5,
+#    nrepeat = 50,
+#    cutoff = 0.7,
+#    out_dir = diablo_dir,
+#    seed = 1835
+#  )
+#)
+
+#saveRDS(
+ #   diablo_results,
+#  file = file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds")
+#)
+
+diablo_results <- readRDS(file= file.path(diablo_dir, "diablo_all_contrasts_top50_abs_t.rds"))
+```
+
+```{r}
+metabolites <- read_csv(file = file.path(root_path, "Data Harmonization/data_dictionary_master.csv"))
+metabolites <- metabolites %>%
+  dplyr::filter(form_name == c("metabolomics", "metabolomics_blood_raw")) %>%
+  dplyr::select(variable_name, label)
+
+metab_anno <- metabolites %>%
+  transmute(
+    feature_id = as.character(variable_name),
+    metabolite_label = label
+  ) %>%
+  distinct(feature_id, .keep_all = TRUE) 
+```
+
+```{r}
+analytes <- read_csv(
+  file.path(root_path,"Data Harmonization/Combined SomaScan/analytes.csv")
+)
+
+prot_anno <- analytes %>%
+  transmute(
+    feature_id = as.character(AptName),
+    target_name = Target,
+    target_full_name = TargetFullName,
+    gene_symbol = EntrezGeneSymbol,
+    uniprot = UniProt,
+    entrez_id = EntrezGeneID,
+    somaid = SomaId,
+    seqid = SeqId
+  ) %>%
+  distinct(feature_id, .keep_all = TRUE)
+
+make_protein_label_map <- function(prot_anno) {
+  prot_anno %>%
+    mutate(
+      protein_label = case_when(
+        !is.na(target_name) & target_name != "" ~ target_name,
+        !is.na(gene_symbol) & gene_symbol != "" ~ gene_symbol,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, protein_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+}
+
+protein_label_map <- make_protein_label_map(prot_anno)
+```
+
+```{r}
+
+annotate_diablo_model <- function(model, prot_anno, metab_anno) {
+  
+  prot_map <- prot_anno %>%
+    mutate(
+      new_label = case_when(
+        !is.na(target_name) & target_name != "" ~ target_name,
+        !is.na(gene_symbol) & gene_symbol != "" ~ gene_symbol,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, new_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+  
+  metab_map <- metab_anno %>%
+    mutate(
+      new_label = case_when(
+        !is.na(metabolite_label) & metabolite_label != "" ~ metabolite_label,
+        TRUE ~ feature_id
+      )
+    ) %>%
+    dplyr::select(feature_id, new_label) %>%
+    distinct(feature_id, .keep_all = TRUE)
+  
+  rename_block <- function(model, block_name, label_map) {
+    
+    label_vec <- label_map$new_label
+    names(label_vec) <- label_map$feature_id
+    
+    old_names <- rownames(model$loadings[[block_name]])
+    
+    new_names <- ifelse(
+      old_names %in% names(label_vec),
+      label_vec[old_names],
+      old_names
+    )
+    
+    new_names <- make.unique(new_names)
+    
+    rownames(model$loadings[[block_name]]) <- new_names
+    
+    if (!is.null(model$X[[block_name]])) {
+      colnames(model$X[[block_name]]) <- new_names
+    }
+    
+    if (!is.null(model$names$colnames[[block_name]])) {
+      model$names$colnames[[block_name]] <- new_names
+    }
+    
+    model
+  }
+  
+  model <- rename_block(model, "proteomics", prot_map)
+  model <- rename_block(model, "metabolomics", metab_map)
+  
+  model
+}
+```
+
+```{r}
+diablo_results_annotated <- purrr::map(
+  diablo_results,
+  ~ {
+    if (is.null(.x)) return(NULL)
+    
+    .x$model_annotated <- annotate_diablo_model(
+      model = .x$model,
+      prot_anno = prot_anno,
+      metab_anno = metab_anno
+    )
+    
+    .x
+  }
+)
+```
+
+```{r}
+for (nm in names(diablo_results)) {
+  
+  res <- diablo_results[[nm]]
+  if (is.null(res)) next
+  
+  plot(
+    res$performance,
+    sd = TRUE,
+    legend.position = "horizontal"
+  )
+  
+  title(paste0("DIABLO performance: ", nm))
+  
+  readline("Press [Enter] for next contrast...")
+}
+```
+
+```{r}
+diablo_results[[1]]$performance$error.rate$proteomics
+diablo_results[[1]]$performance$error.rate$metabolomics
+
+diablo_performance_tbl <-
+  purrr::map_dfr(
+    diablo_results,
+    ~{
+      if (is.null(.x)) return(NULL)
+
+      err <- .x$performance$AveragedPredict.error.rate
+
+      final_comp <- .x$final_ncomp
+
+      ber_value <- as.numeric(err["Overall.BER", final_comp])
+      er_value  <- as.numeric(err["Overall.ER", final_comp])
+
+      tibble(
+        contrast = .x$contrast,
+        groups = paste(.x$groups, collapse = " vs "),
+        ncomp = final_comp,
+        BER = ber_value,
+        ER = er_value,
+        balanced_accuracy = 1 - ber_value
+      )
+    }
+  ) %>%
+  arrange(BER)
+
+diablo_performance_tbl
+
+write_csv(
+  diablo_performance_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_performance.csv"
+  )
+)
+```
+
+```{r}
+diablo_keepX_tbl <-
+  purrr::map_dfr(
+    diablo_results,
+    ~{
+      if (is.null(.x)) return(NULL)
+
+      tibble(
+        contrast = .x$contrast,
+        ncomp = .x$final_ncomp,
+        n_proteins_selected = .x$final_keepX$proteomics[1],
+        n_metabolites_selected = .x$final_keepX$metabolomics[1],
+        total_selected =
+          .x$final_keepX$proteomics[1] +
+          .x$final_keepX$metabolomics[1]
+      )
+    }
+  ) %>%
+  arrange(contrast)
+
+diablo_keepX_tbl
+
+write_csv(
+  diablo_keepX_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_total_featurs.csv"
+  )
+)
+```
+
+```{r}
+selected_all <- purrr::map_dfr(
+  diablo_results_annotated,
+  ~{
+    if (is.null(.x)) return(NULL)
+    .x$selected_features
+  }
+)
+
+selected_all_annotated <- selected_all %>%
+  left_join(prot_anno, by = "feature_id") %>%
+  left_join(metab_anno, by = "feature_id") %>%
+  mutate(
+    feature_label = case_when(
+      block == "proteomics" & !is.na(target_name) ~ target_name,
+      block == "metabolomics" & !is.na(metabolite_label) ~ metabolite_label,
+      TRUE ~ feature_id
+    )
+  )
+
+selected_all_annotated
+
+diablo_recurrent_features_annotated_tbl <- selected_all_annotated %>%
+  group_by(
+    feature_label,
+    block
+  ) %>%
+  summarise(
+    n_contrasts_selected = n_distinct(contrast),
+    contrasts_selected = paste(sort(unique(contrast)), collapse = "; "),
+    .groups = "drop"
+  ) %>%
+  filter(n_contrasts_selected > 1) %>%
+  arrange(
+    desc(n_contrasts_selected),
+    block,
+    feature_label
+  )
+
+diablo_recurrent_features_annotated_tbl
+
+write_csv(
+  diablo_recurrent_features_annotated_tbl,
+  file.path(
+    diablo_dir,
+    "diablo_repeat_featurs.csv"
+  )
+)
+```
+
+```{r}
+#only one component chosen for each contrast model so plotIndiv and plotArrow won't work
+plotIndiv(
+  diablo_results$T1D_vs_LC$model,
+  ind.names = FALSE,
+  legend = TRUE,
+  title = "T1D vs LC"
+)
+
+plotArrow(
+  diablo_results$T1D_vs_LC$model,
+  comp = c(1,2),
+  ind.names = FALSE,
+  legend = TRUE,
+  title = "T1D vs LC"
+)
+```
+
+```{r}
+plot_1comp_scores <- function(res) {
+  
+  scores <- res$model$variates$proteomics[, 1]
+  
+  plot_df <- data.frame(
+    score = scores,
+    group = res$Y
+  )
+  
+  ggplot(plot_df, aes(x = group, y = score, fill = group)) +
+    geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+    geom_jitter(width = 0.15, size = 2, alpha = 0.8) +
+    theme_bw() +
+    labs(
+      x = NULL,
+      y = "DIABLO component 1 score",
+      title = paste0(res$contrast, ": DIABLO component 1 scores")
+    ) +
+    theme(legend.position = "none")
+}
+```
+
+```{r}
+plot_1comp_scores(diablo_results$T1D_vs_LC)
+plot_1comp_scores(diablo_results$T1D_vs_OC)
+plot_1comp_scores(diablo_results$T1D_vs_T2D)
+plot_1comp_scores(diablo_results$T2D_vs_LC)
+plot_1comp_scores(diablo_results$T2D_vs_OC)
+plot_1comp_scores(diablo_results$OC_vs_LC)
+```
+
+```{r}
+for (nm in names(diablo_results_annotated)) {
+
+  res <- diablo_results_annotated[[nm]]
+
+  if (is.null(res)) next
+
+  cat("\n=====================================\n")
+  cat("Contrast:", nm, "\n")
+  cat("=====================================\n")
+
+  plotLoadings(
+    res$model_annotated,
+    comp = 1,
+    contrib = "max",
+    method = "mean",
+    title = nm
+  )
+
+  readline("Press [Enter] for next contrast...")
+}
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"t1d_lc.png"),
+  width = 3500,
+  height = 3500,
+  res = 600
+)
+
+network(
+  diablo_results_annotated$T1D_vs_LC$model_annotated,
+  comp = NULL,
+  cutoff = 0.85,
+  graph.scale = 0.2
+)
+
+
+
+dev.off()
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"t1d_oc.png"),
+  width = 3000,
+  height = 2500,
+  res = 300
+)
+
+network(
+  diablo_results_annotated$T1D_vs_OC$model_annotated,
+  comp = NULL,
+  cutoff = 0.7,
+  graph.scale = 0.3
+)
+
+title(main = "T1D vs OC")
+
+dev.off()
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"t1d_t2d.png"),
+  width = 3000,
+  height = 2500,
+  res = 300
+)
+
+network(
+  diablo_results_annotated$T1D_vs_T2D$model_annotated,
+  comp = NULL,
+  cutoff = 0.7,
+  graph.scale = 0.3
+)
+
+title(main = "T1D vs T2D")
+
+dev.off()
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"t2d_lc.png"),
+  width = 3000,
+  height = 2500,
+  res = 300
+)
+
+network(
+  diablo_results_annotated$T2D_vs_LC$model_annotated,
+  comp = NULL,
+  cutoff = 0.8
+)
+
+title(main = "T2D vs LC")
+
+dev.off()
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"t2d_oc.png"),
+  width = 3000,
+  height = 2500,
+  res = 300
+)
+
+network(
+  diablo_results_annotated$T2D_vs_OC$model_annotated,
+  comp = NULL,
+  cutoff = 0.5
+)
+
+title(main = "T2D vs OC")
+
+dev.off()
+```
+
+```{r}
+png(
+  filename = file.path(diablo_fig,"oc_lc.png"),
+  width = 3000,
+  height = 2500,
+  res = 300
+)
+
+network(
+  diablo_results_annotated$OC_vs_LC$model_annotated,
+  comp = NULL,
+  cutoff = 0.75
+)
+
+title(main = "OC vs LC")
+
+dev.off()
+```
+
+
+
+```{r}
+pdf(
+  file.path(diablo_fig, "T1D_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated[["T1D_vs_LC"]]$model_annotated,
+  comp = 1,
+  line = TRUE,
+  cutoff = 0.9
+)
+
+
+dev.off()
+```
+
+```{r}
+pdf(
+  file.path(diablo_fig, "T1D_vs_OC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T1D_vs_OC$model_annotated,
+  line = TRUE,
+  cutoff = 0.9
+)
+
+title("T1D vs OC")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_fig, "T1D_vs_T2D_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T1D_vs_T2D$model_annotated,
+  line = TRUE,
+  cutoff = 0.9
+)
+
+title("T1D vs T2D")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_fig, "T2D_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T2D_vs_LC$model_annotated,
+  line = TRUE,
+  cutoff = 0.8
+)
+
+title("T2D vs LC")
+
+dev.off
+```
+
+```{r}
+pdf(
+  file.path(diablo_fig, "T2D_vs_OC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$T2D_vs_OC$model_annotated,
+  line = TRUE,
+  cutoff = 0.7
+)
+
+title("T2D vs OC")
+
+dev.off
+```
+```{r}
+pdf(
+  file.path(diablo_fig, "OC_vs_LC_circos.pdf"),
+  width = 12,
+  height = 12
+)
+
+par(
+  cex = 2,
+  cex.main = 2,
+  mar = c(2, 2, 4, 2)
+)
+
+circosPlot(
+  diablo_results_annotated$OC_vs_LC$model_annotated,
+  line = TRUE,
+  cutoff = 0.9
+)
+
+title("OC vs LC")
+
+dev.off
+```
+
+
+
+
+
+
+
+

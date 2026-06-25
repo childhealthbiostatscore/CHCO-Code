@@ -395,3 +395,184 @@ dev.off()
 
 
 
+
+#####Using Kruskal_Wallis
+
+
+
+boxplot_function <- function(data, variable, label, method){
+  
+  var_index <- which(names(data) == variable)
+  data <- data %>% dplyr::select(group, var_index)
+  names(data)[2] <- 'Variable'
+  
+  desired_order <- c("Lean Control", "Obese Control", "Type 1 Diabetes", "Type 2 Diabetes", "PKD")
+  available_levels <- desired_order[desired_order %in% unique(data$group)]
+  data$group <- factor(data$group, levels = available_levels)
+  
+  if(method == 'ANOVA'){
+    model <- aov(Variable ~ group, data = data)
+    model_results <- TukeyHSD(model, conf.level = 0.95)$group %>% 
+      as.data.frame()
+    
+    model_results <- model_results %>% 
+      mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
+                             paste0('p = ', round(`p adj`, 3))))
+    
+    # Helper function to safely extract p-values
+    safe_extract_pval <- function(comparison_name) {
+      idx <- which(rownames(model_results) == comparison_name)
+      if(length(idx) == 0) {
+        return('N/A')
+      }
+      pval <- model_results$pvalue[idx]
+      if(length(pval) == 0 || is.na(pval)) {
+        return('N/A')
+      }
+      return(as.character(pval))
+    }
+    
+    pval_1 <- safe_extract_pval('Type 2 Diabetes-Obese Control')
+    pval_2 <- safe_extract_pval('Type 2 Diabetes-Lean Control')
+    pval_3 <- safe_extract_pval('Type 2 Diabetes-Type 1 Diabetes')
+    pval_4 <- safe_extract_pval('PKD-Type 2 Diabetes')
+    
+  }else if(method == 't-test'){
+    
+    # Helper function to perform t-test with error handling
+    safe_ttest <- function(data, groups) {
+      tmp_df <- data %>% filter(group %in% groups, !is.na(Variable))
+      
+      # Check if both groups exist and have data
+      group_counts <- table(tmp_df$group)
+      if(length(group_counts) != 2 || any(group_counts < 2)) {
+        return('N/A')
+      }
+      
+      tryCatch({
+        model1 <- t.test(Variable ~ group, data = tmp_df)
+        pval <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                       paste0('p = ', round(model1$p.value, 3)))
+        return(pval)
+      }, error = function(e) {
+        return('N/A')
+      })
+    }
+    
+    pval_1 <- safe_ttest(data, c('Type 2 Diabetes', 'Obese Control'))
+    pval_2 <- safe_ttest(data, c('Type 2 Diabetes', 'Lean Control'))
+    pval_3 <- safe_ttest(data, c('Type 2 Diabetes', 'Type 1 Diabetes'))
+#    pval_4 <- safe_ttest(data, c('Type 2 Diabetes', 'PKD'))
+  }
+  
+  y_max <- max(data$Variable, na.rm = TRUE)
+  y_range <- diff(range(data$Variable, na.rm = TRUE))
+  
+  plot <- ggplot(data, aes(x = group, y = Variable, fill = group))  +
+    geom_boxplot()+
+    scale_fill_manual(values = c("Lean Control" = "#87CEEB", 
+                                 "Obese Control" = "#ADD8E6", 
+                                 "Type 1 Diabetes" = "#F0E68C", 
+                                 "Type 2 Diabetes" = "#CD5C5C"#, 
+  #                               "PKD" = "#DDA0DD"
+                                 )
+                      ) +
+    scale_x_discrete(expand = expansion(mult = c(0.1, 0.1))) + 
+    labs(x= 'Study Group', y = label, fill = 'Study Group')+
+    theme_minimal()+
+    theme(axis.text.x = element_blank(),
+          text = element_text(size = 20),
+          legend.position = "right",
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+  
+  group_positions <- 1:length(levels(data$group))
+  names(group_positions) <- levels(data$group)
+  
+  get_position <- function(group_name) {
+    pos <- group_positions[group_name]
+    if(is.na(pos)) {
+      return(NULL)
+    }
+    return(as.numeric(pos))
+  }
+  
+  t2d_pos <- get_position("Type 2 Diabetes")
+  lean_pos <- get_position("Lean Control")
+  obese_pos <- get_position("Obese Control")
+  t1d_pos <- get_position("Type 1 Diabetes")
+ # pkd_pos <- get_position("PKD")
+  
+  # Helper function to check if we should add comparison
+  should_add_comparison <- function(pos1, pos2, pval) {
+    !is.null(pos1) && !is.null(pos2) && !is.na(pval) && pval != 'N/A'
+  }
+  
+  # Only add comparison lines if positions exist and p-values are available
+  if(should_add_comparison(lean_pos, t2d_pos, pval_2)){
+    plot <- plot + 
+      annotate("segment", x = lean_pos, xend = t2d_pos, 
+               y = y_max + 0.25 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = lean_pos, xend = lean_pos, 
+               y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (lean_pos + t2d_pos)/2, y = y_max + 0.27 * y_range, 
+               label = pval_2, size = 4)
+  }
+  
+  if(should_add_comparison(obese_pos, t2d_pos, pval_1)){
+    plot <- plot +
+      annotate("segment", x = obese_pos, xend = t2d_pos, 
+               y = y_max + 0.18 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = obese_pos, xend = obese_pos, 
+               y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (obese_pos + t2d_pos)/2, y = y_max + 0.20 * y_range, 
+               label = pval_1, size = 4)
+  }
+  
+  if(should_add_comparison(t1d_pos, t2d_pos, pval_3)){
+    plot <- plot +
+      annotate("segment", x = t1d_pos, xend = t2d_pos, 
+               y = y_max + 0.11 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t1d_pos, xend = t1d_pos, 
+               y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (t1d_pos + t2d_pos)/2, y = y_max + 0.13 * y_range, 
+               label = pval_3, size = 4)
+  }
+  
+  #if(should_add_comparison(t2d_pos, pkd_pos, pval_4)){
+  #  plot <- plot +
+  #    annotate("segment", x = t2d_pos, xend = pkd_pos, 
+  #             y = y_max + 0.04 * y_range, yend = y_max + 0.04 * y_range, 
+  #             color = "black", size = 0.5) +
+  #    annotate("segment", x = t2d_pos, xend = t2d_pos, 
+  #             y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
+  #             color = "black", size = 0.5) +
+  #    annotate("segment", x = pkd_pos, xend = pkd_pos, 
+  ##             y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
+  #             color = "black", size = 0.5) +
+  #    annotate("text", x = (t2d_pos + pkd_pos)/2, y = y_max + 0.06 * y_range, 
+  #             label = pval_4, size = 4)
+  #}
+  
+  plot <- plot + expand_limits(y = y_max + 0.3 * y_range)
+  
+  return(plot)
+}
+
+
+

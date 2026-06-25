@@ -1016,10 +1016,13 @@ plot_delta_by_category <- function(data,
   # Output
   if (!is.null(output_path)) {
     ggsave(output_path, p, width = 7, height = 5)
-    return(p)
-  } else {
-    return(p)
   }
+  
+  return(list(
+    plot = p,
+    plot_data = plot_df,        # bar-level summary: means, CIs, p-values, stars
+    subject_data = summary_df   # subject-level data: deltas, baseline values, bins
+  ))
 }
 
 # ===========================================================================
@@ -4111,6 +4114,7 @@ plot_treatment_heatmap <- function(data,
       legend.title = element_text(hjust = 0.5, size = 10),
       axis.text.x = element_text(angle = 60, hjust = 1), 
       axis.text.y = element_markdown(face = "bold"),
+      axis.text.y.right = element_markdown(face = "bold", hjust = 0),
       plot.caption = element_text(size = 18, hjust = 0.5)
     ) +
     labs(
@@ -6406,7 +6410,7 @@ plot_gsea_results <- function(gsea_list,
     geom_vline(xintercept = -log10(p_threshold), linetype = "dashed", color = "#aaaaaa") +
     geom_text(aes(label = clean_pathway), 
               x = -log10(p_threshold) + 0.1, hjust = 0, 
-              fontface = "bold", family = "Arial",
+              fontface = "bold",
               color = "#2b2b2b") +
     scale_fill_gradient2(low = low_color, mid = mid_color, high = high_color, 
                          midpoint = 0,
@@ -6422,7 +6426,7 @@ plot_gsea_results <- function(gsea_list,
          x = "-log(p-value)", 
          fill = "NES",
          caption = full_caption,
-         title = cell_name)
+         title = toupper(reference))
   
   # Apply x-axis limits
   if (!is.null(min_x_limit)) {

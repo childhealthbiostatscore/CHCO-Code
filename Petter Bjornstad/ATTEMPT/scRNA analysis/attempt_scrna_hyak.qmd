@@ -65,7 +65,38 @@ library(scCustomize)
 library(msigdbr)
 library(lme4)
 library(lmerTest)
+library(aws.s3)
+library(jsonlite)
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
 ```
 
 ```{r include = F}
@@ -90,9 +121,19 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 
 ```{r echo = F, eval = F}
 # read ATTEMPT Seurat file
+start_time <- Sys.time()
 temp_file <- tempfile(fileext = ".RDS")
 s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", temp_file)
 attempt_so_raw <- readRDS(temp_file)
+end_time <- Sys.time()
+elapsed_time <- end_time - start_time
+print(elapsed_time) 
+# start_time <- Sys.time()
+# attempt_so_raw <- s3readRDS("Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", 
+#                             "scrna", region = "")
+# end_time <- Sys.time()
+# elapsed_time <- end_time - start_time
+# print(elapsed_time) 
 
 # N of cells for Petter (B-cells and POD at baseline)
 # attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
@@ -201,10 +242,9 @@ rownames(attempt_so_meta) <- attempt_so_meta$barcode
 attempt_so_raw <- AddMetaData(attempt_so_raw, attempt_so_meta)
 options(future.globals.maxSize = 3000 * 1024^3)
 
-View(subset(attempt_so_meta, select = c(subject_id, visit, treatment, Cryostor_ID)) %>%
-       distinct(Cryostor_ID, .keep_all = T))
+# View(subset(attempt_so_meta, select = c(subject_id, visit, treatment, Cryostor_ID)) %>%
+#        distinct(Cryostor_ID, .keep_all = T))
 ```
-
 
 ```{r echo = F, eval = T}
 # Read in clean seurat object saved from attempt_CROC_analysis.qmd
@@ -224,6 +264,129 @@ attempt_so$KPMP_celltype_general <- case_when(
   attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
   TRUE ~ "Other"
 )
+```
+```{r}
+# attempt_so@meta.data %>%
+#   filter(KPMP_celltype %in% c("DTL", "aDTL")) %>%
+#   ggplot(aes(paste0(visit, "\n", treatment), fill = KPMP_celltype)) +
+#   geom_bar(stat = "count", position = "fill") +
+#   theme_classic() +
+#   labs(x = NULL,
+#        y = "Proportion",
+#        fill = "Cell type") +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+#   theme(plot.title = element_text(hjust=0.5, face="bold"),
+#         text = element_text(size = 20)) +
+#   ggtitle("Proportion of DTL cells") +
+#   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
+# 
+# attempt_so@meta.data %>%
+#   filter(KPMP_celltype %in% c("FIB", "VSMC/P", "EC/VSMC")) %>%
+#   ggplot(aes(paste0(visit, "\n", treatment), fill = KPMP_celltype)) +
+#   geom_bar(stat = "count", position = "fill") +
+#   theme_classic() +
+#   labs(x = NULL,
+#        y = "Proportion",
+#        fill = "Cell type") +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+#   theme(plot.title = element_text(hjust=0.5, face="bold"),
+#         text = element_text(size = 20)) +
+#   ggtitle("Proportion of DTL cells") +
+#   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
+
+ct_col      <- "KPMP_celltype"
+subject_col <- "subject_id"        # patient ID (for the paired random effect)
+group_col   <- "treatment"          # A vs B
+time_col    <- "visit"           # pre vs post
+sample_col <- "subj_visit"
+# pull metadata out of the Seurat object
+attempt_so$subj_visit <- paste0(md$subject_id, "-", md$visit)
+md <- attempt_so@meta.data %>%
+  as_tibble() %>%
+  select(all_of(c(sample_col, subject_col, group_col, time_col, ct_col)))
+
+# counts per sample x cell type, including explicit zeros
+counts <- md %>%
+  dplyr::count(across(all_of(c(sample_col, subject_col, group_col, time_col))),
+        .data[[ct_col]], name = "count") %>%
+  dplyr::rename(KPMP_celltype = !!ct_col) %>%
+  complete(
+    nesting(!!!syms(c(sample_col, subject_col, group_col, time_col))),
+    KPMP_celltype,
+    fill = list(count = 0)
+  ) %>%
+  dplyr::group_by(across(all_of(sample_col))) %>%
+  dplyr::mutate(total = sum(count),
+         proportion = count / total) %>%
+  ungroup()
+
+sccomp_res <- sccomp_estimate(
+  counts,
+  formula_composition = ~ treatment * visit + (1 | subject_id),
+  .sample = subj_visit, 
+  .cell_group = KPMP_celltype, 
+  .count = count
+) %>% sccomp_test()
+
+# drop the per-subject random intercepts, keep population effects
+sccomp_res <- sccomp_res |> dplyr::filter(!grepl("___", parameter)) |>
+  dplyr::filter(parameter == "treatmentDapagliflozin:visitPOST") |>
+  dplyr::mutate(credible = sign(c_lower) == sign(c_upper)) |>
+  dplyr::arrange(dplyr::desc(abs(c_effect)))
+
+# mutlipanel_theme in the package is error-prone
+multipanel_theme <- theme_minimal()
+sccomp_res |> 
+  plot_1D_intervals() +
+  theme(panel.background = element_rect(fill = "transparent", color = NA),
+        plot.background  = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA)) +
+  scale_color_manual(values = c("FALSE" = "#bfc0c0",
+                                "TRUE" = "#f07167"))
+
+s3write_using_region(FUN = ggsave,
+                     bucket = "attempt",
+                     region = "",
+                     object = "Figures/sccomp_celltype_intervals.png",
+                     width = 8, 
+                     height = 8, 
+                     dpi = 300, 
+                     bg = "transparent")
+
+plot_df <- sccomp_res %>%
+  dplyr::select(KPMP_celltype, count_data) %>%
+  unnest(count_data) %>%
+  dplyr::group_by(subj_visit) %>%
+  dplyr::mutate(proportion = count / sum(count)) %>%
+  ungroup()
+
+ggplot(plot_df, aes(x = treatment, y = proportion, fill = visit)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6, position = position_dodge(0.8)) +
+  geom_point(position = position_jitterdodge(dodge.width = 0.8),
+             size = 0.8, alpha = 0.5) +
+  facet_wrap(~ KPMP_celltype, scales = "free_y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        plot.background  = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA)) +
+  labs(x = NULL, y = "Proportion", fill = NULL) +
+  scale_fill_manual(values = c("PRE" = "#eec170",
+                               "POST" = "#f58549"))
+
+s3write_using_region(FUN = ggsave,
+                     bucket = "attempt",
+                     region = "",
+                     object = "Figures/sccomp_celltype_facet_proportions_boxplot.png",
+                     width = 12, 
+                     height = 12, 
+                     dpi = 300, 
+                     bg = "transparent")
+
 ```
 
 ```{r}

@@ -88,11 +88,6 @@ cat("\n--- Available assays ---\n")
 print(Assays(so))
 cat("Default assay:", DefaultAssay(so), "\n")
 
-################################################################################
-# STOP HERE — run the above first to identify the correct column names,
-# then update the variables below and continue
-################################################################################
-
 # ── UPDATE THESE based on the output above ────────────────────────────────────
 CT_COL     <- "celltype_rpca"   # PT-1 through PT-5
 CT_KPMP    <- "KPMP_celltype"   # PT-S1/S2, aPT, PT-S3
@@ -405,7 +400,8 @@ missing_genes <- base::setdiff(all_genes, rownames(so))
 if (length(missing_genes) > 0)
   cat("Missing genes:", paste(missing_genes, collapse=", "), "\n")
 
-################################################################################
+so <- so %>% subset(record_id %in% all_schaub_ids) 
+  ###############################################################################
 # RUN ALL ANALYSES
 ################################################################################
 

@@ -199,17 +199,17 @@ pet_labels <- c(
 
 # Group levels and colors - MATCHING FSOC ANALYSIS
 group_levels <- c("Lean Control", "Obese Control", "Type 1 Diabetes", 
-                  "Type 2 Diabetes", "PKD")
+                  "Type 2 Diabetes")
 
 # Colors matching your FSOC analysis exactly
 group_colors <- c("Lean Control" = "#3182BD",
                   "Obese Control" = "#9ECAE1",
                   "Type 1 Diabetes" = "#FDAE6B",
-                  "Type 2 Diabetes" = "#E6550D",
-                  "PKD" = "#9E9AC8")
+                  "Type 2 Diabetes" = "#E6550D")
 
 # Prepare the data - set up group and sex factors
 dat_results <- dat_results %>%
+  filter(group != "PKD") %>%
   mutate(group = factor(group, levels = group_levels),
          sex = factor(sex, levels = c("Female", "Male")))
 
@@ -246,7 +246,7 @@ plot_pet_by_group <- function(dat, endpoint, label) {
   
   # Calculate unadjusted pairwise comparisons (Wilcoxon)
   stat_test <- dat_plot %>%
-    wilcox_test(as.formula(paste(endpoint, "~ group"))) %>%
+    wilcox_test(as.formula(paste(endpoint, "~ group")), p.adjust.method = 'BH') %>%
     mutate(p_label = case_when(
       p < 0.001 ~ "p<0.001",
       p < 0.01 ~ paste0("p=", formatC(p, format = "f", digits = 3)),
@@ -264,7 +264,6 @@ plot_pet_by_group <- function(dat, endpoint, label) {
     geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
     scale_fill_manual(values = group_colors) +
     labs(title = label,
-         subtitle = "Raw pairwise Wilcoxon p-values printed to console",
          y = label, x = "") +
     theme_bw() +
     theme(
@@ -274,6 +273,37 @@ plot_pet_by_group <- function(dat, endpoint, label) {
       plot.subtitle = element_text(size = 8, color = "gray50"),
       panel.grid.minor = element_blank()
     )
+  
+  # After creating `p` in plot_pet_by_group(), add:
+  if (endpoint %in% c("avg_c_k2", "avg_m_k2", "avg_c_k2_f", "avg_m_k2_f")) {
+    sig_pairs <- stat_test %>% filter(p.adj < 0.05)
+    
+    if (nrow(sig_pairs) > 0) {
+      group_levels_present <- levels(dat_plot$group)
+      y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+      y_range <- max(dat_plot[[endpoint]], na.rm = TRUE) - min(dat_plot[[endpoint]], na.rm = TRUE)
+      
+      for (k in seq_len(nrow(sig_pairs))) {
+        x1 <- which(group_levels_present == sig_pairs$group1[k])
+        x2 <- which(group_levels_present == sig_pairs$group2[k])
+        y_pos <- y_max + (0.15 * k) * y_range
+        p_lab <- ifelse(sig_pairs$p.adj[k] < 0.001, "p<0.001",
+                        paste0("p=", formatC(sig_pairs$p.adj[k], format = "f", digits = 3)))
+        
+        p <- p +
+          annotate("segment", x = x1, xend = x2, y = y_pos, yend = y_pos) +
+          annotate("segment", x = x1, xend = x1, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("segment", x = x2, xend = x2, y = y_pos, yend = y_pos - 0.02 * y_range) +
+          annotate("text", x = (x1 + x2) / 2, y = y_pos + 0.06 * y_range,
+                   label = p_lab, size = 3)
+      }
+      
+      p <- p + coord_cartesian(ylim = c(
+        min(dat_plot[[endpoint]], na.rm = TRUE) - 0.05 * y_range,
+        y_max + (0.15 * (nrow(sig_pairs) + 1)) * y_range
+      ))
+    }
+  }
   
   return(list(plot = p, model = model, pairwise = pairs_df, stat_test = stat_test))
 }
@@ -297,6 +327,9 @@ generate_group_boxplots <- function(dat) {
       plots[[endpoint]] <- result$plot
     }
   }
+  
+  # Add raw p-values above each group if we have them
+  
   
   # Combine plots
   combined_plot <- cowplot::plot_grid(plotlist = plots, ncol = 3, nrow = 2)
@@ -727,7 +760,7 @@ library(gtsummary)
 library(gt)
 
 demographics <- dat_results %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, diabetes_duration, eGFR_CKD_epi, acr_u, group) %>%
+  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, diabetes_duration, eGFR_CKD_epi, acr_u, group) %>%
   tbl_summary(
     by = group,
     type = list(
@@ -933,8 +966,7 @@ create_significant_associations_panel <- function(dat) {
   group_colors <- c("Lean Control" = "#3182BD",
                     "Obese Control" = "#9ECAE1",
                     "Type 1 Diabetes" = "#FDAE6B",
-                    "Type 2 Diabetes" = "#E6550D",
-                    "PKD" = "#9E9AC8")
+                    "Type 2 Diabetes" = "#E6550D")
   
   # Function to create individual scatterplot
   create_scatter <- function(pet_var, clinical_var, pet_label, clinical_label) {

@@ -151,10 +151,10 @@ im_vars_bsa <- c(
 im_labels <- c(
   lv_hr                  = "LV Heart rate (1/min)",
   rv_hr                  = "RV Heart rate (1/min)",
-  rvedv                  = "RVEDV (mL)",
-  lvedv                  = "LVEDV (mL)",
-  rvesv                  = "RVESV (mL)",
-  lvesv                  = "LVESV (mL)",
+  rvedv                  = "RV EDV (mL)",
+  lvedv                  = "LV EDV (mL)",
+  rvesv                  = "RV ESV (mL)",
+  lvesv                  = "LV ESV (mL)",
   rv_stroke_volume       = "RV stroke\nvolume (mL)",
   lv_stroke_volume       = "LV stroke\nvolume (mL)",
   rvedv_bsa              = "RVEDV BSA (mL/m\u00b2)",
@@ -328,7 +328,7 @@ supplementary_rows <- harm_labeled %>%
 visit_dates <- primary_rows %>%
   filter(!is.na(date)) %>%
   dplyr::summarise(
-    ref_date = first(na.omit(date)),
+    ref_date = dplyr::first(na.omit(date)),
     .by = c(mrn, imaging_visit_id)
   ) %>%
   dplyr::mutate(ref_date = as.Date(ref_date))
@@ -598,6 +598,16 @@ summary(tableby(
   data = harm_dat_baseline, digits = 1
 ))
 cat('</div>')
+
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(tableby(
+  group ~ imaging_visit_id + age + sex + bmi + sbp + dbp +
+    kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
+    acr_u_cat3 + dkd_group_30 + dkd_group_100 + 
+    af_high5pctwss,
+  data = harm_dat_baseline_500, digits = 1
+))
+cat('</div>')
 ```
 
 ## Baseline excluding HC
@@ -619,6 +629,16 @@ cat('</div>')
 cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
 summary(arsenal::tableby(imaging_visit_id ~ days_since_baseline, 
                          data = improve_dat), digits = 1)
+cat('</div>')
+
+cat('<div style="font-size: 0.55em; overflow-x: auto; width: 100%;">')
+summary(tableby(
+  imaging_visit_id ~ group + age + sex + 
+    weight + height + bmi +
+    kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
+    dkd_group_30 + dkd_group_100 + bsa,
+  data = improve_dat, digits = 1, test = F
+))
 cat('</div>')
 ```
 
@@ -763,8 +783,62 @@ plot_boxgrid(
   fill_colors = c("Lean Control" = "#588157", "Obese Control" = "#98c1d9",
                    "Type 2 Diabetes" = "#f08080"),
   file_prefix = "baseline_group",
-  text_size = 20, star_size = 12,
+  text_size = 20, star_size = 12
 )
+```
+
+```{r echo = F}
+# for ADA poster
+p <- harm_dat_baseline_500 %>%
+  dplyr::select(c(record_id, group, 
+                  `A) Aortic wall shear stress\n(top 5%; Pa)` = af_high5pctwss, 
+                  `B) LV thickness total\n(mm)` = lv_myo_thickness_total,
+                  `C) RV cardiac output\n(L/min)` = rv_cardiac_output, 
+                  `D) LV cardiac output\n(L/min)` = lv_cardiac_output)) %>%
+    tidyr::pivot_longer(
+    cols = -c(record_id, group),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(group = case_when(group == "Lean Control" ~ "NWC",
+                                  group == "Obese Control" ~ "OC",
+                                  group == "Type 2 Diabetes" ~ "YO-T2D")) %>%
+  ggplot(aes(x = group, y = value, fill = group)) +
+  geom_boxplot(outliers = F,
+               size = 1) + 
+  geom_jitter(alpha = 0.3) +
+  facet_wrap(~ variable, scales = "free_y") +
+  scale_fill_manual(values = c("NWC" = "#588157", 
+                               "OC" = "#98c1d9",
+                               "YO-T2D" = "#f08080")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
+  theme(
+    panel.background = element_blank(),
+    text = element_text(size = 15),
+    legend.position = "none",
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    strip.background = element_rect(fill = "transparent", colour = NA),
+    strip.text = element_text(face = "bold")
+  ) +
+  labs(x = NULL, y = NULL)
+comps <- combn(c("NWC", "OC", "YO-T2D"), 2, simplify = FALSE)
+
+stat_args <- list(
+  comparisons = comps,
+  method      = "wilcox.test",
+  method.args = list(var.equal = F),
+  label = "p.signif",
+  size = 8,
+  hide.ns = T,
+  vjust = 0.5,           # pulls stars down closer to bracket (default ~0)
+  step.increase = 0.15  # reduces vertical spacing between brackets (default 0.12)
+)
+
+p + do.call(stat_compare_means, stat_args)
+ggsave(file.path(root_path, "ULTRA_SWEETHEART/Results/Figures/Box plots/ASN_CMR_DKD.png"),
+       width = 5, height = 5)
+  
 ```
 
 #### Sex comparison in obesity/T2D
@@ -1038,7 +1112,10 @@ cmr_focus_vars <- c("lv_myo_thickness_total", "lved_mass",
 ##### Heatmap 1A.1 (clin variables and CMRI)
 
 ```{r, echo=FALSE, fig.width=10, fig.height=8}
-plot_focused_heatmap(cmr_clinical$cor_df, imaging_filter = cmr_focus_vars)
+plot_focused_heatmap(cmr_clinical$cor_df %>%
+                       filter(anchor %in% c("hba1c", "bmi", "eGFR_CKD_epi",
+                                            "gfr_bsa_plasma", "log_acr_u")), 
+                     imaging_filter = cmr_focus_vars)
 ```
 
 #### Data within 500 days
@@ -1055,6 +1132,12 @@ cmr_clinical_500 <- run_spearman_heatmap(
   imaging_labels = im_labels
 )
 plot_focused_heatmap(cmr_clinical_500$cor_df, imaging_filter = cmr_focus_vars)
+
+plot_focused_heatmap(cmr_clinical_500$cor_df %>%
+                       filter(anchor %in% c("hba1c", "bmi", "eGFR_CKD_epi",
+                                            "gfr_bsa_plasma", "log_acr_u")), 
+                     imaging_filter = cmr_focus_vars) +
+  theme(text = element_text(size = 25))
 ```
 
 ### Kidney MRI vs. clinical vars in all baseline OB + T2D
@@ -2174,7 +2257,7 @@ improve_emm_results <- run_lmer_emm(
 
 #### Forest plot: IMPROVE change from baseline
 
-```{r forest-improve, echo=FALSE}
+```{r forest-improve, echo=FALSE, fig.width=10, fig.height=7}
 plot_forest_pct(improve_emm_results)
 ```
 
@@ -2272,7 +2355,7 @@ acr_outs  <- acr_gfr_vars
 
 improve_acr_gfr_emm_results <- run_lmer_emm(
   data         = subset(acr_dat, study == "IMPROVE"),
-  outcome_vars = acr_outs,
+  outcome_vars = c(acr_outs, "weight", "bmi"),
   labels       = acr_gfr_labels,
   id_col       = "mrn",
   visit_col    = "visit",

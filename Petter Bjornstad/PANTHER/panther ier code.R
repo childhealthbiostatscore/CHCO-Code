@@ -6,10 +6,19 @@ library(Hmisc)
 library(growthcleanr)
 library(stringr)
 
-dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
+user <- Sys.info()[["user"]]
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+} else if (user == "kristenmiller") {
+  root_path <- "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+setwd(root_path)
+dat <- read.csv("./Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
 
 # withdrew/LTFU
-exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+exclude <- read.csv("./PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- dat %>%
   filter(study == "PANTHER") %>%
@@ -36,26 +45,27 @@ dat <- dat %>%
                                 sex == "Female" ~ "female"),
                 male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0)) %>% 
   filter(visit == "baseline")
-  
-bmi_percentile = ext_bmiz(data = subset(dat, 
-                                        select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")), 
-                          age = "age_mo", 
-                          wt = "weight", 
-                          ht = "height", 
-                          bmi = "bmi", 
-                          adjust.integer.age = F) %>% 
-  dplyr:: select(record_id, bmip, bmiz) %>%
-  filter(!is.na(bmip))
-dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
-  dplyr::mutate(sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
-                                           sex == "male" & group_risk == "Low" ~ "M, Low",
-                                           sex == "female" & group_risk == "High" ~ "F, High",
-                                           sex == "female" & group_risk == "Low" ~ "F, Low"))
+
+# no longer needed, as bmip is in harmonized dataset  
+# bmi_percentile = ext_bmiz(data = subset(dat, 
+#                                         select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")), 
+#                           age = "age_mo", 
+#                           wt = "weight", 
+#                           ht = "height", 
+#                           bmi = "bmi", 
+#                           adjust.integer.age = F) %>% 
+#   dplyr:: select(record_id, bmip, bmiz) %>%
+#   filter(!is.na(bmip))
+# dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
+#   dplyr::mutate(sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
+#                                            sex == "male" & group_risk == "Low" ~ "M, Low",
+#                                            sex == "female" & group_risk == "High" ~ "F, High",
+#                                            sex == "female" & group_risk == "Low" ~ "F, Low"))
 
 table(subset(dat, record_id %in% exclude)$group_risk)
 ier <- dat %>%
   # filter(record_id %nin% exclude) %>%
-  dplyr::select(race, ethnicity, sex, age, status) %>%
+  dplyr::select(race, ethnicity, sex, age, bmip, status) %>%
   dplyr::rename(Race = race,
                 Ethnicity = ethnicity,
                 Gender = sex,
@@ -73,7 +83,7 @@ summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = 
 summary(tableby(group_risk ~ kwt(mm_ir, "Nmiss", "medianq1q3", "range"), data = subset(dat,record_id %nin% exclude & mm_ir < 100), total = T, test = F))
 
 
-write.csv(ier, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/2025_panther_ier_2.csv", row.names = F)
+write.csv(ier, "./PANTHER/Data_Cleaned/2026_panther_ier.csv", row.names = F)
 
 summary_table <- ier %>%
   group_by(Race, Ethnicity, Gender) %>%
@@ -104,6 +114,7 @@ summary_table <- ier %>%
   arrange(Race)
 summary_table
 
+write.csv(summary_table, "./PANTHER/Data_Cleaned/2026_panther_ier_tab_all.csv", row.names = F)
 
 # Excluding LTFU
 exc_ier <- dat %>%
@@ -148,13 +159,14 @@ exc_summary_table <- exc_ier %>%
   arrange(Race)
 exc_summary_table
 
+write.csv(exc_summary_table, "./PANTHER/Data_Cleaned/2026_panther_ier_tab_exclude_LTFU.csv", row.names = F)
 
 # Projected IER based on CROC
 # 40 T1D, (50% M/50% F); age & sex distribution to PANTHER, race/eth distribution to CROC
 
 # 20 HC, (50% M/50% F); age & sex distribution to PANTHER, race/eth distribution to CROC
 
-dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
+dat <- read.csv("./Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
 
 croc_dat <- dat %>%
   filter(study == "CROCODILE") %>%

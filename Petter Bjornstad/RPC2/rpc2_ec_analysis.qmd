@@ -1,0 +1,1002 @@
+---
+title: "RPC2 endothelial cells"
+author: "Ye Ji Choi"
+format: html
+---
+
+Investigating EC transcripts associated with CMR variables.
+
+```{r echo = F}
+library(dplyr)
+library(Seurat)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(nebula)
+library(openxlsx)
+library(table1)
+library(lme4)
+library(lmerTest)
+library(purrr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(Hmisc)
+library(ggtext)
+library(corrplot)
+library(gtools)
+library(foreach)
+library(emmeans)
+library(knitr)
+library(kableExtra)
+library(future)
+library(BiocParallel)
+library(SingleCellExperiment)
+library(scran)
+library(fgsea)
+library(msigdbr)
+```
+
+```{r echo = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+```
+
+```{r echo = F}
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+  
+  on.exit(unlink(tmp))
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket, 
+                                       object = object, 
+                                       file = tmp), opts))
+  }
+  
+  return(FUN(tmp, ...))
+}
+
+s3write_using_region <- function(FUN, ..., object, bucket,
+                                 region = NULL, opts = NULL, filename = NULL) {
+  ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
+  tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
+  on.exit(unlink(tmp))
+  FUN(..., file = tmp)
+  args <- list(file = tmp, object = object, bucket = bucket)
+  if (!is.null(region)) args$region <- region
+  if (!is.null(opts))   args        <- c(args, opts)
+  do.call(aws.s3::put_object, args)
+}
+```
+
+```{r echo = F}
+pb90 <- s3readRDS(bucket = "scrna", object = 'data_clean/pb90_processed.rds', region = "")
+
+# counts_layer <- round(GetAssayData(pb90, layer = "counts"))
+# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+# # Calculate offset → (size factors)
+# pooled_offset <- sizeFactors(sce)
+# pb90$pooled_offset <- pooled_offset
+# 
+# s3saveRDS(pb90, bucket = "scrna", object = 'data_clean/pb90_processed.rds', region = "", multipart = T)
+# subset to EC only
+pb90_ec <- subset(pb90, KPMP_celltype_general == "EC")
+```
+
+```{r}
+im_labels <- c(
+  lv_hr                  = "LV Heart rate (1/min)",
+  rvedv                  = "RV EDV (mL)",
+  lvedv                  = "LV EDV (mL)",
+  rvesv                  = "RV ESV (mL)",
+  lvesv                  = "LV ESV (mL)",
+  rv_stroke_volume       = "RV stroke\nvolume (mL)",
+  lv_stroke_volume       = "LV stroke\nvolume (mL)",
+  rvedv_bsa              = "RVEDV BSA (mL/m\u00b2)",
+  lvedv_bsa              = "LVEDV BSA (mL/m\u00b2)",
+  rvesv_bsa              = "RVESV BSA (mL/m\u00b2)",
+  lvesv_bsa              = "LVESV BSA (mL/m\u00b2)",
+  rv_stroke_volume_bsa   = "RV stroke\nvolume BSA (mL/m\u00b2)",
+  lv_stroke_volume_bsa   = "LV stroke\nvolume BSA (mL/m\u00b2)",
+  rv_cardiac_output      = "RV cardiac\noutput",
+  lv_cardiac_output      = "LV cardiac\noutput",
+  lves_mass              = "LV myocardial\nmass (systole)",
+  lved_mass              = "LV mass (g)",
+  lves_mass_bsa          = "LV myocardial\nmass BSA (systole)",
+  lved_mass_bsa          = "LV mass BSA (g/m\u00b2)",
+  lv_myo_thickness_total = "LV thickness\ntotal (mm)",
+  lv_myo_thickness_dias  = "LV\nthickness (mm)",
+  rvef                   = "RV\nejection fraction (%)",
+  lvef                   = "LV\nejection fraction (%)",
+  gls                    = "Global\nlongitudinal strain (%)",
+  gcs                    = "Global\ncircumferential strain (%)",
+  grs                    = "Global\nradial strain (%)",
+  af_high5pctwss         = "Aortic wall shear\nstress (top 5%)",
+  af_medianwss           = "Aortic wall shear\nstress (median)",
+  af_meanwss             = "Mean wall shear\nstress (Pa)",
+  af_pwv                 = "Pulse wave\nvelocity (m/s)",
+  tt1                    = "CMR T1 (ms)",
+  tt2                    = "CMR T2* (ms)",
+  tr2                    = "R2* (1/s)",
+  mv_flow_e              = "E wave (cm/s)",
+  mv_flow_a              = "A wave (cm/s)",
+  mv_flow_ea             = "E/A ratio"
+)
+
+# read in clinical dataset
+harm_dat <- s3read_using_region(FUN = read.csv,
+                                bucket = "harmonized.dataset", 
+                                object = "harmonized_dataset.csv",
+                                region = "",
+                                na = "")
+
+# subset to those with CMR and biopsies
+im_vars <- names(im_labels)
+im_vars <- intersect(im_vars, names(harm_dat))
+
+dat <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit))  %>%
+  filter(if_any(all_of(im_vars), ~ !is.na(.))) %>%
+  filter(visit == "baseline")
+
+dat_bx <- dat %>%
+  filter(kit_id %in% pb90_ec$kit_id)
+
+ids <- dat_bx$kit_id
+
+# subset PB90_EC to those with both CMRI and ECs
+pb90_ec_cmr <- subset(pb90_ec, kit_id %in% ids)
+
+# imaging columns to bring in, restricted to those actually present in dat_bx
+im_vars <- intersect(names(im_labels), names(dat_bx))
+
+# one imaging row per subject/sample (imaging is sample-level, not per-cell)
+dat_im <- dat_bx %>%
+  dplyr::select(kit_id, dplyr::all_of(im_vars)) %>%
+  dplyr::distinct(kit_id, .keep_all = TRUE)
+
+# align dat_im rows to each cell via kit_id, key by cell barcode, attach
+add_df <- dat_im[match(pb90_ec_cmr$kit_id, dat_im$kit_id), im_vars, drop = FALSE]
+rownames(add_df) <- colnames(pb90_ec_cmr)
+pb90_ec_cmr <- AddMetaData(pb90_ec_cmr, metadata = add_df)
+
+s3write_using_region(pb90_ec_cmr@meta.data, 
+                     FUN = write.csv,
+                     bucket = "scrna", 
+                     object = "Projects/EC CMR/Data Clean/pb90_ec_cmr_meta.csv",
+                     region = "",
+                     na = "")
+```
+
+# Helper functions
+
+```{r}
+# ---- single-variable volcano (full styling, ported from plot_volcano) ----
+plot_volcano_im <- function(data, var_name,
+                            label_lookup   = im_labels,
+                            fc_col = "logFC", p_col = "p", gene_col = "gene",
+                            p_thresh = 0.05, n_label = 20, fc_limit = 10,
+                            positive_text = "Higher expression\nat higher value",
+                            negative_text = "Lower expression\nat higher value",
+                            text_size = 15, geom_text_size = 3, point_size = 2.5) {
+  set.seed(1); eps <- 1e-300
+  d <- data
+  d$.fc <- d[[fc_col]]; d$.p <- d[[p_col]]; d$.gene <- d[[gene_col]]
+  d <- d %>%
+    filter(abs(.fc) < fc_limit) %>%
+    mutate(neg_log_p = -log10(.p + eps),
+           sig = case_when(.p < p_thresh & .fc > 0 ~ "pos",
+                           .p < p_thresh & .fc < 0 ~ "neg",
+                           TRUE                     ~ "ns"))
+
+  ttl <- if (var_name %in% names(label_lookup))
+           gsub("\n", " ", label_lookup[[var_name]]) else var_name
+
+  lab <- d %>% filter(sig != "ns") %>%
+    group_by(dir = sign(.fc)) %>% arrange(.p, .by_group = TRUE) %>%
+    slice_head(n = n_label) %>% ungroup()
+
+  y_max  <- max(d$neg_log_p, na.rm = TRUE) * 1.1
+  max_fc <- max(d$.fc, na.rm = TRUE); min_fc <- min(d$.fc, na.rm = TRUE)
+
+  ggplot(d, aes(.fc, neg_log_p)) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_vline(xintercept = 0, color = "darkgrey", linewidth = 0.3) +
+    geom_point(aes(color = sig), alpha = 0.5, size = point_size) +
+    geom_label_repel(data = lab, aes(label = .gene, color = sig), seed = 1,
+                     fontface = "bold", size = geom_text_size, max.overlaps = Inf,
+                     force = 6, segment.alpha = 0.3, segment.size = 0.3,
+                     box.padding = 0.3, fill = scales::alpha("white", 0.7), label.size = 0) +
+    scale_color_manual(values = c(pos = "#f28482", neg = "#457b9d", ns = "#ced4da")) +
+    annotate("segment", x = max_fc/8, xend = max_fc*7/8, y = -y_max*0.09,
+             colour = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text", x = mean(c(max_fc/8, max_fc*7/8)), y = -y_max*0.15,
+             label = positive_text, size = geom_text_size, colour = "#343a40") +
+    annotate("segment", x = min_fc/8, xend = min_fc*7/8, y = -y_max*0.09,
+             colour = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text", x = mean(c(min_fc/8, min_fc*7/8)), y = -y_max*0.15,
+             label = negative_text, size = geom_text_size, colour = "#343a40") +
+    labs(title = ttl, x = "LogFC", y = expression(-log[10]~italic(p))) +
+    scale_y_continuous(expand = c(0, 0)) +
+    coord_cartesian(ylim = c(0, y_max), clip = "off") +
+    guides(color = "none") +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = text_size, family = "Arial"),
+          panel.background = element_blank(), plot.background = element_blank(),
+          plot.margin = margin(t = 10, r = 20, b = 35, l = 20),
+          axis.title.x = element_text(margin = margin(t = 25)))
+}
+
+# ---- combined faceted volcano ----
+plot_volcano_im_facet <- function(data, label_lookup = im_labels,
+                                  p_col = "p",
+                                  p_thresh = 0.05, n_label = 8, fc_limit = 10,
+                                  text_size = 12, geom_text_size = 2.5, point_size = 1.4) {
+  set.seed(1); eps <- 1e-300
+  d <- data %>%
+    filter(abs(logFC) < fc_limit) %>%
+    mutate(.p = .data[[p_col]],
+           neg_log_p = -log10(.p + eps),
+           sig = case_when(.p < p_thresh & logFC > 0 ~ "pos",
+                           .p < p_thresh & logFC < 0 ~ "neg",
+                           TRUE ~ "ns"))
+  lab <- d %>% filter(sig != "ns") %>%
+    group_by(var, dir = sign(logFC)) %>% arrange(.p, .by_group = TRUE) %>%
+    slice_head(n = n_label) %>% ungroup()
+
+  y_lab <- if (identical(p_col, "fdr")) expression(-log[10]~italic(FDR))
+           else expression(-log[10]~italic(p))
+
+  ggplot(d, aes(logFC, neg_log_p)) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_vline(xintercept = 0, color = "darkgrey", linewidth = 0.3) +
+    geom_point(aes(color = sig), alpha = 0.5, size = point_size) +
+    geom_text_repel(data = lab, aes(label = gene, color = sig), seed = 1,
+                    size = geom_text_size, max.overlaps = Inf,
+                    segment.alpha = 0.3, segment.size = 0.2, fontface = "bold") +
+    scale_color_manual(values = c(pos = "#f28482", neg = "#457b9d", ns = "#ced4da")) +
+    facet_wrap(~ var, scales = "free", labeller = labeller(var = label_lookup)) +
+    labs(x = "LogFC", y = y_lab) +
+    guides(color = "none") +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = text_size, family = "Arial"),
+          panel.background = element_blank(), plot.background = element_blank(),
+          strip.background = element_blank(),
+          strip.text = element_text(face = "bold", size = text_size - 2),
+          panel.spacing = unit(1, "lines"))
+}
+
+# ---- ranking metric per variable ----
+# default "z" = logFC/se (NEBULA Wald statistic): continuous, few ties, fgsea-friendly
+make_ranks <- function(df, metric = c("z", "signed_p"), gene_col = "gene") {
+  metric <- match.arg(metric)
+  df %>%
+    mutate(stat = if (metric == "z") logFC / se
+                  else sign(logFC) * -log10(p + 1e-300)) %>%
+    filter(is.finite(stat)) %>%
+    group_by(.data[[gene_col]]) %>%                          # collapse dup symbols
+    summarise(stat = stat[which.max(abs(stat))], .groups = "drop") %>%
+    { setNames(.$stat, .[[gene_col]]) } %>%
+    sort(decreasing = TRUE)
+}
+
+# ---- fgsea for one variable ----
+run_gsea_var <- function(df_one, pathways, metric = "z",
+                         minSize = 15, maxSize = 500) {
+  ranks <- make_ranks(df_one, metric = metric)
+  set.seed(1)
+  fgsea(pathways = pathways, stats = ranks,
+        minSize = minSize, maxSize = maxSize)
+}
+
+clean_pathway_names <- function(pathways) {
+  cleaned <- gsub("^REACTOME_", "", pathways)
+  cleaned <- gsub("^GOBP_", "", cleaned)
+  cleaned <- gsub("^KEGG_", "", cleaned)
+  cleaned <- gsub("^HALLMARK_", "", cleaned)
+  cleaned <- gsub("_", " ", cleaned)
+  cleaned <- tools::toTitleCase(tolower(cleaned))
+  
+  uppercase_words <- c(
+    "\\bI\\b", "\\bIi\\b", "\\bIii\\b", "\\bIv\\b", "\\bV\\b", "\\bVi\\b",
+    "\\bVii\\b", "\\bViii\\b", "\\bIx\\b", "\\bX\\b",
+    "\\bTca\\b", "\\bAtp\\b", "\\bAdp\\b", "\\bAmp\\b", "\\bGtp\\b", "\\bGdp\\b",
+    "\\bNad\\b", "\\bNadh\\b", "\\bFad\\b", "\\bFadh2\\b", "\\bCoa\\b",
+    "\\bDna\\b", "\\bRna\\b", "\\bMrna\\b", "\\bTrna\\b", "\\bRrna\\b",
+    "\\bEr\\b", "\\bUpr\\b", "\\bNf\\b", "\\bHif\\b", "\\bMhc\\b",
+    "\\bTgf\\b", "\\bEgf\\b", "\\bVegf\\b", "\\bPdgf\\b", "\\bFgf\\b",
+    "\\bRos\\b", "\\bRns\\b", "\\bNo\\b", "\\bNos\\b", "\\bInos\\b", "\\bEnos\\b", "\\bNnos\\b",
+    "\\Mapk\\b"
+  )
+  
+  for (pattern in uppercase_words) {
+    word <- gsub("\\\\b", "", pattern)
+    replacement <- toupper(word)
+    cleaned <- gsub(pattern, replacement, cleaned, ignore.case = TRUE)
+  }
+  
+  cleaned <- gsub("\\bOf\\b", "of", cleaned)
+  cleaned <- gsub("\\bBy\\b", "by", cleaned)
+  cleaned <- gsub("\\bThe\\b", "the", cleaned)
+  cleaned <- gsub("^the", "The", cleaned)
+  cleaned <- gsub("\\bO Linked\\b", "O-Linked", cleaned, ignore.case = TRUE)
+  
+  return(cleaned)
+}
+
+shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = FALSE) {
+  word_replacements <- c(
+    "Hallmark " = "",
+    "Role of " = "",
+    "Function of " = "",
+    "Eukaryotic " = "",
+    "in the" = "in",
+    "by the" = "by",
+    "of the" = "of",
+    "Phosphorylation" = "Phosph",
+    "Metabolism" = "Metab",
+    "Extracellular" = "EC",
+    "Intracellular" = "IC",
+    "Dysfunction" = "Adaptation",
+    "Alternative" = "Alt",
+    "Dependent" = "Dep",
+    "Independent" = "Indep",
+    "Associated" = "Assoc",
+    "Inflammatory" = "Inflam",
+    "Inflammation" = "Inflam",
+    "Lymphocyte" = "Lymph",
+    "Lymphocytes" = "Lymph",
+    "Fibroblast" = "Fib",
+    "Fibroblasts" = "Fib",
+    "Endothelial" = "Endo",
+    "Epithelial" = "Epi",
+    "Transition" = "Trans",
+    "Rheumatoid Arthritis" = "RA",
+    "Multiple Sclerosis" = "MS",
+    "Alzheimer's Disease" = "Alzheimer's",
+    "Parkinson's Disease" = "Parkinson's",
+    "Respiratory" = "Resp",
+    "Gastrointestinal" = "GI",
+    "Central Nervous System" = "CNS",
+    "Oxidative" = "Ox",
+    "between" = "b/w",
+    "through" = "via",
+    "and" = "&"
+  )
+  
+  aggressive_replacements <- c(
+    " the " = " ",
+    " in " = " ",
+    " of " = " ",
+    " to " = "\u2192",
+    " from " = "\u2190"
+  )
+  
+  molecule_replacements <- c(
+    "Natural Killer" = "NK",
+    "Tumor Necrosis Factor" = "TNF",
+    "Transforming Growth Factor" = "TGF",
+    "Platelet Derived Growth Factor" = "PDGF",
+    "Epidermal Growth Factor" = "EGF",
+    "Vascular Endothelial Growth Factor" = "VEGF",
+    "Insulin-like Growth Factor" = "IGF",
+    "Interferon" = "IFN",
+    "Interleukin" = "IL",
+    "G-Protein Coupled" = "GPCR",
+    "G Protein Coupled" = "GPCR",
+    "Activator Protein" = "AP",
+    "Electron Transport" = "e- Transport",
+    "Nitric Oxide" = "NO",
+    "Reactive Oxygen Species" = "ROS",
+    "Amino Acid" = "AA",
+    "Fatty Acid" = "FA"
+  )
+  
+  apply_replacements <- function(text, replacements) {
+    for (pattern in names(replacements)) {
+      text <- gsub(pattern, replacements[pattern], text, ignore.case = FALSE)
+    }
+    return(text)
+  }
+  
+  step6_truncated <- rep(FALSE, length(pathway_names))
+  
+  shortened <- sapply(seq_along(pathway_names), function(i) {
+    pathway <- pathway_names[i]
+    if (is.na(pathway)) return(NA)
+    
+    result <- apply_replacements(pathway, molecule_replacements)
+    result <- apply_replacements(result, word_replacements)
+    
+    if (nchar(result) > max_length && aggressive) {
+      result <- apply_replacements(result, aggressive_replacements)
+    }
+    
+    if (nchar(result) > max_length) {
+      result <- gsub(" \\([^)]+\\)", "", result)
+    }
+    
+    if (nchar(result) > max_length) {
+      step6_truncated[i] <<- TRUE
+      result <- paste0(substr(result, 1, max_length - 3), "...")
+    }
+    
+    return(result)
+  })
+  
+  return(list(
+    shortened = shortened,
+    step6_truncated = step6_truncated
+  ))
+}
+
+
+make_gsea_lollipop <- function(df, logfc_col, pval_col, cell_name,
+                               pathways = hallmark_sets,
+                               test_name, cohort_text,
+                               reference = "hallmark",
+                               top_n = 20,
+                               max_pathway_length = 45,
+                               p_threshold = 0.05,
+                               low_color = "#219ebc",
+                               mid_color = "white",
+                               high_color = "#d00000",
+                               point_size_range = c(3, 10),
+                               text_size_val = 5,
+                               base_text_size = 15) {
+  
+  if (!logfc_col %in% names(df) || !pval_col %in% names(df)) return(NULL)
+  
+  # Create ranked gene list (signed -log10 p-value)
+  df <- df %>%
+    dplyr::filter(!is.na(.data[[logfc_col]]) & !is.na(.data[[pval_col]]) & .data[[pval_col]] > 0) %>%
+    dplyr::mutate(rank_stat = sign(.data[[logfc_col]]) * -log10(.data[[pval_col]]))
+  
+  gene_ranks <- setNames(df$rank_stat, df$Gene)
+  gene_ranks <- sort(gene_ranks, decreasing = TRUE)
+  gene_ranks <- gene_ranks[!duplicated(names(gene_ranks))]
+  
+  if (length(gene_ranks) < 10) return(NULL)
+  
+  # Run fgsea
+  fgsea_res <- tryCatch(
+    fgsea(pathways = pathways, stats = gene_ranks, minSize = 15, maxSize = 500),
+    error = function(e) { message(e$message); NULL }
+  )
+  
+  if (is.null(fgsea_res) || nrow(fgsea_res) == 0) return(NULL)
+  
+  # Filter significant, take top_n by p-value, then arrange by NES for display
+  plot_df <- fgsea_res %>%
+    dplyr::filter(!is.na(pval)) %>%
+    dplyr::filter(pval < p_threshold & NES != 0) %>%
+    dplyr::arrange(pval) %>%
+    head(top_n) %>%
+    dplyr::arrange(NES)
+  
+  if (nrow(plot_df) == 0) return(NULL)
+  
+  # Clean pathway names and assign row number for y position
+  plot_df <- plot_df %>%
+    dplyr::mutate(
+      clean_name = clean_pathway_names(pathway),
+      neg_log_p = -log10(pval),
+      n = row_number(),
+      text_col = ifelse(NES > 0, high_color, low_color)
+    )
+  
+  # Shorten long names
+  shorten_result <- shorten_pathway_names(plot_df$clean_name, max_length = max_pathway_length)
+  plot_df$display_name <- shorten_result$shortened
+  
+  # Caption
+  base_caption <- paste0("Cell type: ", gsub("_", " ", cell_name),
+                         " | Model: ", test_name,
+                         " | Cohort: ", cohort_text,
+                         " | Reference: ", toupper(reference))
+  
+  # --- Dynamic x-axis expansion based on label lengths ---
+  nes_range <- diff(range(plot_df$NES))
+  if (nes_range == 0) nes_range <- 1  # guard against single-direction pathways
+  
+  pos_labels <- plot_df$display_name[plot_df$NES > 0]
+  neg_labels <- plot_df$display_name[plot_df$NES < 0]
+  
+  max_pos_chars <- if (length(pos_labels) > 0) max(nchar(pos_labels)) else 0
+  max_neg_chars <- if (length(neg_labels) > 0) max(nchar(neg_labels)) else 0
+  
+  char_to_nes <- text_size_val * 0.016
+  pos_label_width <- max_pos_chars * char_to_nes
+  neg_label_width <- max_neg_chars * char_to_nes
+  
+  nes_min <- min(plot_df$NES)
+  nes_max <- max(plot_df$NES)
+  total_span <- max(abs(nes_min), abs(nes_max), 1)
+  
+  left_expand  <- max(0.02, pos_label_width / total_span * 0.5)
+  right_expand <- max(0.02, neg_label_width / total_span * 0.5)
+  
+  left_expand  <- min(left_expand, 0.6)
+  right_expand <- min(right_expand, 0.6)
+  
+  # --- Build unique breaks/labels for the color legend (min, 0, max) ---
+  # The key fix: explicitly set `limits` to always include 0 AND all NES values.
+  # Without this, scale_color_gradient2 auto-sets limits to the data range,
+  
+  # which drops out-of-range breaks (e.g., 0 when all NES > 0) while keeping
+  # the corresponding labels, causing the breaks/labels length mismatch error.
+  color_limits <- c(min(nes_min, 0), max(nes_max, 0))
+  
+  brk <- c(nes_min, 0, nes_max)
+  lbl <- c(as.character(round(nes_min, 1)), "0", as.character(round(nes_max, 1)))
+  
+  # Remove duplicates (e.g., when nes_min == nes_max, or nes_min/nes_max == 0)
+  dup <- !duplicated(round(brk, 10))
+  brk <- brk[dup]
+  lbl <- lbl[dup]
+  
+  # Build plot (matching panther_baseline_manuscript.qmd style)
+  p <- plot_df %>%
+    ggplot(aes(x = NES, y = n, size = neg_log_p, color = NES)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "#495057") +
+    geom_segment(aes(xend = 0), linewidth = 1) +
+    geom_point() +
+    scale_size(range = point_size_range) +
+    scale_color_gradient2(low = low_color, mid = mid_color, high = high_color, midpoint = 0,
+                          limits = color_limits,
+                          breaks = brk, labels = lbl,
+                          guide = guide_colorbar(barwidth = 8, barheight = 0.5)) +
+    geom_text(data = subset(plot_df, NES > 0),
+              aes(x = -0.02, y = n, label = display_name),
+              color = subset(plot_df, NES > 0)$text_col,
+              hjust = 1, inherit.aes = FALSE, size = text_size_val) +
+    geom_text(data = subset(plot_df, NES < 0),
+              aes(x = 0.02, y = n, label = display_name),
+              color = subset(plot_df, NES < 0)$text_col,
+              hjust = 0, inherit.aes = FALSE, size = text_size_val) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = base_text_size),
+          axis.text.y = element_blank(),
+          legend.position = "top",
+          legend.title.position = "top",
+          plot.title = element_text(hjust = 0.5, face = "bold"),
+          plot.caption = element_text(hjust = 0, size = 10, lineheight = 1.2),
+          panel.background = element_rect(fill = "transparent", color = NA),
+          plot.background  = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.box.background = element_rect(fill = "transparent", color = NA)) +
+    labs(y = NULL, x = "NES",
+         color = "NES", size = "-log10(p)",
+         caption = base_caption,
+         title = cell_name) +
+    scale_x_continuous(expand = expansion(mult = c(left_expand, right_expand)))
+  
+  return(p)
+}
+
+```
+
+
+# Associate EC with CMR parameters
+
+```{r}
+run_nebula_var <- function(var, 
+                           seurat_obj, 
+                           ncore = 4) {
+  meta <- seurat_obj@meta.data
+
+  # 1. keep only cells with a non-missing value for THIS imaging variable
+  keep <- !is.na(meta[[var]])
+  if (sum(keep) < 2 || dplyr::n_distinct(meta$record_id[keep]) < 2) {
+    return(NULL)  # too few cells / subjects to fit
+  }
+
+  meta_v   <- meta[keep, , drop = FALSE]
+  counts_v <- round(GetAssayData(seurat_obj, layer = "counts"))
+  counts_v <- counts_v[, keep, drop = FALSE]
+  offset_v <- seurat_obj$pooled_offset[keep]
+
+  pred <- model.matrix(reformulate(var), data = meta_v)
+
+  data_g <- group_cell(count = counts_v, 
+                       id = meta_v$record_id,
+                        pred = pred, 
+                       offset = offset_v)
+  if (is.null(data_g)) {  # group_cell returns NULL if already grouped
+    data_g <- list(count = counts_v, id = meta_v$record_id,
+                   pred = pred, offset = offset_v)
+  }
+
+  nebula(count  = data_g$count,
+         id     = data_g$id,
+         pred   = data_g$pred,
+         offset = data_g$offset,
+         ncore  = ncore,
+         reml   = 1,
+         model  = "NBLMM")
+}
+```
+
+```{r}
+nebula_im <- setNames(
+  lapply(im_vars, function(v) {
+    message("Running NEBULA for: ", v)
+    tryCatch(run_nebula_var(v, pb90_ec_cmr),
+             error = function(e) {
+               message("  failed: ", conditionMessage(e)); NULL
+             })
+  }),
+  im_vars
+)
+
+conv_summary <- do.call(rbind, lapply(im_vars, function(v) {
+  fit <- nebula_im[[v]]
+  if (is.null(fit)) return(data.frame(var = v, prop_converged = NA_real_))
+  data.frame(var = v, prop_converged = mean(fit$convergence == 1))
+}))
+
+# combine all the converged results into one df
+nebula_results <- bind_rows(
+  lapply(im_vars, function(v) {
+    fit <- nebula_im[[v]]
+    if (is.null(fit)) return(NULL)
+
+    s   <- fit$summary
+    eff <- c(logFC = paste0("logFC_", v),
+             se    = paste0("se_",    v),
+             p     = paste0("p_",     v))
+
+    data.frame(
+      var       = v,
+      gene      = s$gene,
+      logFC     = s[[eff["logFC"]]],
+      se        = s[[eff["se"]]],
+      p         = s[[eff["p"]]],
+      converged = fit$convergence == 1,
+      stringsAsFactors = FALSE
+    ) %>%
+      filter(converged) %>%
+      mutate(fdr = p.adjust(p, method = "BH")) %>%   # BH within each variable
+      select(-converged)
+  })
+)
+nebula_results <- nebula_results %>% 
+  filter(!(var == "rv_hr" & logFC < -3)) # exclude outlier due to low expression
+
+# save NEBULA results as csv
+s3write_using_region(nebula_results,
+                     FUN = write.csv,
+                     bucket = "scrna", 
+                     object = "Projects/EC CMR/Results/cmr_ec_nebula_compiled.csv",
+                     row.names = F,
+                     region = "")
+
+```
+
+```{r}
+# individual plots
+for (v in unique(nebula_results$var)) {
+  fdr_p <- plot_volcano_im(filter(nebula_results, var == v), var_name = v,
+                       p_col = "fdr",
+                       positive_text = "", negative_text = "")
+  p <- plot_volcano_im(filter(nebula_results, var == v), var_name = v,
+                       positive_text = "", negative_text = "")
+    
+  s3write_using_region(fdr_p,
+                       FUN = ggsave,
+                       bucket = "scrna",
+                       region = "",
+                       object = paste0("Projects/EC CMR/Results/Figures/", v, "_fdr.png"),
+                       width = 7, 
+                       height = 5, 
+                       dpi = 300, 
+                       bg = "transparent")
+  
+  s3write_using_region(p,
+                       FUN = ggsave,
+                       bucket = "scrna",
+                       region = "",
+                       object = paste0("Projects/EC CMR/Results/Figures/", v, ".png"),
+                       width = 7, 
+                       height = 5, 
+                       dpi = 300, 
+                       bg = "transparent")
+}
+
+# combined faceted plot
+p_facet <- plot_volcano_im_facet(nebula_results)
+
+s3write_using_region(p_facet,
+                     FUN = ggsave,
+                     bucket = "scrna",
+                     region = "",
+                     object = paste0("Projects/EC CMR/Results/Figures/cmr_faceted_volcano.png"),
+                     width = 16, 
+                     height = 16, 
+                     dpi = 300, 
+                     bg = "transparent")
+
+fdr_facet <- plot_volcano_im_facet(nebula_results,
+                                   p_col = "fdr")
+
+s3write_using_region(fdr_facet,
+                     FUN = ggsave,
+                     bucket = "scrna",
+                     region = "",
+                     object = paste0("Projects/EC CMR/Results/Figures/cmr_faceted_volcano_fdr.png"),
+                     width = 16, 
+                     height = 16, 
+                     dpi = 300, 
+                     bg = "transparent")
+```
+
+# GSEA
+```{r}
+hallmark_df <- msigdbr(species = "Homo sapiens", collection = "H")
+pathways_H  <- split(hallmark_df$gene_symbol, hallmark_df$gs_name)
+
+gsea_results <- map_dfr(unique(nebula_results$var), function(v) {
+  res <- run_gsea_var(filter(nebula_results, var == v), pathways_H)
+  res$var <- v
+  res
+}) %>%
+  relocate(var) %>%
+  arrange(var, padj) %>%
+  mutate(leadingEdge = vapply(leadingEdge, paste, collapse = ", ", FUN.VALUE = character(1)))
+
+# save GSEA results as csv
+s3write_using_region(gsea_results,
+                     FUN = write.csv,
+                     bucket = "scrna", 
+                     object = "Projects/EC CMR/Results/cmr_ec_hallmark_compiled.csv",
+                     row.names = F,
+                     region = "")
+
+# create lollipop plots
+for (v in unique(nebula_results$var)) {
+
+  df_v <- nebula_results %>%
+    filter(var == v) %>%
+    dplyr::rename(Gene = gene)            # function reads df$Gene, you have `gene`
+
+  p <- make_gsea_lollipop(
+    df          = df_v,
+    logfc_col   = "logFC",
+    pval_col    = "p",
+    cell_name   = "EC",                         # -> caption "Cell type: EC" (correct)
+    pathways    = pathways_H,
+    test_name   = paste0("~ ", v),
+    cohort_text = "CMR",
+    reference   = "hallmark"
+  )
+
+  if (is.null(p)) {                             # too few genes or no sig pathways
+    message("Skipping ", v, ": no lollipop (NULL returned)")
+    next
+  }
+
+  # the function titles by cell_name; retitle so each figure names its variable
+  ttl <- if (v %in% names(im_labels)) gsub("\n", " ", im_labels[[v]]) else v
+  p <- p + labs(title = ttl)
+
+  s3write_using_region(
+    p, FUN = ggsave,
+    bucket = "scrna", region = "",
+    object = paste0("Projects/EC CMR/Results/Figures/gsea/hallmark_", v, ".png"),
+    width = 10, height = 10, dpi = 300, bg = "transparent"
+  )
+} 
+```
+
+# Compile findings
+
+```{r}
+# =====================================================================
+# Endothelial-cell transcript x cardiac-MRI association plots
+#   Input 1: gsea_results   (cols: var, pathway, NES, padj, ...)
+#   Input 2: nebula_results (cols: var, gene, logFC, se, p, fdr)
+# Plot A: NES heatmap (pathway themes x CMR domains)  <- the main one
+# Plot B: # FDR-significant genes per CMR variable
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# 1. Define the grouping that gives the slide its structure.
+#    Edit these to show whichever pathways / CMR variables you want.
+# ---------------------------------------------------------------------
+
+# Pathway -> theme (row blocks). Keep order = display order.
+pathway_theme <- tribble(
+  ~pathway,                                   ~theme,
+  "HALLMARK_OXIDATIVE_PHOSPHORYLATION",       "Metabolic / mitochondrial",
+  "HALLMARK_MTORC1_SIGNALING",                "Metabolic / mitochondrial",
+  "HALLMARK_FATTY_ACID_METABOLISM",           "Metabolic / mitochondrial",
+  "HALLMARK_ADIPOGENESIS",                    "Metabolic / mitochondrial",
+  "HALLMARK_XENOBIOTIC_METABOLISM",           "Metabolic / mitochondrial",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",         "Immune / inflammatory",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",       "Immune / inflammatory",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",       "Immune / inflammatory",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",         "Immune / inflammatory",
+  "HALLMARK_COMPLEMENT",                       "Immune / inflammatory",
+  "HALLMARK_HYPOXIA",                          "Endothelial injury / stress",
+  "HALLMARK_APOPTOSIS",                        "Endothelial injury / stress",
+  "HALLMARK_COAGULATION",                      "Endothelial injury / stress",
+  "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",  "Endothelial injury / stress"
+)
+
+# CMR variable -> domain (column blocks) + a pretty label.
+var_domain <- tribble(
+  ~var,                ~domain,           ~label,
+  "af_pwv",            "Vascular",        "PWV",
+  "af_high5pctwss",    "Vascular",        "WSS (hi 5%)",
+  "mv_flow_e",         "Diastolic",       "MV E",
+  "mv_flow_a",         "Diastolic",       "MV A",
+  "mv_flow_ea",        "Diastolic",       "MV E/A",
+  "lvef",              "Systolic/strain", "LVEF",
+  "gls",               "Systolic/strain", "GLS",
+  "rv_stroke_volume",  "Systolic/strain", "RV SV",
+  "lved_mass",         "Mass/vol",        "LVED mass",
+  "lvedv",             "Mass/vol",        "LVEDV",
+  "tt1",               "Tissue map",      "T1",
+  "tt2",               "Tissue map",      "T2*"
+)
+
+theme_levels  <- unique(pathway_theme$theme)
+domain_levels <- unique(var_domain$domain)
+
+# ---------------------------------------------------------------------
+# 2. Build the heatmap data frame
+# ---------------------------------------------------------------------
+heat_df <- gsea_results %>%
+  inner_join(pathway_theme, by = "pathway") %>%
+  inner_join(var_domain,    by = "var") %>%
+  mutate(
+    # readable pathway names: drop HALLMARK_, underscores -> spaces, Title Case
+    pathway_lab = pathway %>%
+      str_remove("^HALLMARK_") %>%
+      str_replace_all("_", " ") %>%
+      str_to_title(),
+    star  = if_else(padj < 0.05, "*", ""),
+    theme = factor(theme,  levels = theme_levels),
+    domain = factor(domain, levels = domain_levels)
+  )
+
+# Lock row/column display order
+path_lab_levels <- pathway_theme %>%
+  mutate(lab = str_to_title(str_replace_all(str_remove(pathway, "^HALLMARK_"), "_", " "))) %>%
+  pull(lab)
+heat_df <- heat_df %>%
+  mutate(
+    pathway_lab = factor(pathway_lab, levels = rev(path_lab_levels)), # rev so first is on top
+    label       = factor(label, levels = var_domain$label)
+  )
+
+# ---------------------------------------------------------------------
+# 3. Plot A: the NES heatmap
+# ---------------------------------------------------------------------
+p_heat <- ggplot(heat_df, aes(label, pathway_lab, fill = NES)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = star), color = "black", size = 5, vjust = 0.78) +
+  facet_grid(theme ~ domain, scales = "free", space = "free", switch = "y") +
+  scale_fill_gradient2(
+    low = "#219ebc", mid = "white", high = "#d00000",
+    midpoint = 0, limits = c(-3, 3),
+    oob = scales::squish, name = "NES"
+  ) +
+  labs(
+    # title    = "Endothelial-cell programs associated with cardiac MRI phenotypes",
+    caption = "* padj < 0.05",
+    x = NULL, y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x      = element_text(angle = 45, hjust = 1),
+    panel.grid       = element_blank(),
+    panel.spacing    = unit(2, "pt"),
+    strip.text.x     = element_text(face = "bold", size = 9),
+    strip.text.y.left = element_text(face = "bold", angle = 90, hjust = 0.5),
+    strip.placement  = "outside",
+    plot.title       = element_text(face = "bold"),
+    legend.position  = "right",
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.box.background = element_rect(fill = "transparent", color = NA)
+  )
+
+s3write_using_region(
+  p_heat, FUN = ggsave,
+  bucket = "scrna", region = "",
+  object = "Projects/EC CMR/Results/Figures/gsea/ec_cmr_nes_heatmap.png",
+  width = 10, height = 7.5, dpi = 300, bg = "transparent"
+)
+
+# ---------------------------------------------------------------------
+# 4. Plot B (optional): FDR-significant gene count per CMR variable
+#    Justifies focusing on diastolic function.
+# ---------------------------------------------------------------------
+bar_df <- nebula_results %>%
+  filter(fdr < 0.05) %>%
+  dplyr::count(var, name = "n_sig") %>%
+  left_join(var_domain, by = "var") %>%
+  mutate(
+    label  = coalesce(label, var),
+    domain = factor(coalesce(domain, "Other"))
+  ) %>%
+  arrange(desc(n_sig))
+
+p_bar <- ggplot(bar_df, aes(reorder(label, n_sig), n_sig, fill = domain)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "FDR-significant EC genes per cardiac MRI phenotype",
+    x = NULL, y = "# Genes (FDR < 0.05)", fill = "Domain"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid.major.y = element_blank(),
+        plot.title = element_text(face = "bold"),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        plot.background  = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA))
+
+
+s3write_using_region(
+  p_bar, FUN = ggsave,
+  bucket = "scrna", region = "",
+  object = "Projects/EC CMR/Results/Figures/gsea/ec_cmr_siggene_bar.png",
+  width = 8, height = 5, dpi = 300, bg = "transparent"
+)
+```
+

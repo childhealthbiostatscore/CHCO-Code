@@ -7,12 +7,13 @@ output: html_document
 
 ```{r}
 knitr::opts_chunk$set(echo = TRUE)
-.libPaths("~/leidholt/R")
+#.libPaths("~/leidholt/R")
 ```
 
 ```{r}
 #loading packages
 library(tidyverse)
+#BiocManager::install("arsenal")
 library(arsenal)
 library(dplyr)
 library(ggplot2)
@@ -23,7 +24,10 @@ library(readxl)
 library(purrr)
 library(aws.s3)
 library(jsonlite)
-
+library(Seurat)
+library(harmony)
+library(readr)
+library(parallel)
 ```
 
 ```{r}
@@ -31,36 +35,225 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "leidholt") {
-  root_path <- c("/mmfs1/gscratch/togo/leidholt/")
-  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/"
+  root_path <- c("/mmfs1/gscratch/togo/leidholt/") #hyak
+  git_path <- "/mmfs1/gscratch/togo/leidholt/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/mmfs1/home/leidholt/keys.json")
 } else if (user == "sleidholt") {
-    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/PANTHER PFAS/"
+    root_path <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #mac studio
+    dir.results <- c("/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
 } else if (user == "savanahleidholt") {
-    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/")
-    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad"
-} else if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
-  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-} else if (user == "yejichoi") {
-  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
-  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
-} else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
-  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-} else if (user == "hhampson") {
-  root_path <- "/Volumes/Peds Endo"
-} else if (user == "sleidholt") {
-  root_path <- "/Users/Shared/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
-  git_path <- "/Users/sleidholt/Documents/GitHub/CHCO-Code/Petter Bjornstad/T1D Adipostiy/"
+    root_path <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/") #laptop
+    dir.results <- c("/Users/savanahleidholt/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Savanah Leidholt/") 
+    git_path <- "/Users/savanahleidholt/Desktop/CHCO-Code/Petter Bjornstad/Savanah Leidholt"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
+```
+
+```{r}
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+#pb90_multiomics<- s3readRDS(
+ #         object = "data/pb90_multiomics_savanah_baseline_20260406.rds", 
+  #        bucket = "triad",
+   #       region = "")
+```
+
+```{r}
+#ids <- pb90_multiomics@meta.data$record_id 
+#ids <- as.data.frame(ids) %>%
+ # dplyr::distinct(ids) %>%
+ # dplyr::pull(ids)  
+``` 
+
+```{r}
+#DefaultAssay(pb90_multiomics)
+
+#Assays(pb90_multiomics)
+
+#slotNames(pb90_multiomics[["RNA"]])
+```
+
+#-----------------------------------------------
+#reacreating UMAPS for TRIAD subset
+# ye ji has already filtered out low cell counts (<5%)
+# also removed mito and ribo genes
+# counts data is raw (pseudobulk) 
+# data = normalized (nebula)
+#-----------------------------------------------
+```{r}
+set.seed(1835)
+
+#pb90_multiomics <- pb90_multiomics 
+#DefaultAssay(pb90_multiomics) <- "RNA"
+
+# Remove old reductions from larger dataset
+#pb90_multiomics@reductions <- list()
+
+#remove old cluster columns from larger dataset
+#pb90_multiomics$seurat_clusters <- NULL
+#pb90_multiomics$harmony_clusters <- NULL
+
+#pb90_multiomics[["RNA"]]$scale.data <- NULL
+#pb90_multiomics[["RNA"]]@layers$scale.data <- NULL
+#Layers(pb90_multiomics[["RNA"]])
+
+
+
+# Re-identify variable genes within this subset
+#pb90_multiomics <- FindVariableFeatures(
+ # pb90_multiomics)
+
+# Scale genes 
+#pb90_multiomics <- ScaleData(
+ # pb90_multiomics)
+
+
+# PCA on subset
+#pb90_multiomics <- RunPCA(
+  #pb90_multiomics)
+
+#ElbowPlot(pb90_multiomics, ndims = 50)
+```
+
+```{r}
+#pb90_multiomics <- FindNeighbors(
+#  pb90_multiomics,
+#  reduction = "pca",
+#  dims = 1:50
+#)
+
+#pb90_multiomics <- FindClusters(
+#  pb90_multiomics,
+#  resolution = 1.5,
+#  cluster.name = "unintegrated_clusters"
+#)
+
+#pb90_multiomics <- RunUMAP(
+#  pb90_multiomics,
+#  dims = 1:50,
+#  reduction = "pca",
+#  reduction.name = "umap.unintegrated"
+#)
+```
+
+```{r}
+#pb90_multiomics_integrated <- RunHarmony(
+#  object = pb90_multiomics,
+#  group.by.vars = "orig.ident",
+#  reduction.use = "pca",
+#  assay.use = DefaultAssay(pb90_multiomics),
+#  reduction.save = "harmony"
+#)
+```
+```{r}
+# neighbors/clusters/UMAP using Harmony
+#pb90_multiomics_integrated <- FindNeighbors(
+#  pb90_multiomics_integrated,
+#  reduction = "harmony",
+#  dims = 1:30
+#)
+
+#pb90_multiomics_integrated <- FindClusters(
+#  pb90_multiomics_integrated,
+#  resolution = 1.5,
+#  cluster.name = "TRIAD_clusters"
+#)
+
+#pb90_multiomics_integrated <- RunUMAP(
+#  pb90_multiomics_integrated,
+#  reduction = "harmony",
+#  dims = 1:30,
+#  reduction.name = "umap.TRIAD"
+#)
+```
+
+```{r}
+# Extract UMAP coordinates from the TRIAD reduction
+#umap_coords <- Embeddings(
+#  pb90_multiomics_integrated,
+#  reduction = "umap.TRIAD"
+#)
+
+
+# Add as metadata columns
+#pb90_multiomics_integrated$TRIAD_UMAP1 <- umap_coords[,1]
+#pb90_multiomics_integrated$TRIAD_UMAP2 <- umap_coords[,2]
+
+```
+
+#save file so I don't have to repeat above steps
+```{r}
+#s3saveRDS(pb90_multiomics_integrated, 
+ #         object = "data/pb90_multiomics_savanah_bl_cleaned_20260527.rds", 
+ #         bucket = "triad",
+#          region = "",
+ #   multipart = T)
+```
+
+#start here post cleaning steps
+```{r}
+pb90_multiomics_integrated <- s3readRDS(
+         object = "data/pb90_multiomics_savanah_bl_cleaned_20260527.rds", 
+          bucket = "triad",
+          region = "")
+
+pb90_multiomics_subset <- s3readRDS(
+  object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
+  bucket = "triad",
+  region = "",
+  multipart = T)
+
+pb90_multiomics_integrated@assays$RNA$counts
+pb90_multiomics_subset@assays$RNA$counts
+
+
+summary(pb90_multiomics_integrated@assays$RNA$scale.data@x)
+all(raw_counts@x == round(raw_counts@x))
+
+
+
+
+
+
+Embeddings(pb90_multiomics_integrated, "umap.TRIAD")[1:5, ]
+umap_coords <- Embeddings(pb90_multiomics_integrated, "umap.TRIAD")
+umap_coords
+pb90_multiomics_integrated$TRIAD_UMAP1 <- umap_coords[, "umapTRIAD_1"]
+pb90_multiomics_integrated$TRIAD_UMAP2 <- umap_coords[, "umapTRIAD_2"]
+
+grep("UMAP|umap", colnames(pb90_multiomics_integrated@meta.data), value = TRUE)
+
+ids <- pb90_multiomics_integrated@meta.data$record_id 
+ids <- as.data.frame(ids) %>%
+  dplyr::distinct(ids) %>%
+  dplyr::pull(ids)  
+``` 
+
+
+```{r}
+p1 <- DimPlot(
+  pb90_multiomics_integrated,
+  reduction = "umap.unintegrated",
+  group.by = "study"
+)
+
+p2 <- DimPlot(
+  pb90_multiomics_integrated,
+  reduction = "umap.TRIAD",
+  group.by = "study"
+)
+
+p1 | p2
 ```
 
 ```{r}
@@ -82,56 +275,13 @@ session <- boto3$session$Session(
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 ```
 
-```{r echo = F, eval = T}
-# Read in clean seurat object saved
-#temp_file <- tempfile(fileext = ".rds")
-#s3$download_file("scrna", 'data_clean/pb90_multiomics_savanah_baseline_20260406.rds', temp_file)
-#pb90_multiomics <- readRDS(temp_file)
-#ids <- pb90_multiomics@meta.data$record_id 
-#ids <- as.data.frame(ids) %>%
- # dplyr::distinct(ids) %>%
-  #dplyr::pull(ids)  
-``` 
-
-
-
 ```{r}
-Sys.setenv(
-  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
-  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
-  "AWS_DEFAULT_REGION" = "",
-  "AWS_REGION" = "",
-  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
-)
-```
-
-```{r echo = F, eval = T}
-pb90_multiomics<- s3readRDS(
-          object = "data_clean/pb90_multiomics_savanah_baseline_20260406.rds", 
-          bucket = "scrna",
-          region = "")
-
-
-ids <- pb90_multiomics@meta.data$record_id 
-ids <- as.data.frame(ids) %>%
-  dplyr::distinct(ids) %>%
-  dplyr::pull(ids)  
-``` 
-
-```{r}
-#Load harmonized data for biopsy
-
-#harm_meta_data <- s3read_using(FUN = readr::read_csv,
- #   object = "harmonized_dataset.csv",
-  #  bucket = "harmonized.dataset",
-   # region = "")
-
-
 bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
 s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 harm_meta_data <- read.csv(temp_file)
 
+#harm_meta_data <- readRDS(file.path(root_path, "Data Harmonization", "Data Clean", "harmonized_dataset.rds"))
 ```
 
 ```{r}
@@ -143,9 +293,8 @@ id_cols <- as.character(c(
 
 #clinical numeric data I want to keep stored in a list
 clin_cols <- c(
-  "age","bmi","eGFR_fas_cr","hba1c",
-  "acr_u"
-)
+  "age","bmi","eGFR_CKiD_U25_avg", "avg_c_r2", "avg_k_r2","acr_u", "hba1c", "pcasl3d_left", "pcasl3d_right")
+
 #filtering the same way as metabolomic and proteomic metadata
  # for non-numeric: keep value only if it's consistent within record_id+visit
  # for numeric: mean within record_id+visit (not counting NAs within the mean)
@@ -153,7 +302,7 @@ meta_scrna <- harm_meta_data %>%
   arrange(record_id) %>%
   filter(record_id %in% ids) %>%
   filter(visit == "baseline") %>%
-  select(any_of(c(id_cols, clin_cols))) %>%
+  dplyr::select(any_of(c(id_cols, clin_cols))) %>%
   summarise(
     across(
       where(~ !is.numeric(.x)),
@@ -181,24 +330,23 @@ meta_scrna <- harm_meta_data %>%
 ```
 
 ```{r}
-pb90_multiomics_meta_subset <- pb90_multiomics@meta.data %>%
-  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype) %>%
+meta <- pb90_multiomics_integrated@meta.data
+
+pb90_multiomics_meta_subset <- pb90_multiomics_integrated@meta.data %>%
+  dplyr::select(1:7, record_id, kit_id, visit, source, celltype_rpca, celltype_harmony, KPMP_celltype, unintegrated_clusters, TRIAD_clusters, TRIAD_UMAP1, TRIAD_UMAP2) %>%
   dplyr::mutate(kit_id = gsub("kl", "KL", gsub("KI", "KL", kit_id)),
                 visit = case_when(visit == "screening" ~ "baseline",
                                   T ~ visit)) %>%
   left_join(meta_scrna) %>%
   dplyr::mutate(rownames = paste0(source, "_", barcode)) 
+
 ```
 
+#-----------------------------------------------------------------
+#create KPMP_celltype_general
+#   also create subset data with just endothelial cells & subtypes
+#-----------------------------------------------------------------
 ```{r}
-#Load celltype annotation database
-#temp_file <- tempfile(fileext = ".gmt")
-#s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
-#c8 <- GSA.read.gmt(temp_file)
-```
-
-```{r}
-# create KPMP_celltype_general
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
@@ -206,7 +354,7 @@ celltype_groups <- list(
   IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
   DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),  #endothelial cells
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
   # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
@@ -237,13 +385,159 @@ rownames(pb90_multiomics_meta_subset) <- pb90_multiomics_meta_subset$rownames
 table((pb90_multiomics_meta_subset %>%
   distinct(record_id, visit, .keep_all = T))$study) 
 
-pb90_multiomics_subset <- pb90_multiomics[, colnames(pb90_multiomics) %in% rownames(pb90_multiomics_meta_subset)]
+pb90_multiomics_subset <- pb90_multiomics_integrated[, colnames(pb90_multiomics_integrated) %in% rownames(pb90_multiomics_meta_subset)]
 pb90_multiomics_subset@meta.data <- pb90_multiomics_meta_subset
 
-s3saveRDS(pb90_multiomics_subset, 
-          object = "data_clean/pb90_multiomics_subset_savanah_20260420", 
-          bucket = "scrna",
-          region = "",
-          multipart = T)
+pb90_multiomics_subset@reductions
+```
+
+```{r}
+#s3saveRDS(pb90_multiomics_subset, 
+#          object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
+#          bucket = "triad",
+#          region = "",
+#          multipart = T)
+```
+
+```{r}
+pb90_multiomics_subset <- s3readRDS(
+  object = "data/pb90_multiomics_SLL_subset_20260527.rds", 
+  bucket = "triad",
+  region = "",
+  multipart = T)
+```
+#--------------------------------------------------------------------------------------
+#subsetting by specific celltypes for pseudtime disease trajectories--see file 11
+#--------------------------------------------------------------------------------------
+```{r}
+#PT trajectory object
+pb90_PT <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "PT"
+)
+
+#all endothelial cells together
+pb90_EC_all <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "EC"
+)
+
+#all TAL cells together
+pb90_TAL <- subset(
+  pb90_multiomics_subset,
+  subset = KPMP_celltype_general == "TAL"
+)
+
+
+# EC subtype-specific objects
+ec_subtypes <- c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC")
+
+pb90_EC_subtypes <- lapply(ec_subtypes, function(x) {
+  subset(
+    pb90_multiomics_subset,
+    subset = KPMP_celltype == x
+  )
+})
+
+names(pb90_EC_subtypes) <- ec_subtypes
+```
+
+```{r}
+# donor/sample coverage by broad trajectory cell type
+trajectory_donor_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general %in% c("PT", "EC", "TAL")) %>%
+  dplyr::distinct(record_id, group, KPMP_celltype_general) %>%
+  dplyr::count(KPMP_celltype_general, group, name = "n_record_ids") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_record_ids,
+    values_fill = 0
+  )
+
+trajectory_donor_table
+```
+```{r}
+trajectory_cell_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general %in% c("PT", "EC", "TAL")) %>%
+  dplyr::count(KPMP_celltype_general, group, name = "n_cells") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_cells,
+    values_fill = 0
+  )
+
+trajectory_cell_table
+```
+```{r}
+ec_subtype_donor_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general == "EC") %>%
+  dplyr::distinct(record_id, group, KPMP_celltype) %>%
+  dplyr::count(KPMP_celltype, group, name = "n_record_ids") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_record_ids,
+    values_fill = 0
+  )
+
+ec_subtype_donor_table
+```
+```{r}
+ec_subtype_cell_table <- pb90_multiomics_subset@meta.data %>%
+  dplyr::filter(KPMP_celltype_general == "EC") %>%
+  dplyr::count(KPMP_celltype, group, name = "n_cells") %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = n_cells,
+    values_fill = 0
+  )
+
+ec_subtype_cell_table
+```
+
+```{r}
+s3saveRDS(
+  pb90_PT,
+  object = "data/disease trajectory/pb90_multiomics_PT_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+s3saveRDS(
+  pb90_EC_all,
+  object = "data/disease trajectory/pb90_multiomics_EC_all_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+s3saveRDS(
+  pb90_TAL,
+  object = "data/disease trajectory/pb90_multiomics_TAL_20260529.rds",
+  bucket = "triad",
+  region = "",
+  endpoint = "s3.kopah.uw.edu",
+  multipart = TRUE
+)
+
+for (ct in names(pb90_EC_subtypes)) {
+  
+  ct_clean <- gsub("[^A-Za-z0-9]+", "_", ct)
+  
+  s3saveRDS(
+    pb90_EC_subtypes[[ct]],
+    object = paste0(
+      "data/disease trajectory/pb90_multiomics_",
+      ct_clean,
+      "_20260529.rds"
+    ),
+    bucket = "triad",
+    region = "",
+    endpoint = "s3.kopah.uw.edu",
+    multipart = TRUE
+  )
+}
 ```
 

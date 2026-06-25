@@ -22,6 +22,10 @@ library(dplyr)
 library(kableExtra)
 library(tidyverse)
 library(fgsea)
+library(ggplot2)
+library(ggrepel)
+library(Hmisc)
+library(purrr)
 ```
 
 ```{r include = F}
@@ -457,6 +461,45 @@ transparent_theme <- theme(
 )
 
 # =============================================================================
+# RECOVERY CLASSIFICATION HELPER
+# For a feature flagged "Reversed" in the main analysis, classify whether the
+# adiposity effect brings it back to healthy (HC) levels by examining the
+# direct HC vs T1D-OW and HC vs T1D-OB contrasts.
+#
+# Inputs (vectorized) are direction labels "up" / "down" / "ns":
+#   t1d_dir : direction of T1D-NW vs HC          (original perturbation)
+#   ow_dir  : direction of T1D-OW vs HC          (subgroup recovery check)
+#   ob_dir  : direction of T1D-OB vs HC          (subgroup recovery check)
+#
+# Categories:
+#   Restored           - both OW and OB are NS vs HC (back to healthy)
+#   Partially restored - one subgroup NS, the other still in original T1D direction
+#   Not restored       - both subgroups still sig in the original T1D direction
+#   Overshot           - either subgroup is sig in the OPPOSITE direction vs HC
+#   Mixed              - any other inconsistent combination
+# =============================================================================
+classify_recovery <- function(t1d_dir, ow_dir, ob_dir) {
+  opposite <- dplyr::case_when(
+    t1d_dir == "up"   ~ "down",
+    t1d_dir == "down" ~ "up",
+    TRUE              ~ NA_character_
+  )
+  dplyr::case_when(
+    is.na(t1d_dir) | t1d_dir == "ns" ~ NA_character_,
+    # Overshot: any subgroup is significant in the opposite direction
+    (!is.na(opposite) & (ow_dir == opposite | ob_dir == opposite)) ~ "Overshot",
+    # Restored: neither subgroup differs from HC
+    (ow_dir == "ns" & ob_dir == "ns") ~ "Restored",
+    # Not restored: both subgroups still in original T1D direction
+    (ow_dir == t1d_dir & ob_dir == t1d_dir) ~ "Not restored",
+    # Partially restored: one NS, one still same direction
+    (ow_dir == "ns"     & ob_dir == t1d_dir) |
+    (ow_dir == t1d_dir  & ob_dir == "ns")     ~ "Partially restored",
+    TRUE ~ "Mixed"
+  )
+}
+
+# =============================================================================
 # Helper: run the full pipeline (scatters, bars, GSEA, CSVs) for one
 # adiposity definition. Definition must be one of "bmi", "dxa", "whtr".
 # =============================================================================
@@ -516,6 +559,51 @@ run_contrast_analysis <- function(definition,
              fdr.obese   = fdr) %>%
       distinct(Gene, .keep_all = TRUE)
 
+    # ---- Load HC vs T1D-Overweight and HC vs T1D-Obese for recovery assessment
+    # These contrasts tell us whether the OW or OB subgroup is back to HC.
+    ow_subdir <- sprintf("HC_vs_T1D_overweight_%s", definition)
+    ow_suffix <- sprintf("hc_t1d_ow_%s",            definition)
+    ob_subdir <- sprintf("HC_vs_T1D_obese_%s",      definition)
+    ob_suffix <- sprintf("hc_t1d_ob_%s",            definition)
+
+    ct_hc_vs_t1d_ow <- tryCatch({
+      s3readRDS(
+        object = sprintf("results/nebula/%s/%s/%s_nebula_%s_processed.rds",
+                         ow_subdir, cell, cell, ow_suffix),
+        bucket = "t1d.adiposity", region = ""
+      ) %>%
+        select(Gene,
+               logFC.ow = `logFC_groupType 1 Diabetes`,
+               se.ow    = `se_groupType 1 Diabetes`,
+               pval.ow  = `p_groupType 1 Diabetes`,
+               fdr.ow   = fdr) %>%
+        distinct(Gene, .keep_all = TRUE)
+    }, error = function(e) {
+      message(sprintf("  [%s/%s] HC vs T1D-OW not loaded: %s",
+                      definition, cell, e$message))
+      NULL
+    })
+
+    ct_hc_vs_t1d_ob <- tryCatch({
+      s3readRDS(
+        object = sprintf("results/nebula/%s/%s/%s_nebula_%s_processed.rds",
+                         ob_subdir, cell, cell, ob_suffix),
+        bucket = "t1d.adiposity", region = ""
+      ) %>%
+        select(Gene,
+               logFC.ob = `logFC_groupType 1 Diabetes`,
+               se.ob    = `se_groupType 1 Diabetes`,
+               pval.ob  = `p_groupType 1 Diabetes`,
+               fdr.ob   = fdr) %>%
+        distinct(Gene, .keep_all = TRUE)
+    }, error = function(e) {
+      message(sprintf("  [%s/%s] HC vs T1D-OB not loaded: %s",
+                      definition, cell, e$message))
+      NULL
+    })
+
+    has_recovery_data <- !is.null(ct_hc_vs_t1d_ow) && !is.null(ct_hc_vs_t1d_ob)
+
     cell_safe <- gsub("/", "_", cell)
 
     # ---- Combine and classify ----
@@ -540,6 +628,45 @@ run_contrast_analysis <- function(definition,
       ct_combined$sig.joint_clean,
       c("Amplified", "Reversed", "Adiposity-specific", "T1D-specific", "NS")
     )
+
+    # ---- Recovery classification for Reversed genes -----------------------
+    # For each Reversed gene, ask whether T1D-OW and T1D-OB are now
+    # statistically indistinguishable from HC. If yes -> Restored;
+    # if still different in the original direction -> Not restored;
+    # if flipped past HC -> Overshot.
+    if (has_recovery_data) {
+      ct_combined <- ct_combined %>%
+        left_join(ct_hc_vs_t1d_ow, by = "Gene") %>%
+        left_join(ct_hc_vs_t1d_ob, by = "Gene") %>%
+        mutate(
+          sig.ow = case_when(
+            is.na(pval.ow)                     ~ NA_character_,
+            pval.ow < 0.05 & logFC.ow > 0      ~ "up",
+            pval.ow < 0.05 & logFC.ow < 0      ~ "down",
+            TRUE                               ~ "ns"),
+          sig.ob = case_when(
+            is.na(pval.ob)                     ~ NA_character_,
+            pval.ob < 0.05 & logFC.ob > 0      ~ "up",
+            pval.ob < 0.05 & logFC.ob < 0      ~ "down",
+            TRUE                               ~ "ns"),
+          recovery_status = if_else(
+            sig.joint_clean == "Reversed",
+            classify_recovery(sig.diab, sig.ow, sig.ob),
+            NA_character_
+          )
+        )
+      ct_combined$recovery_status <- factor(
+        ct_combined$recovery_status,
+        levels = c("Restored", "Partially restored",
+                   "Not restored", "Overshot", "Mixed")
+      )
+    } else {
+      ct_combined$recovery_status <- factor(
+        NA_character_,
+        levels = c("Restored", "Partially restored",
+                   "Not restored", "Overshot", "Mixed")
+      )
+    }
 
     ct_sig            <- ct_combined %>% filter(sig.joint_clean %in% c("Amplified", "Reversed"))
     ct_sig_concordant <- ct_combined %>% filter(sig.joint_clean %in% c("Adiposity-specific", "T1D-specific"))
@@ -594,6 +721,40 @@ run_contrast_analysis <- function(definition,
                      sprintf("%s_bar_t1d_obow.png", cell_safe)),
            width = 5, height = 7, bg = "transparent")
 
+    # ---- Recovery bar plot for Reversed genes ----
+    if (has_recovery_data) {
+      reversed_genes_df <- ct_combined %>%
+        filter(sig.joint_clean == "Reversed", !is.na(recovery_status))
+      if (nrow(reversed_genes_df) > 0) {
+        ggplot(reversed_genes_df, aes(x = recovery_status, fill = recovery_status)) +
+          geom_bar() +
+          geom_text(stat = "count", aes(label = after_stat(count)),
+                    vjust = -0.3, size = 4) +
+          scale_fill_manual(values = c("Restored"           = "#2a9d8f",
+                                       "Partially restored" = "#a8dadc",
+                                       "Not restored"       = "#e76f51",
+                                       "Overshot"           = "#9d4edd",
+                                       "Mixed"              = "#adb5bd"),
+                            drop = FALSE) +
+          scale_x_discrete(drop = FALSE) +
+          theme_minimal() +
+          theme(text = element_text(size = 14),
+                panel.grid = element_blank(),
+                plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+                plot.subtitle = element_text(size = 11, hjust = 0.5,
+                                             color = "#495057"),
+                legend.position = "none",
+                axis.text.x = element_text(angle = 45, hjust = 1)) +
+          labs(x = NULL, y = "Number of reversed genes",
+               title = cell_safe,
+               subtitle = "Recovery of Reversed genes toward HC levels") +
+          transparent_theme
+        ggsave(file.path(fig_base, "bar",
+                         sprintf("%s_reversed_gene_recovery.png", cell_safe)),
+               width = 6, height = 6, bg = "transparent")
+      }
+    }
+
     # ---- GSEA ----
     ranks.diab  <- with(ct_hc_vs_t1d_normal, logFC.diab / se.diab)
     names(ranks.diab) <- ct_hc_vs_t1d_normal$Gene
@@ -629,6 +790,140 @@ run_contrast_analysis <- function(definition,
       )
     fg$quadrant <- factor(fg$quadrant,
                           c("Amplified", "Reversed", "Adiposity-specific", "T1D-specific", "NS"))
+
+    # ---- Pathway-level recovery: GSEA on HC vs T1D-OW and HC vs T1D-OB -----
+    if (has_recovery_data) {
+      ranks.ow <- with(ct_hc_vs_t1d_ow, logFC.ow / se.ow)
+      names(ranks.ow) <- ct_hc_vs_t1d_ow$Gene
+      ranks.ow <- sort(ranks.ow[is.finite(ranks.ow)], decreasing = TRUE)
+
+      ranks.ob <- with(ct_hc_vs_t1d_ob, logFC.ob / se.ob)
+      names(ranks.ob) <- ct_hc_vs_t1d_ob$Gene
+      ranks.ob <- sort(ranks.ob[is.finite(ranks.ob)], decreasing = TRUE)
+
+      fg.ow <- fgseaMultilevel(pathways = pathways, stats = ranks.ow,
+                               minSize = 10, maxSize = 500, nPermSimple = 10000)
+      fg.ob <- fgseaMultilevel(pathways = pathways, stats = ranks.ob,
+                               minSize = 10, maxSize = 500, nPermSimple = 10000)
+
+      # Match the cleaned pathway names used in `fg`
+      fg.ow$pathway <- gsub("_", " ", gsub("HALLMARK_", "", fg.ow$pathway))
+      fg.ob$pathway <- gsub("_", " ", gsub("HALLMARK_", "", fg.ob$pathway))
+
+      fg <- fg %>%
+        left_join(fg.ow %>% select(pathway, NES.ow = NES, padj.ow = padj),
+                  by = "pathway") %>%
+        left_join(fg.ob %>% select(pathway, NES.ob = NES, padj.ob = padj),
+                  by = "pathway") %>%
+        mutate(
+          dir.diab = case_when(padj.diab  < 0.05 & NES.diab  > 0 ~ "up",
+                               padj.diab  < 0.05 & NES.diab  < 0 ~ "down",
+                               TRUE                              ~ "ns"),
+          dir.ow   = case_when(is.na(padj.ow)                     ~ NA_character_,
+                               padj.ow    < 0.05 & NES.ow    > 0  ~ "up",
+                               padj.ow    < 0.05 & NES.ow    < 0  ~ "down",
+                               TRUE                               ~ "ns"),
+          dir.ob   = case_when(is.na(padj.ob)                     ~ NA_character_,
+                               padj.ob    < 0.05 & NES.ob    > 0  ~ "up",
+                               padj.ob    < 0.05 & NES.ob    < 0  ~ "down",
+                               TRUE                               ~ "ns"),
+          recovery_status = if_else(
+            quadrant == "Reversed",
+            classify_recovery(dir.diab, dir.ow, dir.ob),
+            NA_character_
+          )
+        )
+      fg$recovery_status <- factor(
+        fg$recovery_status,
+        levels = c("Restored", "Partially restored",
+                   "Not restored", "Overshot", "Mixed")
+      )
+
+      # ---- Reversed pathway recovery bar plot ----
+      reversed_paths <- fg %>%
+        filter(quadrant == "Reversed", !is.na(recovery_status))
+      if (nrow(reversed_paths) > 0) {
+        reversed_paths_ord <- reversed_paths %>%
+          arrange(recovery_status, NES.diab) %>%
+          mutate(pathway = factor(pathway, levels = pathway))
+
+        ggplot(reversed_paths_ord,
+               aes(y = pathway, x = NES.diab, fill = recovery_status)) +
+          geom_col(width = 0.8) +
+          geom_vline(xintercept = 0, color = "grey50", linetype = "dashed") +
+          geom_text(aes(label = pathway,
+                        x = if_else(NES.diab >= 0,
+                                    NES.diab + 0.05,
+                                    NES.diab - 0.05),
+                        hjust = if_else(NES.diab >= 0, 0, 1)),
+                    size = 3.2, color = "#2b2b2b") +
+          scale_fill_manual(values = c("Restored"           = "#2a9d8f",
+                                       "Partially restored" = "#a8dadc",
+                                       "Not restored"       = "#e76f51",
+                                       "Overshot"           = "#9d4edd",
+                                       "Mixed"              = "#adb5bd"),
+                            drop = FALSE) +
+          expand_limits(x = c(min(reversed_paths_ord$NES.diab) - 1.5,
+                              max(reversed_paths_ord$NES.diab) + 1.5)) +
+          theme_minimal() +
+          theme(text = element_text(size = 13),
+                panel.grid = element_blank(),
+                plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+                plot.subtitle = element_text(size = 11, hjust = 0.5,
+                                             color = "#495057"),
+                legend.position = "top",
+                axis.text.y = element_blank()) +
+          labs(y = NULL, x = "NES (T1D-NW vs HC)", fill = "Recovery vs HC",
+               title = cell_safe,
+               subtitle = "Reversed Hallmark pathways: do they reach HC levels?") +
+          transparent_theme
+        ggsave(file.path(fig_base, "specific",
+                         sprintf("%s_reversed_pathway_recovery.png", cell_safe)),
+               bg = "transparent",
+               width = 10,
+               height = max(4, nrow(reversed_paths_ord) * 0.35))
+
+        # Recovery count bar plot
+        ggplot(reversed_paths_ord, aes(x = recovery_status, fill = recovery_status)) +
+          geom_bar() +
+          geom_text(stat = "count", aes(label = after_stat(count)),
+                    vjust = -0.3, size = 4) +
+          scale_fill_manual(values = c("Restored"           = "#2a9d8f",
+                                       "Partially restored" = "#a8dadc",
+                                       "Not restored"       = "#e76f51",
+                                       "Overshot"           = "#9d4edd",
+                                       "Mixed"              = "#adb5bd"),
+                            drop = FALSE) +
+          scale_x_discrete(drop = FALSE) +
+          theme_minimal() +
+          theme(text = element_text(size = 14),
+                panel.grid = element_blank(),
+                plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+                plot.subtitle = element_text(size = 11, hjust = 0.5,
+                                             color = "#495057"),
+                legend.position = "none",
+                axis.text.x = element_text(angle = 45, hjust = 1)) +
+          labs(x = NULL, y = "Number of reversed pathways",
+               title = cell_safe,
+               subtitle = "Recovery of Reversed Hallmark pathways") +
+          transparent_theme
+        ggsave(file.path(fig_base, "bar",
+                         sprintf("%s_reversed_pathway_recovery_counts.png", cell_safe)),
+               bg = "transparent", width = 6, height = 6)
+      }
+    } else {
+      # Keep schema consistent in the saved GSEA CSV
+      fg$NES.ow <- NA_real_; fg$padj.ow <- NA_real_
+      fg$NES.ob <- NA_real_; fg$padj.ob <- NA_real_
+      fg$dir.diab <- NA_character_
+      fg$dir.ow   <- NA_character_
+      fg$dir.ob   <- NA_character_
+      fg$recovery_status <- factor(
+        NA_character_,
+        levels = c("Restored", "Partially restored",
+                   "Not restored", "Overshot", "Mixed")
+      )
+    }
 
     # GSEA scatterplot
     ggplot(fg, aes(NES.diab, NES.obese, color = quadrant)) +

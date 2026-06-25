@@ -1,0 +1,561 @@
+"""
+This code is designed to pull data from the RENAL HEIRitage REDCap project and output data in a "semi-long" format with one row per study procedure, and a visit column for longitudinal clustering when combined with other studies.
+"""
+__author__ = ["Tim Vigers", "Ye Ji Choi"]
+__credits__ = ["Tim Vigers", "Ye Ji Choi"]
+__license__ = "MIT"
+__version__ = "0.0.1"
+__maintainer__ = "Tim Vigers"
+__email__ = "timothy.vigers@cuanschutz.edu"
+__status__ = "Dev"
+# =====================================================================
+# WHAT THIS FILE DOES
+# Cleans the RENAL-HEIRitage (RH2) REDCap project into a harmonized DataFrame
+# (semi-long format: one row per record per study procedure, with a "visit"
+# column). RENAL-HEIRitage is the LONGITUDINAL follow-up study, so this REDCap
+# project is event/visit-structured: each form is filtered by redcap_event_name
+# (e.g. screening, annual_blood_and_u, renal clearance, kidney_biopsy, pet_scan).
+# NOTE: Do not confuse with renal_heir.py (RENAL-HEIR), the cross-sectional
+# parent study with a flat (non-event) project (renal_heir vs renal_heiritage).
+# Called by: data_harmonization.py via clean_renal_heiritage()
+#
+# INPUTS:  REDCap API (token from api_tokens.csv), data_dictionary_master.csv
+# OUTPUT:  returns a pandas DataFrame (not written to disk here)
+# DEPENDS: harmonization_functions.combine_checkboxes
+#
+# SECTIONS BELOW: Demographics, Medical History, EPIC Medications, Physical exam,
+#   Annual Labs, Renal Clearance Testing, Dextran, BOLD MRI, PET scan,
+#   Liver PET scan, Kidney Biopsy, Pathology Report, J-Wire, Sphygmocor,
+#   Voxelwise, Neurocognitive Tracking, Astrazeneca urine metabolomics,
+#   Plasma metabolomics, Brain biomarkers, Lipidomics, Missingness, Merge, Reorganize
+# =====================================================================
+
+
+def clean_renal_heiritage():
+    # Libraries
+    import os
+    import sys
+    sys.path.insert(0, os.path.expanduser('~') +
+                    "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
+    import redcap
+    import pandas as pd
+    import numpy as np
+    from natsort import natsorted, ns
+    # __pipeline_path_bootstrap__ (files moved into subfolders; resolve repo root from this file)
+    import os as _os, sys as _sys
+    _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    for _sub in ("calculations", "exports", "studies",):
+        _p = _os.path.join(_ROOT, _sub)
+        if _p not in _sys.path:
+            _sys.path.insert(0, _p)
+    from harmonization_functions import combine_checkboxes
+    # REDCap project variables
+    import getpass
+    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "kristenmiller":
+        base_data_path = "/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+        git_path = "/Users/kristenmiller/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+
+    tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")
+        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
+    uri = "https://redcap.ucdenver.edu/api/"
+    # Look up this study's API token by name and open the REDCap project
+    token = tokens.loc[tokens["Study"] == "Renal-HEIRitage", "Token"].iloc[0]
+    proj = redcap.Project(url=uri, token=token)
+    # Get project metadata
+    meta = pd.DataFrame(proj.metadata)
+    # Replace missing values
+    rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
+    rep = rep + [str(r) for r in rep] + [""]
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/data_dictionary_master.csv")
+
+
+    # Each section below pulls one REDCap form, subsets to the relevant
+    # redcap_event_name (this is a longitudinal/event project), cleans/renames it,
+    # and tags it with a "procedure" and "visit" so pieces can be stacked in Merge.
+    # --------------------------------------------------------------------------
+    # Demographics
+    # --------------------------------------------------------------------------
+
+    dem_cols = ["record_id", "dob", "group_rh2", "sex", "race", "ethnicity", "sglt2i", 
+                "participation_status", "rh_id", "mrn", "diabetes_dx_date"]
+    # Export
+    demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    # Keep only the screening event rows for demographics
+    demo = demo.loc[demo["redcap_event_name"].str.startswith('screen', na=False)].copy()
+    demo.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    demo.replace(rep, np.nan, inplace=True)
+    demo.rename({"sglt2i": "sglt2i_ever",
+                  "rh_id": "co_enroll_id",
+                  "group_rh2": "group"},
+                inplace=True, axis=1)
+    dem_cols[2] = "group"
+    dem_cols[6] = "sglt2i_ever"
+    dem_cols[8] = "co_enroll_id"
+    # Race columns combined into one
+    demo = combine_checkboxes(demo, base_name="race", levels=[
+        "American Indian or Alaskan Native", "Asian", "Hawaiian or Pacific Islander", "Black or African American", "White", "Unknown", "Other"])
+    # Same for ethnicity
+    demo = combine_checkboxes(demo,
+                              base_name="ethnicity",
+                              levels=["Hispanic or Latino", "Not Hispanic or Latino", "Unknown/Not Reported"])
+    # Relevel sex and group and participation status
+    demo["sex"] = demo["sex"].replace({1: "Female", 2: "Male", 3: "Other",
+                        "1": "Female", "2": "Male", "3": "Other"})
+    demo["group"] = demo["group"].replace({1: "Type 2 Diabetes", 2: "Obese Control", 3: "Lean Control",
+                           "1": "Type 2 Diabetes", "2": "Obese Control",
+                           "3": "Lean Control"})
+    demo["group_risk"] = np.where(demo.group.str.contains("lean", case=False), "Low", "High")
+    demo["sglt2i_ever"] = demo["sglt2i_ever"].replace({1: "Yes", 0: "No", "1": "Yes", "0": "No", np.nan: "No"})
+    demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})
+
+
+    # --------------------------------------------------------------------------
+    # Medical History
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + ["mra_med"] + ["screen_a1c"] + ["insulin_inj"] + ["htn_med_type"] +  \
+    ["sglt2i_med"] + ["diabetes_med_other"] + ["addl_hld_meds"] + ["meds_weight_type"] + \
+    ["uric_acid_med"] + ["diabetes_med"] #+ ["diabetes_dx_date"]
+    med = pd.DataFrame(proj.export_records(fields=var)) 
+    med = med.loc[med["redcap_event_name"].str.startswith('screen', na=False)]
+    med.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    med.replace(rep, np.nan, inplace=True)
+    med.rename({"screen_a1c": "hba1c",
+                "sglt2i_med": "sglti_timepoint",
+                "diabetes_med_other___3": "glp1_agonist_timepoint",
+                "htn_med_type___5": "diuretic",
+                "htn_med_type___4": "ca_channel_blocker",
+                "htn_med_type___3": "beta_blocker",
+                "addl_hld_meds___1": "statin",
+                "addl_hld_meds___2": "fibrates",
+                "meds_weight_type___1": "topiramate",
+                "meds_weight_type___2": "phentermine",
+                "uric_acid_med": "uric_acid_med"},
+                inplace=True, axis=1)
+    # Derive combined insulin and RAASi flags from multiple source checkboxes
+    med['insulin_med_timepoint'] = med.apply(lambda row: "1" if row['insulin_inj'] == "1" or row['diabetes_med___2'] == "1" else 0, axis=1)
+    med['raasi_timepoint'] = med.apply(lambda row: "1" if row['htn_med_type___1'] == "1" or row['htn_med_type___2'] == "1" else 0, axis=1)
+    # Replace 1 with yes 0 and 2 with no
+    meds = ["sglti_timepoint", "glp1_agonist_timepoint", "diuretic", "ca_channel_blocker",\
+    "beta_blocker", "statin", "fibrates", "topiramate", "phentermine", "uric_acid_med", "insulin_med_timepoint", "raasi_timepoint", "mra_med"]
+    #med[meds] = med[meds].applymap(lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x))
+    med[meds] = med[meds].apply(lambda col: col.map(
+        lambda x: "Yes" if x == "1" or x is True else ("No" if pd.notna(x) and x != "" else x)
+        ))
+    med["procedure"] = "screening"
+    med["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # EPIC Medications
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "epic_meds", "field_name"]]
+    epic_med = pd.DataFrame(proj.export_records(fields=var))
+    epic_med = epic_med.loc[epic_med["redcap_event_name"]. str.startswith('annual_blood_and_u_arm_1', na=False)]
+    epic_med.drop(["redcap_event_name"], axis=1, inplace=True)
+    epic_med.drop(["redcap_repeat_instance"], axis=1, inplace=True)
+    epic_med.drop(["redcap_repeat_instrument"], axis=1, inplace=True)
+    
+    # Replace missing values
+    epic_med.replace(rep, np.nan, inplace=True)
+    # Replace 0/1 values with yes/no
+    for col in epic_med.columns[1:]:
+        epic_med[col] = epic_med[col].astype(object).replace(
+            {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med["procedure"] = "epic_medications"
+    epic_med["visit"] = "baseline"   
+    
+    # --------------------------------------------------------------------------
+    # Physical exam
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                == "physical_exam", "field_name"]]
+    phys = pd.DataFrame(proj.export_records(fields=var))
+    phys = phys.loc[phys["redcap_event_name"].str.startswith('screen', na=False)]
+    phys.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    phys.replace(rep, np.nan, inplace=True)
+    phys["procedure"] = "physical_exam"
+    phys.drop(["male_activity_factor", "fem_activity_factor", "schofield_male",
+               "schofield_female", "phys_norm", "screen_bmi_percentile", "phys_age", "insulin_inj"], axis=1, inplace=True)
+    phys.columns = phys.columns.str.replace(r"phys_|screen_", "", regex=True)
+    phys.rename({"sysbp": "sbp", "diasbp": "dbp",
+                "waist_circumference": "waistcm", 
+                "hip_circumference": "hipcm"}, inplace=True, axis=1)
+    phys["visit"] = "baseline"
+    med["date"] = phys["date"]
+
+    # --------------------------------------------------------------------------
+    # Annual Labs
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                == "annual_labs", "field_name"]]
+    annual_labs = pd.DataFrame(proj.export_records(fields=var))
+    annual_labs = annual_labs.loc[annual_labs["redcap_event_name"].str.startswith('annual', na=False)]
+    annual_labs.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    annual_labs.replace(rep, np.nan, inplace=True)
+    # Format
+    annual_labs["procedure"] = "labs"
+    annual_labs["visit"] = "baseline"
+    annual_labs.drop(["annual_labs", "redcap_repeat_instance", "redcap_repeat_instrument", "study_visit_annual"], axis=1, inplace=True)
+    annual_labs.columns = annual_labs.columns.str.replace(
+        r"an_|annual_lab_", "", regex=True)
+    annual_labs.rename({"uacr": "acr_u"},
+                 inplace=True, axis=1)
+
+    # --------------------------------------------------------------------------
+    # Renal Clearance Testing
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + ["group_rh2"] + ["phys_map"] + [v for v in meta.loc[meta["form_name"] == 
+    "study_visit_renal_clearance_testing", "field_name"]] +[v for v in meta.loc[meta["form_name"] == 
+    "renal_clearance_baseline_labs", "field_name"]]
+    rct = pd.DataFrame(proj.export_records(fields=var))
+    # Collapse the multiple renal-clearance events per record into one row by
+    # taking the max of each numeric column (non-numeric/date cols excluded)
+    numeric_cols = [col for col in rct.columns if col not in ['record_id', 'redcap_event_name'] 
+                    and not col.startswith('tm_') and not col.endswith(('_date', '_com', '_start'))]
+    rct[numeric_cols] = rct[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    rct = rct.groupby('record_id', as_index=False).max()
+    rct.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    rct.replace(rep, np.nan, inplace=True)
+    rename = {"gfr_raw": "gfr_raw_plasma_urine", "gfr_bsa": "gfr_bsa_plasma_urine",
+              "erpf_raw": "erpf_raw_plasma_urine", "erpf": "erpf_bsa_plasma_urine",
+              "gfr_15mgmin": "gfr_raw_plasma", "gfrbsa": "gfr_bsa_plasma",
+              "erpf_pah_85": "erpf_raw_plasma", "erpfbsa": "erpf_bsa_plasma",
+              "phys_map": "map", "pah_bsa": "pah_bsa_plasma_urine", "pahbsa": "pah_clear_bsa",
+              "pahcl_12_8mgmin": "pah_clear_abs", 
+              "rc_lab_date": "date"}
+    rct.rename(rename, axis=1, inplace=True)
+    rct.columns = rct.columns.str.replace(
+        r"bl_", "", regex=True)
+    # Calculate variables
+    rct_vars = ["gfr_raw_plasma", "erpf_raw_plasma", "tot_protein", "map", "hct"]
+    rct[rct_vars] = rct[rct_vars].apply(pd.to_numeric, errors='coerce')
+    rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"]/60
+    rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"]/60
+    # Filtration Fraction
+    rct["ff"] = rct["gfr_raw_plasma"]/rct["erpf_raw_plasma"] 
+    # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
+    rct["kfg"] = np.select([rct["group_rh2"].eq(1), rct["group_rh2"].eq(2), rct["group_rh2"].eq(3)], [0.1012, 0.1733, 0.1733]) 
+    # Filtration pressure across glomerular capillaries
+    rct["deltapf"] = (rct["gfr_raw_plasma"]/60)/rct["kfg"] 
+    # Plasma protein mean concentration
+    rct["cm"] = (rct["tot_protein"]/rct["ff"])*np.log(1/(1-rct["ff"])) 
+    # Pi G (Oncotic pressure)
+    rct["pg"] = 5*(rct["cm"]-2)
+    # Glomerular Pressure
+    rct["glomerular_pressure"] = rct["pg"] + rct["deltapf"] + 10
+    # Renal Blood Flow
+    rct["rbf"] = (rct["erpf_raw_plasma"]) / (1 - rct["hct"]/100)
+    rct["rbf_seconds"] = (rct["erpf_raw_plasma_seconds"]) / (1 - rct["hct"]/100)
+    # Renal Vascular Resistance (mmHg*l^-1*min^-1)
+    rct["rvr"] = rct["map"] / rct["rbf"]
+    # Efferent Arteriolar Resistance 
+    rct["re"] = (rct["gfr_raw_plasma_seconds"]) / (rct["kfg"] * (rct["rbf_seconds"] - (rct["gfr_raw_plasma_seconds"]))) * 1328
+    # Afferent Arteriolar Resistance
+    rct["ra"] = ((rct["map"] - rct["glomerular_pressure"]) / rct["rbf_seconds"]) * 1328  
+    rct.loc[~(rct['ra'] > 0), 'ra']=np.nan    
+    # Reduce rct dataset
+    rct.drop(["rbf_seconds", "erpf_raw_plasma_seconds", "redcap_repeat_instrument", "map", "group_rh2"], axis=1, inplace=True)
+    rct["procedure"] = "renal_clearance_testing"
+    rct["visit"] = "baseline"
+    rct = rct[rct['date'].notna()]
+    
+    # --------------------------------------------------------------------------
+    # Dextran
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                == "dextran_data", "field_name"]]
+    dextran = pd.DataFrame(proj.export_records(fields=var))
+    dextran = dextran.loc[dextran["redcap_event_name"].str.startswith('renal', na=False)]
+    dextran.drop(["redcap_event_name"], inplace=True, axis=1)
+    # Replace missing values
+    dextran.replace(rep, np.nan, inplace=True)
+
+    # --------------------------------------------------------------------------
+    # BOLD MRI
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                == "study_visit_boldasl_mri", "field_name"]]
+    bold_mri = pd.DataFrame(proj.export_records(fields=var))
+    bold_mri = bold_mri.loc[bold_mri["redcap_event_name"].str.startswith("kidney_and", na=False)].copy()
+    bold_mri.drop(["redcap_event_name", "adc_outcomes"], axis=1, inplace=True)
+    # Replace missing values
+    bold_mri.replace(rep, np.nan, inplace=True)
+    rename = {"volume_left": "left_kidney_volume_ml",
+              "volume_right": "right_kidney_volume_ml",
+              "mri_lab_date": "date", "t1_r_cortex": "bold_r_t1_cortex", "t1_r_kidney":"bold_r_t1_kidney" , "t1_l_cortex":"bold_l_t1_cortex", "t1_l_kidney": "bold_l_t1_kidney"}
+    bold_mri.rename(rename, axis=1, inplace=True)
+    bold_mri["procedure"] = "bold_mri"
+    bold_mri["visit"] = "baseline"
+  
+    # --------------------------------------------------------------------------
+    # PET scan
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "pet_scan", "field_name"]]
+    pet = pd.DataFrame(proj.export_records(fields=var))
+    pet = pet.loc[pet["redcap_event_name"].str.startswith('pet', na=False)]
+    pet.drop(["redcap_event_name"], axis=1, inplace=True)
+    # Replace missing values
+    pet.replace(rep, np.nan, inplace=True)
+    pet.drop(["petcom_yn"], axis=1, inplace=True)
+    pet.columns = pet.columns.str.replace(r"pet_", "", regex=True)
+    pet["procedure"] = "pet_scan"
+    pet["visit"] = "baseline"
+    
+    # --------------------------------------------------------------------------
+    # Liver PET scan
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "liver_pet_scan", "field_name"]]
+    liver_pet = pd.DataFrame(proj.export_records(fields=var))
+    liver_pet = liver_pet.loc[liver_pet["redcap_event_name"].str.startswith('pet_scan', na=False)]
+    liver_pet.drop(["redcap_event_name"], axis=1, inplace=True)
+    # Replace missing values
+    liver_pet.replace(rep, np.nan, inplace=True)
+    liver_pet["procedure"] = "liver_pet_scan"
+    liver_pet["visit"] = "baseline"
+    
+    # --------------------------------------------------------------------------
+    # Kidney Biopsy
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "kidney_biopsy", "field_name"]]
+    biopsy = pd.DataFrame(proj.export_records(fields=var))
+    biopsy = biopsy.loc[biopsy["redcap_event_name"].str.startswith("kidney_bio", na=False)]
+    # Replace missing values
+    biopsy.replace(rep, np.nan, inplace=True)
+    biopsy.drop([col for col in biopsy.columns if '_yn' in col] +
+                [col for col in biopsy.columns if 'procedure_' in col] +
+                ["core_diagnostic", "core_hypo_cryo", "core_oct", "core_rna"],
+                axis=1, inplace=True)
+    biopsy.columns = biopsy.columns.str.replace(r"bx_", "", regex=True)
+    biopsy.columns = biopsy.columns.str.replace(r"labs_", "", regex=True)
+    biopsy.columns = biopsy.columns.str.replace(r"vitals_", "", regex=True)
+    biopsy.rename({"hg": "hemoglobin"}, axis=1, inplace=True)
+    biopsy["procedure"] = "kidney_biopsy"
+    biopsy["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # Pathology Report
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "biopsy_results_michigan", "field_name"]]
+    pathology = pd.DataFrame(proj.export_records(fields=var))
+    pathology = pathology.loc[pathology["redcap_event_name"].str.startswith("kidney_bio", na=False)]
+    pathology.replace(rep, np.nan, inplace=True)
+    pathology.rename({"date_collected": "path_date_collected", "date_received": "path_date_rcvd", "date_completed": "path_date_completed", "study_id": "path_report_id"}, axis=1, inplace=True)
+    pathology["procedure"] = "kidney_biopsy"
+    pathology["date"] = biopsy["date"]
+    
+    # --------------------------------------------------------------------------
+    # J-Wire
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "j_wire", "field_name"]]
+    j_wire = pd.DataFrame(proj.export_records(fields=var))
+    j_wire.drop(["redcap_event_name"], axis=1, inplace=True)
+    # Replace missing values
+    j_wire.replace(rep, np.nan, inplace=True)
+    j_wire["procedure"] = "j_wire"
+    j_wire["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # Sphygmocor
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "pwv", "field_name"]]
+    sphygmocor = pd.DataFrame(proj.export_records(fields=var))
+    sphygmocor.drop(["redcap_event_name", "redcap_repeat_instrument", "redcap_repeat_instance"], axis=1, inplace=True)
+    # Replace missing values
+    sphygmocor.replace(rep, np.nan, inplace=True)
+    sphygmocor.rename({"sphyg_date": "date", "sphyg_ht": "height"}, axis=1, inplace=True)
+    sphygmocor["procedure"] = "sphygmocor"
+    sphygmocor["visit"] = "baseline"
+    # --------------------------------------------------------------------------
+    # Voxelwise
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "voxelwise", "field_name"]]
+    voxelwise = pd.DataFrame(proj.export_records(fields=var))
+    voxelwise.drop(["redcap_event_name", "redcap_repeat_instrument", "redcap_repeat_instance"], axis=1, inplace=True)
+    # Replace missing values
+    voxelwise.replace(rep, np.nan, inplace=True)
+    voxelwise["procedure"] = "pet_scan"
+    voxelwise["visit"] = "baseline"
+    
+    # --------------------------------------------------------------------------
+    # Neurocognitive Tracking
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "neurocognitive_tracking", "field_name"]]
+    neuro = pd.DataFrame(proj.export_records(fields=var))
+    neuro = neuro.loc[neuro["redcap_event_name"].str.startswith('renal', na=False)]
+    neuro.drop(["redcap_event_name"], axis=1, inplace=True)
+    # Replace missing values
+    neuro.replace(rep, np.nan, inplace=True)
+    neuro["procedure"] = "neurocognitive_tracking"
+    neuro["visit"] = "baseline"
+    neuro = neuro.loc[neuro.filter(regex='^procedr_').sum(axis=1) != 0]
+    
+    # --------------------------------------------------------------------------
+    # Astrazeneca urine metabolomics
+    # --------------------------------------------------------------------------
+    
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "astrazeneca_urine_metabolomics", "field_name"]]
+    az_u_metab = pd.DataFrame(proj.export_records(fields=var))
+    az_u_metab.drop(["redcap_event_name"], axis=1, inplace=True)
+    az_u_metab.drop(["redcap_repeat_instance"], axis=1, inplace=True)
+    az_u_metab.drop(["redcap_repeat_instrument"], axis=1, inplace=True)
+    # Replace missing values
+    az_u_metab.replace(rep, np.nan, inplace=True)
+    az_u_metab["procedure"] = "az_u_metab"
+    az_u_metab["visit"] = "baseline"
+    az_u_metab["date"] = annual_labs["date"]
+
+    # --------------------------------------------------------------------------
+    # Plasma metabolomics
+    # --------------------------------------------------------------------------
+    
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "metabolomics_blood_raw", "field_name"]]
+    plasma_metab = pd.DataFrame(proj.export_records(fields=var))
+    plasma_metab.drop(["redcap_event_name"], axis=1, inplace=True)
+    plasma_metab.drop(["redcap_repeat_instance"], axis=1, inplace=True)
+    plasma_metab.drop(["redcap_repeat_instrument"], axis=1, inplace=True)
+
+    # Replace missing values
+    plasma_metab.replace(rep, np.nan, inplace=True)
+    plasma_metab["procedure"] = "plasma_metab"
+    plasma_metab["date"] = annual_labs["date"]
+    plasma_metab["visit"] = "baseline"
+    
+    # --------------------------------------------------------------------------
+    # Brain biomarkers
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "biomarkers", "field_name"]]
+    brain = pd.DataFrame(proj.export_records(fields=var))
+    # Replace missing values
+    brain.replace(rep, np.nan, inplace=True)
+    brain["procedure"] = "brain_biomarkers"
+    brain["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # Lipidomics
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "lipidomics", "field_name"]]
+    lip = pd.DataFrame(proj.export_records(fields=var))
+    # Replace missing values
+    lip.replace(rep, np.nan, inplace=True)
+    lip["procedure"] = "lipidomics"
+    lip["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(lip.columns), 'form_name'] = 'lipidomics'
+
+    
+    # --------------------------------------------------------------------------
+    # Missingness
+    # --------------------------------------------------------------------------
+
+    med.dropna(thresh=4, axis=0, inplace=True)
+    epic_med.dropna(thresh=5, axis=0, inplace=True)
+    phys.dropna(thresh=4, axis=0, inplace=True)
+    annual_labs.dropna(thresh=4, axis=0, inplace=True)
+    rct.dropna(thresh=4, axis=0, inplace=True)
+    dextran.dropna(thresh=4, axis=0, inplace=True)
+    bold_mri.dropna(thresh=4, axis=0, inplace=True)
+    pet.dropna(thresh=6, axis=0, inplace=True)
+    liver_pet.dropna(thresh=5, axis=0, inplace=True)
+    brain.dropna(thresh=2, axis=0, inplace=True)
+    biopsy.dropna(thresh=7, axis=0, inplace=True)
+    pathology.dropna(thresh=18, axis=0, inplace=True)
+    j_wire.dropna(thresh=4, axis=0, inplace=True)
+    neuro.dropna(thresh=4, axis=0, inplace=True)
+    voxelwise.dropna(thresh=4, axis=0, inplace=True)
+    az_u_metab.dropna(thresh=5, axis=0, inplace=True)
+    plasma_metab.dropna(thresh=10, axis=0, inplace=True)
+    lip.dropna(thresh=10, axis=0, inplace=True)
+    sphygmocor.dropna(thresh=4, axis=0, inplace=True)
+
+
+    # --------------------------------------------------------------------------
+    # Merge
+    # --------------------------------------------------------------------------
+
+    # Stack all per-procedure tables into one long DataFrame, then attach demographics
+    df = pd.concat([phys, annual_labs], join='outer', ignore_index=True)
+    df = pd.concat([df, med], join='outer', ignore_index=True)
+    df = pd.concat([df, epic_med], join='outer', ignore_index=True)
+    df = pd.concat([df, rct], join='outer', ignore_index=True)
+    df = pd.concat([df, dextran], join='outer', ignore_index=True)
+    df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
+    pet = pd.merge(pet, voxelwise, how = 'outer')
+    df = pd.concat([df, pet], join='outer', ignore_index=True)
+    df = pd.concat([df, liver_pet], join='outer', ignore_index=True)
+    df = pd.concat([df, brain], join='outer', ignore_index=True)
+    df = pd.concat([df, neuro], join='outer', ignore_index=True)
+    
+    bx = pd.merge(biopsy, pathology, how = 'outer')
+    df = pd.concat([df, bx], join='outer', ignore_index=True)
+    
+    df = pd.concat([df, j_wire], join='outer', ignore_index=True)
+    df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
+    df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
+    df = pd.concat([df, lip], join='outer', ignore_index=True)
+    df = pd.concat([df, sphygmocor], join='outer', ignore_index=True)
+
+    df = pd.merge(df, demo, on='record_id', how="outer")
+    df = df.loc[:, ~df.columns.str.startswith('redcap_')]
+    df = df.copy()
+
+    # --------------------------------------------------------------------------
+    # Reorganize
+    # --------------------------------------------------------------------------
+
+    # Put identifier/demographic columns first, then everything else
+    df["study"] = "RENAL-HEIRitage"
+    id_cols = ["record_id", "study"] + \
+        dem_cols[2:] + ["visit", "procedure", "date"]
+    other_cols = df.columns.difference(id_cols, sort=False).tolist()
+    df = df[id_cols + other_cols]
+    # Sort
+    df.sort_values(["record_id", "procedure"], inplace=True)
+    # Rename subject identifier
+    df.rename({"record_id": "record_id"}, axis=1, inplace=True)
+    # Drop empty columns
+    df.dropna(how='all', axis=1, inplace=True)
+    # Return final data
+    return df
