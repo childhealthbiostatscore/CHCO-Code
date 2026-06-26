@@ -31,7 +31,8 @@ library(FDRestimation)
 ```{r data import}
 #| include: false
 # source("~/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and DKD/create_today_dkd_analysis_dataset.R")
-load("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Proteomics and DKD/Data_Cleaned/analysis_dataset.RData")
+#load("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Proteomics and DKD/Data_Cleaned/analysis_dataset.RData")
+load("/Users/kristenmiller/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Proteomics and DKD/Data_Cleaned/analysis_dataset.RData")
 
 ```
 
@@ -299,7 +300,45 @@ ggsave("/Users/pylell/Dropbox/TODAY HTN and DKD output/Figure_2_new_covariates_1
 # GLYC
 
 ```{r message=FALSE,warning=FALSE,dpi=1200}
-v_glyc <- volcano(top_glyc_df)
+volcano_jcem <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value",
+                    top = 11,
+                    xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
+                    xlabel = "HR", pCutoff = 0.05, overlaps = 50,
+                    log_t = F) {
+  data <- as.data.frame(data)
+  t <- data[data[, "adj.p.value"] <= pCutoff, ]
+  if (log_t) {
+    t <- t[order(abs(log(t[, ycol])), decreasing = F), ]
+  } else {
+    t <- t[order(abs(t[, ycol]), decreasing = F), ]
+  }
+  data$top <- data[, "AptName"] %in% t[1:top, "AptName"]
+  #data$top <- data[, "AptName"] %in% t[t$Target %in% top, "AptName"]
+  data$logp <- -log10(data[, ycol])
+  data$fc <- data[, xcol]
+  data$sig <- data[, ycol] <= pCutoff
+  p <- ggplot(data = data, aes(x = fc, y = logp, color = sig)) +
+    geom_hline(yintercept = -log10(pCutoff), linetype = "dashed") +
+    geom_point(size = 2.5) +
+    geom_label_repel(
+        data = data[data$top, ], aes(label = Target), color = "black",
+  max.overlaps = overlaps,
+  box.padding = 0.5,       # space between label box and other labels
+  point.padding = 0.3,     # space between label and its point
+  force = 2,               # how hard labels push away from each other
+  force_pull = 0.5,        # how hard labels are pulled toward their point
+  min.segment.length = 0,  # always draw the connecting line segment
+  seed = 42                # makes layout reproducible
+    ) +
+    scale_color_manual(values = c("grey", "#3e6dbf")) +
+    xlab(xlabel) + scale_x_continuous(labels = scaleFUN) +
+    ylab(bquote(~ -Log[10] ~ italic(P))) +
+    theme_bw() +
+    theme(legend.position = "none")
+  return(p)
+}
+
+v_glyc <- volcano_jcem(top_glyc_df)
 v_glyc <- v_glyc +
   ggtitle("Loss of glycemic control") +
   theme(plot.title = element_text(hjust = 0.5))
@@ -308,4 +347,9 @@ ggsave(
   filename = "/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/glyc_volcano.jpeg", plot = v_glyc,
   width = 1600, height = 900, units = "px", scale = 2
 )
+#save figure for JCEM: 
+tiff("/Users/kristenmiller/Library/CloudStorage/OneDrive-SharedLibraries-UW/bjornstad_pyle_tommerdahl_lab - Documents/Dissemination/Manuscripts/P028_TODAY_glycemia_km/02_Submitted/01_JCEM_r2/fig1_volcano.tif",
+     res=300,units="in",width=8,height=6)
+print(v_glyc)
+dev.off()
 ```
